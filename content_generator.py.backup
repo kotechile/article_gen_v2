@@ -1,0 +1,965 @@
+"""
+Content Generator for Content Generator V2.
+
+This module generates detailed content for each article section based on
+the structure, claims, and evidence.
+"""
+
+import logging
+from typing import Dict, Any, List, Optional
+from dataclasses import dataclass
+from enum import Enum
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+class ContentType(Enum):
+    """Types of content that can be generated."""
+    PARAGRAPH = "paragraph"
+    LIST = "list"
+    STEP_BY_STEP = "step_by_step"
+    COMPARISON = "comparison"
+    CASE_STUDY = "case_study"
+    QUOTE = "quote"
+    STATISTIC = "statistic"
+    TABLE = "table"
+
+@dataclass
+class ContentBlock:
+    """A single content block within a section."""
+    content: str
+    content_type: str
+    word_count: int
+    citations: List[Dict[str, Any]] = None
+    metadata: Dict[str, Any] = None
+
+@dataclass
+class SectionContent:
+    """Complete content for a single section."""
+    title: str
+    subtitle: Optional[str]
+    content_blocks: List[ContentBlock]
+    total_word_count: int
+    key_points_covered: List[str]
+    citations: List[Dict[str, Any]]
+    section_order: int
+
+class ContentGenerator:
+    """
+    Generates detailed content for article sections.
+    """
+    
+    def __init__(self, llm_client):
+        """
+        Initialize the content generator.
+        
+        Args:
+            llm_client: Configured LLM client
+        """
+        self.llm_client = llm_client
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+    
+    def generate_section_content(self, section_outline: Dict[str, Any], 
+                               research_data: Dict[str, Any], 
+                               claims: List[Dict], 
+                               evidence: List[Dict],
+                               previous_sections: List[SectionContent] = None) -> SectionContent:
+        """
+        Generate detailed content for a single section.
+        
+        Args:
+            section_outline: Section outline from structure generator
+            research_data: Research parameters and brief
+            claims: Extracted claims from research
+            evidence: Collected evidence
+            previous_sections: Previously generated sections for context
+            
+        Returns:
+            Complete SectionContent object
+        """
+        try:
+            section_title = section_outline.get('title', 'Untitled Section')
+            section_subtitle = section_outline.get('subtitle')
+            key_points = section_outline.get('key_points', [])
+            word_count_target = section_outline.get('word_count_target', 300)
+            content_type = section_outline.get('content_type', 'paragraph')
+            section_order = section_outline.get('order', 1)
+            
+            # Generate content blocks for this section
+            content_blocks = self._generate_content_blocks(
+                section_title, section_subtitle, key_points, word_count_target,
+                content_type, research_data, claims, evidence, previous_sections
+            )
+            
+            # Extract all citations from content blocks
+            all_citations = []
+            for block in content_blocks:
+                if block.citations:
+                    all_citations.extend(block.citations)
+            
+            # Calculate total word count
+            total_word_count = sum(block.word_count for block in content_blocks)
+            
+            # Determine which key points were covered
+            covered_points = self._extract_covered_points(content_blocks, key_points)
+            
+            section_content = SectionContent(
+                title=section_title,
+                subtitle=section_subtitle,
+                content_blocks=content_blocks,
+                total_word_count=total_word_count,
+                key_points_covered=covered_points,
+                citations=all_citations,
+                section_order=section_order
+            )
+            
+            self.logger.info(f"Generated content for section '{section_title}' with {total_word_count} words")
+            return section_content
+            
+        except Exception as e:
+            self.logger.error(f"Error generating section content: {str(e)}")
+            return self._create_fallback_section_content(section_outline)
+    
+    def _generate_content_blocks(self, title: str, subtitle: Optional[str], 
+                               key_points: List[str], word_count_target: int,
+                               content_type: str, research_data: Dict[str, Any],
+                               claims: List[Dict], evidence: List[Dict],
+                               previous_sections: List[SectionContent] = None) -> List[ContentBlock]:
+        """Generate content blocks for a section."""
+        content_blocks = []
+        
+        try:
+            # Prepare context for content generation
+            context = self._prepare_content_context(
+                title, subtitle, key_points, research_data, claims, evidence, previous_sections
+            )
+            
+            # Generate main content based on content type
+            if content_type == "list":
+                content_blocks.extend(self._generate_list_content(context, word_count_target))
+            elif content_type == "step_by_step":
+                content_blocks.extend(self._generate_step_by_step_content(context, word_count_target))
+            elif content_type == "comparison":
+                content_blocks.extend(self._generate_comparison_content(context, word_count_target))
+            elif content_type == "table":
+                content_blocks.extend(self._generate_table_content(context, word_count_target))
+            else:  # Default to paragraph
+                content_blocks.extend(self._generate_paragraph_content(context, word_count_target))
+            
+            # Add supporting content if needed
+            if sum(block.word_count for block in content_blocks) < word_count_target * 0.8:
+                additional_blocks = self._generate_supporting_content(context, word_count_target)
+                content_blocks.extend(additional_blocks)
+            
+            return content_blocks
+            
+        except Exception as e:
+            self.logger.error(f"Error generating content blocks: {str(e)}")
+            return [self._create_fallback_content_block(title, word_count_target)]
+    
+    def _prepare_content_context(self, title: str, subtitle: Optional[str],
+                               key_points: List[str], research_data: Dict[str, Any],
+                               claims: List[Dict], evidence: List[Dict],
+                               previous_sections: List[SectionContent] = None) -> Dict[str, Any]:
+        """Prepare context for content generation."""
+        # Extract relevant claims for this section
+        relevant_claims = self._filter_relevant_claims(claims, title, key_points)
+        
+        # Extract relevant evidence for this section
+        relevant_evidence = self._filter_relevant_evidence(evidence, title, key_points)
+        
+        # Prepare previous sections context
+        previous_context = ""
+        if previous_sections:
+            previous_context = "\n".join([
+                f"Section {s.section_order}: {s.title} - {s.total_word_count} words"
+                for s in previous_sections[-2:]  # Last 2 sections for context
+            ])
+        
+        return {
+            "title": title,
+            "subtitle": subtitle,
+            "key_points": key_points,
+            "research_brief": research_data.get('brief', ''),
+            "tone": research_data.get('tone', 'journalistic'),
+            "target_audience": research_data.get('target_audience', 'general'),
+            "relevant_claims": relevant_claims,
+            "relevant_evidence": relevant_evidence,
+            "previous_sections": previous_context,
+            "keywords": research_data.get('keywords', '')
+        }
+    
+    def _generate_paragraph_content(self, context: Dict[str, Any], word_count_target: int) -> List[ContentBlock]:
+        """Generate paragraph-based content."""
+        try:
+            messages = [
+                {
+                    "role": "system",
+                    "content": f"""You are an expert content writer. Write engaging, informative content for a {context['tone']} article.
+                    
+                    Requirements:
+                    - Write in {context['tone']} tone
+                    - Target approximately {word_count_target} words
+                    - Cover the key points: {', '.join(context['key_points'])}
+                    - Use evidence and claims to support arguments
+                    - Write for {context['target_audience']} audience
+                    - Include specific examples and details
+                    - Make it engaging and actionable
+                    
+                    CONTENT STRUCTURE REQUIREMENTS:
+                    - Use descriptive subheadings (H3) that flow naturally
+                    - Create smooth transitions between paragraphs
+                    - Include bullet points or numbered lists where appropriate
+                    - Use TABLES when presenting data, statistics, comparisons, or structured information
+                    - Include specific examples, data, and actionable insights
+                    - Write in a natural, flowing style that reads like professional content
+                    
+                    TABLE USAGE GUIDELINES:
+                    - Use tables for: market data, price comparisons, regional statistics, trend analysis
+                    - Use tables for: pros/cons lists, feature comparisons, timeline data
+                    - Use tables for: numerical data, percentages, rankings, survey results
+                    - Always include table headers and proper HTML table structure
+                    - Keep tables concise and relevant to the content
+                    
+                    TABLE FORMAT:
+                    <table style="border-collapse: collapse; width: 100%; margin: 1em 0;">
+                    <thead>
+                    <tr>
+                    <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2;">Header 1</th>
+                    <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2;">Header 2</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                    <td style="border: 1px solid #ddd; padding: 8px;">Data 1</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">Data 2</td>
+                    </tr>
+                    </tbody>
+                    </table>
+                    
+                    OUTPUT FORMAT:
+                    - Return ONLY clean HTML content without any wrapper tags
+                    - Use proper HTML structure: <p> for paragraphs, <h3> for subheadings, <ul>/<ol> for lists
+                    - Use proper HTML tables: <table>, <thead>, <tbody>, <tr>, <th>, <td> with appropriate styling
+                    - Do NOT include <section>, <article>, or other wrapper tags
+                    - Do NOT include markdown code blocks or ```html
+                    - Do NOT include H2 headings (only H3 subheadings)
+                    - Include tables with proper headers and data organization when presenting structured information
+                    - Write in a natural, engaging style that flows smoothly from paragraph to paragraph
+                    - Include inline citations as [^1], [^2], etc. when referencing evidence or claims
+                    - Make it engaging and informative with factual accuracy"""
+                },
+                {
+                    "role": "user",
+                    "content": f"""Section: {context['title']}
+                    {f"Subtitle: {context['subtitle']}" if context['subtitle'] else ""}
+                    
+                    Key Points to Cover:
+                    {chr(10).join(f"- {point}" for point in context['key_points'])}
+                    
+                    Research Brief: {context['research_brief']}
+                    
+                    Relevant Claims:
+                    {chr(10).join(f"- {claim.get('claim', '')}" for claim in context['relevant_claims'][:3])}
+                    
+                    Supporting Evidence (use these for citations):
+                    {chr(10).join(f"- [^{i+1}] {ev.get('title', ev.get('source_title', 'Unknown Source'))} - {ev.get('content', '')[:100]}... (Source: {ev.get('source', ev.get('url', 'Unknown URL'))})" for i, ev in enumerate(context['relevant_evidence'][:5])}
+                    
+                    CITATION INSTRUCTIONS:
+                    - Use the evidence above to create citations
+                    - Reference evidence by number: [^1], [^2], [^3], etc.
+                    - Each citation should correspond to the evidence sources provided above
+                    - Do NOT create fictional or generic citations
+                    - Only cite sources that are actually provided in the evidence list
+                    
+                    Previous Context:
+                    {context['previous_sections'] if context['previous_sections'] else 'This is the first section.'}"""
+                }
+            ]
+            
+            response = self.llm_client.generate(messages)
+            content = response.content.strip()
+            
+            # Clean HTML content
+            cleaned_content = self._clean_html_content(content)
+            
+            # Create content block
+            content_block = ContentBlock(
+                content=cleaned_content,
+                content_type="paragraph",
+                word_count=len(cleaned_content.split()),
+                citations=self._extract_citations_from_content(cleaned_content, context['relevant_evidence']),
+                metadata={
+                    "llm_model": response.model,
+                    "generation_time": response.response_time,
+                    "cost": response.cost
+                }
+            )
+            
+            return [content_block]
+            
+        except Exception as e:
+            self.logger.error(f"Error generating paragraph content: {str(e)}")
+            return [self._create_fallback_content_block(context['title'], word_count_target)]
+    
+    def _generate_list_content(self, context: Dict[str, Any], word_count_target: int) -> List[ContentBlock]:
+        """Generate list-based content."""
+        try:
+            messages = [
+                {
+                    "role": "system",
+                    "content": f"""You are an expert content writer. Create a comprehensive list for a {context['tone']} article.
+                    
+                    Requirements:
+                    - Create a well-structured list
+                    - Target approximately {word_count_target} words
+                    - Cover the key points: {', '.join(context['key_points'])}
+                    - Use evidence and claims to support each list item
+                    - Write for {context['target_audience']} audience
+                    - Include specific examples and actionable advice
+                    - Use clear, engaging language
+                    
+                    CONTENT STRUCTURE REQUIREMENTS:
+                    - Use descriptive subheadings (H3) that flow naturally
+                    - Create smooth transitions between paragraphs
+                    - Include bullet points or numbered lists where appropriate
+                    - Use TABLES when presenting data, statistics, comparisons, or structured information
+                    - Include specific examples, data, and actionable insights
+                    - Write in a natural, flowing style that reads like professional content
+                    
+                    TABLE USAGE GUIDELINES:
+                    - Use tables for: feature lists, pros/cons comparisons, step-by-step processes
+                    - Use tables for: rankings, checklists, decision matrices, comparison charts
+                    - Use tables for: numerical data, percentages, timelines, survey results
+                    - Always include table headers and proper HTML table structure
+                    - Keep tables concise and relevant to the content
+                    
+                    TABLE FORMAT:
+                    <table style="border-collapse: collapse; width: 100%; margin: 1em 0;">
+                    <thead>
+                    <tr>
+                    <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2;">Header 1</th>
+                    <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2;">Header 2</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                    <td style="border: 1px solid #ddd; padding: 8px;">Data 1</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">Data 2</td>
+                    </tr>
+                    </tbody>
+                    </table>
+                    
+                    OUTPUT FORMAT:
+                    - Return ONLY clean HTML content without any wrapper tags
+                    - Use proper HTML structure: <p> for paragraphs, <h3> for subheadings, <ul>/<ol> for lists
+                    - Use proper HTML tables: <table>, <thead>, <tbody>, <tr>, <th>, <td> with appropriate styling
+                    - Do NOT include <section>, <article>, or other wrapper tags
+                    - Do NOT include markdown code blocks or ```html
+                    - Do NOT include H2 headings (only H3 subheadings)
+                    - Include tables with proper headers and data organization when presenting structured information
+                    - Write in a natural, engaging style that flows smoothly from paragraph to paragraph
+                    - Include inline citations as [^1], [^2], etc. when referencing evidence or claims
+                    - Make it engaging and informative with factual accuracy
+                    
+                    Format as a numbered or bulleted list with explanations for each item."""
+                },
+                {
+                    "role": "user",
+                    "content": f"""Section: {context['title']}
+                    {f"Subtitle: {context['subtitle']}" if context['subtitle'] else ""}
+                    
+                    Key Points to Cover:
+                    {chr(10).join(f"- {point}" for point in context['key_points'])}
+                    
+                    Research Brief: {context['research_brief']}
+                    
+                    Relevant Claims:
+                    {chr(10).join(f"- {claim.get('claim', '')}" for claim in context['relevant_claims'][:3])}
+                    
+                    Supporting Evidence (use these for citations):
+                    {chr(10).join(f"- [^{i+1}] {ev.get('title', ev.get('source_title', 'Unknown Source'))} - {ev.get('content', '')[:100]}... (Source: {ev.get('source', ev.get('url', 'Unknown URL'))})" for i, ev in enumerate(context['relevant_evidence'][:5])}
+                    
+                    CITATION INSTRUCTIONS:
+                    - Use the evidence above to create citations
+                    - Reference evidence by number: [^1], [^2], [^3], etc.
+                    - Each citation should correspond to the evidence sources provided above
+                    - Do NOT create fictional or generic citations
+                    - Only cite sources that are actually provided in the evidence list"""
+                }
+            ]
+            
+            response = self.llm_client.generate(messages)
+            content = response.content.strip()
+            
+            # Clean HTML content
+            cleaned_content = self._clean_html_content(content)
+            
+            # Create content block
+            content_block = ContentBlock(
+                content=cleaned_content,
+                content_type="list",
+                word_count=len(cleaned_content.split()),
+                citations=self._extract_citations_from_content(cleaned_content, context['relevant_evidence']),
+                metadata={
+                    "llm_model": response.model,
+                    "generation_time": response.response_time,
+                    "cost": response.cost
+                }
+            )
+            
+            return [content_block]
+            
+        except Exception as e:
+            self.logger.error(f"Error generating list content: {str(e)}")
+            return [self._create_fallback_content_block(context['title'], word_count_target)]
+    
+    def _generate_step_by_step_content(self, context: Dict[str, Any], word_count_target: int) -> List[ContentBlock]:
+        """Generate step-by-step content."""
+        try:
+            messages = [
+                {
+                    "role": "system",
+                    "content": f"""You are an expert instructional writer. Create a detailed step-by-step guide for a {context['tone']} article.
+                    
+                    Requirements:
+                    - Create clear, actionable steps
+                    - Target approximately {word_count_target} words
+                    - Cover the key points: {', '.join(context['key_points'])}
+                    - Use evidence and claims to support each step
+                    - Write for {context['target_audience']} audience
+                    - Include specific instructions and examples
+                    - Make it easy to follow and implement
+                    
+                    Format as numbered steps with detailed explanations."""
+                },
+                {
+                    "role": "user",
+                    "content": f"""Section: {context['title']}
+                    {f"Subtitle: {context['subtitle']}" if context['subtitle'] else ""}
+                    
+                    Key Points to Cover:
+                    {chr(10).join(f"- {point}" for point in context['key_points'])}
+                    
+                    Research Brief: {context['research_brief']}
+                    
+                    Relevant Claims:
+                    {chr(10).join(f"- {claim.get('claim', '')}" for claim in context['relevant_claims'][:3])}
+                    
+                    Supporting Evidence (use these for citations):
+                    {chr(10).join(f"- [^{i+1}] {ev.get('title', ev.get('source_title', 'Unknown Source'))} - {ev.get('content', '')[:100]}... (Source: {ev.get('source', ev.get('url', 'Unknown URL'))})" for i, ev in enumerate(context['relevant_evidence'][:5])}
+                    
+                    CITATION INSTRUCTIONS:
+                    - Use the evidence above to create citations
+                    - Reference evidence by number: [^1], [^2], [^3], etc.
+                    - Each citation should correspond to the evidence sources provided above
+                    - Do NOT create fictional or generic citations
+                    - Only cite sources that are actually provided in the evidence list"""
+                }
+            ]
+            
+            response = self.llm_client.generate(messages)
+            content = response.content.strip()
+            
+            # Clean HTML content
+            cleaned_content = self._clean_html_content(content)
+            
+            # Create content block
+            content_block = ContentBlock(
+                content=cleaned_content,
+                content_type="step_by_step",
+                word_count=len(cleaned_content.split()),
+                citations=self._extract_citations_from_content(cleaned_content, context['relevant_evidence']),
+                metadata={
+                    "llm_model": response.model,
+                    "generation_time": response.response_time,
+                    "cost": response.cost
+                }
+            )
+            
+            return [content_block]
+            
+        except Exception as e:
+            self.logger.error(f"Error generating step-by-step content: {str(e)}")
+            return [self._create_fallback_content_block(context['title'], word_count_target)]
+    
+    def _generate_comparison_content(self, context: Dict[str, Any], word_count_target: int) -> List[ContentBlock]:
+        """Generate comparison-based content."""
+        try:
+            messages = [
+                {
+                    "role": "system",
+                    "content": f"""You are an expert analytical writer. Create a detailed comparison for a {context['tone']} article.
+                    
+                    Requirements:
+                    - Create a comprehensive comparison
+                    - Target approximately {word_count_target} words
+                    - Cover the key points: {', '.join(context['key_points'])}
+                    - Use evidence and claims to support comparisons
+                    - Write for {context['target_audience']} audience
+                    - Include specific examples and data
+                    - Make clear recommendations
+                    
+                    CONTENT STRUCTURE REQUIREMENTS:
+                    - Use descriptive subheadings (H3) that flow naturally
+                    - Create smooth transitions between paragraphs
+                    - Include bullet points or numbered lists where appropriate
+                    - Use TABLES when presenting data, statistics, comparisons, or structured information
+                    - Include specific examples, data, and actionable insights
+                    - Write in a natural, flowing style that reads like professional content
+                    
+                    TABLE USAGE GUIDELINES:
+                    - Use tables for: feature comparisons, pros/cons lists, price comparisons, performance metrics
+                    - Use tables for: side-by-side analysis, decision matrices, timeline comparisons
+                    - Use tables for: numerical data, percentages, rankings, survey results
+                    - Always include table headers and proper HTML table structure
+                    - Keep tables concise and relevant to the content
+                    
+                    TABLE FORMAT:
+                    <table style="border-collapse: collapse; width: 100%; margin: 1em 0;">
+                    <thead>
+                    <tr>
+                    <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2;">Header 1</th>
+                    <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2;">Header 2</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                    <td style="border: 1px solid #ddd; padding: 8px;">Data 1</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">Data 2</td>
+                    </tr>
+                    </tbody>
+                    </table>
+                    
+                    OUTPUT FORMAT:
+                    - Return ONLY clean HTML content without any wrapper tags
+                    - Use proper HTML structure: <p> for paragraphs, <h3> for subheadings, <ul>/<ol> for lists
+                    - Use proper HTML tables: <table>, <thead>, <tbody>, <tr>, <th>, <td> with appropriate styling
+                    - Do NOT include <section>, <article>, or other wrapper tags
+                    - Do NOT include markdown code blocks or ```html
+                    - Do NOT include H2 headings (only H3 subheadings)
+                    - Include tables with proper headers and data organization when presenting structured information
+                    - Write in a natural, engaging style that flows smoothly from paragraph to paragraph
+                    - Include inline citations as [^1], [^2], etc. when referencing evidence or claims
+                    - Make it engaging and informative with factual accuracy
+                    
+                    Format as a structured comparison with clear sections."""
+                },
+                {
+                    "role": "user",
+                    "content": f"""Section: {context['title']}
+                    {f"Subtitle: {context['subtitle']}" if context['subtitle'] else ""}
+                    
+                    Key Points to Cover:
+                    {chr(10).join(f"- {point}" for point in context['key_points'])}
+                    
+                    Research Brief: {context['research_brief']}
+                    
+                    Relevant Claims:
+                    {chr(10).join(f"- {claim.get('claim', '')}" for claim in context['relevant_claims'][:3])}
+                    
+                    Supporting Evidence (use these for citations):
+                    {chr(10).join(f"- [^{i+1}] {ev.get('title', ev.get('source_title', 'Unknown Source'))} - {ev.get('content', '')[:100]}... (Source: {ev.get('source', ev.get('url', 'Unknown URL'))})" for i, ev in enumerate(context['relevant_evidence'][:5])}
+                    
+                    CITATION INSTRUCTIONS:
+                    - Use the evidence above to create citations
+                    - Reference evidence by number: [^1], [^2], [^3], etc.
+                    - Each citation should correspond to the evidence sources provided above
+                    - Do NOT create fictional or generic citations
+                    - Only cite sources that are actually provided in the evidence list"""
+                }
+            ]
+            
+            response = self.llm_client.generate(messages)
+            content = response.content.strip()
+            
+            # Clean HTML content
+            cleaned_content = self._clean_html_content(content)
+            
+            # Create content block
+            content_block = ContentBlock(
+                content=cleaned_content,
+                content_type="comparison",
+                word_count=len(cleaned_content.split()),
+                citations=self._extract_citations_from_content(cleaned_content, context['relevant_evidence']),
+                metadata={
+                    "llm_model": response.model,
+                    "generation_time": response.response_time,
+                    "cost": response.cost
+                }
+            )
+            
+            return [content_block]
+            
+        except Exception as e:
+            self.logger.error(f"Error generating comparison content: {str(e)}")
+            return [self._create_fallback_content_block(context['title'], word_count_target)]
+    
+    def _generate_table_content(self, context: Dict[str, Any], word_count_target: int) -> List[ContentBlock]:
+        """Generate table-based content."""
+        try:
+            messages = [
+                {
+                    "role": "system",
+                    "content": f"""You are an expert data analyst and content writer. Create comprehensive table-based content for a {context['tone']} article.
+                    
+                    Requirements:
+                    - Create detailed, data-rich content with multiple tables
+                    - Target approximately {word_count_target} words
+                    - Cover the key points: {', '.join(context['key_points'])}
+                    - Use evidence and claims to support data presentation
+                    - Write for {context['target_audience']} audience
+                    - Include specific data, statistics, and comparisons
+                    - Make data actionable and insightful
+                    
+                    CONTENT STRUCTURE REQUIREMENTS:
+                    - Use descriptive subheadings (H3) that flow naturally
+                    - Create smooth transitions between paragraphs and tables
+                    - Include explanatory text before and after each table
+                    - Use TABLES as the primary method for presenting structured information
+                    - Include specific examples, data, and actionable insights
+                    - Write in a natural, engaging style that reads like professional content
+                    
+                    TABLE USAGE GUIDELINES:
+                    - Use tables for: market data, price comparisons, regional statistics, trend analysis
+                    - Use tables for: pros/cons lists, feature comparisons, timeline data
+                    - Use tables for: numerical data, percentages, rankings, survey results
+                    - Use tables for: performance metrics, cost analysis, decision matrices
+                    - Always include table headers and proper HTML table structure
+                    - Keep tables concise and relevant to the content
+                    - Include 2-4 tables per section when appropriate
+                    
+                    TABLE FORMAT:
+                    <table style="border-collapse: collapse; width: 100%; margin: 1em 0;">
+                    <thead>
+                    <tr>
+                    <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2;">Header 1</th>
+                    <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2;">Header 2</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                    <td style="border: 1px solid #ddd; padding: 8px;">Data 1</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">Data 2</td>
+                    </tr>
+                    </tbody>
+                    </table>
+                    
+                    OUTPUT FORMAT:
+                    - Return ONLY clean HTML content without any wrapper tags
+                    - Use proper HTML structure: <p> for paragraphs, <h3> for subheadings, <ul>/<ol> for lists
+                    - Use proper HTML tables: <table>, <thead>, <tbody>, <tr>, <th>, <td> with appropriate styling
+                    - Do NOT include <section>, <article>, or other wrapper tags
+                    - Do NOT include markdown code blocks or ```html
+                    - Do NOT include H2 headings (only H3 subheadings)
+                    - Include tables with proper headers and data organization when presenting structured information
+                    - Write in a natural, engaging style that flows smoothly from paragraph to paragraph
+                    - Include inline citations as [^1], [^2], etc. when referencing evidence or claims
+                    - Make it engaging and informative with factual accuracy
+                    
+                    Format as data-rich content with multiple well-structured tables."""
+                },
+                {
+                    "role": "user",
+                    "content": f"""Section: {context['title']}
+                    {f"Subtitle: {context['subtitle']}" if context['subtitle'] else ""}
+                    
+                    Key Points to Cover:
+                    {chr(10).join(f"- {point}" for point in context['key_points'])}
+                    
+                    Research Brief: {context['research_brief']}
+                    
+                    Relevant Claims:
+                    {chr(10).join(f"- {claim.get('claim', '')}" for claim in context['relevant_claims'][:3])}
+                    
+                    Supporting Evidence (use these for citations):
+                    {chr(10).join(f"- [^{i+1}] {ev.get('title', ev.get('source_title', 'Unknown Source'))} - {ev.get('content', '')[:100]}... (Source: {ev.get('source', ev.get('url', 'Unknown URL'))})" for i, ev in enumerate(context['relevant_evidence'][:5])}
+                    
+                    CITATION INSTRUCTIONS:
+                    - Use the evidence above to create citations
+                    - Reference evidence by number: [^1], [^2], [^3], etc.
+                    - Each citation should correspond to the evidence sources provided above
+                    - Do NOT create fictional or generic citations
+                    - Only cite sources that are actually provided in the evidence list"""
+                }
+            ]
+            
+            response = self.llm_client.generate(messages)
+            content = response.content.strip()
+            
+            # Clean HTML content
+            cleaned_content = self._clean_html_content(content)
+            
+            # Create content block
+            content_block = ContentBlock(
+                content=cleaned_content,
+                content_type="table",
+                word_count=len(cleaned_content.split()),
+                citations=self._extract_citations_from_content(cleaned_content, context['relevant_evidence']),
+                metadata={
+                    "llm_model": response.model,
+                    "generation_time": response.response_time,
+                    "cost": response.cost
+                }
+            )
+            
+            return [content_block]
+            
+        except Exception as e:
+            self.logger.error(f"Error generating table content: {str(e)}")
+            return [self._create_fallback_content_block(context['title'], word_count_target)]
+    
+    def _generate_supporting_content(self, context: Dict[str, Any], word_count_target: int) -> List[ContentBlock]:
+        """Generate additional supporting content if needed."""
+        try:
+            remaining_words = word_count_target - sum(
+                block.word_count for block in context.get('existing_blocks', [])
+            )
+            
+            if remaining_words < 50:
+                return []
+            
+            messages = [
+                {
+                    "role": "system",
+                    "content": f"""You are an expert content writer. Add supporting content to enhance the section.
+                    
+                    Requirements:
+                    - Add approximately {remaining_words} words
+                    - Provide additional context or examples
+                    - Use evidence to support points
+                    - Write in {context['tone']} tone
+                    - Make it engaging and informative
+                    
+                    Return only the additional content."""
+                },
+                {
+                    "role": "user",
+                    "content": f"""Section: {context['title']}
+                    Research Brief: {context['research_brief']}
+                    
+                    Add supporting content that enhances the main content and provides additional value to readers."""
+                }
+            ]
+            
+            response = self.llm_client.generate(messages)
+            content = response.content.strip()
+            
+            # Create content block
+            content_block = ContentBlock(
+                content=content,
+                content_type="paragraph",
+                word_count=len(content.split()),
+                citations=self._extract_citations_from_content(content, context['relevant_evidence']),
+                metadata={
+                    "llm_model": response.model,
+                    "generation_time": response.response_time,
+                    "cost": response.cost,
+                    "is_supporting": True
+                }
+            )
+            
+            return [content_block]
+            
+        except Exception as e:
+            self.logger.error(f"Error generating supporting content: {str(e)}")
+            return []
+    
+    def _filter_relevant_claims(self, claims: List[Dict], title: str, key_points: List[str]) -> List[Dict]:
+        """Filter claims relevant to this section."""
+        # Simple keyword-based filtering
+        title_keywords = set(title.lower().split())
+        key_point_keywords = set()
+        for point in key_points:
+            key_point_keywords.update(point.lower().split())
+        
+        relevant_claims = []
+        for claim in claims:
+            claim_text = claim.get('claim', '').lower()
+            claim_keywords = set(claim_text.split())
+            
+            # Check for keyword overlap
+            if title_keywords.intersection(claim_keywords) or key_point_keywords.intersection(claim_keywords):
+                relevant_claims.append(claim)
+        
+        return relevant_claims[:5]  # Limit to top 5 relevant claims
+    
+    def _filter_relevant_evidence(self, evidence: List[Dict], title: str, key_points: List[str]) -> List[Dict]:
+        """Filter evidence relevant to this section."""
+        # Simple keyword-based filtering
+        title_keywords = set(title.lower().split())
+        key_point_keywords = set()
+        for point in key_points:
+            key_point_keywords.update(point.lower().split())
+        
+        relevant_evidence = []
+        for ev in evidence:
+            content = ev.get('content', '').lower()
+            content_keywords = set(content.split())
+            
+            # Check for keyword overlap
+            if title_keywords.intersection(content_keywords) or key_point_keywords.intersection(content_keywords):
+                relevant_evidence.append(ev)
+        
+        return relevant_evidence[:5]  # Limit to top 5 relevant evidence
+    
+    def _extract_citations_from_content(self, content: str, evidence: List[Dict]) -> List[Dict[str, Any]]:
+        """Extract citations from generated content."""
+        citations = []
+        
+        # Simple citation extraction based on evidence sources
+        for ev in evidence:
+            if ev.get('source') and ev.get('source') in content:
+                citation = {
+                    "source": ev.get('source'),
+                    "title": ev.get('title', ''),
+                    "content": ev.get('content', '')[:200] + "...",
+                    "relevance_score": ev.get('relevance_score', 0.0),
+                    "credibility_score": ev.get('credibility_score', 0.0)
+                }
+                citations.append(citation)
+        
+        return citations
+    
+    def _extract_covered_points(self, content_blocks: List[ContentBlock], key_points: List[str]) -> List[str]:
+        """Extract which key points were covered in the content."""
+        covered_points = []
+        all_content = " ".join([block.content for block in content_blocks]).lower()
+        
+        for point in key_points:
+            point_keywords = set(point.lower().split())
+            content_keywords = set(all_content.split())
+            
+            # Check if key point keywords appear in content
+            if point_keywords.intersection(content_keywords):
+                covered_points.append(point)
+        
+        return covered_points
+    
+    def _create_fallback_content_block(self, title: str, word_count_target: int) -> ContentBlock:
+        """Create fallback content block when generation fails."""
+        content = f"This section covers {title}. The content provides detailed information and insights on this topic, offering practical guidance and actionable advice for readers."
+        
+        return ContentBlock(
+            content=content,
+            content_type="paragraph",
+            word_count=len(content.split()),
+            citations=[],
+            metadata={"is_fallback": True}
+        )
+    
+    def _create_fallback_section_content(self, section_outline: Dict[str, Any]) -> SectionContent:
+        """Create fallback section content when generation fails."""
+        title = section_outline.get('title', 'Untitled Section')
+        word_count_target = section_outline.get('word_count_target', 300)
+        
+        content_block = self._create_fallback_content_block(title, word_count_target)
+        
+        return SectionContent(
+            title=title,
+            subtitle=section_outline.get('subtitle'),
+            content_blocks=[content_block],
+            total_word_count=content_block.word_count,
+            key_points_covered=section_outline.get('key_points', [])[:2],
+            citations=[],
+            section_order=section_outline.get('order', 1)
+        )
+    
+    def _clean_html_content(self, content: str) -> str:
+        """Clean and properly format HTML content."""
+        if not content:
+            return ""
+        
+        import re
+        
+        # Remove any existing HTML wrapper tags that might be in the content
+        content = content.strip()
+        
+        # Remove markdown code blocks and HTML artifacts
+        content = re.sub(r'```html\s*', '', content)
+        content = re.sub(r'```\s*$', '', content)
+        content = re.sub(r'<br>\s*', '\n', content)
+        
+        # Split into paragraphs and clean each one
+        paragraphs = content.split('\n\n')
+        cleaned_paragraphs = []
+        
+        for paragraph in paragraphs:
+            paragraph = paragraph.strip()
+            if not paragraph:
+                continue
+                
+            # Clean up nested paragraph tags
+            paragraph = re.sub(r'<p>\s*<p>', '<p>', paragraph)
+            paragraph = re.sub(r'</p>\s*</p>', '</p>', paragraph)
+            
+            # Handle headings properly - ensure proper hierarchy
+            if paragraph.startswith('<h3>'):
+                cleaned_paragraphs.append(paragraph)
+            elif paragraph.startswith('<ul>') or paragraph.startswith('<ol>'):
+                cleaned_paragraphs.append(paragraph)
+            elif paragraph.startswith('<table>') or '<table>' in paragraph:
+                # Clean and validate table structure
+                cleaned_table = self._clean_table_content(paragraph)
+                if cleaned_table:
+                    cleaned_paragraphs.append(cleaned_table)
+            else:
+                # Wrap in paragraph tags if not already wrapped
+                if not paragraph.startswith('<p>'):
+                    paragraph = f"<p>{paragraph}</p>"
+                cleaned_paragraphs.append(paragraph)
+        
+        return '\n\n'.join(cleaned_paragraphs)
+    
+    def _clean_table_content(self, table_content: str) -> str:
+        """Clean and validate HTML table content."""
+        if not table_content or not table_content.strip():
+            return ""
+        
+        import re
+        
+        # Basic table structure validation
+        if '<table>' not in table_content or '</table>' not in table_content:
+            return ""
+        
+        # Ensure proper table structure
+        table_content = table_content.strip()
+        
+        # Add basic table styling if not present
+        if 'style=' not in table_content:
+            table_content = table_content.replace('<table>', '<table style="border-collapse: collapse; width: 100%; margin: 1em 0;">')
+        
+        # Ensure proper table headers
+        if '<th>' not in table_content and '<thead>' not in table_content:
+            # Try to convert first row to header if no headers exist
+            table_content = re.sub(
+                r'<tr>(.*?)</tr>',
+                r'<thead><tr>\1</tr></thead><tbody>',
+                table_content,
+                count=1
+            )
+            table_content = table_content.replace('</table>', '</tbody></table>')
+        
+        # Add basic cell styling
+        table_content = table_content.replace('<th>', '<th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2; text-align: left;">')
+        table_content = table_content.replace('<td>', '<td style="border: 1px solid #ddd; padding: 8px;">')
+        
+        return table_content
+
+# Factory function
+def create_content_generator(llm_client) -> ContentGenerator:
+    """
+    Create a content generator.
+    
+    Args:
+        llm_client: Configured LLM client
+        
+    Returns:
+        ContentGenerator instance
+    """
+    return ContentGenerator(llm_client)
+
+# Example usage
+if __name__ == "__main__":
+    # This would be used with a real LLM client
+    print("Content Generator - Ready for integration")

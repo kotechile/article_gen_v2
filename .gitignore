@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+venv1/
+*.egg-info/
+dist/
+build/
+
+# Environment variables
+.env
+docker.env
+
+# Logs
+*.log
+logs/
+
+# Process IDs
+pids/
+
+# Node / front-end
+node_modules/
+.cache/
+dist/
+build/
+
+# macOS
+.DS_Store

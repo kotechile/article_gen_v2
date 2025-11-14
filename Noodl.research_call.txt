@@ -1,0 +1,293 @@
+// Store the task ID for status checking
+let researchTaskId = null;
+let pollCount = 0;
+const maxPolls = 300; // 15 minutes maximum
+const keywords = Inputs.keywords || "" // comma separated keywords
+Outputs.is_agentic_article = false
+
+// Function to create clickable citation links in HTML content
+function createCitationLinks(htmlContent, citations) {
+    if (!htmlContent || !citations || citations.length === 0) {
+        return htmlContent;
+    }
+    
+    // Create citation lookup map for quick access
+    const citationLookup = {};
+    citations.forEach(citation => {
+        const citationNumber = citation.id.replace('cite_', '');
+        citationLookup[citationNumber] = {
+            url: citation.url,
+            title: citation.source_title,
+            author: citation.author,
+            sourceType: citation.source_type,
+            domain: citation.domain
+        };
+    });
+    
+    // Regular expression to find citation references like [^1], [^2], etc.
+    const citationRegex = /\[\^(\d+)\]/g;
+    
+    // Replace citation references with clickable links
+    return htmlContent.replace(citationRegex, (match, citationNumber) => {
+        const citation = citationLookup[citationNumber];
+        
+        if (citation && citation.url && citation.url !== '#') {
+            // Create a descriptive title for the link
+            const sourceIndicator = citation.sourceType === 'rag' ? ' (RAG)' : 
+                                  citation.sourceType === 'linkup' ? ' (LinkUp)' : '';
+            const linkTitle = `${citation.title}${sourceIndicator}`;
+            
+            // Create clickable link with proper styling
+            return `<a href="${citation.url}" 
+                       target="_blank" 
+                       rel="noopener noreferrer" 
+                       title="${linkTitle}"
+                       class="citation-link"
+                       style="color: #0066cc; text-decoration: none; font-weight: 500; border-bottom: 1px dotted #0066cc;"
+                       onmouseover="this.style.textDecoration='underline'"
+                       onmouseout="this.style.textDecoration='none'">[^${citationNumber}]</a>`;
+        }
+        
+        // If no valid URL, return the original reference
+        return match;
+    });
+}
+
+
+
+// Function to start the research task
+async function startResearchTask() {
+    console.log('X-API-Key = ' , Inputs.article_research_key, ", llm_key: ",  Inputs.llm_key)
+    try {
+        // Validate required inputs
+        if (!Inputs.userOutline) {
+            throw new Error('User outline is required');
+        }
+        if (!Inputs.llm_model_agentic_researcher) {
+            throw new Error('LLM model is required');
+        }
+        if (!Inputs.llm_key) {
+            throw new Error('LLM key is required');
+        }
+
+        // Prepare the request payload
+        const payload = {
+            brief: Inputs.userOutline,
+            claims_research_enabled: Inputs.claims_research_enabled,
+            keywords: keywords,
+            llm_model: Inputs.llm_model_agentic_researcher,
+ //           llm_model: 'gemini/gemini-1.5-pro',
+            llm_key: Inputs.llm_key,
+            depth: Inputs.depth || "comprehensive",
+            rag_endpoint: Inputs.rag_endpoint + '/query_hybrid_enhanced',
+            tone: Inputs.tone || 'journalistic',
+            target_word_count: parseInt(Inputs.target_word_count || 2000, 10)
+
+        };
+
+        // Add optional parameters if provided
+        if (Inputs.rag_collection_name) {
+            payload.rag_collection = Inputs.rag_collection_name;
+            payload.rag_enabled = true; 
+            } else {
+            payload.rag_enabled = false;   
+            payload.rag_collection = ''       
+            }
+
+
+        if (Inputs.rag_llm_provider) payload.rag_llm_provider = Inputs.rag_llm_provider;
+
+        console.log('Starting research with payload:', JSON.stringify(payload, null, 2));
+
+        // Make the API call to start research
+        const response = await fetch(Inputs.article_research_base_url + 'research', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': Inputs.article_research_key
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('API Error Response:', errorText);
+            throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+
+        const data = await response.json();
+        console.log('Research task created:', data);
+        researchTaskId = data.research_id || data.task_id;
+        
+        // Set outputs
+        Outputs.researchTaskId = researchTaskId;
+        Outputs.status = 'started';
+        Outputs.is_agentic_article = true
+        Outputs.error = null;
+        
+        // Start polling for status
+        checkResearchStatus();
+        
+    } catch (error) {
+        console.error('Error starting research task:', error);
+        Outputs.error = error.message;
+        Outputs.status = 'failed';
+        throw error;
+    }
+}
+
+// Function to check research status
+async function checkResearchStatus() {
+    if (!researchTaskId) return;
+    
+    try {
+        const response = await fetch(`${Inputs.article_research_base_url}research/${researchTaskId}`, {
+            method: 'GET',
+            headers: {
+                'X-API-Key': Inputs.article_research_key
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const statusData = await response.json();
+        console.log('Task status:', statusData);
+        
+        Outputs.status = statusData.status;
+        Outputs.statusData = statusData;
+
+        // Handle different status values - be more flexible
+        const status = statusData.status?.toLowerCase() || statusData.state?.toLowerCase();
+        
+        console.log('Parsed status:', status, 'Poll count:', pollCount);
+        
+        // Check for timeout
+        if (pollCount >= maxPolls) {
+            console.error('Research task polling timeout after', maxPolls, 'attempts');
+            Outputs.error = 'Research task timeout - task took too long to complete';
+            Outputs.status = 'timeout';
+            return;
+        }
+        
+        pollCount++;
+        
+        // If still processing, check again after delay
+        if (status === 'processing' || status === 'started' || status === 'progress' || status === 'pending') {
+            setTimeout(checkResearchStatus, 25000); // Check every 25 seconds to avoid rate limiting
+        } 
+        // If completed, get the result
+        else if (status === 'completed' || status === 'success' || status === 'ready') {
+            console.log('Research task completed, fetching result...');
+            getResearchResult();
+        }
+        // If failed, update outputs
+        else if (status === 'failed' || status === 'error' || status === 'failure') {
+            Outputs.error = statusData.error || statusData.result || 'Research task failed';
+            console.error('Research task failed:', statusData);
+        }
+        // Handle other statuses - try to get result if it looks ready
+        else if (statusData.ready || statusData.result) {
+            console.log('Task appears ready, attempting to fetch result...');
+            getResearchResult();
+        }
+        else {
+            console.log('Unknown task status:', status, statusData);
+            setTimeout(checkResearchStatus, 25000);
+        }
+
+    } catch (error) {
+        Outputs.error = error.message;
+        Outputs.status = 'error';
+        console.error('Error checking research status:', error);
+    }
+}
+
+// Function to get the final research result
+async function getResearchResult() {
+    try {
+        console.log('X-API-Key = ' , Inputs.article_research_key)
+        const response = await fetch(`${Inputs.article_research_base_url}research/${researchTaskId}/result`, {
+            method: 'GET',
+            headers: {
+                'X-API-Key': Inputs.article_research_key
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const resultData = await response.json();
+        
+        // Log the full result for debugging
+        console.log('Research result data:', JSON.stringify(resultData, null, 2));
+        
+        // Handle different response formats
+        let html_content = '';
+        let articleTitle = resultData.title || 'Untitled Article';
+        let citations = resultData.citations || resultData.references || [];
+        console.log('*****RESULTS*****: ', resultData )
+        // Enhanced content extraction - look in the correct location
+        if (resultData.result && resultData.result.final_article) {
+            const finalArticle = resultData.result.final_article;
+            html_content = finalArticle.content || '';
+            articleTitle = finalArticle.title || articleTitle;
+            citations = finalArticle.citations || citations;
+        } else if (resultData.content && resultData.content.trim()) {
+            html_content = resultData.html_content || resultData.content;
+        } else if (resultData.result && resultData.result.content) {
+            html_content = resultData.result.html_content || resultData.result.content;
+        }
+        
+        // Check if we have actual content
+        if (!html_content  ||  html_content.trim() === '') {
+            console.warn('No article content found!');
+            console.warn('Available fields:', Object.keys(resultData));
+             html_content  = 'Error: No content was generated by the research task. This may indicate an issue with the research process.';
+            Outputs.error = 'No content generated';
+        } else {
+            Outputs.error = null;
+        }
+        
+    if (resultData.seo_metadata?.comprehensive_seo_applied) {
+        Outputs.python_article_SEO_optimized = false
+        console.log("Comprehensive SEO already applied - skipping Noodl review");
+    } else {
+        Outputs.python_article_SEO_optimized = true
+    }
+
+        // Extract separate fields for Noodl integration
+        Outputs.hook = resultData.hook || "";
+        Outputs.excerpt = resultData.excerpt || "";
+        Outputs.meta_description = resultData.meta_description 
+        Outputs.thesis = resultData.thesis || "";
+        Outputs.title = resultData.title || articleTitle;
+        
+        // Create HTML content with clickable citation links
+        console.log('Creating citation links for', citations.length, 'citations');
+        const html_content_in_text_citations = createCitationLinks(html_content, citations);
+        console.log('Citation links created successfully');
+        
+        // Set final outputs
+        Outputs.researchResults = resultData;
+        Outputs.articleTitle = articleTitle;
+        Outputs.html_content  = html_content
+        Outputs.html_content_in_text_citations = html_content_in_text_citations;
+        Outputs.citations = citations;
+        Outputs.is_agentic_article = true
+        Outputs.status = 'completed';
+        console.log('Article title:', articleTitle);
+        Outputs.success();
+        
+    } catch (error) {
+        Outputs.error = error.message;
+        Outputs.status = 'error';
+        console.error('Error getting research result:', error);
+    }
+}
+
+// Main execution
+console.log("*************** Agentic Researcher ********")
+startResearchTask();

@@ -1,0 +1,67 @@
+# Content Generator V2 - Production Dependencies
+
+# Core Framework
+flask
+flask-cors
+flask-limiter
+pydantic
+python-dotenv
+
+# Async Processing
+celery
+redis
+kombu
+
+# LLM Integration
+litellm
+openai
+anthropic
+google-generativeai
+verbalized-sampling
+
+# HTTP and API
+requests
+httpx
+aiohttp
+
+# Data Processing
+numpy
+pandas
+scikit-learn
+
+# Text Processing
+nltk
+spacy
+beautifulsoup4
+
+# Database
+sqlalchemy
+alembic
+
+# Monitoring and Logging
+structlog
+prometheus-client
+
+# Security
+cryptography
+bcrypt
+
+# Performance
+uvloop
+orjson
+psutil
+
+# Development and Testing
+pytest
+pytest-asyncio
+pytest-cov
+pytest-mock
+black
+flake8
+mypy
+linkup-sdk
+
+# Optional: Advanced Features
+# elasticsearch>=8.8.0  # For search capabilities
+# faiss-cpu>=1.7.4      # For vector similarity search
+# transformers>=4.32.0   # For local model inference
