@@ -119,6 +119,10 @@ def create_research_task():
         else:
             provider, model = 'openai', llm_model
         
+        # Get tone from request - this is the source of truth
+        requested_tone = data.get('tone', 'journalistic')
+        logger.info(f"🎯 API Request - Tone requested by user: '{requested_tone}'")
+        
         # Prepare research data for Celery task
         research_data = {
             'brief': data['brief'],
@@ -129,7 +133,7 @@ def create_research_task():
             'model': model,
             'llm_key': data['llm_key'],
             'depth': data.get('depth', 'standard'),
-            'tone': data.get('tone', 'journalistic'),
+            'tone': requested_tone,  # Use the tone from the API request
             'target_word_count': data.get('target_word_count', 2000),
             'claims_research_enabled': data.get('claims_research_enabled', True),
             'rag_enabled': data.get('rag_enabled', False),
@@ -138,8 +142,11 @@ def create_research_task():
             'rag_collection': data.get('rag_collection') or data.get('rag_collection_name'),
             'rag_endpoint': data.get('rag_endpoint'),
             'rag_balance_emphasis': data.get('rag_balance_emphasis', 'auto'),
+            'include_in_text_citations': data.get('include_in_text_citations', True),  # Add this field
             'created_at': datetime.utcnow().isoformat()
         }
+        
+        logger.info(f"🎯 Research data prepared with tone: '{research_data['tone']}'")
         
         # Submit task to Celery
         task = process_research_task.delay(research_data)

@@ -41,7 +41,8 @@ class LLMConfig:
     api_key: str
     temperature: float = 0.7
     max_tokens: Optional[int] = None
-    timeout: int = 60
+    max_completion_tokens: Optional[int] = None  # For GPT-5 models
+    timeout: int = 120  # Increased default timeout to 2 minutes
     max_retries: int = 3
     retry_delay: float = 1.0
 
@@ -225,9 +226,23 @@ class LLMClient:
         if not is_gpt5_or_higher:
             request_params["temperature"] = self.config.temperature
         
-        # Add max_tokens if specified
-        if self.config.max_tokens:
-            request_params["max_tokens"] = self.config.max_tokens
+        # For GPT-5 models, use max_completion_tokens instead of max_tokens
+        if is_gpt5_or_higher:
+            if self.config.max_completion_tokens:
+                request_params["max_completion_tokens"] = self.config.max_completion_tokens
+                self.logger.info(f"Using max_completion_tokens={self.config.max_completion_tokens} for GPT-5 model")
+            elif self.config.max_tokens:
+                # Fallback to max_tokens if max_completion_tokens not specified
+                request_params["max_completion_tokens"] = self.config.max_tokens
+                self.logger.info(f"Using max_completion_tokens={self.config.max_tokens} (from max_tokens) for GPT-5 model")
+        else:
+            # For non-GPT-5 models, use max_tokens
+            if self.config.max_tokens:
+                request_params["max_tokens"] = self.config.max_tokens
+        
+        # Log request parameters (excluding sensitive data)
+        safe_params = {k: v for k, v in request_params.items() if k != "messages"}
+        self.logger.debug(f"Request parameters: {safe_params}")
         
         response = self._client.chat.completions.create(**request_params)
         

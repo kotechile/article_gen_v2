@@ -37,6 +37,7 @@ beautifulsoup4
 # Database
 sqlalchemy
 alembic
+supabase
 
 # Monitoring and Logging
 structlog

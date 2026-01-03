@@ -14,3 +14,4 @@ echo ""
 echo "=== Active Processes ==="
 ps aux | grep -E "python.*app\.py|celery.*worker" | grep -v grep
 
+

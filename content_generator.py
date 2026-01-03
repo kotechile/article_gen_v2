@@ -218,8 +218,15 @@ class ContentGenerator:
         for i, ev in enumerate(valid_evidence, start=1):
             # Try multiple field names for title
             title = ev.get('title') or ev.get('source_title') or ev.get('source', 'Unknown Source')
-            # Get content snippet (longer for better context - 300 chars for better context)
-            content = ev.get('content', '')[:300] if ev.get('content') else ''
+            # Get full content for RAG sources (they contain valuable detailed information)
+            # For RAG sources, use full content; for web sources, use longer snippet (1000 chars)
+            source_type = ev.get('source_type', 'unknown')
+            if source_type == 'rag':
+                # Use full content for RAG - it contains structured, valuable information
+                content = ev.get('content', '').strip()
+            else:
+                # For web sources, use longer snippet (1000 chars instead of 300)
+                content = ev.get('content', '')[:1000] if ev.get('content') else ''
             # Get source URL
             source = ev.get('source') or ev.get('url', 'Unknown URL')
             
@@ -229,7 +236,11 @@ class ContentGenerator:
                 instruction_marker = f" [RESEARCHED EXAMPLE for: {ev.get('instruction_topic')}]"
             
             # Format with proper citation marker
-            formatted_evidence.append(f"[^{i}] {title}{': ' + content + '...' if content else ''} (Source: {source}){instruction_marker}")
+            # For RAG sources, include full content; for others, truncate if needed
+            if source_type == 'rag' and content:
+                formatted_evidence.append(f"[^{i}] {title}\n{content}\n(Source: {source}){instruction_marker}")
+            else:
+                formatted_evidence.append(f"[^{i}] {title}{': ' + content + '...' if content else ''} (Source: {source}){instruction_marker}")
         
         self.logger.info(f"Formatting {len(formatted_evidence)} evidence items for content generation")
         return "\n".join(formatted_evidence)
@@ -431,39 +442,8 @@ class ContentGenerator:
         Returns:
             String with tone-specific instructions
         """
-        if tone.lower() == 'friendly':
-            return """FRIENDLY TONE - STORYTELLING & PERSONAL APPROACH:
-                    - Write as if you're an expert friend sharing knowledge with friends over coffee
-                    - Tell a story - connect ideas through narrative, not just facts
-                    - Use personal anecdotes, relatable examples, and conversational flow
-                    - Address the reader directly with "you" and "your" - make it feel like a conversation
-                    - Share insights as if you've learned them through experience, not just research
-                    - Use casual transitions: "Here's the thing...", "You know what's interesting?", "Let me tell you about..."
-                    - Avoid academic or formal language - write like you're explaining to a friend who's curious
-                    - Include moments of reflection: "I've found that...", "What really matters is...", "Here's what I learned..."
-                    - Make connections between ideas feel natural, like you're walking them through your thinking
-                    - Use questions to engage: "Ever wondered why...?", "What if I told you...?"
-                    - Keep it warm and approachable - expertise without intimidation
-                    - Write in a way that feels like you're having a conversation, not delivering a lecture
-                    - Avoid essay-like structure - flow naturally from one idea to the next
-                    - Don't write like a scientific paper - no formal methodology or detached observations
-                    - Make it feel personal and authentic, like you genuinely care about helping them understand"""
-        elif tone.lower() == 'professional':
-            return """PROFESSIONAL TONE - CLEAR AND ACCESSIBLE:
-                    - Write clearly and directly - professional doesn't mean complex
-                    - Use simple, precise language that anyone can understand
-                    - Avoid overly complex vocabulary - choose the simplest word that conveys your meaning
-                    - Prefer "important" over "crucial", "help" over "facilitate", "use" over "utilize"
-                    - Write sentences that flow naturally from one idea to the next
-                    - Connect ideas logically - each sentence should build on the previous one
-                    - Use active voice when possible - "professionals use" not "it is used by professionals"
-                    - Keep sentences at a reasonable length (15-25 words) - break up long sentences
-                    - Make sure each paragraph has a clear point and flows to the next
-                    - Write as if explaining to a smart colleague, not an academic audience
-                    - Be authoritative without being pretentious
-                    - Focus on clarity and usefulness over impressive vocabulary"""
-        else:
-            return f"""Write in {tone} tone - be clear, natural, and easy to follow"""
+        # Use the standalone function to avoid code duplication
+        return get_tone_specific_instructions(tone)
     
     def _get_citation_instructions(self, context: Dict[str, Any]) -> str:
         """
@@ -473,12 +453,18 @@ class ContentGenerator:
             context: Content generation context dictionary
             
         Returns:
-            String with citation instructions or empty string if disabled
+            String with citation instructions
         """
         include_citations = context.get('include_in_text_citations', True)
         
         if not include_citations:
-            return ""
+            return """
+                    CRITICAL - NO IN-TEXT CITATIONS:
+                    - Do NOT add any citation markers like [^1], [^2], [^3], etc. in your content
+                    - Do NOT include any citation references in the text
+                    - Write the content naturally without any citation markers
+                    - The references section will be added separately, so you don't need to cite sources in the text
+                    - Use the evidence and information provided, but do not add citation markers"""
         
         return """
                     CITATION INSTRUCTIONS (CRITICAL):
@@ -542,13 +528,17 @@ class ContentGenerator:
                 for s in previous_sections[-2:]  # Last 2 sections for context
             ])
         
+        tone = research_data.get('tone', 'journalistic')
+        # Log tone for debugging
+        self.logger.info(f"Preparing content context for section '{title}' with tone: {tone}")
+        
         return {
             "title": title,
             "subtitle": subtitle,
             "key_points": key_points,
             "research_brief": research_data.get('brief', ''),
             "draft_title": research_data.get('draft_title', ''),
-            "tone": research_data.get('tone', 'journalistic'),
+            "tone": tone,
             "target_audience": research_data.get('target_audience', 'general'),
             "relevant_claims": relevant_claims,
             "relevant_evidence": relevant_evidence,
@@ -556,6 +546,50 @@ class ContentGenerator:
             "include_in_text_citations": research_data.get('include_in_text_citations', True),
             "keywords": research_data.get('keywords', '')
         }
+    
+    def _build_user_message(self, context: Dict[str, Any]) -> str:
+        """Build user message for content generation with proper tone handling."""
+        tone = context.get('tone', 'journalistic')
+        
+        # Build tone reminder
+        tone_reminder = f"This article MUST be written in {tone} tone."
+        if tone.lower() == 'friendly':
+            tone_reminder += "\n\nFOR FRIENDLY TONE: Write like you're sharing a personal story with a friend. Use first-person (\"I've found\", \"Last month I\"), specific examples with details, casual language, and make it warm and engaging. Avoid formal words like \"crucial\", \"paramount\", \"necessitates\", \"individuals\". Make it interesting, not boring or professional."
+            tone_reminder += "\n\nIMPORTANT: Do NOT start with greetings like \"Hi friends\", \"Hey there\", or \"Hello everyone\". Start directly with engaging content - friendly means warm and personal, not chatty greetings."
+            tone_reminder += "\n\nREMEMBER: Write with personality, use first-person storytelling, include specific relatable examples, and make it warm and engaging - like the example: \"Generative AI has quietly become my favorite coworker. It proofreads my emails while I'm still sipping coffee...\" (notice it starts directly, no greeting)"
+        
+        # Build subtitle line
+        subtitle_line = f"Subtitle: {context['subtitle']}\n\n" if context.get('subtitle') else ""
+        
+        # Build draft title line
+        draft_title_line = f"Draft Title: {context['draft_title']}\n" if context.get('draft_title') else ""
+        
+        return f"""Section: {context['title']}
+{subtitle_line}========================================
+TONE REMINDER - CRITICAL
+========================================
+{tone_reminder}
+
+========================================
+CONTENT REQUIREMENTS
+========================================
+Key Points to Cover:
+{chr(10).join(f"- {point}" for point in context['key_points'])}
+
+Research Brief: {context['research_brief']}
+{draft_title_line}Keywords to integrate naturally: {context.get('keywords', '')}
+
+Relevant Claims:
+{chr(10).join(f"- {claim.get('claim', '')}" for claim in context['relevant_claims'][:3])}
+
+Supporting Evidence:
+{self._format_evidence_for_citations(context['relevant_evidence'][:10])}
+
+CRITICAL: If the evidence above contains specific examples (especially those marked with instruction_topic), you MUST include those exact examples in your content. Do not create generic examples - use the researched examples provided in the evidence.
+{self._get_citation_instructions(context)}
+
+Previous Context:
+{context['previous_sections'] if context['previous_sections'] else 'This is the first section.'}"""
     
     def _generate_paragraph_content(self, context: Dict[str, Any], word_count_target: int) -> List[ContentBlock]:
         """Generate paragraph-based content using verbalized sampling for improved quality."""
@@ -565,8 +599,21 @@ class ContentGenerator:
                     "role": "system",
                     "content": f"""You are an expert content writer. Write clear, useful content for a {context['tone']} article.
                     
-                    Requirements:
+                    ========================================
+                    ⚠️ CRITICAL: THE TONE FOR THIS ARTICLE IS {context['tone'].upper()} ⚠️
+                    ========================================
+                    YOU MUST USE ONLY THE {context['tone'].upper()} TONE AS SPECIFIED BELOW
+                    
                     {self._get_tone_specific_instructions(context['tone'])}
+                    
+                    The tone instructions above are MANDATORY and take precedence over all other instructions below.
+                    If there's any conflict between tone requirements and other instructions, follow the tone requirements.
+                    
+                    REMEMBER: The tone is {context['tone']} - use ONLY this tone consistently throughout.
+                    
+                    ========================================
+                    CONTENT REQUIREMENTS
+                    ========================================
                     - Target EXACTLY {word_count_target} words (be complete and detailed)
                     - Cover ALL the key points: {', '.join(context['key_points'])}
                     - Use evidence and claims to support arguments - cite sources when using them
@@ -576,7 +623,10 @@ class ContentGenerator:
                     - Create well-structured sections with clear organization
                     - Write complete content - this is professional content, not a summary
                     
-                    WRITING STYLE REQUIREMENTS - CRITICAL FOR CLARITY AND FLOW:
+                    ========================================
+                    WRITING STYLE REQUIREMENTS
+                    ========================================
+                    NOTE: These must align with the tone requirements above. For friendly tone, prioritize conversational "you" language.
                     - Write in a natural, conversational style - avoid formal or formulaic language
                     - Use simple, clear sentences that flow smoothly from one to the next
                     - Each sentence should connect logically to the previous one - avoid abrupt jumps
@@ -593,7 +643,9 @@ class ContentGenerator:
                     - Read your sentences aloud mentally - if they sound awkward, simplify them
                     - Make sure each paragraph has one clear main idea that flows to the next paragraph
                     
-                    AVOID AI-GENERATED LANGUAGE AND COMPLEX VOCABULARY:
+                    ========================================
+                    AVOID AI-GENERATED LANGUAGE AND COMPLEX VOCABULARY
+                    ========================================
                     - Do NOT use overly complex words: crucial, embark, paramount, meticulous, navigating, complexities, realm, dive, shall, tailored, towards, underpins, everchanging, ever-evolving, robust, elevate, unleash, cutting-edge, rapidly expanding, mastering, excels, harness, imagine, delve, tapestry, bustling, vibrant, metropolis, labyrinth, gossamer, enigma, whispering, indelible, potent, signifying, positioning, cultivating, commanding, proactive, strategic, adept, interconnected, specialized, blend, niche, trajectory, implementing, ensuring, sought after
                     - PREFER SIMPLER ALTERNATIVES: "important" not "crucial", "start" not "embark", "key" not "paramount", "careful" not "meticulous", "strong" not "potent", "shows" not "signifies", "place" not "position", "develop" not "cultivate", "earn" not "command", "active" not "proactive", "plan" not "strategic", "skilled" not "adept", "connected" not "interconnected", "special" not "specialized", "mix" not "blend", "small area" not "niche", "path" not "trajectory", "use" not "implement", "make sure" not "ensure", "wanted" not "sought after"
                     - Do NOT use phrases like: "the world of", "not only", "in today's digital age", "game changer", "designed to enhance", "it is advisable", "when it comes to", "in the realm of", "unlock the secrets", "unveil the secrets", "take a dive into", "as a professional", "you may want to", "it's worth noting that", "to summarize", "ultimately", "to put it simply", "in conclusion", "in summary", "remember that"
@@ -646,6 +698,8 @@ class ContentGenerator:
                     
                     OUTPUT FORMAT:
                     - Return ONLY clean HTML content without any wrapper tags
+                    - Do NOT include any meta-commentary, explanations, or prefixes like "Here's the content", "optimized for X tone"
+                    - Start directly with the HTML content (e.g., <p> or <h3>)
                     - Use proper HTML structure: <p> for paragraphs, <h3> for subheadings, <ul>/<ol> for lists
                     - Use proper HTML tables: <table>, <thead>, <tbody>, <tr>, <th>, <td> with appropriate styling
                     - Do NOT include <section>, <article>, or other wrapper tags
@@ -658,31 +712,12 @@ class ContentGenerator:
                     - Write ENOUGH content to meet the {word_count_target} word target - be complete and detailed
                     - Avoid generic filler - every sentence should add value, insights, or information
                     - CRITICAL: Use proper punctuation - single commas, single periods, no repeated punctuation marks
-                    - CRITICAL: Ensure sentences flow naturally - read each sentence to make sure it connects smoothly to the next"""
+                    - CRITICAL: Ensure sentences flow naturally - read each sentence to make sure it connects smoothly to the next
+                    - CRITICAL: Write in {context['tone']} tone consistently throughout - use ONLY this tone"""
                 },
                 {
                     "role": "user",
-                    "content": f"""Section: {context['title']}
-                    {f"Subtitle: {context['subtitle']}" if context['subtitle'] else ""}
-                    
-                    Key Points to Cover:
-                    {chr(10).join(f"- {point}" for point in context['key_points'])}
-                    
-                    Research Brief: {context['research_brief']}
-                    {f"Draft Title: {context['draft_title']}" if context.get('draft_title') else ""}
-                    Keywords to integrate naturally: {context.get('keywords', '')}
-                    
-                    Relevant Claims:
-                    {chr(10).join(f"- {claim.get('claim', '')}" for claim in context['relevant_claims'][:3])}
-                    
-                    Supporting Evidence:
-                    {self._format_evidence_for_citations(context['relevant_evidence'][:5])}
-                    
-                    CRITICAL: If the evidence above contains specific examples (especially those marked with instruction_topic), you MUST include those exact examples in your content. Do not create generic examples - use the researched examples provided in the evidence.
-                    {self._get_citation_instructions(context)}
-                    
-                    Previous Context:
-                    {context['previous_sections'] if context['previous_sections'] else 'This is the first section.'}"""
+                    "content": self._build_user_message(context)
                 }
             ]
             
@@ -750,6 +785,28 @@ class ContentGenerator:
             # Clean HTML content - remove citations if flag is disabled
             remove_citations = not context.get('include_in_text_citations', True)
             cleaned_content = self._clean_html_content(content, remove_citations=remove_citations)
+            
+            # Remove any meta-commentary the LLM might have added
+            import re
+            # Remove common LLM prefixes like "Here's the content", "optimized for X tone", etc.
+            patterns_to_remove = [
+                r'^Here\'s the content[^\n]*\n*',
+                r'^Here is the content[^\n]*\n*',
+                r'^Content[^\n]*\n*',
+                r'optimized for [^\n]*tone[^\n]*\n*',
+                r'^[^\<]*?(?=<)',  # Remove any text before the first HTML tag
+            ]
+            
+            for pattern in patterns_to_remove:
+                cleaned_content = re.sub(pattern, '', cleaned_content, flags=re.IGNORECASE | re.MULTILINE)
+            
+            # If content doesn't start with HTML, try to find where HTML starts
+            if not cleaned_content.strip().startswith('<'):
+                html_match = re.search(r'<[^>]+>', cleaned_content)
+                if html_match:
+                    cleaned_content = cleaned_content[html_match.start():]
+            
+            cleaned_content = cleaned_content.strip()
             
             # Additional pass to fix any remaining punctuation issues in the final content
             cleaned_content = self._fix_punctuation_errors(cleaned_content)
@@ -846,7 +903,7 @@ class ContentGenerator:
                     {chr(10).join(f"- {claim.get('claim', '')}" for claim in context['relevant_claims'][:3])}
                     
                     Supporting Evidence:
-                    {self._format_evidence_for_citations(context['relevant_evidence'][:5])}
+                    {self._format_evidence_for_citations(context['relevant_evidence'][:10])}
                     {self._get_citation_instructions(context)}"""
                 }
             ]
@@ -912,7 +969,7 @@ class ContentGenerator:
                     - Use simple, direct language instead of complex phrases
                     
                     Supporting Evidence:
-                    {self._format_evidence_for_citations(context['relevant_evidence'][:5])}
+                    {self._format_evidence_for_citations(context['relevant_evidence'][:10])}
                     {self._get_citation_instructions(context)}"""
                 }
             ]
@@ -1042,7 +1099,7 @@ class ContentGenerator:
                     {chr(10).join(f"- {claim.get('claim', '')}" for claim in context['relevant_claims'][:3])}
                     
                     Supporting Evidence:
-                    {self._format_evidence_for_citations(context['relevant_evidence'][:5])}
+                    {self._format_evidence_for_citations(context['relevant_evidence'][:10])}
                     {self._get_citation_instructions(context)}"""
                 }
             ]
@@ -1169,7 +1226,7 @@ class ContentGenerator:
                     {chr(10).join(f"- {claim.get('claim', '')}" for claim in context['relevant_claims'][:3])}
                     
                     Supporting Evidence:
-                    {self._format_evidence_for_citations(context['relevant_evidence'][:5])}
+                    {self._format_evidence_for_citations(context['relevant_evidence'][:10])}
                     {self._get_citation_instructions(context)}"""
                 }
             ]
@@ -1318,28 +1375,49 @@ class ContentGenerator:
         key_point_keywords = key_point_keywords - stop_words
         
         relevant_evidence = []
+        rag_evidence_count = 0
         for ev in evidence:
             content = ev.get('content', '').lower()
             if not content or not content.strip():
                 continue
-                
+            
+            source_type = ev.get('source_type', 'unknown')
+            is_rag = (source_type == 'rag')
+            
             content_keywords = set(content.split()) - stop_words
             
             # Check for keyword overlap
             title_match = len(title_keywords.intersection(content_keywords)) if title_keywords else 0
             key_point_match = len(key_point_keywords.intersection(content_keywords)) if key_point_keywords else 0
             
-            # More lenient matching - if there's any overlap or if we have very little evidence, include it
-            if title_match > 0 or key_point_match > 0:
-                relevant_evidence.append(ev)
+            # More lenient matching for RAG sources - they contain valuable structured information
+            # Include RAG sources even with weak keyword matches, as they often contain relevant context
+            if is_rag:
+                # For RAG sources, be very lenient - include if there's any match or if content is substantial
+                if title_match > 0 or key_point_match > 0 or len(content) > 500:
+                    relevant_evidence.append(ev)
+                    rag_evidence_count += 1
+            else:
+                # For other sources, use standard matching
+                if title_match > 0 or key_point_match > 0:
+                    relevant_evidence.append(ev)
+        
+        # Log RAG evidence inclusion
+        if rag_evidence_count > 0:
+            self.logger.info(f"Included {rag_evidence_count} RAG evidence items (using lenient filtering for RAG sources)")
         
         # If no evidence matched but we have evidence, return first few items as fallback
         # This ensures content generation has something to work with
         if not relevant_evidence and evidence:
             self.logger.info(f"No keyword-matched evidence for section '{title}', using top {min(3, len(evidence))} global evidence items")
-            relevant_evidence = evidence[:min(5, len(evidence))]
+            relevant_evidence = evidence[:min(10, len(evidence))]
         
-        return relevant_evidence[:5]  # Limit to top 5 relevant evidence
+        # Prioritize RAG evidence - include all RAG sources first, then others
+        rag_evidence = [ev for ev in relevant_evidence if ev.get('source_type') == 'rag']
+        other_evidence = [ev for ev in relevant_evidence if ev.get('source_type') != 'rag']
+        # Return up to 10 items, prioritizing RAG sources
+        prioritized_evidence = rag_evidence + other_evidence
+        return prioritized_evidence[:10]  # Limit to top 10 relevant evidence (increased from 5)
     
     def _extract_citations_from_content(self, content: str, evidence: List[Dict]) -> List[Dict[str, Any]]:
         """Extract citations from generated content using proper citation format."""
@@ -1646,6 +1724,89 @@ class ContentGenerator:
         table_content = table_content.replace('<td>', '<td style="border: 1px solid #ddd; padding: 8px;">')
         
         return table_content
+
+def get_tone_specific_instructions(tone: str) -> str:
+    """
+    Get tone-specific writing instructions for any tone.
+    
+    This is a standalone function that can be used outside of ContentGenerator
+    to get tone-specific instructions for refinement, editing, or other purposes.
+    
+    Args:
+        tone: The writing tone (e.g., 'friendly', 'professional', 'journalistic')
+        
+    Returns:
+        String with tone-specific instructions
+    """
+    if tone.lower() == 'friendly':
+        return """FRIENDLY TONE - PERSONAL, STORY-DRIVEN, AND WARM (CRITICAL):
+                
+                ⚠️ IMPORTANT: Friendly does NOT mean overly casual greetings
+                - DO NOT start with: "Hi friends", "Hey there", "Hello everyone", "What's up", or similar casual greetings
+                - Start naturally with the content, not a greeting - jump into the topic conversationally
+                - Friendly means warm and personal, not chatty or overly familiar in the opening
+                
+                MANDATORY: Write like you're sharing a personal story with a close friend
+                - Use first-person storytelling: "I've found...", "Last month I...", "My favorite thing about...", "I remember when..."
+                - Use "you" and "your" throughout to make it personal and direct
+                - Share specific, relatable examples from real life (even if you need to create realistic scenarios)
+                - Make it feel like you're having coffee with the reader, not giving a presentation
+                - Start with an engaging hook or story, NOT a greeting
+                
+                MANDATORY: Use very casual, everyday language - NO formal words
+                - NEVER use: crucial, paramount, necessitates, cultivate, strategic, trajectory, implement, ensure, facilitate, utilize, leverage, optimize, enhance, robust, comprehensive, meticulous, navigate, realm, embark, underpins, specialized, interconnected, positioning, signifying, potent, commanding, proactive, adept, blend, niche, sought after, individuals, professionals, one must, it is important to note
+                - ALWAYS use: "important" not "crucial", "need" not "necessitates", "develop" not "cultivate", "plan" not "strategic", "path" not "trajectory", "use" not "implement", "make sure" not "ensure", "help" not "facilitate", "use" not "utilize", "use" not "leverage", "improve" not "optimize", "make better" not "enhance", "strong" not "robust", "complete" not "comprehensive", "careful" not "meticulous", "work with" not "navigate", "area" not "realm", "start" not "embark", "supports" not "underpins", "special" not "specialized", "connected" not "interconnected", "place" not "positioning", "shows" not "signifying", "strong" not "potent", "earn" not "commanding", "active" not "proactive", "skilled" not "adept", "mix" not "blend", "small area" not "niche", "wanted" not "sought after", "people" not "individuals", "you" not "one must"
+                
+                MANDATORY: Write with personality and voice - be interesting, not boring
+                - Use contractions everywhere: "you'll", "you're", "I've", "it's", "that's", "here's", "don't", "won't", "can't"
+                - Use casual phrases: "Here's the thing...", "You know what?", "Let me tell you...", "The cool part is...", "What's wild is..."
+                - Ask engaging questions: "Ever wondered why...?", "Want to know something cool?", "Here's what blew my mind..."
+                - Use personal touches: "I've been there", "Trust me on this", "I learned this the hard way", "My go-to is..."
+                
+                MANDATORY: Tell stories and use specific examples
+                - Include concrete, relatable scenarios: "Like when I was learning Spanish and AI helped me practice..."
+                - Use specific details: "Last month", "on Saturdays", "while I'm sipping coffee", "before lunch"
+                - Make examples feel real and personal, not generic
+                - Connect ideas through narrative, not just facts
+                
+                MANDATORY: Keep it warm, encouraging, and human
+                - Write like you genuinely care and want to help, not like you're delivering information
+                - Be encouraging: "You've got this", "Don't worry", "Here's the fun part...", "You'll love this..."
+                - Show enthusiasm and personality - make it interesting to read
+                - Avoid sounding like a manual or instruction book
+                
+                MANDATORY: Explain things simply, like you're talking to a friend
+                - When you mention something complex, immediately explain it in plain language
+                - Use everyday analogies and comparisons
+                - Break things down into simple, digestible pieces
+                - Don't assume they know technical terms - explain everything naturally
+                
+                MANDATORY: Write in a natural, flowing style
+                - Each sentence should flow into the next like you're telling a story
+                - Mix short punchy sentences with slightly longer ones for rhythm
+                - Use casual transitions: "And", "Plus", "Also", "But", "So", "Now", "Here's the thing"
+                - Read it aloud mentally - if it sounds formal or boring, make it more casual and personal
+                
+                EXAMPLE OF GOOD FRIENDLY TONE (notice it starts directly, no greeting):
+                "Generative AI has quietly become my favorite coworker. It proofreads my emails while I'm still sipping coffee, turns bullet-point brainstorms into polished slides before lunch, and even codes little snippets so I can skip the Stack-Overflow rabbit hole. Last month it wrote the first draft of my mom's birthday speech—she cried happy tears, not knowing a robot helped me sound poetic. It's my 24-hour tutor, too: when I wanted to learn Spanish, it whipped up mini-conversations, corrected my accent, and cheered me on like a patient amigo. Sure, I double-check facts (old habits die hard), but the time I save lets me volunteer-teach kids on Saturdays—something I always 'meant to do' but never had space for. Basically, AI handles the busywork; I get the fun parts of being human."
+                
+                Notice: Starts directly with content (no "hi friends" or greeting), first-person, specific examples, casual language, personal stories, warm and engaging - NOT formal or professional, but also NOT overly casual with greetings"""
+    elif tone.lower() == 'professional':
+        return """PROFESSIONAL TONE - CLEAR AND ACCESSIBLE:
+                - Write clearly and directly - professional doesn't mean complex
+                - Use simple, precise language that anyone can understand
+                - Avoid overly complex vocabulary - choose the simplest word that conveys your meaning
+                - Prefer "important" over "crucial", "help" over "facilitate", "use" over "utilize"
+                - Write sentences that flow naturally from one idea to the next
+                - Connect ideas logically - each sentence should build on the previous one
+                - Use active voice when possible - "professionals use" not "it is used by professionals"
+                - Keep sentences at a reasonable length (15-25 words) - break up long sentences
+                - Make sure each paragraph has a clear point and flows to the next
+                - Write as if explaining to a smart colleague, not an academic audience
+                - Be authoritative without being pretentious
+                - Focus on clarity and usefulness over impressive vocabulary"""
+    else:
+        return f"""Write in {tone} tone - be clear, natural, and easy to follow"""
 
 # Factory function
 def create_content_generator(llm_client, use_verbalized_sampling: bool = True) -> ContentGenerator:

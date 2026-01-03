@@ -126,6 +126,14 @@ class ArticleStructureGenerator:
             # Generate section outlines
             sections = self._generate_sections(brief, claims, evidence, target_word_count, tone, article_type)
             
+            # Log section titles for debugging
+            section_titles = [s.title for s in sections]
+            self.logger.info(f"Generated section titles: {section_titles}")
+            
+            # Log section titles for debugging
+            section_titles = [s.title for s in sections]
+            self.logger.info(f"Generated section titles: {section_titles}")
+            
             # Determine target audience
             target_audience = self._determine_target_audience(brief, tone)
             
@@ -242,6 +250,7 @@ class ArticleStructureGenerator:
                     - DO NOT use ellipsis (...) unless for dramatic effect
                     - Write a complete, engaging sentence that draws readers in
                     - Focus on the benefit or insight, not the topic description
+                    {'- DO NOT start with greetings like "Hi friends", "Hey there", "Hello everyone" - start directly with engaging content' if tone.lower() == 'friendly' else ''}
                     
                     Examples of good hooks:
                     - "While 73% of professionals struggle with career transitions, only 12% have a strategic mentor relationship—here's how to join that elite group."
@@ -454,8 +463,14 @@ class ArticleStructureGenerator:
                     - Order sections logically with smooth transitions
                     - Include practical, actionable content
                     - Distribute evidence and claims evenly across sections
-                    - AVOID generic section titles like "Key Concepts" and "Practical Applications"
-                    - Create UNIQUE, TOPIC-SPECIFIC section titles that reflect the actual content
+                    
+                    ⚠️ CRITICAL: AVOID GENERIC SECTION TITLES ⚠️
+                    - DO NOT use generic titles like: "Getting Started", "Step-by-Step Process", "Key Concepts", "Practical Applications", "Understanding the Fundamentals", "Real-World Implementation"
+                    - DO NOT use the same structure for every article
+                    - CREATE UNIQUE, TOPIC-SPECIFIC section titles that directly relate to the article brief and claims
+                    - Each section title should be specific to THIS article's topic, not a generic template
+                    - Analyze the brief and claims to create sections that make sense for THIS specific topic
+                    - Example: For an article about "skills for 2026", create sections like "Top In-Demand Technical Skills", "Essential Soft Skills for Hybrid Work", "How to Develop These Skills", NOT "Getting Started" or "Step-by-Step Process"
                     
                     EVIDENCE DISTRIBUTION ANALYSIS:
                     {evidence_types}
@@ -476,15 +491,17 @@ class ArticleStructureGenerator:
                     Content Types Available:
                     - "paragraph": Standard text content
                     - "list": Bulleted or numbered lists
-                    - "step_by_step": Instructional content
+                    - "step_by_step": Instructional content (only use if the article is actually a step-by-step guide)
                     - "comparison": Side-by-side comparisons
                     - "table": Data-rich content with tables
+                    
+                    IMPORTANT: Return ONLY valid JSON. Do not include any text before or after the JSON. The JSON must be parseable.
                     
                     Format as JSON:
                     {{
                         "sections": [
                             {{
-                                "title": "Section Title",
+                                "title": "Topic-Specific Section Title (NOT generic)",
                                 "subtitle": "Optional subtitle",
                                 "key_points": ["Point 1", "Point 2", "Point 3"],
                                 "word_count_target": {words_per_section},
@@ -497,7 +514,16 @@ class ArticleStructureGenerator:
                 },
                 {
                     "role": "user",
-                    "content": f"Article Brief: {brief}\nClaims: {claims_text}\nEvidence: {evidence_text}\nTarget Word Count: {target_word_count}\nTone: {tone}"
+                    "content": f"""Article Brief: {brief}
+
+Key Claims to Address:
+{claims_text}
+
+Evidence Available: {evidence_text}
+Target Word Count: {target_word_count}
+Tone: {tone}
+
+Create {section_count} topic-specific sections that directly relate to this article's content. Each section title should be unique to this topic, not a generic template. Analyze the brief and claims to determine what sections make sense for THIS specific article."""
                 }
             ]
             
@@ -505,14 +531,36 @@ class ArticleStructureGenerator:
             
             # Parse JSON response
             import json
+            import re
+            
+            # Try to extract JSON from response (in case LLM adds extra text)
+            response_text = response.content.strip()
+            
+            # Try to find JSON object in the response
+            json_match = re.search(r'\{[^{}]*"sections"[^{}]*\[.*?\]\s*\}', response_text, re.DOTALL)
+            if json_match:
+                response_text = json_match.group(0)
+            
             try:
-                data = json.loads(response.content)
+                data = json.loads(response_text)
                 sections_data = data.get('sections', [])
+                
+                if not sections_data:
+                    raise ValueError("No sections found in response")
                 
                 sections = []
                 for i, section_data in enumerate(sections_data):
+                    section_title = section_data.get('title', f'Section {i+1}')
+                    
+                    # Warn if generic titles are detected
+                    generic_titles = ['getting started', 'step-by-step process', 'step by step process', 
+                                     'key concepts', 'practical applications', 'understanding the fundamentals',
+                                     'real-world implementation', 'conclusion']
+                    if any(generic in section_title.lower() for generic in generic_titles) and i > 0 and i < len(sections_data) - 1:
+                        self.logger.warning(f"Generic section title detected: '{section_title}' - consider making it more topic-specific")
+                    
                     section = SectionOutline(
-                        title=section_data.get('title', f'Section {i+1}'),
+                        title=section_title,
                         subtitle=section_data.get('subtitle'),
                         key_points=section_data.get('key_points', []),
                         word_count_target=section_data.get('word_count_target', 300),
@@ -522,11 +570,14 @@ class ArticleStructureGenerator:
                     )
                     sections.append(section)
                 
+                self.logger.info(f"Successfully parsed {len(sections)} sections from LLM response")
                 return sections
                 
-            except json.JSONDecodeError:
-                self.logger.warning("Failed to parse JSON response, using fallback sections")
-                return self._create_fallback_sections(brief, target_word_count)
+            except (json.JSONDecodeError, ValueError) as e:
+                self.logger.warning(f"Failed to parse JSON response: {str(e)}")
+                self.logger.warning(f"Response content (first 500 chars): {response_text[:500]}")
+                # Use dynamic fallback that's more topic-specific
+                return self._create_fallback_sections(brief, target_word_count, claims)
             
         except Exception as e:
             self.logger.error(f"Error generating sections: {str(e)}")
@@ -579,32 +630,47 @@ class ArticleStructureGenerator:
             call_to_action="Found this helpful? Share it with others who might benefit!"
         )
     
-    def _create_fallback_sections(self, brief: str, target_word_count: int) -> List[SectionOutline]:
-        """Create fallback section outlines with varied structure based on brief."""
+    def _create_fallback_sections(self, brief: str, target_word_count: int, claims: List[Dict] = None) -> List[SectionOutline]:
+        """Create fallback section outlines with topic-specific structure based on brief and claims."""
         # Analyze brief to create more relevant sections
         brief_lower = brief.lower()
         
-        # Determine article focus
-        if any(word in brief_lower for word in ['how to', 'guide', 'steps', 'process']):
-            # How-to article structure
+        # Extract key topics from brief (first few meaningful words)
+        brief_words = [w for w in brief.split() if len(w) > 3][:3]
+        topic_phrase = ' '.join(brief_words) if brief_words else "the topic"
+        
+        # Extract key themes from claims if available
+        claim_themes = []
+        if claims:
+            for claim in claims[:3]:
+                claim_text = claim.get('claim', '')
+                # Extract key nouns/phrases (simple heuristic)
+                words = [w for w in claim_text.split() if w.lower() not in ['the', 'a', 'an', 'is', 'are', 'and', 'or', 'but']]
+                if words:
+                    claim_themes.append(' '.join(words[:2]))
+        
+        # Determine article focus and create topic-specific sections
+        if any(word in brief_lower for word in ['how to', 'guide', 'steps', 'process', 'tutorial']):
+            # How-to article structure - but make it topic-specific
+            main_topic = brief_words[0] if brief_words else "the process"
             sections = [
                 SectionOutline(
                     title="Introduction",
                     key_points=["Overview of the topic", "Why this matters", "What you'll learn"],
-                    word_count_target=200,  # Shorter introduction
+                    word_count_target=200,
                     order=1,
                     importance="high"
                 ),
                 SectionOutline(
-                    title="Getting Started",
-                    key_points=["Prerequisites", "Initial setup", "First steps"],
+                    title=f"Essential {main_topic.title()} Basics" if main_topic else "Essential Basics",
+                    key_points=["Core concepts", "Important principles", "What you need to know"],
                     word_count_target=400,
                     order=2,
                     importance="high"
                 ),
                 SectionOutline(
-                    title="Step-by-Step Process",
-                    key_points=["Detailed instructions", "Common pitfalls", "Pro tips"],
+                    title=f"Mastering {main_topic.title()}" if main_topic else "Mastering the Process",
+                    key_points=["Detailed approach", "Best practices", "Pro tips"],
                     word_count_target=600,
                     order=3,
                     importance="high"
@@ -649,8 +715,9 @@ class ArticleStructureGenerator:
                     importance="medium"
                 )
             ]
-        else:
-            # General article structure with varied titles
+        elif any(word in brief_lower for word in ['skill', 'skills', 'career', 'development', 'learn']):
+            # Skills/career article structure - make it topic-specific
+            skill_focus = "Skills" if 'skill' in brief_lower else "Career Development"
             sections = [
                 SectionOutline(
                     title="Introduction",
@@ -660,14 +727,50 @@ class ArticleStructureGenerator:
                     importance="high"
                 ),
                 SectionOutline(
-                    title="Understanding the Fundamentals",
-                    key_points=["Core concepts", "Important principles", "Key insights"],
+                    title=f"Top In-Demand {skill_focus} for 2026" if '2026' in brief_lower or '2025' in brief_lower else f"Essential {skill_focus} to Master",
+                    key_points=claim_themes[:3] if claim_themes else ["Key skills", "Why they matter", "Market demand"],
+                    word_count_target=500,
+                    order=2,
+                    importance="high"
+                ),
+                SectionOutline(
+                    title=f"How to Develop These {skill_focus}" if 'skill' in brief_lower else "Building Your Career Path",
+                    key_points=["Actionable steps", "Learning resources", "Practical tips"],
+                    word_count_target=500,
+                    order=3,
+                    importance="high"
+                ),
+                SectionOutline(
+                    title="Conclusion",
+                    key_points=["Key takeaways", "Next steps", "Final thoughts"],
+                    word_count_target=200,
+                    order=4,
+                    importance="medium"
+                )
+            ]
+        else:
+            # General article structure - try to make it topic-specific based on brief
+            # Extract main topic from brief
+            main_topic = brief_words[0].title() if brief_words else "Key Concepts"
+            second_topic = brief_words[1].title() if len(brief_words) > 1 else "Implementation"
+            
+            sections = [
+                SectionOutline(
+                    title="Introduction",
+                    key_points=["Overview of the topic", "Why this matters", "What you'll learn"],
+                    word_count_target=200,
+                    order=1,
+                    importance="high"
+                ),
+                SectionOutline(
+                    title=f"Understanding {main_topic}" if main_topic else "Core Concepts",
+                    key_points=claim_themes[:3] if claim_themes else ["Core concepts", "Important principles", "Key insights"],
                     word_count_target=400,
                     order=2,
                     importance="high"
                 ),
                 SectionOutline(
-                    title="Real-World Implementation",
+                    title=f"{second_topic} in Practice" if second_topic else "Practical Applications",
                     key_points=["Practical examples", "Case studies", "Best practices"],
                     word_count_target=500,
                     order=3,
@@ -682,6 +785,7 @@ class ArticleStructureGenerator:
                 )
             ]
         
+        self.logger.info(f"Created fallback sections: {[s.title for s in sections]}")
         return sections
 
 # Factory function

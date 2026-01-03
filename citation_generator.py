@@ -84,7 +84,7 @@ class CitationGenerator:
         self.citation_counter = 0
     
     def generate_citations(self, evidence: List[Dict], content_sections: List[Dict], 
-                          style: CitationStyle = None) -> Dict[str, Any]:
+                          style: CitationStyle = None, include_in_text_citations: bool = True) -> Dict[str, Any]:
         """
         Generate citations from evidence and content.
         
@@ -92,6 +92,7 @@ class CitationGenerator:
             evidence: List of evidence sources
             content_sections: List of content sections
             style: Citation style to use
+            include_in_text_citations: Whether to add in-text citation references to content (default: True)
             
         Returns:
             Dictionary with citations and formatted references
@@ -102,8 +103,13 @@ class CitationGenerator:
             # Extract citations from evidence
             citations = self._extract_citations_from_evidence(evidence)
             
-            # Process content sections for citation placement
-            processed_sections = self._process_content_for_citations(content_sections, citations)
+            # Process content sections for citation placement (only if in-text citations are enabled)
+            if include_in_text_citations:
+                processed_sections = self._process_content_for_citations(content_sections, citations)
+            else:
+                # If in-text citations are disabled, return sections as-is without adding citation markers
+                self.logger.info("In-text citations disabled - skipping citation placement in content")
+                processed_sections = content_sections
             
             # Format citations according to style
             formatted_citations = self._format_citations(citations, citation_style)

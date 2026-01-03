@@ -157,6 +157,21 @@ class RAGClient:
                         self.logger.info(f"  - Search Quality: {data.get('searchQuality', 'unknown')}")
                         self.logger.info(f"  - Time Seconds: {data.get('time_seconds', 0)}")
                         
+                        # Check if the response indicates an error
+                        response_status = data.get('status', 'unknown')
+                        if response_status == 'error':
+                            error_message = data.get('error', data.get('message', 'Unknown error from RAG service'))
+                            self.logger.error(f"RAG service returned error status: {error_message}")
+                            return RAGResponse(
+                                results=[],
+                                total_results=0,
+                                query_time=query_time,
+                                provider="custom",
+                                collection=query_params["collection_name"],
+                                success=False,
+                                error=error_message
+                            )
+                        
                         if data.get('documents_used'):
                             self.logger.info(f"  - Document Details:")
                             for i, doc in enumerate(data.get('documents_used', [])[:3]):  # Log first 3 docs

@@ -16,10 +16,11 @@ from llm_client_direct import create_llm_client, LLMResponse
 from rag_client import create_rag_client, RAGQuery
 from linkup_client import create_linkup_client, SearchQuery
 from article_structure_generator import create_article_structure_generator, ArticleStructureGenerator
-from content_generator import create_content_generator
+from content_generator import create_content_generator, get_tone_specific_instructions
 from citation_generator import create_citation_generator, CitationStyle
 # Evidence ranking will be done inline
 from config import get_config
+from supabase_client import get_linkup_api_key
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -946,6 +947,9 @@ def _collect_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
                 logger.info("RAG disabled - enabling Linkup by default (claims_research not explicitly disabled)")
             elif not claims_research_enabled:
                 logger.info("Both RAG and Linkup are disabled - proceeding without external evidence sources")
+            else:
+                # RAG is disabled but claims_research_enabled is explicitly True - use Linkup
+                logger.info("RAG disabled but claims_research_enabled is True - will use Linkup for evidence collection")
         elif rag_enabled and len(rag_evidence) == 0:
             # RAG was enabled but failed to collect evidence - auto-enable LinkUp as fallback
             if 'claims_research_enabled' not in research_data:
@@ -975,9 +979,10 @@ def _collect_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 logger.info("🔍 Web search needed - collecting evidence from Linkup API")
                 try:
-                    linkup_api_key = os.environ.get('LINKUP_API_KEY')
+                    # Get Linkup API key from Supabase (all API keys are stored in Supabase)
+                    linkup_api_key = get_linkup_api_key()
                     if not linkup_api_key:
-                        logger.warning("LINKUP_API_KEY not found, skipping web search")
+                        logger.warning("Linkup API key not found in Supabase api_keys table, skipping web search")
                     else:
                         logger.info(f"Using Linkup API key: {linkup_api_key[:10]}...")
                         linkup_client = create_linkup_client(
@@ -1145,7 +1150,8 @@ def _generate_structure(result: Dict[str, Any]) -> Dict[str, Any]:
         llm_client = create_llm_client(
             provider=research_data.get('provider', 'gemini'),
             model=research_data.get('model', 'gemini-2.5-flash'),
-            api_key=api_key
+            api_key=api_key,
+            timeout=180  # Increased timeout for structure generation (3 minutes)
         )
         config = get_config()
         
@@ -1346,9 +1352,10 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
             # Use Linkup if needed
             if need_linkup:
                 try:
-                    linkup_api_key = os.environ.get('LINKUP_API_KEY')
+                    # Get Linkup API key from Supabase (all API keys are stored in Supabase)
+                    linkup_api_key = get_linkup_api_key()
                     if not linkup_api_key:
-                        logger.warning("  - LINKUP_API_KEY not found, skipping section Linkup search")
+                        logger.warning("  - Linkup API key not found in Supabase api_keys table, skipping section Linkup search")
                     else:
                         linkup_client = create_linkup_client(
                             api_key=linkup_api_key,
@@ -1400,13 +1407,34 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
         claims = result.get('claims', [])
         evidence = result.get('evidence', [])
         
+        # Verify tone is being passed correctly - research_data is the source of truth (comes from API)
+        tone_from_research = research_data.get('tone', 'journalistic')
+        tone_from_structure = structure.get('tone', 'journalistic')
+        
+        # Log tones for debugging
+        logger.info(f"📝 Content Generation - Tone from API/research_data: '{tone_from_research}'")
+        logger.info(f"📝 Content Generation - Tone from structure: '{tone_from_structure}'")
+        
+        if tone_from_research != tone_from_structure:
+            logger.warning(f"⚠️ Tone mismatch detected: research_data has '{tone_from_research}' but structure has '{tone_from_structure}'. Using research_data tone (source of truth from API).")
+            # Override structure tone with research_data tone to ensure consistency
+            structure['tone'] = tone_from_research
+        
+        # Use tone from research_data (source of truth - comes directly from API request)
+        final_tone = tone_from_research
+        logger.info(f"📝 Generating content with tone: '{final_tone}' (using research_data tone - source of truth from API request)")
+        
+        # Ensure research_data has the correct tone for downstream stages
+        research_data['tone'] = final_tone
+        
         # Support both llm_key (legacy) and api_key (normalized)
         api_key = research_data.get('api_key') or research_data.get('llm_key', '')
         llm_client = create_llm_client(
             provider=research_data.get('provider', 'openai'),
             model=research_data.get('model', 'gpt-4'),
             api_key=api_key,
-            temperature=0.7
+            temperature=0.7,
+            timeout=180  # Increased timeout for content generation (3 minutes)
         )
         
         # Create content generator with verbalized sampling enabled
@@ -1418,6 +1446,10 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
         generated_sections = []
         previous_sections = []
         total_sections = len(sections)
+        
+        # Track all section-specific evidence for aggregation
+        all_section_evidence = []
+        seen_urls = {ev.get('source') for ev in evidence if ev.get('source')}  # Track URLs to avoid duplicates
         
         for section_index, section_outline in enumerate(sections):
             section_title = section_outline.get('title', 'Unknown Section')
@@ -1453,17 +1485,27 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
             # Collect section-specific evidence if:
             # 1. RAG is enabled (will try RAG first, then Linkup if needed)
             # 2. OR claims_research_enabled is true (will use Linkup directly if RAG not enabled)
+            section_specific_evidence = []
             if section_title_lower not in ['introduction', 'conclusion', 'overview', 'summary']:
                 if rag_enabled and research_data.get('rag_endpoint'):
                     logger.info(f"🔍 Collecting section-specific evidence for: {section_title} (RAG enabled, Linkup will be used if needed)")
-                    section_evidence.extend(_collect_section_evidence(section_outline, research_data))
+                    section_specific_evidence = _collect_section_evidence(section_outline, research_data)
+                    section_evidence.extend(section_specific_evidence)
                 elif claims_research_enabled:
                     logger.info(f"🔍 Collecting section-specific evidence for: {section_title} (claims_research enabled, using Linkup)")
-                    section_evidence.extend(_collect_section_evidence(section_outline, research_data))
+                    section_specific_evidence = _collect_section_evidence(section_outline, research_data)
+                    section_evidence.extend(section_specific_evidence)
                 else:
                     logger.info(f"📝 Using global evidence only for: {section_title} (no section-specific research enabled)")
             else:
                 logger.info(f"📝 Using global evidence only for: {section_title} (intro/conclusion section)")
+            
+            # Aggregate section-specific evidence for later citation generation
+            for ev in section_specific_evidence:
+                ev_url = ev.get('source') or ev.get('url', '')
+                if ev_url and ev_url not in seen_urls:
+                    all_section_evidence.append(ev)
+                    seen_urls.add(ev_url)
             
             # Generate content for this section with enhanced evidence
             section_content = content_generator.generate_section_content(
@@ -1493,6 +1535,12 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
             generated_sections.append(section_dict)
             previous_sections.append(section_content)
         
+        # Aggregate all evidence: global + section-specific
+        aggregated_evidence = evidence.copy()
+        aggregated_evidence.extend(all_section_evidence)
+        
+        logger.info(f"📊 Aggregated {len(aggregated_evidence)} total evidence items (global: {len(evidence)}, section-specific: {len(all_section_evidence)})")
+        
         # Calculate total statistics
         total_words = sum(s.get('total_word_count', 0) for s in generated_sections)
         total_citations = sum(len(s.get('citations', [])) for s in generated_sections)
@@ -1504,12 +1552,15 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
                 'sections': generated_sections,
                 'word_count': total_words
             },
+            # Add aggregated evidence to result so citation generation can use it
+            'aggregated_evidence': aggregated_evidence,
             'stage_data': {
                 'sections_written': len(generated_sections),
                 'word_count': total_words,
                 'total_citations': total_citations,
                 'average_words_per_section': total_words // len(generated_sections) if generated_sections else 0,
-                'llm_model': llm_client.config.model
+                'llm_model': llm_client.config.model,
+                'aggregated_evidence_count': len(aggregated_evidence)
             }
         }
         
@@ -1527,11 +1578,13 @@ def _generate_citations(result: Dict[str, Any]) -> Dict[str, Any]:
     """Generate citations and references using comprehensive citation generator."""
     try:
         research_data = result.get('research_data', {})
-        evidence = result.get('ranked_evidence', [])
+        # Use aggregated evidence from content generation if available, otherwise use ranked evidence
+        evidence = result.get('aggregated_evidence') or result.get('ranked_evidence', [])
         content = result.get('content', {})
         
         # Debug logging
         logger.info(f"🔍 Citation generation debug - Evidence count: {len(evidence)}")
+        logger.info(f"🔍 Citation generation debug - Evidence source: {'aggregated_evidence' if result.get('aggregated_evidence') else 'ranked_evidence'}")
         logger.info(f"🔍 Citation generation debug - Evidence keys: {list(evidence[0].keys()) if evidence else 'No evidence'}")
         logger.info(f"🔍 Citation generation debug - Content sections: {len(content.get('sections', []))}")
         
@@ -1652,11 +1705,16 @@ def _generate_citations(result: Dict[str, Any]) -> Dict[str, Any]:
                 }
             }
         
+        # Check if in-text citations should be included
+        include_in_text_citations = research_data.get('include_in_text_citations', True)
+        logger.info(f"Citation generation - include_in_text_citations: {include_in_text_citations}")
+        
         # Generate citations only from valid evidence
         citation_result = citation_generator.generate_citations(
             evidence=valid_evidence,  # Use only evidence with actual content
             content_sections=content.get('sections', []),
-            style=CitationStyle.APA
+            style=CitationStyle.APA,
+            include_in_text_citations=include_in_text_citations
         )
         
         logger.info(f"Generated {citation_result['total_citations']} citations from {len(valid_evidence)} valid evidence sources in {citation_result['style']} style")
@@ -1698,12 +1756,44 @@ def _generate_citations(result: Dict[str, Any]) -> Dict[str, Any]:
             'stage_data': {'generated_citations': 0, 'error': str(e)}
         }
 
+def _build_refinement_user_message(tone: str, original_content: str) -> str:
+    """Build user message for refinement with proper tone handling."""
+    tone_upper = tone.upper()
+    
+    # Build tone-specific guidance
+    tone_guidance = ""
+    if tone.lower() == 'friendly':
+        tone_guidance = "\n\nFOR FRIENDLY TONE: Make it personal, use first-person storytelling, include specific examples, and write like you're talking to a friend. Avoid formal words like \"individuals\", \"necessitates\", \"crucial\"."
+    elif tone.lower() == 'journalistic':
+        tone_guidance = "\n\nFOR JOURNALISTIC TONE: Write in a clear, objective journalistic style with proper attribution and balanced reporting."
+    elif tone.lower() == 'professional':
+        tone_guidance = "\n\nFOR PROFESSIONAL TONE: Write clearly and professionally, using accessible language while maintaining authority."
+    
+    return f"""IMPORTANT: The tone for this article is {tone_upper}.
+
+Refine this section to match the {tone} tone perfectly. {tone_guidance}
+
+Return ONLY the refined HTML content - no explanations, no meta-commentary, no "Here's the refined content" text. Start directly with the HTML.
+
+Original content:
+{original_content}"""
+
 def _refine_article(result: Dict[str, Any]) -> Dict[str, Any]:
     """Refine and optimize article using LLM."""
     try:
         research_data = result.get('research_data', {})
         content = result.get('content', {})
         tone = research_data.get('tone', 'journalistic')
+        include_in_text_citations = research_data.get('include_in_text_citations', True)
+        
+        # Verify tone is correct - log warning if it seems wrong
+        if tone.lower() not in ['friendly', 'professional', 'journalistic', 'casual', 'academic', 'technical', 'persuasive']:
+            logger.warning(f"⚠️ Unusual tone value: '{tone}' - proceeding anyway")
+        
+        # Log tone for debugging
+        logger.info(f"🔍 REFINEMENT STAGE - Tone from research_data: '{tone}'")
+        if tone.lower() == 'friendly':
+            logger.info(f"🔍 REFINEMENT STAGE - Friendly tone detected - should use first-person, personal stories, casual language")
         
         # Create LLM client
         # Support both llm_key (legacy) and api_key (normalized)
@@ -1712,33 +1802,236 @@ def _refine_article(result: Dict[str, Any]) -> Dict[str, Any]:
             provider=research_data.get('provider', 'openai'),
             model=research_data.get('model', 'gpt-4'),
             api_key=api_key,
-            temperature=0.5
+            temperature=0.5,
+            timeout=180  # Increased timeout for content refinement (3 minutes)
         )
+        
+        # Get tone-specific instructions for refinement
+        tone_instructions = get_tone_specific_instructions(tone)
+        
+        # Log tone for debugging
+        logger.info(f"🔍 Refinement - Using tone: '{tone}' (from research_data)")
+        logger.info(f"🔍 Refinement - Tone instructions length: {len(tone_instructions)} chars")
+        
+        # Helper function to remove citation references
+        def remove_citations_from_text(text: str) -> str:
+            """Remove citation references like [^1], [^2] from text."""
+            if not text or include_in_text_citations:
+                return text
+            import re
+            # Remove citation references like [^1], [^2], [^3], etc.
+            citation_pattern = r'\[\^\d+\]'
+            text = re.sub(citation_pattern, '', text)
+            # Clean up any extra spaces left behind
+            text = re.sub(r'\s+', ' ', text)
+            text = re.sub(r'\s+([.,;:!?])', r'\1', text)  # Remove space before punctuation
+            return text.strip()
         
         # Refine each section
         refinements = []
         for section in content.get('sections', []):
+            # Skip references section - it should not be refined and citations should be preserved there
+            section_title = section.get('title', '') or section.get('heading', '')
+            if section_title and 'reference' in section_title.lower():
+                logger.info(f"Skipping refinement for references section: '{section_title}'")
+                continue
+            
+            # Extract content from section - handle both content_blocks and direct content field
+            section_content_blocks = section.get('content_blocks', [])
+            if section_content_blocks and isinstance(section_content_blocks, list):
+                # Extract content from content_blocks
+                original_content = '\n\n'.join([
+                    block.get('content', '') 
+                    for block in section_content_blocks 
+                    if isinstance(block, dict) and block.get('content')
+                ])
+            else:
+                # Use direct content field
+                original_content = section.get('content', '') or section.get('text', '') or ''
+            
+            if not original_content.strip():
+                logger.warning(f"Skipping refinement for section '{section_title}' - no content found")
+                continue
+            
+            # Determine citation handling instructions
+            citation_instructions = ""
+            if not include_in_text_citations:
+                citation_instructions = """
+                    
+                    CRITICAL - CITATION REMOVAL:
+                    - Remove ALL in-text citation references like [^1], [^2], [^3], etc. from the content
+                    - Do NOT include any citation markers in the refined content
+                    - The references section will be preserved separately, so remove all inline citations
+                    - Clean up any spaces left after removing citations
+                    - Make sure the text flows naturally without citation markers"""
+            else:
+                citation_instructions = """
+                    
+                    CITATION HANDLING:
+                    - Preserve all in-text citation references like [^1], [^2], [^3], etc. as-is
+                    - Do not remove or modify citation markers"""
+            
+            # Add friendly tone specific checks if needed
+            friendly_checks = ""
+            if tone.lower() == 'friendly':
+                friendly_checks = """
+                    
+                    FOR FRIENDLY TONE - CRITICAL CHECKS:
+                    - Does it use first-person storytelling ("I've found", "Last month I", "My favorite")?
+                    - Is it personal and conversational, not formal or professional?
+                    - Does it have specific, relatable examples with details?
+                    - Is it warm and engaging, not boring or academic?
+                    - Does it avoid formal words like "crucial", "paramount", "necessitates", "individuals"?
+                    - Does it sound like someone talking to a friend, not writing a report?
+                    """
+            
+            # Log the exact tone being used
+            logger.info(f"🔍 Refining section '{section_title}' with tone: '{tone}'")
+            if tone.lower() == 'friendly':
+                logger.info(f"🔍 Friendly tone - expecting: first-person, personal stories, casual language, warm and engaging")
+            
+            # Build tone-specific warnings (only warn against other tones, not the requested one)
+            tone_warnings = ""
+            if tone.lower() != 'journalistic':
+                tone_warnings += "\n                    - DO NOT use journalistic tone - this is WRONG for this article"
+            if tone.lower() != 'professional':
+                tone_warnings += "\n                    - DO NOT use professional tone - this is WRONG for this article (unless tone is professional)"
+            if tone.lower() not in ['academic', 'formal']:
+                tone_warnings += "\n                    - DO NOT use academic or formal tone - this is WRONG for this article"
+            
             messages = [
                 {
                     "role": "system",
-                    "content": f"You are an expert editor. Refine and improve the content for clarity, flow, and {tone} tone. Make it more engaging and professional."
+                    "content": f"""You are an expert editor. Review and refine the content to ensure it matches the {tone} tone perfectly, while improving clarity, flow, and engagement.
+
+                    ========================================
+                    ⚠️ CRITICAL: THE TONE FOR THIS ARTICLE IS {tone.upper()} ⚠️
+                    ========================================
+                    YOU MUST USE ONLY THE {tone.upper()} TONE AS SPECIFIED BELOW
+                    {tone_warnings}
+                    
+                    The tone is {tone} - use ONLY this tone, not any other tone.
+                    
+                    ========================================
+                    TONE REQUIREMENTS (HIGHEST PRIORITY)
+                    ========================================
+                    {tone_instructions}
+                    {friendly_checks}
+                    
+                    ========================================
+                    REFINEMENT TASKS
+                    ========================================
+                    - Ensure the content consistently follows the {tone} tone throughout EVERY sentence
+                    - Improve clarity and readability while maintaining the {tone} tone
+                    - Enhance flow and transitions between ideas
+                    - Make sure complex concepts are explained simply (especially for friendly tone)
+                    - Ensure the language matches the {tone} tone perfectly (personal and story-driven for friendly, clear and professional for professional, etc.)
+                    - Verify that the content addresses the reader appropriately for the {tone} tone
+                    - Keep the content engaging and natural - make it interesting to read
+                    - Maintain the original meaning and factual accuracy
+                    - Maintain HTML structure (paragraphs, headings, lists, tables) exactly as provided
+                    {citation_instructions}
+                    
+                    ========================================
+                    TONE CONSISTENCY CHECK
+                    ========================================
+                    Review EVERY sentence and ask:
+                    - Does this sentence match the {tone} tone?
+                    - If it sounds formal, professional, journalistic, or boring, rewrite it to match the {tone} tone
+                    - If it uses complex vocabulary, simplify it
+                    - If it lacks personality (for friendly tone), add personal touches and examples
+                    
+                    ========================================
+                    OUTPUT REQUIREMENTS
+                    ========================================
+                    - Return ONLY the refined content - NO meta-commentary, NO explanations, NO "Here's the refined content" text
+                    - Do NOT include phrases like "Here's the refined content", "optimized for X tone", "Here's the improved version"
+                    - Return ONLY the HTML content itself, starting directly with the content
+                    - Ensure EVERY sentence matches the {tone} tone perfectly
+                    - Return the content with the same HTML structure"""
                 },
                 {
                     "role": "user",
-                    "content": f"Refine this section:\n\n{section.get('content', '')}"
+                    "content": _build_refinement_user_message(tone, original_content)
                 }
             ]
             
             response = llm_client.generate(messages)
+            refined_content = response.content.strip()
+            
+            # Remove any meta-commentary the LLM might have added
+            # Remove common LLM prefixes like "Here's the refined content", "optimized for X tone", etc.
+            import re
+            # Remove common LLM commentary patterns
+            patterns_to_remove = [
+                r'^Here\'s the refined content[^\n]*\n*',
+                r'^Here is the refined content[^\n]*\n*',
+                r'^Refined content[^\n]*\n*',
+                r'^Here\'s the improved version[^\n]*\n*',
+                r'^Here is the improved version[^\n]*\n*',
+                r'optimized for [^\n]*tone[^\n]*\n*',
+                r'with improved clarity[^\n]*\n*',
+                r'^[^\<]*?(?=<)',  # Remove any text before the first HTML tag
+                r'^.*?optimized for.*?\n',  # Remove lines with "optimized for"
+                r'^.*?refined content.*?\n',  # Remove lines with "refined content"
+                r'^.*?improved version.*?\n',  # Remove lines with "improved version"
+            ]
+            
+            for pattern in patterns_to_remove:
+                refined_content = re.sub(pattern, '', refined_content, flags=re.IGNORECASE | re.MULTILINE)
+            
+            # If content doesn't start with HTML, try to find where HTML starts
+            if not refined_content.strip().startswith('<'):
+                # Find first HTML tag
+                html_match = re.search(r'<[^>]+>', refined_content)
+                if html_match:
+                    refined_content = refined_content[html_match.start():]
+            
+            refined_content = refined_content.strip()
+            
+            # For friendly tone, do an additional check and fix if needed
+            if tone.lower() == 'friendly':
+                # Check if content still has formal language that shouldn't be there
+                formal_words = ['individuals', 'necessitates', 'crucial', 'paramount', 'cultivate', 'strategic', 'trajectory', 'implement', 'ensure', 'facilitate']
+                content_lower = refined_content.lower()
+                found_formal = [word for word in formal_words if word in content_lower]
+                if found_formal:
+                    logger.warning(f"⚠️ Friendly tone content still contains formal words: {found_formal[:3]} - content may need stronger tone enforcement")
+            
+            # Remove citations from refined content if flag is disabled (double-check in case LLM didn't follow instructions)
+            if not include_in_text_citations:
+                refined_content = remove_citations_from_text(refined_content)
+            
+            # Update the section with refined content
+            if section_content_blocks and isinstance(section_content_blocks, list):
+                # Update the first content block with refined content, or create a new one
+                if section_content_blocks:
+                    section_content_blocks[0]['content'] = refined_content
+                else:
+                    section_content_blocks.append({
+                        'content': refined_content,
+                        'content_type': 'paragraph',
+                        'word_count': len(refined_content.split())
+                    })
+                section['content_blocks'] = section_content_blocks
+            else:
+                # Update direct content field
+                section['content'] = refined_content
+            
+            section['refined'] = True
+            section['refined_at'] = datetime.utcnow().isoformat()
             
             refinements.append({
-                'section': section.get('heading', ''),
-                'original_word_count': section.get('word_count', 0),
-                'refined_word_count': len(response.content.split()),
-                'improvements': ['Clarity improved', 'Flow enhanced', 'Tone refined']
+                'section': section_title,
+                'original_word_count': len(original_content.split()),
+                'refined_word_count': len(refined_content.split()),
+                'improvements': ['Clarity improved', 'Flow enhanced', 'Tone refined', 'Citations handled' if not include_in_text_citations else 'Citations preserved']
             })
         
         logger.info(f"Applied {len(refinements)} refinements using {llm_client.config.model}")
+        
+        # Update the result with refined content
+        result['content'] = content
         
         return {
             'refinements': refinements,
@@ -1798,6 +2091,12 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
                 # Try different field names for heading and content
                 heading = section.get('heading') or section.get('title') or section.get('name', '')
                 
+                # Skip references section - it should preserve all citation markers
+                # References section will be added separately at the end
+                if heading and 'reference' in heading.lower():
+                    logger.info(f"Skipping references section in finalization: '{heading}' - will be added separately")
+                    continue
+                
                 # Try different content field names, including content_blocks
                 section_content = (section.get('content') or 
                                  section.get('text') or 
@@ -1810,7 +2109,7 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
                     for block in section_content:
                         if isinstance(block, dict) and 'content' in block:
                             block_content = block['content']
-                            # Remove citations if flag is disabled
+                            # Remove citations if flag is disabled (but not from references section)
                             if not include_in_text_citations:
                                 block_content = remove_citations_from_text(block_content)
                             content_parts.append(block_content)
@@ -1818,7 +2117,7 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
                             content_parts.append(str(block))
                     section_content = '\n\n'.join(content_parts)
                 elif not include_in_text_citations:
-                    # Remove citations from section content if it's a string
+                    # Remove citations from section content if it's a string (but not from references section)
                     section_content = remove_citations_from_text(str(section_content))
                 
                 if heading:

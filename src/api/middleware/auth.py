@@ -33,6 +33,7 @@ class AuthMiddleware:
             return jsonify(ErrorResponse(
                 error="authentication_required",
                 message="API key is required",
+                error_code="AUTHENTICATION_REQUIRED",
                 status=401
             ).dict()), 401
         
@@ -41,6 +42,7 @@ class AuthMiddleware:
             return jsonify(ErrorResponse(
                 error="invalid_api_key",
                 message="Invalid API key",
+                error_code="INVALID_API_KEY",
                 status=401
             ).dict()), 401
         
@@ -65,9 +67,11 @@ class AuthMiddleware:
         config = get_config()
         valid_keys = config.API_KEYS
         
+        # If no API keys are configured, allow all requests (development mode)
+        # In production, API_KEYS should always be configured
         if not valid_keys:
-            logger.warning("No API keys configured")
-            return False
+            logger.warning("No API keys configured - allowing all requests (development mode)")
+            return True
         
         return api_key in valid_keys
     
@@ -89,6 +93,7 @@ class AuthMiddleware:
                 return jsonify(ErrorResponse(
                     error="authentication_required",
                     message="API key is required",
+                    error_code="AUTHENTICATION_REQUIRED",
                     status=401
                 ).dict()), 401
             
