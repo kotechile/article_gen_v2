@@ -14,10 +14,10 @@ CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', REDIS_URL)
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', REDIS_URL)
 
 # Create Celery app
-celery_app = Celery('content_generator_v2')
+celery = Celery('content_generator_v2')
 
 # Configure Celery
-celery_app.conf.update(
+celery.conf.update(
     # Broker and backend
     broker_url=CELERY_BROKER_URL,
     result_backend=CELERY_RESULT_BACKEND,
@@ -73,7 +73,7 @@ celery_app.conf.update(
 )
 
 # Optional: Configure logging
-celery_app.conf.update(
+celery.conf.update(
     worker_log_format='[%(asctime)s: %(levelname)s/%(processName)s] %(message)s',
     worker_task_log_format='[%(asctime)s: %(levelname)s/%(processName)s][%(task_name)s(%(task_id)s)] %(message)s',
 )
@@ -82,4 +82,4 @@ celery_app.conf.update(
 # No need for manual import here which causes circular dependencies.
 
 if __name__ == '__main__':
-    celery_app.start()
+    celery.start()
