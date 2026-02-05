@@ -9,7 +9,7 @@ import os
 import sys
 import logging
 from celery import Celery
-from celery_config import celery_app
+from celery_config import celery
 
 # Import tasks to register them
 from tasks import process_research_task, get_task_status, cancel_task
@@ -28,7 +28,7 @@ def main():
         logger.info("Worker will process tasks from the 'research' queue")
         
         # Start the worker
-        worker = celery_app.Worker(
+        worker = celery.Worker(
             queues=['research', 'monitoring'],
             concurrency=2,  # Adjust based on your system
             loglevel='info',
