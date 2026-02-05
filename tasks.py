@@ -2128,7 +2128,7 @@ def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
     """
     try:
         # Get task result from Celery
-        task_result = celery_app.AsyncResult(task_id)
+        task_result = celery.AsyncResult(task_id)
         
         # Check if task is registered (exists)
         if not task_result.ready() and task_result.state == 'PENDING':
@@ -2262,7 +2262,7 @@ def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
             }
         }
 
-@celery_app.task(name='content_generator_v2.tasks.research.cancel_task')
+@celery.task(name='content_generator_v2.tasks.research.cancel_task')
 def cancel_task(task_id: str) -> bool:
     """
     Cancel a running research task.
@@ -2275,7 +2275,7 @@ def cancel_task(task_id: str) -> bool:
     """
     try:
         # Revoke the task
-        celery_app.control.revoke(task_id, terminate=True)
+        celery.control.revoke(task_id, terminate=True)
         logger.info(f"Task {task_id} cancelled successfully")
         return True
         
@@ -2287,7 +2287,7 @@ def cancel_task(task_id: str) -> bool:
 # Trend Analysis Task
 # -----------------------------------------------------------------------------
 
-@celery_app.task(bind=True, name='content_generator_v2.tasks.trends.process_trend_task')
+@celery.task(bind=True, name='content_generator_v2.tasks.trends.process_trend_task')
 def process_trend_task(self, site_id: str) -> Dict[str, Any]:
     """
     Process trend analysis for a specific site.
