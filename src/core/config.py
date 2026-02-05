@@ -3,7 +3,7 @@ Configuration management for Idea Burst
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, field_validator
 from typing import Optional, List
 import os
 
@@ -104,6 +104,13 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
         case_sensitive = False
         extra = "ignore"  # Allow extra fields but ignore them
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def parse_empty_string_bool(cls, v):
+        if v == "" or v is None:
+            return False
+        return v
 
 # Global settings instance
 settings = Settings()
