@@ -26,6 +26,7 @@ class LLMProvider(Enum):
     """Supported LLM providers."""
     OPENAI = "openai"
     GEMINI = "gemini"
+    GOOGLE = "google" # Alias for GEMINI
     ANTHROPIC = "anthropic"
     DEEPSEEK = "deepseek"
     MOONSHOT = "moonshot"
@@ -85,7 +86,7 @@ class LLMClient:
             except ImportError:
                 raise ImportError("openai package required for OpenAI provider. Install with: pip install openai")
         
-        elif self.config.provider == LLMProvider.GEMINI.value:
+        elif self.config.provider == LLMProvider.GEMINI.value or self.config.provider == LLMProvider.GOOGLE.value:
             try:
                 import google.generativeai as genai
                 genai.configure(api_key=self.config.api_key)
@@ -153,7 +154,7 @@ class LLMClient:
                 
                 if self.config.provider == LLMProvider.OPENAI.value:
                     response = self._generate_openai(messages, model)
-                elif self.config.provider == LLMProvider.GEMINI.value:
+                elif self.config.provider == LLMProvider.GEMINI.value or self.config.provider == LLMProvider.GOOGLE.value:
                     response = self._generate_gemini(messages, model)
                 elif self.config.provider == LLMProvider.ANTHROPIC.value:
                     response = self._generate_anthropic(messages, model)

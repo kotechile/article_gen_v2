@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import html
+import concurrent.futures
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from celery import current_task
@@ -19,11 +20,48 @@ from article_structure_generator import create_article_structure_generator, Arti
 from content_generator import create_content_generator, get_tone_specific_instructions
 from citation_generator import create_citation_generator, CitationStyle
 # Evidence ranking will be done inline
+
 from config import get_config
-from supabase_client import get_linkup_api_key
+from supabase_client import get_linkup_api_key, get_supabase_client, get_llm_api_key
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+def _fetch_api_key_strict(research_data: Dict[str, Any]) -> str:
+    """
+    Strictly fetch API key from Payload or Database.
+    Raises ValueError if not found.
+    """
+    # 1. Payload
+    if research_data.get('api_key'):
+        return research_data['api_key']
+    if research_data.get('llm_key'): # Legacy support
+        return research_data['llm_key']
+        
+    # 2. Database
+    provider = research_data.get('provider')
+    model = research_data.get('model')
+    
+    # Handle case where provider might be missing but model is present (e.g. from partial data)
+    if not model:
+         # Try to parse from llm_model if available
+         llm_model = research_data.get('llm_model', '')
+         if '/' in llm_model:
+             provider, model = llm_model.split('/', 1)
+         else:
+             model = llm_model
+    
+    if not provider and not model:
+        raise ValueError("Cannot fetch API key: Missing provider/model in research_data")
+
+    key = get_llm_api_key(provider, model)
+    
+    if key:
+        return key
+        
+    # 3. Fail
+    raise ValueError(f"Strict Mode: No API key found for {provider}/{model} in Database (llm_providers/api_keys).")
 
 
 def _assess_rag_coverage(
@@ -455,6 +493,57 @@ def _calculate_viral_score(hook: str, excerpt: str, word_count: int) -> float:
     
     return min(100.0, score)
 
+def _calculate_readability_score(text: str) -> float:
+    """
+    Calculate readability score using Flesch Reading Ease formula.
+    206.835 - (1.015 x ASL) - (84.6 x ASW)
+    """
+    if not text:
+        return 0.0
+        
+    import re
+    
+    # Strip HTML tags before calculating readability
+    clean_text = re.sub(r'<[^>]+>', ' ', text)
+    # Replace multiple spaces with single space
+    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+    
+    # Count sentences (split by . ! ?)
+    sentences = [s for s in re.split(r'[.!?]+', clean_text) if s.strip()]
+    num_sentences = len(sentences) or 1
+    
+    # Count words
+    words = [w for w in re.findall(r'\b\w+\b', clean_text)]
+    num_words = len(words) or 1
+    
+    # Count syllables (heuristic)
+    def count_syllables(word):
+        word = word.lower()
+        count = 0
+        vowels = "aeiouy"
+        if word[0] in vowels:
+            count += 1
+        for i in range(1, len(word)):
+            if word[i] in vowels and word[i - 1] not in vowels:
+                count += 1
+        if word.endswith("e"):
+            count -= 1
+        if count <= 0:
+            count = 1
+        return count
+        
+    num_syllables = sum(count_syllables(w) for w in words)
+    
+    # Calculate averages
+    asl = num_words / num_sentences
+    asw = num_syllables / num_words
+    
+    # Flesch Reading Ease Formula
+    score = 206.835 - (1.015 * asl) - (84.6 * asw)
+    
+    # Clamp between 0 and 100
+    return max(0.0, min(100.0, score))
+
 def _generate_wp_tag_ids(keywords: str) -> List[str]:
     """Generate WordPress tag IDs from keywords (returns keyword strings for now)."""
     if not keywords:
@@ -488,8 +577,8 @@ def _create_citation_links(html_content: str, citations: list) -> str:
             'domain': citation.get('domain', '')
         }
     
-    # Regular expression to find citation references like [^1], [^2], etc.
-    citation_regex = re.compile(r'\[\^(\d+)\]')
+    # Regular expression to find citation references like [1], [2], etc.
+    citation_regex = re.compile(r'\[(\d+)\]')
     
     def replace_citation(match):
         citation_number = match.group(1)
@@ -508,7 +597,7 @@ def _create_citation_links(html_content: str, citations: list) -> str:
                        class="citation-link"
                        style="color: #0066cc; text-decoration: none; font-weight: 500; border-bottom: 1px dotted #0066cc;"
                        onmouseover="this.style.textDecoration='underline'"
-                       onmouseout="this.style.textDecoration='none'">[^{citation_number}]</a>'''
+                       onmouseout="this.style.textDecoration='none'">[{citation_number}]</a>'''
         
         # If no valid URL, return the original reference
         return match.group(0)
@@ -544,14 +633,42 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
     task_id = self.request.id
     logger.info(f"Starting research task {task_id} with data: {research_data}")
     
+    # Update DB status to 'Generating' immediately so frontend persists state
+    article_id = research_data.get('article_id')
+    if article_id:
+        try:
+            logger.info(f"Attempting to set initial status to 'Generating' for article {article_id}")
+            supabase = get_supabase_client()
+            if supabase:
+                # Update status
+                supabase.table('Titles').update({'status': 'Generating'}).eq('id', article_id).execute()
+                logger.info(f"Successfully set initial status to 'Generating' for article {article_id}")
+                
+                # Fetch content_outline if available
+                logger.info(f"Fetching content_outline for article {article_id}")
+                response = supabase.table('Titles').select('content_outline').eq('id', article_id).execute()
+                if response.data and len(response.data) > 0:
+                    content_outline = response.data[0].get('content_outline')
+                    if content_outline:
+                        logger.info(f"Found content_outline for article {article_id}: {str(content_outline)[:100]}...")
+                        research_data['content_outline'] = content_outline
+                    else:
+                        logger.info(f"No content_outline found in DB for article {article_id}")
+                else:
+                    logger.warning(f"Failed to fetch article row for {article_id}")
+            else:
+                logger.warning("Supabase client not available for initial status update")
+        except Exception as e:
+            logger.error(f"Failed to set initial status or fetch outline: {e}")
+    
     try:
         # Update task status to PROGRESS
         self.update_state(
             state=TASK_STATUS['PROGRESS'],
             meta={
                 'current_stage': 'INITIALIZED',
-                'progress': 0,
-                'message': 'Initializing research task...'
+                'progress': 5,
+                'message': 'Preparing research parameters...'
             }
         )
         
@@ -635,7 +752,7 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
             'REFINEMENT',
             90,
             'Refining and optimizing article...',
-            _refine_article
+            lambda r: _refine_article(r, task_instance=self)
         )
         
         # Stage 8: Finalization
@@ -657,6 +774,78 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
             'message': 'Article generation completed successfully!'
         })
         
+        # Save to Supabase if article_id is present
+        article_id = research_data.get('article_id')
+        if article_id:
+            try:
+                supabase = get_supabase_client()
+                if supabase:
+                    # extract the final article content
+                    final_article = result.get('article') or {}
+                    if not final_article and result.get('content'):
+                         # Try to construct it if it's not in 'article' key (tasks structure might vary)
+                         # Based on _finalize_article, it seems 'article' key is supposed to be set?
+                         # Wait, _finalize_article returns a dict with keys. 
+                         # Let's check _process_stage calls.
+                         # Stage 8: _finalize_article returns result.update(stage_result)
+                         # _finalize_article DOES NOT return 'article' key directly in the snippet I saw?
+                         # Let's re-read _finalize_article return value.
+                         pass
+
+                    # Actually, let's look at what _finalize_article returns. 
+                    # It returns a dict that updates 'result'.
+                    # I need to know the keys.
+                    # Assuming standard Noodl structure or similar.
+                    # Let's rely on what `get_research_result` in app.py uses:
+                    # final_article = result.get('final_article', {})
+                    
+                    # So I should check if 'final_article' is in result.
+                    final_content = result.get('final_article') or result.get('article') or {}
+                    
+                    logger.info(f"Preparing Supabase update for article {article_id}")
+                    logger.info(f"Final content keys present: {list(final_content.keys())}")
+                    
+                    article_text = final_content.get('articleText', '')
+                    html_article = final_content.get('htmlArticle', '')
+                    
+                    logger.info(f"Content lengths - Text: {len(article_text)}, HTML: {len(html_article)}")
+                    
+                    import json
+                    
+                    # Serialize citations for storage
+                    citations_json = json.dumps(final_content.get('citations', []))
+                    
+                    updates = {
+                        'status': 'Created',
+                        'articleText': article_text,
+                        'htmlArticle': html_article,
+                        'seo_optimization_score': int(float(final_content.get('seo_optimization_score', 0))),
+                        'readability_score': int(float(final_content.get('readability_score', 0))),
+                        'citations': citations_json,  # Store citations as JSON for Reference Selector
+                        'include_in_text_citations': True,  # Default to showing in-text citations
+                        'deck': final_content.get('deck', ''),
+                        'hook': final_content.get('hook', ''),
+                        'thesis': final_content.get('thesis', ''),
+                        'excerpt': final_content.get('excerpt', ''),
+                        # Add other fields as needed
+                    }
+                    
+                    response = supabase.table('Titles').update(updates).eq('id', article_id).execute()
+                    
+                    if response.data:
+                        logger.info(f"Updated Supabase Titles for article {article_id}. Rows modified: {len(response.data)}")
+                    else:
+                        logger.warning(f"Supabase update returned success but NO rows were modified for {article_id}. Potential RLS or ID mismatch.")
+                        
+            except Exception as e:
+                logger.error(f"Failed to update Supabase for article {article_id}: {str(e)}")
+                # Try to update status to Failed so frontend doesn't hang
+                try:
+                    supabase.table('Titles').update({'status': 'Failed'}).eq('id', article_id).execute()
+                except:
+                    pass
+                raise e # Re-raise to trigger outer failure handler
+
         logger.info(f"Research task {task_id} completed successfully")
         return result
         
@@ -673,6 +862,18 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                 'message': f'Task failed: {str(e)}'
             }
         )
+        
+        # Ensure Supabase status is updated to Failed
+        try:
+             article_id = result.get('article_id') or result.get('article', {}).get('id')
+             if article_id:
+                  supabase = get_supabase_client()
+                  if supabase:
+                       supabase.table('Titles').update({'status': 'Failed'}).eq('id', article_id).execute()
+        except:
+             pass
+
+        return result
         
         result.update({
             'status': TASK_STATUS['FAILURE'],
@@ -700,6 +901,7 @@ def _process_stage(self, result: Dict[str, Any], stage: str, progress: int,
         Updated result dictionary
     """
     try:
+        logger.info(f"🚀 Starting stage {stage} ({progress}%) - {message} for task {result['task_id']}")
         # Update task status
         self.update_state(
             state=TASK_STATUS['PROGRESS'],
@@ -717,8 +919,13 @@ def _process_stage(self, result: Dict[str, Any], stage: str, progress: int,
             'message': message
         })
         
-        # Execute stage function (placeholder for now)
-        stage_result = stage_function(result)
+        # Execute stage function
+        try:
+            # Attempt to pass task_instance for granular updates
+            stage_result = stage_function(result, task_instance=self)
+        except TypeError:
+            # Fallback for functions that don't accept task_instance yet
+            stage_result = stage_function(result)
         result.update(stage_result)
         
         logger.info(f"Completed stage {stage} for task {result['task_id']}")
@@ -729,16 +936,26 @@ def _process_stage(self, result: Dict[str, Any], stage: str, progress: int,
         raise e
 
 # Stage functions with LLM integration
-def _extract_claims(result: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_claims(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
     """Extract claims from research brief using LLM."""
     try:
+        # Update sub-progress
+        if task_instance:
+            task_instance.update_state(
+                state=TASK_STATUS['PROGRESS'],
+                meta={
+                    'current_stage': 'CLAIM_EXTRACTION',
+                    'progress': 12,
+                    'message': 'Analyzing research brief to identify key claims...'
+                }
+            )
         research_data = result.get('research_data', {})
         brief = research_data.get('brief', '')
         keywords = research_data.get('keywords', '')
         
         # Create LLM client
-        # Support both llm_key (legacy) and api_key (normalized)
-        api_key = research_data.get('api_key') or research_data.get('llm_key', '')
+        # Use strict API key retrieval from Payload or Database
+        api_key = _fetch_api_key_strict(research_data)
         llm_client = create_llm_client(
             provider=research_data.get('provider', 'openai'),
             model=research_data.get('model', 'gpt-4'),
@@ -786,9 +1003,19 @@ def _extract_claims(result: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Error in claim extraction: {str(e)}")
         return {'claims': [], 'stage_data': {'extracted_claims': 0, 'error': str(e)}}
 
-def _collect_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
+def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
     """Collect evidence from RAG and web search."""
     try:
+        # Update sub-progress
+        if task_instance:
+            task_instance.update_state(
+                state=TASK_STATUS['PROGRESS'],
+                meta={
+                    'current_stage': 'EVIDENCE_COLLECTION',
+                    'progress': 26,
+                    'message': 'Searching internal knowledge base (RAG)...'
+                }
+            )
         logger.info("🔍 Starting evidence collection stage...")
         research_data = result.get('research_data', {})
         claims = result.get('claims', [])
@@ -806,13 +1033,22 @@ def _collect_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
         # Collect evidence from RAG if enabled and endpoint is provided
         rag_enabled = research_data.get('rag_enabled', False)
         if rag_enabled and research_data.get('rag_endpoint'):
+            # Update sub-progress
+            if task_instance:
+                task_instance.update_state(
+                    state=TASK_STATUS['PROGRESS'],
+                    meta={
+                        'current_stage': 'EVIDENCE_COLLECTION',
+                        'progress': 28,
+                        'message': 'Searching internal knowledge base (RAG)...'
+                    }
+                )
             logger.info("🔍 RAG search enabled - collecting evidence from RAG system")
             try:
                 # Use provided collection - no default, require explicit collection name
                 rag_collection = research_data.get('rag_collection') or research_data.get('rag_collection_name')
                 if not rag_collection:
                     logger.warning("⚠️ RAG enabled but no collection specified - will proceed with global query if endpoint supports it")
-                    # Try to use endpoint without collection if it supports default collection
                     # For now, skip RAG if no collection is provided
                     rag_collection = None
                 
@@ -900,6 +1136,25 @@ def _collect_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
         config = get_config()
         optimization_config = config.linkup_optimization
         
+        # Assess RAG coverage to determine if web search is needed
+        # Update sub-progress
+        if task_instance:
+            task_instance.update_state(
+                state=TASK_STATUS['PROGRESS'],
+                meta={
+                    'current_stage': 'EVIDENCE_COLLECTION',
+                    'progress': 30,
+                    'message': 'Analyzing RAG coverage and determining search strategy...'
+                }
+            )
+            
+        coverage = _assess_rag_coverage(
+            evidence, 
+            keywords=keywords,
+            min_sources=optimization_config.rag_coverage_min_sources,
+            min_relevance=optimization_config.rag_coverage_min_relevance
+        )
+        
         # Only assess RAG coverage if RAG was enabled and we have evidence with content
         # If RAG is disabled or has no valid evidence, we should always use Linkup (if claims_research_enabled)
         if rag_enabled and len(rag_evidence) > 0:
@@ -967,6 +1222,7 @@ def _collect_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
                 claims_research_enabled = True
                 logger.info("RAG coverage insufficient - enabling Linkup as fallback (claims_research not explicitly disabled)")
         
+        web_evidence = []
         if claims_research_enabled:
             # Determine if Linkup search is needed based on RAG coverage
             request_depth = research_data.get('depth', 'standard')
@@ -977,6 +1233,16 @@ def _collect_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
                 logger.info(f"⏭️  Skipping Linkup search - RAG coverage is sufficient "
                           f"({rag_coverage['source_count']} sources, relevance: {rag_coverage['avg_relevance']:.2f})")
             else:
+                # Update sub-progress
+                if task_instance:
+                    task_instance.update_state(
+                        state=TASK_STATUS['PROGRESS'],
+                        meta={
+                            'current_stage': 'EVIDENCE_COLLECTION',
+                            'progress': 33,
+                            'message': 'Searching web for supplemental evidence...'
+                        }
+                    )
                 logger.info("🔍 Web search needed - collecting evidence from Linkup API")
                 try:
                     # Get Linkup API key from Supabase (all API keys are stored in Supabase)
@@ -1010,14 +1276,14 @@ def _collect_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
                         linkup_response = linkup_client.search(SearchQuery(query=normalized_query, depth=initial_depth))
 
                         # Helper for deduplication
-                        def _add_linkup_results(resp):
-                            nonlocal web_sources, evidence
-                            seen_urls = {ev.get('source') for ev in evidence if ev.get('source_type') == 'web'}
+                        def _add_linkup_results(resp, target_list):
+                            nonlocal web_sources
+                            seen_urls = {ev.get('source') for ev in evidence + target_list if ev.get('source_type') == 'web'}
                             added = 0
                             for result in resp.results:
                                 if result.url and result.url in seen_urls:
                                     continue
-                                evidence.append({
+                                target_list.append({
                                     "source": result.url,
                                     "content": result.content or result.snippet,
                                     "relevance_score": result.relevance_score,
@@ -1031,7 +1297,7 @@ def _collect_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
                             return added
 
                         if linkup_response.success:
-                            added_std = _add_linkup_results(linkup_response)
+                            added_std = _add_linkup_results(linkup_response, web_evidence)
                             logger.info(f"Linkup ({initial_depth}) returned {len(linkup_response.results)} results, added {added_std} new (deduped)")
 
                             # Escalate to deep only if RAG is insufficient AND standard results are below threshold
@@ -1046,7 +1312,7 @@ def _collect_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
                                 logger.info("🚀 Escalating to Linkup deep search: standard results below threshold and RAG insufficient")
                                 deep_resp = linkup_client.search(SearchQuery(query=normalized_query, depth='deep'))
                                 if deep_resp.success:
-                                    added_deep = _add_linkup_results(deep_resp)
+                                    added_deep = _add_linkup_results(deep_resp, web_evidence)
                                     logger.info(f"Linkup (deep) returned {len(deep_resp.results)} results, added {added_deep} new (deduped)")
                                 else:
                                     logger.warning(f"Linkup deep search failed: {deep_resp.error}")
@@ -1058,6 +1324,31 @@ def _collect_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
                     logger.info("Continuing without web search to prevent worker crashes")
         else:
             logger.info("Web search disabled by flag, skipping web search")
+        
+        # Deduplicate and combine evidence
+        # Update sub-progress
+        if task_instance:
+            task_instance.update_state(
+                state=TASK_STATUS['PROGRESS'],
+                meta={
+                    'current_stage': 'EVIDENCE_COLLECTION',
+                    'progress': 35,
+                    'message': 'Analyzing search results...'
+                }
+            )
+        
+        combined_evidence = evidence + web_evidence
+        # Simple content-based deduplication
+        seen_content = set()
+        unique_evidence = []
+        for item in combined_evidence:
+            content_hash = hash(item.get('content', '')[:100])
+            if content_hash not in seen_content:
+                seen_content.add(content_hash)
+                unique_evidence.append(item)
+        
+        evidence = unique_evidence
+        logger.info(f"📈 Total combined evidence items: {len(evidence)} (from RAG and Web)")
         
         # If no evidence collected, continue without evidence instead of using mock
         if not evidence:
@@ -1078,9 +1369,19 @@ def _collect_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Error in evidence collection: {str(e)}")
         return {'evidence': [], 'stage_data': {'rag_sources': 0, 'web_sources': 0, 'error': str(e)}}
 
-def _rank_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
+def _rank_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
     """Rank and assess evidence quality using LLM."""
     try:
+        # Update sub-progress
+        if task_instance:
+            task_instance.update_state(
+                state=TASK_STATUS['PROGRESS'],
+                meta={
+                    'current_stage': 'EVIDENCE_RANKING',
+                    'progress': 42,
+                    'message': 'Evaluating evidence relevance and credibility...'
+                }
+            )
         logger.info("🔍 Starting evidence ranking stage...")
         research_data = result.get('research_data', {})
         evidence = result.get('evidence', [])
@@ -1114,6 +1415,17 @@ def _rank_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
         # Sort by relevance score
         ranked_evidence.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
         
+        # Update sub-progress
+        if task_instance:
+            task_instance.update_state(
+                state=TASK_STATUS['PROGRESS'],
+                meta={
+                    'current_stage': 'EVIDENCE_RANKING',
+                    'progress': 45,
+                    'message': 'Synthesizing evidence for content generation...'
+                }
+            )
+            
         logger.info(f"✅ Ranked {len(ranked_evidence)} evidence sources")
         
         return {
@@ -1129,9 +1441,19 @@ def _rank_evidence(result: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Error in evidence ranking: {str(e)}")
         return {'ranked_evidence': [], 'stage_data': {'ranked_sources': 0, 'error': str(e)}}
 
-def _generate_structure(result: Dict[str, Any]) -> Dict[str, Any]:
+def _generate_structure(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
     """Generate article structure using comprehensive structure generator."""
     try:
+        # Update sub-progress
+        if task_instance:
+            task_instance.update_state(
+                state=TASK_STATUS['PROGRESS'],
+                meta={
+                    'current_stage': 'STRUCTURE_GENERATION',
+                    'progress': 58,
+                    'message': 'Refining article outline and hierarchy...'
+                }
+            )
         research_data = result.get('research_data', {})
         claims = result.get('claims', [])
         evidence = result.get('evidence', [])
@@ -1145,8 +1467,8 @@ def _generate_structure(result: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("🔄 Starting real LLM-powered structure generation...")
         
         # Get LLM client and config
-        # Support both llm_key (legacy) and api_key (normalized)
-        api_key = research_data.get('api_key') or research_data.get('llm_key', '')
+        # Use strict API key retrieval from Payload or Database
+        api_key = _fetch_api_key_strict(research_data)
         llm_client = create_llm_client(
             provider=research_data.get('provider', 'gemini'),
             model=research_data.get('model', 'gemini-2.5-flash'),
@@ -1155,9 +1477,8 @@ def _generate_structure(result: Dict[str, Any]) -> Dict[str, Any]:
         )
         config = get_config()
         
-        # Generate structure using the article structure generator
-        # Create article structure generator with verbalized sampling enabled
-        use_verbalized_sampling = research_data.get('use_verbalized_sampling', True)
+        # Generate structure using the article structure generator (Verbalized sampling explicitly disabled)
+        use_verbalized_sampling = False
         structure_generator = create_article_structure_generator(llm_client, use_verbalized_sampling)
         structure = structure_generator.generate_structure(
             research_data=research_data,
@@ -1169,6 +1490,7 @@ def _generate_structure(result: Dict[str, Any]) -> Dict[str, Any]:
         structure_dict = {
             'title': structure.title,
             'hook': structure.hook,
+            'deck': structure.deck,
             'excerpt': structure.excerpt,
             'thesis': structure.thesis,
             'meta_description': structure.meta_description,
@@ -1205,6 +1527,7 @@ def _generate_structure(result: Dict[str, Any]) -> Dict[str, Any]:
             'structure': {
                 'title': 'Generated Article Title',
                 'hook': 'Generated hook',
+                'deck': 'Generated deck teaser',
                 'excerpt': 'Generated excerpt',
                 'thesis': 'Generated thesis',
                 'meta_description': 'Generated meta description for SEO optimization.',
@@ -1427,8 +1750,8 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
         # Ensure research_data has the correct tone for downstream stages
         research_data['tone'] = final_tone
         
-        # Support both llm_key (legacy) and api_key (normalized)
-        api_key = research_data.get('api_key') or research_data.get('llm_key', '')
+        # Use strict API key retrieval from Payload or Database
+        api_key = _fetch_api_key_strict(research_data)
         llm_client = create_llm_client(
             provider=research_data.get('provider', 'openai'),
             model=research_data.get('model', 'gpt-4'),
@@ -1437,82 +1760,50 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
             timeout=180  # Increased timeout for content generation (3 minutes)
         )
         
-        # Create content generator with verbalized sampling enabled
-        use_verbalized_sampling = research_data.get('use_verbalized_sampling', True)
+        # Create content generator
+        use_verbalized_sampling = False
         content_generator = create_content_generator(llm_client, use_verbalized_sampling)
         
-        # Generate content for each section
         sections = structure.get('sections', [])
-        generated_sections = []
-        previous_sections = []
         total_sections = len(sections)
         
-        # Track all section-specific evidence for aggregation
-        all_section_evidence = []
-        seen_urls = {ev.get('source') for ev in evidence if ev.get('source')}  # Track URLs to avoid duplicates
-        
-        for section_index, section_outline in enumerate(sections):
+        # Helper function for parallel processing of a single section
+        def process_single_section(idx, section_outline):
             section_title = section_outline.get('title', 'Unknown Section')
+            logger.info(f"🧵 Starting parallel generation for section {idx + 1}/{total_sections}: {section_title}")
             
-            # Update status to show which section is being generated
-            if task_instance:
-                section_progress = 70 + int((section_index / total_sections) * 10)  # 70-80% for content generation
-                task_instance.update_state(
-                    state=TASK_STATUS['PROGRESS'],
-                    meta={
-                        'current_stage': 'CONTENT_GENERATION',
-                        'progress': section_progress,
-                        'message': f'Generating section: {section_title}...'
-                    }
-                )
-                # Also update result for consistency
-                result.update({
-                    'current_stage': 'CONTENT_GENERATION',
-                    'progress': section_progress,
-                    'message': f'Generating section: {section_title}...'
-                })
-            
-            logger.info(f"Generating content for section {section_index + 1}/{total_sections}: {section_title}")
             # Start with global evidence
             section_evidence = evidence.copy()
             
-            # Collect section-specific evidence for substantive sections (not intro/conclusion)
-            # This includes both RAG (if enabled) and Linkup (if claims_research_enabled and RAG insufficient)
-            section_title_lower = section_outline.get('title', '').lower()
+            # Collect section-specific evidence
+            section_title_lower = section_title.lower()
             claims_research_enabled = research_data.get('claims_research_enabled', True)
             rag_enabled = research_data.get('rag_enabled', False)
             
-            # Collect section-specific evidence if:
-            # 1. RAG is enabled (will try RAG first, then Linkup if needed)
-            # 2. OR claims_research_enabled is true (will use Linkup directly if RAG not enabled)
             section_specific_evidence = []
             if section_title_lower not in ['introduction', 'conclusion', 'overview', 'summary']:
-                if rag_enabled and research_data.get('rag_endpoint'):
-                    logger.info(f"🔍 Collecting section-specific evidence for: {section_title} (RAG enabled, Linkup will be used if needed)")
+                if (rag_enabled and research_data.get('rag_endpoint')) or claims_research_enabled:
                     section_specific_evidence = _collect_section_evidence(section_outline, research_data)
                     section_evidence.extend(section_specific_evidence)
-                elif claims_research_enabled:
-                    logger.info(f"🔍 Collecting section-specific evidence for: {section_title} (claims_research enabled, using Linkup)")
-                    section_specific_evidence = _collect_section_evidence(section_outline, research_data)
-                    section_evidence.extend(section_specific_evidence)
-                else:
-                    logger.info(f"📝 Using global evidence only for: {section_title} (no section-specific research enabled)")
-            else:
-                logger.info(f"📝 Using global evidence only for: {section_title} (intro/conclusion section)")
             
-            # Aggregate section-specific evidence for later citation generation
-            for ev in section_specific_evidence:
-                ev_url = ev.get('source') or ev.get('url', '')
-                if ev_url and ev_url not in seen_urls:
-                    all_section_evidence.append(ev)
-                    seen_urls.add(ev_url)
-            
-            # Generate content for this section with enhanced evidence
+            # Prepare mock "previous sections" context for the parallel calls
+            # We use the structure to provide titles and targets since actual content isn't ready
+            mock_previous_sections = []
+            for i in range(max(0, idx - 2), idx):
+                prev_outline = sections[i]
+                mock_prev = type('MockSection', (), {
+                    'title': prev_outline.get('title'),
+                    'section_order': prev_outline.get('order', i + 1),
+                    'total_word_count': prev_outline.get('word_count_target', 300)
+                })
+                mock_previous_sections.append(mock_prev)
+
+            # Generate content
             section_content = content_generator.generate_section_content(
-                section_outline, research_data, claims, section_evidence, previous_sections
+                section_outline, research_data, claims, section_evidence, mock_previous_sections
             )
             
-            # Convert to dictionary format for storage
+            # Convert to dictionary format
             section_dict = {
                 'title': section_content.title,
                 'subtitle': section_content.subtitle,
@@ -1532,27 +1823,68 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
                 'section_order': section_content.section_order
             }
             
-            generated_sections.append(section_dict)
-            previous_sections.append(section_content)
+            logger.info(f"✅ Finished parallel generation for section {idx + 1}: {section_title}")
+            return idx, section_dict, section_specific_evidence, section_content
+
+        # Run sections in parallel
+        generated_sections_map = {}
+        all_section_evidence = []
+        seen_urls = {ev.get('source') for ev in evidence if ev.get('source')}
         
-        # Aggregate all evidence: global + section-specific
+        max_workers = min(total_sections, 5) # Cap at 5 workers to avoid resource exhaustion
+        logger.info(f"🚀 Launching parallel content generation with {max_workers} workers for {total_sections} sections")
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_section = {executor.submit(process_single_section, i, section): i for i, section in enumerate(sections)}
+            
+            completed_count = 0
+            for future in concurrent.futures.as_completed(future_to_section):
+                idx = future_to_section[future]
+                try:
+                    idx, section_dict, section_specific_evidence, section_content = future.result()
+                    generated_sections_map[idx] = section_dict
+                    
+                    # Track evidence
+                    for ev in section_specific_evidence:
+                        ev_url = ev.get('source') or ev.get('url', '')
+                        if ev_url and ev_url not in seen_urls:
+                            all_section_evidence.append(ev)
+                            seen_urls.add(ev_url)
+                    
+                    completed_count += 1
+                    # Update global progress
+                    if task_instance:
+                        section_progress = 70 + int((completed_count / total_sections) * 10)
+                        task_instance.update_state(
+                            state=TASK_STATUS['PROGRESS'],
+                            meta={
+                                'current_stage': 'CONTENT_GENERATION',
+                                'progress': section_progress,
+                                'message': f'Completed {completed_count}/{total_sections} sections...'
+                            }
+                        )
+                except Exception as e:
+                    logger.error(f"Error generating section {idx + 1}: {str(e)}")
+                    # We continue and provide a fallback if needed, or raise later if critical
+
+        # Sort generated sections back to original order
+        generated_sections = [generated_sections_map[i] for i in range(total_sections) if i in generated_sections_map]
+        
+        # Aggregate all evidence
         aggregated_evidence = evidence.copy()
         aggregated_evidence.extend(all_section_evidence)
-        
-        logger.info(f"📊 Aggregated {len(aggregated_evidence)} total evidence items (global: {len(evidence)}, section-specific: {len(all_section_evidence)})")
         
         # Calculate total statistics
         total_words = sum(s.get('total_word_count', 0) for s in generated_sections)
         total_citations = sum(len(s.get('citations', [])) for s in generated_sections)
         
-        logger.info(f"Generated content for {len(generated_sections)} sections with {total_words} total words using {llm_client.config.model}")
+        logger.info(f"Generated content for {len(generated_sections)} sections with {total_words} total words in parallel")
         
         return {
             'content': {
                 'sections': generated_sections,
                 'word_count': total_words
             },
-            # Add aggregated evidence to result so citation generation can use it
             'aggregated_evidence': aggregated_evidence,
             'stage_data': {
                 'sections_written': len(generated_sections),
@@ -1560,7 +1892,9 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
                 'total_citations': total_citations,
                 'average_words_per_section': total_words // len(generated_sections) if generated_sections else 0,
                 'llm_model': llm_client.config.model,
-                'aggregated_evidence_count': len(aggregated_evidence)
+                'aggregated_evidence_count': len(aggregated_evidence),
+                'parallel_execution': True,
+                'max_workers': max_workers
             }
         }
         
@@ -1615,8 +1949,8 @@ def _generate_citations(result: Dict[str, Any]) -> Dict[str, Any]:
                     if content_preview:
                         # Extract first sentence or meaningful phrase
                         first_sentence = content_preview.split('.')[0]
-                        if len(first_sentence) > 50:
-                            title = first_sentence[:50] + "..."
+                        if len(first_sentence) > 150:
+                            title = first_sentence[:150] + "..."
                         else:
                             title = first_sentence
                     else:
@@ -1658,8 +1992,8 @@ def _generate_citations(result: Dict[str, Any]) -> Dict[str, Any]:
                     content_preview = processed_ev.get('content', '')[:100] if processed_ev.get('content') else ''
                     if content_preview:
                         first_sentence = content_preview.split('.')[0]
-                        if len(first_sentence) > 50:
-                            processed_ev['title'] = first_sentence[:50] + "..."
+                        if len(first_sentence) > 150:
+                            processed_ev['title'] = first_sentence[:150] + "..."
                         else:
                             processed_ev['title'] = first_sentence
                     else:
@@ -1778,7 +2112,7 @@ Return ONLY the refined HTML content - no explanations, no meta-commentary, no "
 Original content:
 {original_content}"""
 
-def _refine_article(result: Dict[str, Any]) -> Dict[str, Any]:
+def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any]:
     """Refine and optimize article using LLM."""
     try:
         research_data = result.get('research_data', {})
@@ -1803,7 +2137,8 @@ def _refine_article(result: Dict[str, Any]) -> Dict[str, Any]:
             model=research_data.get('model', 'gpt-4'),
             api_key=api_key,
             temperature=0.5,
-            timeout=180  # Increased timeout for content refinement (3 minutes)
+            timeout=60,  # Reduced timeout to prevents hangs (60s per section)
+            max_retries=1 # Reduce retries to fail fast
         )
         
         # Get tone-specific instructions for refinement
@@ -1815,12 +2150,12 @@ def _refine_article(result: Dict[str, Any]) -> Dict[str, Any]:
         
         # Helper function to remove citation references
         def remove_citations_from_text(text: str) -> str:
-            """Remove citation references like [^1], [^2] from text."""
+            """Remove citation references like [1], [2] from text."""
             if not text or include_in_text_citations:
                 return text
             import re
-            # Remove citation references like [^1], [^2], [^3], etc.
-            citation_pattern = r'\[\^\d+\]'
+            # Remove citation references like [1], [2], [3], etc.
+            citation_pattern = r'\[\d+\]'
             text = re.sub(citation_pattern, '', text)
             # Clean up any extra spaces left behind
             text = re.sub(r'\s+', ' ', text)
@@ -1829,7 +2164,33 @@ def _refine_article(result: Dict[str, Any]) -> Dict[str, Any]:
         
         # Refine each section
         refinements = []
-        for section in content.get('sections', []):
+        sections = content.get('sections', [])
+        total_sections = len(sections)
+        failed_sections = 0
+        
+        for i, section in enumerate(sections):
+            # Update progress if task instance is available
+            if task_instance:
+                try:
+                    current_progress = 90 + int((i / total_sections) * 5)  # 90-95%
+                    section_title_display = section.get('title', f'Section {i+1}')
+                    task_instance.update_state(
+                        state='PROGRESS',
+                        meta={
+                            'current_stage': 'REFINEMENT',
+                            'progress': current_progress,
+                            'message': f"Refining section {i+1} of {total_sections}: {section_title_display}..."
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update task state during refinement: {e}")
+
+            # Circuit breaker: Stop refinement if 2 or more sections failed to avoid hanging forever
+            if failed_sections >= 2:
+                logger.warning(f"⚠️ Refinement circuit breaker triggered! {failed_sections} sections failed. Skipping remaining sections to ensure article completion.")
+                logger.warning("Breaking refinement loop - proceeding to cleanup and finalization.")
+                break
+
             # Skip references section - it should not be refined and citations should be preserved there
             section_title = section.get('title', '') or section.get('heading', '')
             if section_title and 'reference' in section_title.lower():
@@ -1859,7 +2220,7 @@ def _refine_article(result: Dict[str, Any]) -> Dict[str, Any]:
                 citation_instructions = """
                     
                     CRITICAL - CITATION REMOVAL:
-                    - Remove ALL in-text citation references like [^1], [^2], [^3], etc. from the content
+                    - Remove ALL in-text citation references like [1], [2], [3], etc. from the content
                     - Do NOT include any citation markers in the refined content
                     - The references section will be preserved separately, so remove all inline citations
                     - Clean up any spaces left after removing citations
@@ -1868,7 +2229,7 @@ def _refine_article(result: Dict[str, Any]) -> Dict[str, Any]:
                 citation_instructions = """
                     
                     CITATION HANDLING:
-                    - Preserve all in-text citation references like [^1], [^2], [^3], etc. as-is
+                    - Preserve all in-text citation references like [1], [2], [3], etc. as-is
                     - Do not remove or modify citation markers"""
             
             # Add friendly tone specific checks if needed
@@ -1956,8 +2317,13 @@ def _refine_article(result: Dict[str, Any]) -> Dict[str, Any]:
                 }
             ]
             
-            response = llm_client.generate(messages)
-            refined_content = response.content.strip()
+            try:
+                response = llm_client.generate(messages)
+                refined_content = response.content.strip()
+            except Exception as e:
+                logger.error(f"Failed to refine section '{section_title}': {str(e)}")
+                failed_sections += 1
+                continue
             
             # Remove any meta-commentary the LLM might have added
             # Remove common LLM prefixes like "Here's the refined content", "optimized for X tone", etc.
@@ -2067,12 +2433,12 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
         
         # Function to remove citation references if needed
         def remove_citations_from_text(text: str) -> str:
-            """Remove citation references like [^1], [^2] from text."""
+            """Remove citation references like [1], [2] from text."""
             if not text or include_in_text_citations:
                 return text
             import re
-            # Remove citation references like [^1], [^2], [^3], etc.
-            citation_pattern = r'\[\^\d+\]'
+            # Remove citation references like [1], [2], [3], etc.
+            citation_pattern = r'\[\d+\]'
             text = re.sub(citation_pattern, '', text)
             # Clean up any extra spaces left behind
             text = re.sub(r'\s+', ' ', text)
@@ -2129,11 +2495,12 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
                     logger.warning(f"Finalization debug - No content found for section '{heading}'")
         
         # If still empty, create a basic structure
-        if not full_content.strip():
-            full_content = f"<h1>{structure.get('title', 'Generated Article')}</h1>\n\n"
-            full_content += "<p>Content generation completed successfully.</p>\n\n"
-            full_content += f"<p>Word count: {content.get('word_count', 0)}</p>\n"
-            full_content += f"<p>Sections: {len(sections)}</p>\n"
+        # If still empty, raise an error - do NOT create fake success message
+        # If still empty or very short (just headings), raise an error
+        current_word_count = content.get('word_count', 0)
+        if not full_content.strip() or (current_word_count < 50 and len(sections) > 0):
+            logger.error(f"Finalization failed: Content too short ({current_word_count} words)")
+            raise ValueError(f"Content generation failed: Produced only {current_word_count} words")
         
         # Create clickable citation links only if in-text citations are enabled
         if include_in_text_citations:
@@ -2159,10 +2526,9 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
                 author = citation.get('author', '')
                 source_type = citation.get('source_type', 'unknown')
                 publication_date = citation.get('publication_date', '')
-                publisher = citation.get('publisher', '')
                 
-                # Format the reference with proper APA style
-                references_section += f"<p><strong>[^{i}]</strong> "
+                # Format the reference with proper style
+                references_section += f"<p><strong>[{i}]</strong> "
                 
                 if author and author != "Unknown Author":
                     references_section += f"{author}"
@@ -2184,14 +2550,6 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
                 else:
                     references_section += f"<em>{title}</em>"
                 
-                if publisher and publisher != "Knowledge Base":
-                    references_section += f". {publisher}"
-                elif source_type == 'rag':
-                    references_section += ". Internal Knowledge Base"
-                
-                if source_type != 'unknown':
-                    references_section += f" [{source_type.upper()}]"
-                
                 references_section += ".</p>\n"
         elif evidence_for_references and len(evidence_for_references) > 0:
             # No citations but we have evidence - generate references from evidence
@@ -2206,10 +2564,9 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
                 author = ev.get('author', '')
                 source_type = ev.get('source_type', 'unknown')
                 publication_date = ev.get('publication_date', '')
-                publisher = ev.get('publisher', '')
                 
                 # Format the reference
-                references_section += f"<p><strong>[^{i}]</strong> "
+                references_section += f"<p><strong>[{i}]</strong> "
                 
                 if author and author != "Unknown Author":
                     references_section += f"{author}"
@@ -2229,14 +2586,6 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
                     references_section += f'<a href="{url}" target="_blank" rel="noopener noreferrer">{title}</a>'
                 else:
                     references_section += f"<em>{title}</em>"
-                
-                if publisher and publisher != "Knowledge Base":
-                    references_section += f". {publisher}"
-                elif source_type == 'rag':
-                    references_section += ". Internal Knowledge Base"
-                
-                if source_type != 'unknown':
-                    references_section += f" [{source_type.upper()}]"
                 
                 references_section += ".</p>\n"
             
@@ -2301,6 +2650,7 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
         # Calculate scores
         seo_optimization_score = _calculate_seo_score(title, meta_description, word_count, citations_count)
         viral_potential_score = _calculate_viral_score(hook, excerpt, word_count)
+        readability_score = _calculate_readability_score(articleText)
         
         # Create engagement hooks array (include hook and potentially excerpt)
         engagement_hooks = []
@@ -2316,6 +2666,7 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
         final_article = {
             'title': title,
             'hook': hook,
+            'deck': structure.get('deck', ''),
             'excerpt': excerpt,
             'thesis': structure.get('thesis', ''),
             'meta_description': meta_description,
@@ -2338,14 +2689,16 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
             'wp_slug': wp_slug,
             'wp_tag_ids': wp_tag_ids,
             'wp_excerpt_auto_generated': wp_excerpt_auto_generated,
-            'wp_custom_fields': wp_custom_fields,
+            'wp_custom_fields': {**wp_custom_fields, 'deck': structure.get('deck', '')},
             # Engagement and scoring fields
             'engagement_hooks': engagement_hooks,
             'call_to_action_text': call_to_action,
             'viral_potential_score': viral_potential_score,
             'seo_optimization_score': seo_optimization_score,
+            'readability_score': readability_score,
             'external_links_suggested': external_links_suggested,
             'metadata': {
+                'deck': structure.get('deck', ''),
                 'word_count': word_count,
                 'sections': len(content.get('sections', [])),
                 'citations_count': citations_count,
@@ -2363,56 +2716,8 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error(f"Error in article finalization: {str(e)}")
-        fallback_title = 'Final Article Title'
-        fallback_meta_desc_raw = 'Final article meta description for SEO optimization.'
-        fallback_excerpt = 'Final article excerpt.'
-        fallback_hook = 'Final article hook.'
-        fallback_content = '<p>Final article content...</p>'
-        
-        # Generate fallback fields with proper constraints
-        fallback_wp_slug = _generate_wp_slug(fallback_title)
-        fallback_articleText = _extract_plain_text(fallback_content)
-        fallback_focus_keyword = ''
-        fallback_breadcrumb_title = _generate_breadcrumb_title(fallback_title)
-        fallback_seo_title = _truncate_seo_title(fallback_title, max_length=60, focus_keyword='')
-        fallback_meta_desc = _ensure_meta_description_length(fallback_meta_desc_raw, max_length=160)
-        
-        fallback_article = {
-            'title': fallback_title,
-            'hook': fallback_hook,
-            'excerpt': fallback_excerpt,
-            'thesis': 'Final article thesis.',
-            'meta_description': fallback_meta_desc,
-            'content': fallback_content,
-            'html_content': fallback_content,
-            'html_content_in_text_citations': fallback_content,
-            'articleText': fallback_articleText,
-            'htmlArticle': fallback_content,
-            'citations': [],
-            'sections': [],
-            'seo_title_optimized': fallback_seo_title,
-            'metaTitle': fallback_seo_title,
-            'metaDescription': fallback_meta_desc,
-            'seo_meta_desc_optimized': fallback_meta_desc,
-            'focus_keyword': fallback_focus_keyword,
-            'breadcrumb_title': fallback_breadcrumb_title,
-            'wp_slug': fallback_wp_slug,
-            'wp_tag_ids': [],
-            'wp_excerpt_auto_generated': fallback_excerpt,
-            'wp_custom_fields': {},
-            'engagement_hooks': [fallback_hook],
-            'call_to_action_text': '',
-            'viral_potential_score': 0.0,
-            'seo_optimization_score': 0.0,
-            'external_links_suggested': [],
-            'metadata': {}
-        }
-        
-        return {
-            'article': fallback_article,
-            'final_article': fallback_article,
-            'stage_data': {'finalized': True, 'error': str(e)}
-        }
+        # Re-raise the exception to trigger task failure
+        raise e
 
 def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
     """
@@ -2445,8 +2750,13 @@ def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
                 'task_id': task_id,
                 'status': TASK_STATUS['PROGRESS'],
                 'progress': 0,
+                'progress_percent': 0,
                 'current_stage': 'STARTED',
-                'message': 'Task has started'
+                'message': 'Task has started',
+                'info': {
+                    'progress': 0,
+                    'message': 'Task has started'
+                }
             }
 
         if state == TASK_STATUS['PENDING']:
@@ -2454,7 +2764,12 @@ def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
                 'task_id': task_id,
                 'status': TASK_STATUS['PENDING'],
                 'progress': 0,
-                'message': 'Task is waiting to be processed...'
+                'progress_percent': 0,
+                'message': 'Task is waiting to be processed...',
+                'info': {
+                    'progress': 0,
+                    'message': 'Task is waiting to be processed...'
+                }
             }
         elif state == TASK_STATUS['PROGRESS']:
             try:
@@ -2463,12 +2778,21 @@ def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
                     meta = {}
             except Exception:
                 meta = {}
+            
+            progress = meta.get('progress', 0) if isinstance(meta, dict) else 0
+            message = meta.get('message', 'Processing...') if isinstance(meta, dict) else 'Processing...'
+            
             return {
                 'task_id': task_id,
                 'status': TASK_STATUS['PROGRESS'],
-                'progress': meta.get('progress', 0) if isinstance(meta, dict) else 0,
+                'progress': progress,
+                'progress_percent': progress,
                 'current_stage': meta.get('current_stage', 'UNKNOWN') if isinstance(meta, dict) else 'UNKNOWN',
-                'message': meta.get('message', 'Processing...') if isinstance(meta, dict) else 'Processing...'
+                'message': message,
+                'info': {
+                    'progress': progress,
+                    'message': message
+                }
             }
         elif state == TASK_STATUS['SUCCESS']:
             try:
@@ -2480,9 +2804,14 @@ def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
                 'task_id': task_id,
                 'status': TASK_STATUS['SUCCESS'],
                 'progress': 100,
+                'progress_percent': 100,
                 'current_stage': 'COMPLETED',
                 'message': 'Task completed successfully!',
-                'result': result
+                'result': result,
+                'info': {
+                    'progress': 100,
+                    'message': 'Task completed successfully!'
+                }
             }
         elif state == TASK_STATUS['FAILURE']:
             try:
@@ -2491,20 +2820,32 @@ def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
                     meta = {}
             except Exception:
                 meta = {}
+            progress = meta.get('progress', 0) if isinstance(meta, dict) else 0
+            message = meta.get('message', 'Task failed') if isinstance(meta, dict) else 'Task failed'
             return {
                 'task_id': task_id,
                 'status': TASK_STATUS['FAILURE'],
-                'progress': meta.get('progress', 0) if isinstance(meta, dict) else 0,
+                'progress': progress,
+                'progress_percent': progress,
                 'current_stage': meta.get('current_stage', 'UNKNOWN') if isinstance(meta, dict) else 'UNKNOWN',
-                'message': meta.get('message', 'Task failed') if isinstance(meta, dict) else 'Task failed',
-                'error': meta.get('error', 'Unknown error') if isinstance(meta, dict) else str(task_result.info)
+                'message': message,
+                'error': meta.get('error', 'Unknown error') if isinstance(meta, dict) else str(task_result.info),
+                'info': {
+                    'progress': progress,
+                    'message': message
+                }
             }
         else:
             return {
                 'task_id': task_id,
                 'status': state,
                 'progress': 0,
-                'message': f'Unknown task state: {state}'
+                'progress_percent': 0,
+                'message': f'Unknown task state: {state}',
+                'info': {
+                    'progress': 0,
+                    'message': f'Unknown task state: {state}'
+                }
             }
             
     except Exception as e:
@@ -2516,7 +2857,12 @@ def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
             'task_id': task_id,
             'status': TASK_STATUS['PENDING'],
             'progress': 0,
-            'message': 'Task is waiting to be processed...'
+            'progress_percent': 0,
+            'message': 'Task is waiting to be processed...',
+            'info': {
+                'progress': 0,
+                'message': 'Task is waiting to be processed...'
+            }
         }
 
 @celery_app.task(name='content_generator_v2.tasks.research.cancel_task')
@@ -2539,3 +2885,58 @@ def cancel_task(task_id: str) -> bool:
     except Exception as e:
         logger.error(f"Error cancelling task {task_id}: {str(e)}")
         return False
+
+# -----------------------------------------------------------------------------
+# Trend Analysis Task
+# -----------------------------------------------------------------------------
+
+@celery_app.task(bind=True, name='content_generator_v2.tasks.trends.process_trend_task')
+def process_trend_task(self, site_id: str) -> Dict[str, Any]:
+    """
+    Process trend analysis for a specific site.
+    
+    Args:
+        site_id: ID of the site in wordPress_details table
+        
+    Returns:
+        Dictionary containing the trend report
+    """
+    logger.info(f"Starting trend analysis task for site_id: {site_id}")
+    
+    try:
+        # Import here to avoid circular dependencies if any
+        from src.services.trend_engine import TrendEngine
+        
+        # Initialize engine
+        engine = TrendEngine()
+        
+        # Run async method in synchronous Celery task
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            # Execute the async method
+            result = loop.run_until_complete(engine.get_whats_trending(site_id))
+            
+            logger.info(f"Trend analysis completed successfully for site_id: {site_id}")
+            return {
+                'status': 'SUCCESS',
+                'site_id': site_id,
+                'result': result,
+                'completed_at': datetime.utcnow().isoformat()
+            }
+            
+        except Exception as async_error:
+            logger.error(f"Async execution failed: {async_error}", exc_info=True)
+            raise async_error
+        finally:
+            loop.close()
+            
+    except Exception as e:
+        logger.error(f"Trend task failed: {str(e)}", exc_info=True)
+        return {
+            'status': 'FAILURE',
+            'site_id': site_id,
+            'error': str(e),
+            'failed_at': datetime.utcnow().isoformat()
+        }

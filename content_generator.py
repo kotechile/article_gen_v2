@@ -11,8 +11,8 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
-# Import verbalized sampling client
-from verbalized_sampling_client import VerbalizedSamplingClient, create_verbalized_sampling_client
+# Verbalized sampling client removed to avoid slowdown and errors
+# from verbalized_sampling_client import VerbalizedSamplingClient, create_verbalized_sampling_client
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -53,31 +53,19 @@ class ContentGenerator:
     Generates detailed content for article sections.
     """
     
-    def __init__(self, llm_client, use_verbalized_sampling: bool = True):
+    def __init__(self, llm_client, use_verbalized_sampling: bool = False):
         """
         Initialize the content generator.
         
         Args:
             llm_client: Configured LLM client
-            use_verbalized_sampling: Whether to use verbalized sampling for improved content quality
+            use_verbalized_sampling: Whether to use verbalized sampling (DISABLED)
         """
         self.llm_client = llm_client
-        self.use_verbalized_sampling = use_verbalized_sampling
+        self.use_verbalized_sampling = False # Explicitly disabled to avoid slowdown
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        
-        # Initialize verbalized sampling client if enabled
-        if self.use_verbalized_sampling:
-            self.verbalized_client = create_verbalized_sampling_client(
-                k=5,
-                tau=0.10,
-                temperature=0.9,
-                seed=42,
-                enabled=True
-            )
-            self.logger.info("Verbalized sampling enabled for content generation")
-        else:
-            self.verbalized_client = None
-            self.logger.info("Verbalized sampling disabled, using standard generation")
+        self.verbalized_client = None
+        self.logger.info("Verbalized sampling disabled, using standard generation")
     
     def generate_section_content(self, section_outline: Dict[str, Any], 
                                research_data: Dict[str, Any], 
@@ -445,6 +433,49 @@ class ContentGenerator:
         # Use the standalone function to avoid code duplication
         return get_tone_specific_instructions(tone)
     
+    def _get_human_writing_instructions(self) -> str:
+        """
+        Get instructions for human-like, natural writing.
+        """
+        return """
+                    HUMAN VOICE & PERSONALITY:
+                    - "Write like you're talking to a friend over coffee"
+                    - Use natural hesitations, self-corrections, or rhetorical questions
+                    - Include personal opinions or mild biases—humans aren't neutral
+                    - Vary sentence length dramatically. Short punch. Then a longer, winding thought that meanders a bit before finding its point.
+                    
+                    SPECIFIC TECHNIQUES:
+                    - Break grammar rules intentionally for effect (sentence fragments, starting with conjunctions)
+                    - Use concrete specifics instead of abstractions—'my neighbor's rusted Chevy' not 'a vehicle'
+                    - Add sensory details: smells, textures, sounds
+                    - Include conversational fillers: 'honestly,' 'look,' 'I mean,' 'you know?'
+                    
+                    RHYTHM & FLOW:
+                    - Read it aloud—if it sounds like a speech, make it messier
+                    - Avoid parallel structure; humans repeat words accidentally and change phrasing mid-thought
+                    - Use em-dashes for interruptions, not just punctuation
+                    
+                    CONTEXT & IMPERFECTION:
+                    - Reference pop culture, current events, or shared human experiences
+                    - Admit uncertainty: 'I think,' 'probably,' 'who knows?'
+                    - Include one slightly awkward phrase that a real person would say
+        """
+
+    def _get_content_avoidance_instructions(self) -> str:
+        """
+        Get instructions for what to avoid in content generation.
+        """
+        return """
+                    WHAT TO AVOID (CRITICAL):
+                    - Lists of three (e.g. "fast, easy, and secure") - vary the pattern
+                    - Overly formal transitions ("Furthermore," "Moreover", "In conclusion", "Additionally")
+                    - Perfect symmetry in structure
+                    - Generic examples ("For instance, consider a person who...")
+                    - AI fillers: embark, delve, tapestry, bustling, vibrant, metropolis, labyrinth, gossamer, enigma, whispering, indelible
+                    - Cliches: "in today's digital age", "game changer", "unlock the secrets", "take a deep dive"
+                    - Placeholder or generic data in tables
+        """
+
     def _get_citation_instructions(self, context: Dict[str, Any]) -> str:
         """
         Get citation instructions based on whether in-text citations are enabled.
@@ -614,7 +645,10 @@ Previous Context:
                     ========================================
                     CONTENT REQUIREMENTS
                     ========================================
-                    - Target EXACTLY {word_count_target} words (be complete and detailed)
+                    - Target approximately {word_count_target} words (prioritize quality and flow over exact word count)
+                    - Target a Flesch Reading Ease score of 65-75 (Standard English, easily readable for 8th graders)
+                    - MANDATORY: Use simple, direct language. Avoid complex vocabulary and long, convoluted sentences.
+                    - Use varied sentence lengths: mix shorter, punchy sentences with slightly longer, explanatory ones
                     - Cover ALL the key points: {', '.join(context['key_points'])}
                     - Use evidence and claims to support arguments - cite sources when using them
                     - Write for {context['target_audience']} audience with appropriate depth
@@ -627,10 +661,8 @@ Previous Context:
                     WRITING STYLE REQUIREMENTS
                     ========================================
                     NOTE: These must align with the tone requirements above. For friendly tone, prioritize conversational "you" language.
-                    - Write in a natural, conversational style - avoid formal or formulaic language
-                    - Use simple, clear sentences that flow smoothly from one to the next
-                    - Each sentence should connect logically to the previous one - avoid abrupt jumps
-                    - Use descriptive subheadings (H3) that break content into logical sections
+                    {self._get_human_writing_instructions()}
+                    
                     - Create smooth transitions between paragraphs - use connecting words naturally, not excessively
                     - Include bullet points or numbered lists where appropriate for clarity
                     - MANDATORY: Include COMPARATIVE TABLES when comparing options, strategies, or presenting structured data
@@ -639,23 +671,11 @@ Previous Context:
                     - Integrate the provided keywords into the content where they fit naturally
                     - Ensure keywords appear naturally in the text, not forced or repetitive
                     - Expand on ideas with examples and details
-                    - Vary sentence length - mix shorter and longer sentences for natural rhythm
-                    - Read your sentences aloud mentally - if they sound awkward, simplify them
                     - Make sure each paragraph has one clear main idea that flows to the next paragraph
                     
                     ========================================
-                    AVOID AI-GENERATED LANGUAGE AND COMPLEX VOCABULARY
+                    {self._get_content_avoidance_instructions()}
                     ========================================
-                    - Do NOT use overly complex words: crucial, embark, paramount, meticulous, navigating, complexities, realm, dive, shall, tailored, towards, underpins, everchanging, ever-evolving, robust, elevate, unleash, cutting-edge, rapidly expanding, mastering, excels, harness, imagine, delve, tapestry, bustling, vibrant, metropolis, labyrinth, gossamer, enigma, whispering, indelible, potent, signifying, positioning, cultivating, commanding, proactive, strategic, adept, interconnected, specialized, blend, niche, trajectory, implementing, ensuring, sought after
-                    - PREFER SIMPLER ALTERNATIVES: "important" not "crucial", "start" not "embark", "key" not "paramount", "careful" not "meticulous", "strong" not "potent", "shows" not "signifies", "place" not "position", "develop" not "cultivate", "earn" not "command", "active" not "proactive", "plan" not "strategic", "skilled" not "adept", "connected" not "interconnected", "special" not "specialized", "mix" not "blend", "small area" not "niche", "path" not "trajectory", "use" not "implement", "make sure" not "ensure", "wanted" not "sought after"
-                    - Do NOT use phrases like: "the world of", "not only", "in today's digital age", "game changer", "designed to enhance", "it is advisable", "when it comes to", "in the realm of", "unlock the secrets", "unveil the secrets", "take a dive into", "as a professional", "you may want to", "it's worth noting that", "to summarize", "ultimately", "to put it simply", "in conclusion", "in summary", "remember that"
-                    - Do NOT use transition words excessively: however, therefore, additionally, specifically, generally, consequently, importantly, indeed, thus, alternatively, notably, as well as, despite, essentially, while, unless, also, even though, because, in contrast, although, in order to, due to, even if, given that, arguably, on the other hand, as previously mentioned, subsequently
-                    - Do NOT use: firstly, moreover, furthermore, vital, keen, fancy
-                    - Do NOT use analogies to music, conductors, or other overly creative metaphors
-                    - Write directly and clearly - avoid flowery or overly descriptive language
-                    - Use simple, direct language instead of complex phrases
-                    - Write as if you're explaining to a colleague, not writing marketing copy
-                    - Keep vocabulary accessible - if a simpler word works, use it
                     
                     SPECIAL INSTRUCTIONS FOR INTRODUCTION SECTIONS:
                     - Keep introduction SIMPLE and CONCISE (unless target word count is high)
@@ -713,7 +733,9 @@ Previous Context:
                     - Avoid generic filler - every sentence should add value, insights, or information
                     - CRITICAL: Use proper punctuation - single commas, single periods, no repeated punctuation marks
                     - CRITICAL: Ensure sentences flow naturally - read each sentence to make sure it connects smoothly to the next
-                    - CRITICAL: Write in {context['tone']} tone consistently throughout - use ONLY this tone"""
+                    - CRITICAL: Write in {context['tone']} tone consistently throughout - use ONLY this tone
+                    - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3) - use specific subheadings that describe the content below it
+                    """
                 },
                 {
                     "role": "user",
@@ -721,70 +743,23 @@ Previous Context:
                 }
             ]
             
-            # Use verbalized sampling if enabled
-            if self.use_verbalized_sampling and self.verbalized_client:
-                self.logger.info("Using verbalized sampling for paragraph content generation")
-                verbalized_response = self.verbalized_client.generate_content_with_sampling(
-                    messages=messages,
-                    content_type="paragraph",
-                    word_count_target=word_count_target
-                )
-                content = verbalized_response.text
-                
-                # Handle fallback case: if verbalized sampling returns empty/invalid content,
-                # fall back to standard generation
-                if not content or content.strip().startswith("Content generated for:") or len(content.strip()) < 50:
-                    self.logger.warning("Verbalized sampling returned invalid/fallback content, using standard generation")
-                    response = self.llm_client.generate(messages)
-                    content = response.content.strip()
-                    
-                    metadata = {
-                        "llm_model": response.model,
-                        "generation_time": response.response_time,
-                        "cost": response.cost,
-                        "verbalized_sampling": {
-                            "enabled": True,
-                            "sample_index": verbalized_response.sample_index,
-                            "total_samples": len(verbalized_response.all_samples),
-                            "fallback": True,
-                            "reason": "verbalized-sampling returned invalid content"
-                        }
-                    }
-                else:
-                    # Log sampling information
-                    self.logger.info(f"Verbalized sampling: selected sample {verbalized_response.sample_index + 1} "
-                                   f"out of {len(verbalized_response.all_samples)} samples")
-                    
-                    # Create enhanced metadata
-                    metadata = {
-                        "llm_model": "verbalized-sampling",
-                        "generation_time": 0.0,  # Will be updated if we track this
-                        "cost": 0.0,  # Will be updated if we track this
-                        "verbalized_sampling": {
-                            "enabled": True,
-                            "sample_index": verbalized_response.sample_index,
-                            "total_samples": len(verbalized_response.all_samples),
-                            "sampling_config": verbalized_response.metadata
-                        }
-                    }
-            else:
-                # Standard generation
-                self.logger.info("Using standard generation for paragraph content")
-                response = self.llm_client.generate(messages)
-                content = response.content.strip()
-                
-                metadata = {
-                    "llm_model": response.model,
-                    "generation_time": response.response_time,
-                    "cost": response.cost,
-                    "verbalized_sampling": {
-                        "enabled": False
-                    }
+            # Standard generation (Verbalized sampling disabled)
+            self.logger.info("Using standard generation for paragraph content")
+            response = self.llm_client.generate(messages)
+            content = response.content.strip()
+            
+            metadata = {
+                "llm_model": response.model,
+                "generation_time": response.response_time,
+                "cost": response.cost,
+                "verbalized_sampling": {
+                    "enabled": False
                 }
+            }
             
             # Clean HTML content - remove citations if flag is disabled
             remove_citations = not context.get('include_in_text_citations', True)
-            cleaned_content = self._clean_html_content(content, remove_citations=remove_citations)
+            cleaned_content = self._clean_html_content(content, remove_citations=remove_citations, section_title=context['title'])
             
             # Remove any meta-commentary the LLM might have added
             import re
@@ -838,6 +813,7 @@ Previous Context:
                     {self._get_tone_specific_instructions(context['tone'])}
                     - Create a well-structured list
                     - Target approximately {word_count_target} words
+                    - Target a Flesch Reading Ease score of 65-75 (Standard English, easily readable for 8th graders)
                     - Cover the key points: {', '.join(context['key_points'])}
                     - Use evidence and claims to support each list item
                     - Write for {context['target_audience']} audience
@@ -846,6 +822,7 @@ Previous Context:
                     
                     WRITING STYLE REQUIREMENTS:
                     - Write in a conversational, human style - avoid formal or formulaic language
+                    {self._get_human_writing_instructions()}
                     - Use descriptive subheadings (H3) that organize content logically
                     - Create clear transitions between paragraphs
                     - Include bullet points or numbered lists where appropriate
@@ -855,13 +832,8 @@ Previous Context:
                     - Integrate the provided keywords into the content where they fit naturally
                     - Ensure keywords appear naturally in the text, not forced or repetitive
                     
-                    AVOID AI-GENERATED LANGUAGE:
-                    - Do NOT use words like: crucial, embark, paramount, meticulous, navigating, complexities, realm, dive, shall, tailored, towards, underpins, everchanging, ever-evolving, robust, elevate, unleash, cutting-edge, rapidly expanding, mastering, excels, harness, imagine, delve, tapestry, bustling, vibrant, metropolis, labyrinth, gossamer, enigma, whispering, indelible
-                    - Do NOT use phrases like: "the world of", "not only", "in today's digital age", "game changer", "designed to enhance", "it is advisable", "when it comes to", "in the realm of", "unlock the secrets", "unveil the secrets", "take a dive into", "as a professional", "you may want to", "it's worth noting that", "to summarize", "ultimately", "to put it simply", "in conclusion", "in summary", "remember that"
-                    - Do NOT use transition words excessively: however, therefore, additionally, specifically, generally, consequently, importantly, indeed, thus, alternatively, notably, as well as, despite, essentially, while, unless, also, even though, because, in contrast, although, in order to, due to, even if, given that, arguably, on the other hand, as previously mentioned, subsequently
-                    - Do NOT use: firstly, moreover, furthermore, vital, keen, fancy
-                    - Write directly and clearly - avoid flowery or overly descriptive language
-                    - Use simple, direct language instead of complex phrases
+                    {self._get_content_avoidance_instructions()}
+                    - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3)
                     
                     TABLE USAGE GUIDELINES:
                     - Use tables for: feature lists, pros/cons comparisons, step-by-step processes
@@ -913,7 +885,7 @@ Previous Context:
             
             # Clean HTML content - remove citations if flag is disabled
             remove_citations = not context.get('include_in_text_citations', True)
-            cleaned_content = self._clean_html_content(content, remove_citations=remove_citations)
+            cleaned_content = self._clean_html_content(content, remove_citations=remove_citations, section_title=context['title'])
             
             # Additional pass to fix any remaining punctuation issues
             cleaned_content = self._fix_punctuation_errors(cleaned_content)
@@ -957,16 +929,12 @@ Previous Context:
                     
                     WRITING STYLE REQUIREMENTS:
                     - Write in a conversational, human style - avoid formal or formulaic language
+                    {self._get_human_writing_instructions()}
                     - Use direct, clear instructions
                     - Write in a natural style that reads like human-written content
                     
-                    AVOID AI-GENERATED LANGUAGE:
-                    - Do NOT use words like: crucial, embark, paramount, meticulous, navigating, complexities, realm, dive, shall, tailored, towards, underpins, everchanging, ever-evolving, robust, elevate, unleash, cutting-edge, rapidly expanding, mastering, excels, harness, imagine, delve, tapestry, bustling, vibrant, metropolis, labyrinth, gossamer, enigma, whispering, indelible
-                    - Do NOT use phrases like: "the world of", "not only", "in today's digital age", "game changer", "designed to enhance", "it is advisable", "when it comes to", "in the realm of", "unlock the secrets", "unveil the secrets", "take a dive into", "as a professional", "you may want to", "it's worth noting that", "to summarize", "ultimately", "to put it simply", "in conclusion", "in summary", "remember that"
-                    - Do NOT use transition words excessively: however, therefore, additionally, specifically, generally, consequently, importantly, indeed, thus, alternatively, notably, as well as, despite, essentially, while, unless, also, even though, because, in contrast, although, in order to, due to, even if, given that, arguably, on the other hand, as previously mentioned, subsequently
-                    - Do NOT use: firstly, moreover, furthermore, vital, keen, fancy
-                    - Write directly and clearly - avoid flowery or overly descriptive language
-                    - Use simple, direct language instead of complex phrases
+                    {self._get_content_avoidance_instructions()}
+                    - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3)
                     
                     Supporting Evidence:
                     {self._format_evidence_for_citations(context['relevant_evidence'][:10])}
@@ -979,7 +947,7 @@ Previous Context:
             
             # Clean HTML content - remove citations if flag is disabled
             remove_citations = not context.get('include_in_text_citations', True)
-            cleaned_content = self._clean_html_content(content, remove_citations=remove_citations)
+            cleaned_content = self._clean_html_content(content, remove_citations=remove_citations, section_title=context['title'])
             
             # Additional pass to fix any remaining punctuation issues
             cleaned_content = self._fix_punctuation_errors(cleaned_content)
@@ -1024,6 +992,7 @@ Previous Context:
                     
                     WRITING STYLE REQUIREMENTS:
                     - Write in a conversational, human style - avoid formal or formulaic language
+                    {self._get_human_writing_instructions()}
                     - Use descriptive subheadings (H3) that break the comparison into logical sections
                     - Create clear transitions between paragraphs and sections
                     - Include bullet points or numbered lists where appropriate for clarity
@@ -1034,13 +1003,7 @@ Previous Context:
                     - Ensure keywords appear naturally in the text, not forced or repetitive
                     - Expand on comparisons with examples and details
                     
-                    AVOID AI-GENERATED LANGUAGE:
-                    - Do NOT use words like: crucial, embark, paramount, meticulous, navigating, complexities, realm, dive, shall, tailored, towards, underpins, everchanging, ever-evolving, robust, elevate, unleash, cutting-edge, rapidly expanding, mastering, excels, harness, imagine, delve, tapestry, bustling, vibrant, metropolis, labyrinth, gossamer, enigma, whispering, indelible
-                    - Do NOT use phrases like: "the world of", "not only", "in today's digital age", "game changer", "designed to enhance", "it is advisable", "when it comes to", "in the realm of", "unlock the secrets", "unveil the secrets", "take a dive into", "as a professional", "you may want to", "it's worth noting that", "to summarize", "ultimately", "to put it simply", "in conclusion", "in summary", "remember that"
-                    - Do NOT use transition words excessively: however, therefore, additionally, specifically, generally, consequently, importantly, indeed, thus, alternatively, notably, as well as, despite, essentially, while, unless, also, even though, because, in contrast, although, in order to, due to, even if, given that, arguably, on the other hand, as previously mentioned, subsequently
-                    - Do NOT use: firstly, moreover, furthermore, vital, keen, fancy
-                    - Write directly and clearly - avoid flowery or overly descriptive language
-                    - Use simple, direct language instead of complex phrases
+                    {self._get_content_avoidance_instructions()}
                     
                     MANDATORY TABLE REQUIREMENTS FOR COMPARISON SECTIONS:
                     - You MUST include at least 2-3 complete comparative tables in this section
@@ -1080,6 +1043,7 @@ Previous Context:
                     - Write in a natural style that flows smoothly from paragraph to paragraph
                     - Include inline citations as [^1], [^2], etc. when referencing evidence or claims
                     - Make it clear and useful with factual accuracy
+                    - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3)
                     
                     Format as a structured comparison with clear sections."""
                 },
@@ -1109,7 +1073,7 @@ Previous Context:
             
             # Clean HTML content - remove citations if flag is disabled
             remove_citations = not context.get('include_in_text_citations', True)
-            cleaned_content = self._clean_html_content(content, remove_citations=remove_citations)
+            cleaned_content = self._clean_html_content(content, remove_citations=remove_citations, section_title=context['title'])
             
             # Additional pass to fix any remaining punctuation issues
             cleaned_content = self._fix_punctuation_errors(cleaned_content)
@@ -1153,6 +1117,7 @@ Previous Context:
                     
                     WRITING STYLE REQUIREMENTS:
                     - Write in a conversational, human style - avoid formal or formulaic language
+                    {self._get_human_writing_instructions()}
                     - Use descriptive subheadings (H3) that organize content logically
                     - Create clear transitions between paragraphs and tables
                     - Include explanatory text before and after each table
@@ -1160,13 +1125,8 @@ Previous Context:
                     - Include specific examples, data, and practical insights
                     - Write in a natural style that reads like human-written content
                     
-                    AVOID AI-GENERATED LANGUAGE:
-                    - Do NOT use words like: crucial, embark, paramount, meticulous, navigating, complexities, realm, dive, shall, tailored, towards, underpins, everchanging, ever-evolving, robust, elevate, unleash, cutting-edge, rapidly expanding, mastering, excels, harness, imagine, delve, tapestry, bustling, vibrant, metropolis, labyrinth, gossamer, enigma, whispering, indelible
-                    - Do NOT use phrases like: "the world of", "not only", "in today's digital age", "game changer", "designed to enhance", "it is advisable", "when it comes to", "in the realm of", "unlock the secrets", "unveil the secrets", "take a dive into", "as a professional", "you may want to", "it's worth noting that", "to summarize", "ultimately", "to put it simply", "in conclusion", "in summary", "remember that"
-                    - Do NOT use transition words excessively: however, therefore, additionally, specifically, generally, consequently, importantly, indeed, thus, alternatively, notably, as well as, despite, essentially, while, unless, also, even though, because, in contrast, although, in order to, due to, even if, given that, arguably, on the other hand, as previously mentioned, subsequently
-                    - Do NOT use: firstly, moreover, furthermore, vital, keen, fancy
-                    - Write directly and clearly - avoid flowery or overly descriptive language
-                    - Use simple, direct language instead of complex phrases
+                    {self._get_content_avoidance_instructions()}
+                    - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3)
                     
                     TABLE USAGE GUIDELINES:
                     - ONLY create tables when you have specific, meaningful data to present
@@ -1236,7 +1196,7 @@ Previous Context:
             
             # Clean HTML content - remove citations if flag is disabled
             remove_citations = not context.get('include_in_text_citations', True)
-            cleaned_content = self._clean_html_content(content, remove_citations=remove_citations)
+            cleaned_content = self._clean_html_content(content, remove_citations=remove_citations, section_title=context['title'])
             
             # Additional pass to fix any remaining punctuation issues
             cleaned_content = self._fix_punctuation_errors(cleaned_content)
@@ -1277,7 +1237,7 @@ Previous Context:
                     {self._get_tone_specific_instructions(context['tone'])}
                     - Add EXACTLY {remaining_words} words - be complete and detailed
                     - Provide additional context, examples, case studies, statistics, or practical insights
-                    - Use evidence from the provided sources to support points - cite sources with [^1], [^2], etc.
+                    - Use evidence from the provided sources to support points - cite sources with [1], [2], etc.
                     - Make it clear and useful - avoid generic filler
                     - Expand on key points with specific details, examples, and insights
                     - Create well-structured content with clear paragraphs and transitions
@@ -1285,15 +1245,11 @@ Previous Context:
                     
                     WRITING STYLE REQUIREMENTS:
                     - Write in a conversational, human style - avoid formal or formulaic language
+                    {self._get_human_writing_instructions()}
                     - Write in a natural style that reads like human-written content
                     
-                    AVOID AI-GENERATED LANGUAGE:
-                    - Do NOT use words like: crucial, embark, paramount, meticulous, navigating, complexities, realm, dive, shall, tailored, towards, underpins, everchanging, ever-evolving, robust, elevate, unleash, cutting-edge, rapidly expanding, mastering, excels, harness, imagine, delve, tapestry, bustling, vibrant, metropolis, labyrinth, gossamer, enigma, whispering, indelible
-                    - Do NOT use phrases like: "the world of", "not only", "in today's digital age", "game changer", "designed to enhance", "it is advisable", "when it comes to", "in the realm of", "unlock the secrets", "unveil the secrets", "take a dive into", "as a professional", "you may want to", "it's worth noting that", "to summarize", "ultimately", "to put it simply", "in conclusion", "in summary", "remember that"
-                    - Do NOT use transition words excessively: however, therefore, additionally, specifically, generally, consequently, importantly, indeed, thus, alternatively, notably, as well as, despite, essentially, while, unless, also, even though, because, in contrast, although, in order to, due to, even if, given that, arguably, on the other hand, as previously mentioned, subsequently
-                    - Do NOT use: firstly, moreover, furthermore, vital, keen, fancy
-                    - Write directly and clearly - avoid flowery or overly descriptive language
-                    - Use simple, direct language instead of complex phrases
+                    {self._get_content_avoidance_instructions()}
+                    - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3)
                     
                     Supporting Evidence:
                     {self._format_evidence_for_citations(context.get('relevant_evidence', [])[:5])}
@@ -1316,7 +1272,7 @@ Previous Context:
             content = response.content.strip()
             
             # Clean and fix punctuation issues
-            cleaned_content = self._clean_html_content(content, remove_citations=False)
+            cleaned_content = self._clean_html_content(content, remove_citations=False, section_title=context['title'])
             cleaned_content = self._fix_punctuation_errors(cleaned_content)
             
             # Create content block
@@ -1424,8 +1380,8 @@ Previous Context:
         import re
         citations = []
         
-        # Extract citation references like [^1], [^2], etc.
-        citation_pattern = r'\[\^(\d+)\]'
+        # Extract citation references like [1] or [^1]
+        citation_pattern = r'\[\^?(\d+)\]'
         citation_matches = re.findall(citation_pattern, content)
         
         # Map citation numbers to evidence
@@ -1575,8 +1531,8 @@ Previous Context:
             return content
         
         import re
-        # Remove citation references like [^1], [^2], [^3], etc.
-        citation_pattern = r'\[\^\d+\]'
+        # Remove citation references like [1], [2], [^1], [^2], etc.
+        citation_pattern = r'\[\^?\d+\]'
         content = re.sub(citation_pattern, '', content)
         # Clean up any extra spaces left behind
         content = re.sub(r'\s+', ' ', content)
@@ -1637,7 +1593,61 @@ Previous Context:
         
         return result.strip()
     
-    def _clean_html_content(self, content: str, remove_citations: bool = False) -> str:
+    def _post_process_structure(self, content: str, section_title: str) -> str:
+        """
+        Post-process content to ensure correct structure:
+        1. Subsection header should not be the same as section header
+        2. Section cannot have a single subsection (flatten it if so)
+        """
+        if not content or not section_title:
+            return content
+            
+        import re
+        
+        def normalize(text):
+            # Simple normalization for comparison
+            return re.sub(r'[^\w\s]', '', text.lower()).strip()
+            
+        section_title_norm = normalize(section_title)
+        
+        # Pattern to find h3 tags
+        h3_pattern = re.compile(r'(<h3>.*?</h3>)', re.DOTALL | re.IGNORECASE)
+        parts = h3_pattern.split(content)
+        
+        processed_parts = []
+        valid_h3_indices = []
+        
+        for i, part in enumerate(parts):
+            if h3_pattern.match(part):
+                # Extract text content from H3
+                h3_text = re.sub(r'<[^>]+>', '', part).strip()
+                h3_norm = normalize(h3_text)
+                
+                # 1. Check for duplicate header
+                if h3_norm == section_title_norm:
+                    # It's a duplicate, we skip adding this part (remove the header)
+                    continue
+                
+                # Track filtered indices relative to processed_parts
+                valid_h3_indices.append(len(processed_parts))
+                processed_parts.append(part)
+            else:
+                processed_parts.append(part)
+        
+        # 2. Check for single subsection
+        if len(valid_h3_indices) == 1:
+            idx = valid_h3_indices[0]
+            h3_part = processed_parts[idx]
+            
+            # Extract content inside tags (removing <h3> wrapper)
+            h3_content = re.sub(r'</?h3>', '', h3_part, flags=re.IGNORECASE).strip()
+            
+            # Replace with bold paragraph
+            processed_parts[idx] = f"<p><strong>{h3_content}</strong></p>"
+            
+        return "".join(processed_parts)
+    
+    def _clean_html_content(self, content: str, remove_citations: bool = False, section_title: str = None) -> str:
         """Clean and properly format HTML content."""
         if not content:
             return ""
@@ -1658,6 +1668,10 @@ Previous Context:
         content = re.sub(r'```html\s*', '', content)
         content = re.sub(r'```\s*$', '', content)
         content = re.sub(r'<br>\s*', '\n', content)
+        
+        # Apply structure post-processing if section title is provided
+        if section_title:
+            content = self._post_process_structure(content, section_title)
         
         # Split into paragraphs and clean each one
         paragraphs = content.split('\n\n')
@@ -1809,18 +1823,18 @@ def get_tone_specific_instructions(tone: str) -> str:
         return f"""Write in {tone} tone - be clear, natural, and easy to follow"""
 
 # Factory function
-def create_content_generator(llm_client, use_verbalized_sampling: bool = True) -> ContentGenerator:
+def create_content_generator(llm_client, use_verbalized_sampling: bool = False) -> ContentGenerator:
     """
     Create a content generator.
     
     Args:
         llm_client: Configured LLM client
-        use_verbalized_sampling: Whether to use verbalized sampling for improved content quality
+        use_verbalized_sampling: Whether to use verbalized sampling (DISABLED)
         
     Returns:
         ContentGenerator instance
     """
-    return ContentGenerator(llm_client, use_verbalized_sampling)
+    return ContentGenerator(llm_client, False)
 
 # Example usage
 if __name__ == "__main__":

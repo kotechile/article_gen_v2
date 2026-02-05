@@ -26,6 +26,10 @@ class AuthMiddleware:
                                'health.readiness_check', 'health.liveness_check']:
             return None
         
+        # Skip auth for OPTIONS requests (CORS preflight)
+        if request.method == 'OPTIONS':
+            return None
+        
         # Get API key from header
         api_key = request.headers.get('X-API-Key')
         

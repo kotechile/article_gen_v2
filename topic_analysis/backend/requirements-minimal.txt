@@ -1,0 +1,29 @@
+# FastAPI and web framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# HTTP client and external APIs
+httpx==0.24.1
+aiohttp==3.9.1
+
+# Data processing (minimal)
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Environment management
+python-dotenv==1.0.0
+
+# Supabase integration
+supabase==2.0.2
+
+# LLM integrations
+openai==1.6.1
+anthropic==0.8.1
+
+# Additional dependencies for the application
+aiofiles==23.2.1
+
+# Missing dependencies for testing and development
+email-validator==2.1.0
+python-dateutil==2.8.2

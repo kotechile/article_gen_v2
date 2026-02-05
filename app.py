@@ -21,6 +21,14 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+# Register Blueprints
+from src.api.wordpress import wordpress_bp
+from src.api.internal_links import internal_links_bp
+from src.api.trends import trends_bp
+app.register_blueprint(wordpress_bp)
+app.register_blueprint(internal_links_bp)
+app.register_blueprint(trends_bp)
+
 # Create rate limiter
 limiter = Limiter(
     app,
@@ -143,7 +151,8 @@ def create_research_task():
             'rag_endpoint': data.get('rag_endpoint'),
             'rag_balance_emphasis': data.get('rag_balance_emphasis', 'auto'),
             'include_in_text_citations': data.get('include_in_text_citations', True),  # Add this field
-            'created_at': datetime.utcnow().isoformat()
+            'created_at': datetime.utcnow().isoformat(),
+            'article_id': data.get('article_id')
         }
         
         logger.info(f"🎯 Research data prepared with tone: '{research_data['tone']}'")
@@ -206,13 +215,14 @@ def get_research_status(task_id):
         # Get task status from Celery
         status_info = get_task_status(task_id)
         
-        if status_info is None:
+        if status_info:
+            logger.info(f"Task {task_id} status: {status_info.get('status')} - {status_info.get('progress')}% - {status_info.get('message')}")
+            return jsonify(status_info)
+        else:
             return jsonify({
                 'error': 'not_found',
                 'message': 'Task not found'
             }), 404
-        
-        return jsonify(status_info)
         
     except Exception as e:
         logger.error(f"Error getting task status: {str(e)}", exc_info=True)

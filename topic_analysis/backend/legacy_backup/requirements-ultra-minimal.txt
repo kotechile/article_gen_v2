@@ -1,0 +1,25 @@
+# Ultra minimal requirements for TrendTap backend (Python 3.13 compatible)
+fastapi
+uvicorn
+python-multipart
+pydantic
+pydantic-settings
+email-validator
+python-dotenv
+sqlalchemy
+alembic
+psycopg[binary]
+redis
+python-jose[cryptography]
+passlib[bcrypt]
+python-dateutil
+structlog
+psutil
+prometheus-client
+openai
+anthropic
+google-generativeai
+aiohttp
+httpx
+supabase
+pytrends

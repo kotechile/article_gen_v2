@@ -1,0 +1,1405 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;\f1\fswiss\fcharset0 Helvetica-Bold;\f2\fnil\fcharset0 HelveticaNeue-Bold;
+\f3\fnil\fcharset0 HelveticaNeue;\f4\fswiss\fcharset0 Arial-BoldMT;\f5\fswiss\fcharset0 Helvetica-BoldOblique;
+\f6\fnil\fcharset0 Menlo-Regular;\f7\fnil\fcharset0 Menlo-Italic;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;\red176\green179\blue178;\red10\green10\blue10;
+\red255\green255\blue255;\red229\green229\blue229;\red173\green155\blue250;\red38\green38\blue38;\red167\green166\blue177;
+\red244\green191\blue85;\red103\green190\blue202;\red120\green116\blue108;\red163\green79\blue131;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;\cssrgb\c74361\c75378\c75069;\cssrgb\c3922\c3922\c3922;
+\cssrgb\c100000\c100000\c100000;\cssrgb\c91765\c91765\c91765;\cssrgb\c73725\c68627\c98431;\cssrgb\c19608\c19608\c19608;\cssrgb\c71373\c70980\c74902;
+\cssrgb\c96863\c78824\c40392;\cssrgb\c46667\c78824\c83137;\cssrgb\c54510\c52941\c49804;\cssrgb\c70588\c40000\c58431;}
+\margl1440\margr1440\vieww34360\viewh20960\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 \
+Table Title has the following fields:\
+\
+featuredImageUrl\
+featuredImageAuthor\
+MediaAltText\
+mediaTitle\
+mediaCaption\
+\
+\
+
+\f1\b\fs36 Add Image\
+\
+
+\f0\b0 When user clicks a button to add an image a popup opens where the user can select using AI, load an image from local machine,  loading a stock image or generating an Infographics.\
+After generating an image and storing it in supabase we will get the image_url. In addition, editable text boxes should be available for metadata for author, AltText, Title, Caption. Metadata fields need to be pre filled  automatically if possible and editable by users (e.g. AI generated image can output metadata based on the prompt).\
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 The output from this process should be stored in a new supabase table \'91Images\'92 with the following fields (you will need to provide the migration sql to create this table):\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\fs24 \cf0 user_id\
+ImageUrl\
+ImageAuthor\
+MediaAltText\
+mediaTitle\
+mediaCaption
+\fs36 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+\
+A) 
+\f1\b Generate AI Image
+\f0\b0 : \
+\
+\
+The user can enter an image prompt or If the user selected a paragraph, the system it remembers the paragraph, it will call the default LLM and will generate  a prompt to generate an image.\
+The user has the option to choose Stable Disuffussion, Google Imagen or Flux Kontext and nanoBanana. The user is also able to select the desired aspect ratio from a dropdown list.\
+If the model allows it can generate an image based on an uploaded reference image.\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 For AI model names and keys,   \'91llm_providers_image\'92 contain the model description and  technical name  with  fields api_keys_id linking to table \'91api_keys\'92 will provide the API key (linked by api_key_id).\
+\
+Following are the supported models:\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\fs24 \cf0 \
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrt\brdrnil \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clcbpat3 \clwWidth3420\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx2880
+\clvertalt \clcbpat3 \clwWidth880\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx5760
+\clvertalt \clcbpat3 \clwWidth2760\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\b\fs20 \cf2 name
+\f0\b0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\b\fs20 \cf2 provider
+\f0\b0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f2\b\fs20 \cf2 model_name
+\f0\b0\fs24 \cf0 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth3420\clftsWidth3 \clheight240 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx2880
+\clvertalt \clshdrawnil \clwWidth880\clftsWidth3 \clheight240 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx5760
+\clvertalt \clshdrawnil \clwWidth2760\clftsWidth3 \clheight240 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Stable Image Ultra (Stable Difussion)
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "http://stability.ai"}}{\fldrslt 
+\f3\fs20 \cf2 \ul \ulc2 stability.ai}}\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 ultra
+\f0\fs24 \cf0 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth3420\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx2880
+\clvertalt \clshdrawnil \clwWidth880\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx5760
+\clvertalt \clshdrawnil \clwWidth2760\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Imagen 4
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Google
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 imagen-4.0-generate-001
+\f0\fs24 \cf0 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth3420\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx2880
+\clvertalt \clshdrawnil \clwWidth880\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx5760
+\clvertalt \clshdrawnil \clwWidth2760\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Nano Banana
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Google
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 gemini-2.5-flash-image
+\f0\fs24 \cf0 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth3420\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx2880
+\clvertalt \clshdrawnil \clwWidth880\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx5760
+\clvertalt \clshdrawnil \clwWidth2760\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Nano Banana 3
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Google
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 gemini-3-pro-image-preview
+\f0\fs24 \cf0 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth3420\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx2880
+\clvertalt \clshdrawnil \clwWidth880\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx5760
+\clvertalt \clshdrawnil \clwWidth2760\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Stable Image Core (Stable Diffussion)
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "http://stability.ai"}}{\fldrslt 
+\f3\fs20 \cf2 \ul \ulc2 stability.ai}}\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 core
+\f0\fs24 \cf0 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth3420\clftsWidth3 \clheight460 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx2880
+\clvertalt \clshdrawnil \clwWidth880\clftsWidth3 \clheight460 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx5760
+\clvertalt \clshdrawnil \clwWidth2760\clftsWidth3 \clheight460 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Flux Kontext
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "http://fluxapi.ai"}}{\fldrslt 
+\f3\fs20 \cf2 \ul \ulc2 fluxapi.ai}}\cell 
+\pard\intbl\itap1\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs20 \cf2 \
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf2 kontext
+\f0\fs24 \cf0 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth3420\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx2880
+\clvertalt \clshdrawnil \clwWidth880\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx5760
+\clvertalt \clshdrawnil \clwWidth2760\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Stable Diffusion 3.5 (Stable Diffussion)
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+{\field{\*\fldinst{HYPERLINK "http://stability.ai"}}{\fldrslt 
+\f3\fs20 \cf2 \ul \ulc2 stability.ai}}\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 sd3
+\f0\fs24 \cf0 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth3420\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx2880
+\clvertalt \clshdrawnil \clwWidth880\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx5760
+\clvertalt \clshdrawnil \clwWidth2760\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Imagen 4 Ultra
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Google
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 imagen-4.0-ultra-generate-001
+\f0\fs24 \cf0 \cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrt\brdrnil \trbrdrr\brdrnil 
+\clvertalt \clshdrawnil \clwWidth3420\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx2880
+\clvertalt \clshdrawnil \clwWidth880\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx5760
+\clvertalt \clshdrawnil \clwWidth2760\clftsWidth3 \clheight220 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt80 \clpadl80 \clpadb80 \clpadr80 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Imagen 4.0 Fast
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 Google
+\f0\fs24 \cf0 \cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f3\fs20 \cf2 imagen-4.0-fast-generate-001
+\f0\fs24 \cf0 \cell \lastrow\row
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+\cf0 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\fs36 \cf0 \
+\
+The resulting image should be displayed for evaluation and provide the option to change prompt and/or generate a new image. The prompt can be used as a meta description/ media caption with AI as media author, media alt text.\
+\
+Please review functionality of each model above and identify functionalities available that can improve the image generation (e.g. Nano Banana can improve an input picture or \'93Flux Kontext\'94 
+\f4\b\fs32 \cf4 \cb5 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec4 Object & Text Manipulation or {\field{\*\fldinst{HYPERLINK "https://www.google.com/search?q=Style+Transfer&num=10&sca_esv=4437aa3b99422d84&sxsrf=AE3TifMgg1NYz4pEtwVytev0Ktw03JxbBw%3A1767725975260&ei=l1tdadTND5WA0PEP36_Y4QI&ved=2ahUKEwi_xKHI0feRAxWyBDQIHcBUKA4QgK4QegQIAxAH&uact=5&oq=what+are+the+flux+kontext+functionalities%3F&gs_lp=Egxnd3Mtd2l6LXNlcnAiKndoYXQgYXJlIHRoZSBmbHV4IGtvbnRleHQgZnVuY3Rpb25hbGl0aWVzPzIFEAAY7wUyBRAAGO8FMgUQABjvBTIIEAAYgAQYogRIgldQ7FRY7FRwBXgBkAEAmAF5oAF5qgEDMC4xuAEDyAEA-AEBmAIGoAKQAcICChAAGLADGNYEGEeYAwCIBgGQBgiSBwM1LjGgB4gDsgcDMC4xuAd_wgcFMC40LjLIBw-ACAA&sclient=gws-wiz-serp&mstk=AUtExfAVf-HRu7ejMdFXkibRX1jvvubr8a-xfoDjzLd6SryR6G7N5kFaN2xt3nKQPC27nVyN6-e3WHvyxYafGEhWAzR6oCgEFFJLBOthUnDh9CJyEyf47ckGbC0zAaaQXuk0Hryo2_FRIbn-eiyJeYkcA1WguBaGDBFm5gtwl86t13gvKvs&csui=3"}}{\fldrslt \cf4 \cb5 \ul \ulc4 \strokec4 Style Transfer}}\cf4 \cb5 \ul \ulc4 \strokec4 .
+\f0\b0\fs36 \cf0 \cb1 \kerning1\expnd0\expndtw0 \ulnone \outl0\strokewidth0 \
+\
+To identify the default llm you need to check table llm_providers, field \'91is_default\'92 = true\
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 With the image generated, the system uploads this image to Supabase storage bucket \'93User Files\'94 inside folder \'93articleImages\'94 and inside a user\'92s own folder named with the user\'92s  supabase auth id.\
+The system then retrieves the url of the uploaded image.\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+
+\f1\b B)  Load from local machine\
+\
+
+\f0\b0 The user can select an image file from their local computer. The system uploads this image to Supabase storage bucket \'93User Files\'94 inside folder \'93articleImages\'94 and inside a user\'92s own folder named with the user\'92s  supabase auth id.\
+The system then retrieves the url of the uploaded image.\
+\
+\
+{{\NeXTGraphic Pasted Graphic 1.png \width17440 \height10420 \appleattachmentpadding0 \appleembedtype0 \appleaqc
+}¬}\
+\
+C) Loading a stock Image:  The user can select sources from Pexels or Unsplash. The user will see a gallery with images and their authors/name are displayed in the screen. The user can select one of them and load to it supabase. The system uploads this image to Supabase storage bucket \'93User Files\'94 inside folder \'93articleImages\'94 and inside a user\'92s own folder named with the user\'92s  supabase auth id.\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 The system then retrieves the url of the uploaded image. Api keys can be found in table api_keys. Search for provider unsplash or pexels and you will find the corresponding key_value\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+\
+D) \ul Generating an Infographic: \ulnone To generate an infographic, similar the user will select a template from a dropdown list. It will show a sample image so the user can understand the look. Once the user selects the right template, if the user had previously selected a paragraph of text from the article body, the  text will be shown in an editable  text box (if no text was selected the text box will be blank and the user  will have the option to describe what they want to fill the template with or a story that the template should tell).  If there is text in the editable text box then a button is enabled to send the text along with a prompt to the default  LLM that will read the text and create a JSON object with the format required by the template. \
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+
+\f5\i\b TECHNICAL DETAILS:
+\f0\i0\b0 \
+\
+Following is code from my prototype in Noodl that you can use as a reference. You do not need to copy this code but use it to understand what I was doing. \
+\
+1) LOAD STOCK IMAGE\'94\
+\
+1.1 Unsplash: \
+
+\f6\fs24 \cf6 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec6 \
+\pard\pardeftab720\partightenfactor0
+\cf7 \cb8 \strokec7 async\cf6 \strokec6  \cf7 \strokec7 function\cf6 \strokec6  queryUnsplash\cf9 \strokec9 ()\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  pageNumber \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf10 \strokec10 PageNumber\cf6 \strokec6  \cf9 \strokec9 ||\cf6 \strokec6  \cf11 \strokec11 1\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  key \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 key\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\
+\cb8   
+\f7\i \cf12 \strokec12 // Use optional chaining for safer access to nested properties
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 let\cf6 \strokec6  prompt \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 prompt \cb1 \
+\
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  url \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `https://api.unsplash.com/search/photos?client_id=\cf9 \strokec9 $\{\cf6 \strokec6 key\cf9 \strokec9 \}\cf10 \strokec10 &query=\cf9 \strokec9 $\{(\cf6 \strokec6 prompt\cf9 \strokec9 )\}\cf10 \strokec10 &page=\cf9 \strokec9 $\{\cf6 \strokec6 pageNumber\cf9 \strokec9 \}\cf10 \strokec10 &per_page=10`\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  method \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 "GET"\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\
+\cb8   \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  response \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  fetch\cf9 \strokec9 (\cf6 \strokec6 url\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  method \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 ok\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 `Unsplash API error! status: \cf9 \strokec9 $\{\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 status\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  data \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  response\cf9 \strokec9 .\cf6 \strokec6 json\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  totalPages \cf9 \strokec9 =\cf6 \strokec6  data\cf9 \strokec9 .\cf6 \strokec6 total_pages\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 totalPages\cf9 \strokec9 =\cf6 \strokec6 totalPages\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  firstTenImages \cf9 \strokec9 =\cf6 \strokec6  data\cf9 \strokec9 .\cf6 \strokec6 results\cf9 \strokec9 .\cf6 \strokec6 slice\cf9 \strokec9 (\cf11 \strokec11 0\cf9 \strokec9 ,\cf6 \strokec6  \cf11 \strokec11 10\cf9 \strokec9 ).\cf6 \strokec6 map\cf9 \strokec9 (\cf6 \strokec6 image \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       \cf7 \strokec7 const\cf6 \strokec6  authorName \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `\cf9 \strokec9 $\{\cf6 \strokec6 image\cf9 \strokec9 .\cf6 \strokec6 user\cf9 \strokec9 ?.\cf6 \strokec6 first_name \cf9 \strokec9 ??\cf6 \strokec6  \cf10 \strokec10 ""\cf9 \strokec9 \}\cf10 \strokec10  \cf9 \strokec9 $\{\cf6 \strokec6 image\cf9 \strokec9 .\cf6 \strokec6 user\cf9 \strokec9 ?.\cf6 \strokec6 last_name \cf9 \strokec9 ??\cf6 \strokec6  \cf10 \strokec10 ""\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8       \cf7 \strokec7 return\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         id\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 id\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         url\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 urls\cf9 \strokec9 .\cf6 \strokec6 small\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         urlRaw\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 urls\cf9 \strokec9 .\cf6 \strokec6 raw\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         urlThumb\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 urls\cf9 \strokec9 .\cf6 \strokec6 thumb\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         urlSmall\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 urls\cf9 \strokec9 .\cf6 \strokec6 small\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         urlFull\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 urls\cf9 \strokec9 .\cf6 \strokec6 full\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         urlRegular\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 urls\cf9 \strokec9 .\cf6 \strokec6 regular\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         userId\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 user\cf9 \strokec9 ?.\cf6 \strokec6 id\cf9 \strokec9 ,\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Optional chaining
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         userFirstName\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 user\cf9 \strokec9 ?.\cf6 \strokec6 first_name\cf9 \strokec9 ,\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Optional chaining
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         userLastName\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 user\cf9 \strokec9 ?.\cf6 \strokec6 last_name\cf9 \strokec9 ,\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Optional chaining
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         downloadUrl\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 links\cf9 \strokec9 ?.\cf6 \strokec6 download\cf9 \strokec9 ,\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Optional chaining
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         downloadLocation\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 links\cf9 \strokec9 ?.\cf6 \strokec6 download_location\cf9 \strokec9 ,\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Optional chaining
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         author\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 `Unsplash Image - author: \cf9 \strokec9 $\{\cf6 \strokec6 authorName\cf9 \strokec9 .\cf6 \strokec6 trim\cf9 \strokec9 ()\}\cf10 \strokec10 `\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         description\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 description \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ""\cf9 \strokec9 ,\cf6 \strokec6  \cb1 \
+\cb8       \cf9 \strokec9 \};\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\cb8    \cb1 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 firstTenImages \cf9 \strokec9 =\cf6 \strokec6  firstTenImages\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 data \cf9 \strokec9 =\cf6 \strokec6  data\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Success\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Success:"\cf9 \strokec9 ,\cf6 \strokec6  firstTenImages\cf9 \strokec9 );\cf6 \strokec6  \cb1 \
+\
+\cb8   \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 error \cf9 \strokec9 =\cf6 \strokec6  error\cf9 \strokec9 .\cf6 \strokec6 message\cf9 \strokec9 ;\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Only send the error message, not the entire object
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Failure\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 "queryUnsplash Error:"\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8 queryUnsplash\cf9 \strokec9 ()\cf6 \strokec6  \cb1 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs36 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 1.1 Pexels: \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f6\fs24 \cf6 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec6 \
+\cf7 \cb8 \strokec7 async\cf6 \strokec6  \cf7 \strokec7 function\cf6 \strokec6  queryPexels\cf9 \strokec9 ()\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  key \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 key\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  perPage \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 perPage \cf9 \strokec9 ||\cf6 \strokec6  \cf11 \strokec11 10\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  prompt \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 prompt\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  pexelsPage \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 pexelsPage \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ""\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 let\cf6 \strokec6  url \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 ""\cf6 \cb1 \strokec6 \
+\
+\cb8   
+\f7\i \cf12 \strokec12 // Construct the URL properly
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 pexelsPage \cf9 \strokec9 ===\cf6 \strokec6  \cf10 \strokec10 "Pexels Search"\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  \cb1 \
+\cb8     url \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `https://api.pexels.com/v1/search?query=\cf9 \strokec9 $\{\cf6 \strokec6 prompt\cf9 \strokec9 \}\cf10 \strokec10 &page=2&per_page=\cf9 \strokec9 $\{\cf6 \strokec6 perPage\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 pexelsPage \cf9 \strokec9 ===\cf6 \strokec6  \cf10 \strokec10 "Pexels Curated"\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     url \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `https://api.pexels.com/v1/curated?per_page=\cf9 \strokec9 $\{\cf6 \strokec6 perPage\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     url \cf9 \strokec9 =\cf6 \strokec6  pexelsPage\cb1 \
+\cb8   \cf9 \strokec9 \};\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  method \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 "GET"\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  headers \cf9 \strokec9 =\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Authorization\cf9 \strokec9 :\cf6 \strokec6  key\cb1 \
+\cb8   \cf9 \strokec9 \};\cf6 \cb1 \strokec6 \
+\
+\cb8   \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  response \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  fetch\cf9 \strokec9 (\cf6 \strokec6 url\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  method\cf9 \strokec9 ,\cf6 \strokec6  headers \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 ok\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 `Pexels API error! status: \cf9 \strokec9 $\{\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 status\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  data \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  response\cf9 \strokec9 .\cf6 \strokec6 json\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  next_page \cf9 \strokec9 =\cf6 \strokec6  data\cf9 \strokec9 .\cf6 \strokec6 next_page\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  prev_page \cf9 \strokec9 =\cf6 \strokec6  data\cf9 \strokec9 .\cf6 \strokec6 prev_page\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  totalPages \cf9 \strokec9 =\cf6 \strokec6  data\cf9 \strokec9 .\cf6 \strokec6 total_results\cf9 \strokec9 /\cf6 \strokec6 perPage \cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  page \cf9 \strokec9 =\cf6 \strokec6  data\cf9 \strokec9 .\cf6 \strokec6 page\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 totalPages \cf9 \strokec9 =\cf6 \strokec6  totalPages\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 next_page \cf9 \strokec9 =\cf6 \strokec6  next_page\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 prev_page \cf9 \strokec9 =\cf6 \strokec6  prev_page\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 curr_page \cf9 \strokec9 =\cf6 \strokec6  page\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\
+\cb8     
+\f7\i \cf12 \strokec12 // Map the first ten images
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  firstTenImages \cf9 \strokec9 =\cf6 \strokec6  data\cf9 \strokec9 .\cf6 \strokec6 photos\cf9 \strokec9 .\cf6 \strokec6 slice\cf9 \strokec9 (\cf11 \strokec11 0\cf9 \strokec9 ,\cf6 \strokec6  perPage\cf9 \strokec9 ).\cf6 \strokec6 map\cf9 \strokec9 (\cf6 \strokec6 image \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 (\{\cf6 \cb1 \strokec6 \
+\cb8       id\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 id\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       width\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 width\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       height\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 height\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       urlPexels\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 url\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       author\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "Pexels image by author "\cf6 \strokec6  \cf9 \strokec9 +\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 photographer\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       photographer_url\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 photographer_url\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       photographer_id\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 photographer_id\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       avg_color\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 avg_color\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       original\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 src\cf9 \strokec9 .\cf6 \strokec6 original\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       large2x\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 src\cf9 \strokec9 .\cf6 \strokec6 large2x\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       large\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 src\cf9 \strokec9 .\cf6 \strokec6 large\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       url\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 src\cf9 \strokec9 .\cf6 \strokec6 medium\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       small\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 src\cf9 \strokec9 .\cf6 \strokec6 small\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       portrait\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 src\cf9 \strokec9 .\cf6 \strokec6 portrait\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       landscape\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 src\cf9 \strokec9 .\cf6 \strokec6 landscape\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       tiny\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 src\cf9 \strokec9 .\cf6 \strokec6 tiny\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       description\cf9 \strokec9 :\cf6 \strokec6  image\cf9 \strokec9 .\cf6 \strokec6 alt\cb1 \
+\cb8     \cf9 \strokec9 \}));\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 firstTenImages \cf9 \strokec9 =\cf6 \strokec6  firstTenImages\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 data \cf9 \strokec9 =\cf6 \strokec6  data\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Success\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Success:"\cf9 \strokec9 ,\cf6 \strokec6  firstTenImages\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\
+\cb8   \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 error \cf9 \strokec9 =\cf6 \strokec6  error\cf9 \strokec9 .\cf6 \strokec6 message\cf9 \strokec9 ;\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Only send the error message, not the entire object
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Failure\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 "queryPexels Error:"\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8 queryPexels\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs36 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 \
+\
+2) Generate AI image\
+\
+\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f6\fs24 \cf7 \cb8 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec7 const\cf6 \strokec6  \cf10 \strokec10 SDapiKey\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf10 \strokec10 SDapiKey\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  fluxApiKey \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 fluxApiKey\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  prompt \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 prompt\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  image \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 image \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ""\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  geminiAPIKey \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 geminiAPIKey\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  strength \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 strength \cf9 \strokec9 /\cf6 \strokec6  \cf11 \strokec11 100\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  aspectRatio \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 aspectRatio\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  negativePrompt \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 negativePrompt \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ""\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  imageToImage \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 imageToImage\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  imagenAPIKey \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf10 \strokec10 ImagenAPIKey\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  imageEngine \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 imageEngine\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  \cf10 \strokec10 SD_Model\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf10 \strokec10 SD_Model\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  fluxModel  \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 fluxModel\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  imagenModel \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 imagenModel\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  \cf10 \strokec10 SD_EditMode\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf10 \strokec10 SD_EditMode\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 let\cf6 \strokec6  url \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 ""\cf6 \cb1 \strokec6 \
+\
+\cf10 \cb8 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  formatCurrentDate\cf9 \strokec9 ()\cf6 \strokec6  \cf9 \strokec9 +\cf6 \strokec6  \cf10 \strokec10 ": Image Generation Started"\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8 console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Image generation request started. Engine: "\cf6 \strokec6  \cf9 \strokec9 +\cf6 \strokec6  imageEngine\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 ", SD_EditMode = "\cf9 \strokec9 ,\cf10 \strokec10 SD_EditMode\cf6 \strokec6  \cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\
+
+\f7\i \cf12 \cb8 \strokec12 // GENERATE IMAGE
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 imageEngine \cf9 \strokec9 ===\cf6 \strokec6  \cf10 \strokec10 "Stable Diffusion"\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     generateImageWithStableDiffusion\cf9 \strokec9 (\cf10 \strokec10 SDapiKey\cf9 \strokec9 ,\cf6 \strokec6  prompt\cf9 \strokec9 ,\cf6 \strokec6  imageToImage\cf9 \strokec9 ,\cf6 \strokec6  image\cf9 \strokec9 ,\cf6 \strokec6  strength\cf9 \strokec9 ,\cf6 \strokec6  aspectRatio\cf9 \strokec9 ,\cf6 \strokec6  negativePrompt\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 SD_EditMode\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 SD_Model\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 .\cf6 \strokec6 then\cf9 \strokec9 ((\{\cf6 \strokec6  imageUrl\cf9 \strokec9 ,\cf6 \strokec6  blob\cf9 \strokec9 ,\cf6 \strokec6  file \cf9 \strokec9 \})\cf6 \strokec6  \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             setOutputs\cf9 \strokec9 (\cf6 \strokec6 imageUrl\cf9 \strokec9 ,\cf6 \strokec6  blob\cf9 \strokec9 ,\cf6 \strokec6  file\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 SD_Model\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \})\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 .\cf7 \strokec7 catch\cf9 \strokec9 (\cf6 \strokec6 handleError\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 imageEngine \cf9 \strokec9 ===\cf6 \strokec6  \cf10 \strokec10 "Flux Pro"\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     generateImageWithFlux\cf9 \strokec9 (\cf6 \strokec6 fluxApiKey\cf9 \strokec9 ,\cf6 \strokec6  prompt\cf9 \strokec9 ,\cf6 \strokec6 fluxModel\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 .\cf6 \strokec6 then\cf9 \strokec9 ((\{\cf6 \strokec6  imageUrl\cf9 \strokec9 ,\cf6 \strokec6  blob\cf9 \strokec9 ,\cf6 \strokec6  file \cf9 \strokec9 \})\cf6 \strokec6  \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             setOutputs\cf9 \strokec9 (\cf6 \strokec6 imageUrl\cf9 \strokec9 ,\cf6 \strokec6  blob\cf9 \strokec9 ,\cf6 \strokec6  file\cf9 \strokec9 ,\cf6 \strokec6  fluxModel\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \})\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 .\cf7 \strokec7 catch\cf9 \strokec9 (\cf6 \strokec6 handleError\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 imageEngine \cf9 \strokec9 ===\cf6 \strokec6  \cf10 \strokec10 "Google Imagen"\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     generateImageWithGoogleImagen\cf9 \strokec9 (\cf6 \strokec6 prompt\cf9 \strokec9 ,\cf6 \strokec6 imagenModel\cf9 \strokec9 ,\cf6 \strokec6 geminiApiKey\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 .\cf6 \strokec6 then\cf9 \strokec9 ((\{\cf6 \strokec6  imageUrl\cf9 \strokec9 ,\cf6 \strokec6  blob\cf9 \strokec9 ,\cf6 \strokec6  file \cf9 \strokec9 \})\cf6 \strokec6  \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             setOutputs\cf9 \strokec9 (\cf6 \strokec6 imageUrl\cf9 \strokec9 ,\cf6 \strokec6  blob\cf9 \strokec9 ,\cf6 \strokec6  file\cf9 \strokec9 ,\cf6 \strokec6  imagenModel\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \})\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 .\cf7 \strokec7 catch\cf9 \strokec9 (\cf6 \strokec6 handleError\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 error \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 "Invalid image engine selected"\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cf7 \cb8 \strokec7 function\cf6 \strokec6  setOutputs\cf9 \strokec9 (\cf6 \strokec6 imageUrl\cf9 \strokec9 ,\cf6 \strokec6  blob\cf9 \strokec9 ,\cf6 \strokec6  file\cf9 \strokec9 ,\cf6 \strokec6  author\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 imageUrl \cf9 \strokec9 =\cf6 \strokec6  imageUrl\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 blob \cf9 \strokec9 =\cf6 \strokec6  blob\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 file \cf9 \strokec9 =\cf6 \strokec6  file\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 author \cf9 \strokec9 =\cf6 \strokec6  author\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Success\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cf7 \cb8 \strokec7 function\cf6 \strokec6  handleError\cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 'Error:'\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 error \cf9 \strokec9 =\cf6 \strokec6  error\cf9 \strokec9 .\cf6 \strokec6 message\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cf7 \cb8 \strokec7 async\cf6 \strokec6  \cf7 \strokec7 function\cf6 \strokec6  generateImageWithGoogleImagen\cf9 \strokec9 (\cf6 \strokec6 prompt\cf9 \strokec9 ,\cf6 \strokec6  imagenModel\cf9 \strokec9 ,\cf6 \strokec6  geminiApiKey\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     
+\f7\i \cf12 \strokec12 // No more JWT service needed!
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  url \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `https://generativelanguage.googleapis.com/v1beta/models/\cf9 \strokec9 $\{\cf6 \strokec6 imagenModel\cf9 \strokec9 \}\cf10 \strokec10 :generateImages`\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cb1 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  body \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 JSON\cf9 \strokec9 .\cf6 \strokec6 stringify\cf9 \strokec9 (\{\cf6 \cb1 \strokec6 \
+\cb8         prompt\cf9 \strokec9 :\cf6 \strokec6  prompt\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         config\cf9 \strokec9 :\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             number_of_images\cf9 \strokec9 :\cf6 \strokec6  \cf11 \strokec11 1\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8             aspect_ratio\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "1:1"\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // or other ratios
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  formatCurrentDate\cf9 \strokec9 ()\cf6 \strokec6  \cf9 \strokec9 +\cf6 \strokec6  \cf10 \strokec10 ": Request Sent to Google Imagen 3 - Waiting for Image Generation"\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  response \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  fetch\cf9 \strokec9 (\cf6 \strokec6 url\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             method\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'POST'\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8             headers\cf9 \strokec9 :\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8                 \cf10 \strokec10 'Authorization'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 `Bearer \cf9 \strokec9 $\{\cf6 \strokec6 geminiApiKey\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 ,\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Simple API key
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8                 \cf10 \strokec10 'Content-Type'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'application/json'\cf6 \cb1 \strokec6 \
+\cb8             \cf9 \strokec9 \},\cf6 \cb1 \strokec6 \
+\cb8             body\cf9 \strokec9 :\cf6 \strokec6  body\cb1 \
+\cb8         \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8         \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 ok\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 const\cf6 \strokec6  errorData \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  response\cf9 \strokec9 .\cf6 \strokec6 json\cf9 \strokec9 ().\cf7 \strokec7 catch\cf9 \strokec9 (()\cf6 \strokec6  \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 (\{\}));\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 `Google Imagen failed: \cf9 \strokec9 $\{\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 status\cf9 \strokec9 \}\cf10 \strokec10  \cf9 \strokec9 $\{\cf6 \strokec6 errorData\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 ?.\cf6 \strokec6 message \cf9 \strokec9 ||\cf6 \strokec6  response\cf9 \strokec9 .\cf6 \strokec6 statusText\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  responseData \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  response\cf9 \strokec9 .\cf6 \strokec6 json\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8         \cb1 \
+\cb8         \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 responseData\cf9 \strokec9 .\cf6 \strokec6 generated_images \cf9 \strokec9 &&\cf6 \strokec6  responseData\cf9 \strokec9 .\cf6 \strokec6 generated_images\cf9 \strokec9 .\cf6 \strokec6 length \cf9 \strokec9 >\cf6 \strokec6  \cf11 \strokec11 0\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 const\cf6 \strokec6  imageBytes \cf9 \strokec9 =\cf6 \strokec6  responseData\cf9 \strokec9 .\cf6 \strokec6 generated_images\cf9 \strokec9 [\cf11 \strokec11 0\cf9 \strokec9 ].\cf6 \strokec6 image\cf9 \strokec9 .\cf6 \strokec6 image_bytes\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8             \cb1 \
+\cb8             
+\f7\i \cf12 \strokec12 // Convert base64 to Blob (if needed)
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 const\cf6 \strokec6  byteCharacters \cf9 \strokec9 =\cf6 \strokec6  atob\cf9 \strokec9 (\cf6 \strokec6 imageBytes\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 const\cf6 \strokec6  byteNumbers \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Array\cf9 \strokec9 (\cf6 \strokec6 byteCharacters\cf9 \strokec9 .\cf6 \strokec6 length\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 for\cf6 \strokec6  \cf9 \strokec9 (\cf7 \strokec7 let\cf6 \strokec6  i \cf9 \strokec9 =\cf6 \strokec6  \cf11 \strokec11 0\cf9 \strokec9 ;\cf6 \strokec6  i \cf9 \strokec9 <\cf6 \strokec6  byteCharacters\cf9 \strokec9 .\cf6 \strokec6 length\cf9 \strokec9 ;\cf6 \strokec6  i\cf9 \strokec9 ++)\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8                 byteNumbers\cf9 \strokec9 [\cf6 \strokec6 i\cf9 \strokec9 ]\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  byteCharacters\cf9 \strokec9 .\cf6 \strokec6 charCodeAt\cf9 \strokec9 (\cf6 \strokec6 i\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 const\cf6 \strokec6  byteArray \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Uint8Array\cf9 \strokec9 (\cf6 \strokec6 byteNumbers\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 const\cf6 \strokec6  blob \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Blob\cf9 \strokec9 ([\cf6 \strokec6 byteArray\cf9 \strokec9 ],\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  type\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'image/png'\cf6 \strokec6  \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\cb8             \cb1 \
+\cb8             \cf7 \strokec7 const\cf6 \strokec6  file \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 File\cf9 \strokec9 ([\cf6 \strokec6 blob\cf9 \strokec9 ],\cf6 \strokec6  \cf10 \strokec10 'generated_image.png'\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  type\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'image/png'\cf6 \strokec6  \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 const\cf6 \strokec6  imageUrl \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 URL\cf9 \strokec9 .\cf6 \strokec6 createObjectURL\cf9 \strokec9 (\cf6 \strokec6 blob\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             \cb1 \
+\cb8             \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  formatCurrentDate\cf9 \strokec9 ()\cf6 \strokec6  \cf9 \strokec9 +\cf6 \strokec6  \cf10 \strokec10 ": Image generation complete"\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 return\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  imageUrl\cf9 \strokec9 ,\cf6 \strokec6  blob\cf9 \strokec9 ,\cf6 \strokec6  file \cf9 \strokec9 \};\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 'No image generated in the response'\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 'Error:'\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  formatCurrentDate\cf9 \strokec9 ()\cf6 \strokec6  \cf9 \strokec9 +\cf6 \strokec6  \cf10 \strokec10 ": Error generating image: "\cf6 \strokec6  \cf9 \strokec9 +\cf6 \strokec6  error\cf9 \strokec9 .\cf6 \strokec6 message\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 throw\cf6 \strokec6  error\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\
+\
+\
+
+\f7\i \cf12 \cb8 \strokec12 // FUNCTION TO GENERATE IMAGE WITH STABLE DIFFUSION
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 function\cf6 \strokec6  generateImageWithStableDiffusion\cf9 \strokec9 (\cf6 \strokec6 apiKey\cf9 \strokec9 ,\cf6 \strokec6  prompt\cf9 \strokec9 ,\cf6 \strokec6  imageToImage\cf9 \strokec9 ,\cf6 \strokec6  image\cf9 \strokec9 ,\cf6 \strokec6  strength\cf9 \strokec9 ,\cf6 \strokec6  aspectRatio\cf9 \strokec9 ,\cf6 \strokec6  negativePrompt\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 SD_EditMode\cf9 \strokec9 ,\cf10 \strokec10 SD_Model\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 return\cf6 \strokec6  makeStableDiffusionApiCall\cf9 \strokec9 (\cf6 \strokec6 apiKey\cf9 \strokec9 ,\cf6 \strokec6  prompt\cf9 \strokec9 ,\cf6 \strokec6  imageToImage\cf9 \strokec9 ,\cf6 \strokec6  image\cf9 \strokec9 ,\cf6 \strokec6  strength\cf9 \strokec9 ,\cf6 \strokec6  aspectRatio\cf9 \strokec9 ,\cf6 \strokec6  negativePrompt\cf9 \strokec9 ,\cf10 \strokec10 SD_EditMode\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 SD_Model\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 .\cf6 \strokec6 then\cf9 \strokec9 (\cf6 \strokec6 blob \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Stable Diffusion response received"\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  formatCurrentDate\cf9 \strokec9 ()\cf6 \strokec6  \cf9 \strokec9 +\cf6 \strokec6  \cf10 \strokec10 ": Image generated successfully"\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 const\cf6 \strokec6  imageUrl \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 URL\cf9 \strokec9 .\cf6 \strokec6 createObjectURL\cf9 \strokec9 (\cf6 \strokec6 blob\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 const\cf6 \strokec6  file \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 File\cf9 \strokec9 ([\cf6 \strokec6 blob\cf9 \strokec9 ],\cf6 \strokec6  \cf10 \strokec10 'StableDiffusion.jpeg'\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  type\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'image/jpeg'\cf6 \strokec6  \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 return\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  imageUrl\cf9 \strokec9 ,\cf6 \strokec6  blob\cf9 \strokec9 ,\cf6 \strokec6  file \cf9 \strokec9 \};\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\
+
+\f7\i \cf12 \cb8 \strokec12 // FUNCTION TO MAKE STABLE DIFFUSION API CALL
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 async\cf6 \strokec6  \cf7 \strokec7 function\cf6 \strokec6  makeStableDiffusionApiCall\cf9 \strokec9 (\cf6 \strokec6 apiKey\cf9 \strokec9 ,\cf6 \strokec6  prompt\cf9 \strokec9 ,\cf6 \strokec6  imageToImage\cf9 \strokec9 ,\cf6 \strokec6  image\cf9 \strokec9 ,\cf6 \strokec6  strength\cf9 \strokec9 ,\cf6 \strokec6  aspectRatio\cf9 \strokec9 ,\cf6 \strokec6  negativePrompt\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 SD_EditMode\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 "Standard"\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 SD_Model\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 'SD3.5 Medium'\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  formData \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 FormData\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 `SD request being created. imageToImage = \cf9 \strokec9 $\{\cf6 \strokec6 imageToImage\cf9 \strokec9 \}\cf10 \strokec10 , Strength: \cf9 \strokec9 $\{\cf6 \strokec6 strength\cf9 \strokec9 \}\cf10 \strokec10 , model: \cf9 \strokec9 $\{\cf10 \strokec10 SD_Model\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\
+\cb8     
+\f7\i \cf12 \strokec12 // Append required fields
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     formData\cf9 \strokec9 .\cf6 \strokec6 append\cf9 \strokec9 (\cf10 \strokec10 'prompt'\cf9 \strokec9 ,\cf6 \strokec6  prompt\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     formData\cf9 \strokec9 .\cf6 \strokec6 append\cf9 \strokec9 (\cf10 \strokec10 'output_format'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 'jpeg'\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     formData\cf9 \strokec9 .\cf6 \strokec6 append\cf9 \strokec9 (\cf10 \strokec10 'model'\cf9 \strokec9 ,\cf10 \strokec10 SD_Model\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8     formData\cf9 \strokec9 .\cf6 \strokec6 append\cf9 \strokec9 (\cf6 \cb1 \strokec6 \
+\cb8         \cf10 \strokec10 'negative_prompt'\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         \cf10 \strokec10 `"blurry", "pixelated", "bad anatomy", "poor lighting", "dullness", "ugly", "boring", "bad hands", "extra limbs", "disfigured body", \cf9 \strokec9 $\{\cf6 \strokec6 negativePrompt\cf9 \strokec9 \}\cf10 \strokec10 `\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 let\cf6 \strokec6  url\cf9 \strokec9 ;\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Declare URL variable
+\f6\i0 \cf6 \cb1 \strokec6 \
+\
+\cb8     
+\f7\i \cf12 \strokec12 // Handle Edit-InPaint mode
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf10 \strokec10 SD_EditMode\cf6 \strokec6  \cf9 \strokec9 ===\cf6 \strokec6  \cf10 \strokec10 "Edit-InPaint"\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         url \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 'https://api.stability.ai/v2beta/stable-image/edit/inpaint'\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8         console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "SD_EditMode = "\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 SD_EditMode\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 ", url: "\cf9 \strokec9 ,\cf6 \strokec6  url\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 image\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             formData\cf9 \strokec9 .\cf6 \strokec6 append\cf9 \strokec9 (\cf10 \strokec10 'image'\cf9 \strokec9 ,\cf6 \strokec6  image\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Handle Standard or Image-to-Image mode
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         url \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 'https://api.stability.ai/v2beta/stable-image/generate/sd3'\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8         console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "SD_EditMode = "\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 SD_EditMode\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 ", url: "\cf9 \strokec9 ,\cf6 \strokec6  url\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 imageToImage \cf9 \strokec9 &&\cf6 \strokec6  image\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Processing Image-to-Image with image:"\cf9 \strokec9 ,\cf6 \strokec6  image\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `\cf9 \strokec9 $\{\cf6 \strokec6 formatCurrentDate\cf9 \strokec9 ()\}\cf10 \strokec10 : Image-to-Image Started`\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8             formData\cf9 \strokec9 .\cf6 \strokec6 append\cf9 \strokec9 (\cf10 \strokec10 'image'\cf9 \strokec9 ,\cf6 \strokec6  image\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             formData\cf9 \strokec9 .\cf6 \strokec6 append\cf9 \strokec9 (\cf10 \strokec10 'mode'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 'image-to-image'\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             formData\cf9 \strokec9 .\cf6 \strokec6 append\cf9 \strokec9 (\cf10 \strokec10 'strength'\cf9 \strokec9 ,\cf6 \strokec6  strength\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             formData\cf9 \strokec9 .\cf6 \strokec6 append\cf9 \strokec9 (\cf10 \strokec10 'aspect_ratio'\cf9 \strokec9 ,\cf6 \strokec6  aspectRatio\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8     
+\f7\i \cf12 \strokec12 // Log FormData contents for debugging
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Form Data:"\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 for\cf6 \strokec6  \cf9 \strokec9 (\cf7 \strokec7 const\cf6 \strokec6  \cf9 \strokec9 [\cf6 \strokec6 key\cf9 \strokec9 ,\cf6 \strokec6  value\cf9 \strokec9 ]\cf6 \strokec6  \cf7 \strokec7 of\cf6 \strokec6  formData\cf9 \strokec9 .\cf6 \strokec6 entries\cf9 \strokec9 ())\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 `\cf9 \strokec9 $\{\cf6 \strokec6 key\cf9 \strokec9 \}\cf10 \strokec10 : \cf9 \strokec9 $\{\cf6 \strokec6 value\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `\cf9 \strokec9 $\{\cf6 \strokec6 formatCurrentDate\cf9 \strokec9 ()\}\cf10 \strokec10 : Request Sent - Waiting for Image Generation`\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\
+\cb8     
+\f7\i \cf12 \strokec12 // Make the API call
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 return\cf6 \strokec6  fetch\cf9 \strokec9 (\cf6 \strokec6 url\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         method\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'POST'\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         headers\cf9 \strokec9 :\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             \cf10 \strokec10 'Authorization'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 `Bearer \cf9 \strokec9 $\{\cf6 \strokec6 apiKey\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8             \cf10 \strokec10 'Accept'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'image/*'\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \},\cf6 \cb1 \strokec6 \
+\cb8         body\cf9 \strokec9 :\cf6 \strokec6  formData\cb1 \
+\cb8     \cf9 \strokec9 \})\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 .\cf6 \strokec6 then\cf9 \strokec9 (\cf6 \strokec6 response \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 ok\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8                 \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `\cf9 \strokec9 $\{\cf6 \strokec6 formatCurrentDate\cf9 \strokec9 ()\}\cf10 \strokec10 : Error generating Image`\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8                 \cf7 \strokec7 return\cf6 \strokec6  response\cf9 \strokec9 .\cf6 \strokec6 json\cf9 \strokec9 ().\cf6 \strokec6 then\cf9 \strokec9 (\cf6 \strokec6 errorData \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8                     console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 'Error ID:'\cf9 \strokec9 ,\cf6 \strokec6  errorData\cf9 \strokec9 .\cf6 \strokec6 id\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8                     console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 'Error Name:'\cf9 \strokec9 ,\cf6 \strokec6  errorData\cf9 \strokec9 .\cf6 \strokec6 name\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8                     console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 'Error Details:'\cf9 \strokec9 ,\cf6 \strokec6  errorData\cf9 \strokec9 .\cf6 \strokec6 errors\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8                     \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 `Image generation failed: \cf9 \strokec9 $\{\cf6 \strokec6 errorData\cf9 \strokec9 .\cf6 \strokec6 message\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8                 \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\cb8             \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 return\cf6 \strokec6  response\cf9 \strokec9 .\cf6 \strokec6 blob\cf9 \strokec9 ();\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Return the generated image as a Blob
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \})\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 .\cf7 \strokec7 catch\cf9 \strokec9 (\cf6 \strokec6 error \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 "Error during API call:"\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `\cf9 \strokec9 $\{\cf6 \strokec6 formatCurrentDate\cf9 \strokec9 ()\}\cf10 \strokec10 : API Call Failed`\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 throw\cf6 \strokec6  error\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8  
+\f7\i \cf12 \strokec12 // FUNCTION TO GENERATE IMAGE WITH FLUX (Polling version)
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 async\cf6 \strokec6  \cf7 \strokec7 function\cf6 \strokec6  generateImageWithFlux\cf9 \strokec9 (\cf6 \strokec6 apiKey\cf9 \strokec9 ,\cf6 \strokec6  prompt\cf9 \strokec9 ,\cf6 \strokec6  fluxModel \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 fluxModel\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  generateUrl \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 'https://api.fluxapi.ai/api/v1/flux/kontext/generate'\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  body \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 JSON\cf9 \strokec9 .\cf6 \strokec6 stringify\cf9 \strokec9 (\{\cf6 \cb1 \strokec6 \
+\cb8         prompt\cf9 \strokec9 :\cf6 \strokec6  prompt\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         enableTranslation\cf9 \strokec9 :\cf6 \strokec6  \cf7 \strokec7 true\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         aspectRatio\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 aspectRatio\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         outputFormat\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'jpeg'\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         promptUpsampling\cf9 \strokec9 :\cf6 \strokec6  \cf7 \strokec7 false\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         model\cf9 \strokec9 :\cf6 \strokec6  fluxModel\cb1 \
+\cb8     \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `\cf9 \strokec9 $\{\cf6 \strokec6 formatCurrentDate\cf9 \strokec9 ()\}\cf10 \strokec10 : Request sent to Flux API \'96 waiting for image generation`\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         
+\f7\i \cf12 \strokec12 /* 1.  Create the task --------------------------------------------------- */
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  postResp \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  fetch\cf9 \strokec9 (\cf6 \strokec6 generateUrl\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             method\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'POST'\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8             headers\cf9 \strokec9 :\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8                 \cf10 \strokec10 'Authorization'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 `Bearer \cf9 \strokec9 $\{\cf6 \strokec6 apiKey\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8                 \cf10 \strokec10 'Content-Type'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'application/json'\cf6 \cb1 \strokec6 \
+\cb8             \cf9 \strokec9 \},\cf6 \cb1 \strokec6 \
+\cb8             body\cb1 \
+\cb8         \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8         \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 postResp\cf9 \strokec9 .\cf6 \strokec6 ok\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 const\cf6 \strokec6  e \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  postResp\cf9 \strokec9 .\cf6 \strokec6 json\cf9 \strokec9 ().\cf7 \strokec7 catch\cf9 \strokec9 (()\cf6 \strokec6  \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 (\{\}));\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 `Flux job start failed: \cf9 \strokec9 $\{\cf6 \strokec6 postResp\cf9 \strokec9 .\cf6 \strokec6 status\cf9 \strokec9 \}\cf10 \strokec10  \cf9 \strokec9 $\{\cf6 \strokec6 e\cf9 \strokec9 .\cf6 \strokec6 msg \cf9 \strokec9 ||\cf6 \strokec6  e\cf9 \strokec9 .\cf6 \strokec6 detail \cf9 \strokec9 ||\cf6 \strokec6  postResp\cf9 \strokec9 .\cf6 \strokec6 statusText\cf9 \strokec9 \}\cf10 \strokec10  TaskRecord: \cf9 \strokec9 $\{\cf6 \strokec6 e\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  initialData \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  postResp\cf9 \strokec9 .\cf6 \strokec6 json\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8         \cb1 \
+\cb8         
+\f7\i \cf12 \strokec12 // Extract taskId from the initial response (assuming it's under 'data')
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  taskId \cf9 \strokec9 =\cf6 \strokec6  initialData\cf9 \strokec9 ?.\cf6 \strokec6 data\cf9 \strokec9 ?.\cf6 \strokec6 taskId \cf9 \strokec9 ||\cf6 \strokec6  initialData\cf9 \strokec9 ?.\cf6 \strokec6 taskId \cf9 \strokec9 ||\cf6 \strokec6  initialData\cf9 \strokec9 ?.\cf6 \strokec6 result\cf9 \strokec9 ?.\cf6 \strokec6 taskId\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 taskId\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8              console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Initial Flux Response:"\cf9 \strokec9 ,\cf6 \strokec6  initialData\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8              \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 'Flux job started, but the response did not contain a taskId. Check console for "Initial Flux Response".'\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8         \cb1 \
+\cb8         console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 'Flux taskId:'\cf9 \strokec9 ,\cf6 \strokec6  taskId\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cb1 \
+\cb8         
+\f7\i \cf12 \strokec12 // *** FIX: Use the confirmed Polling URL (record-info) ***
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  pollingUrl \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `https://api.fluxapi.ai/api/v1/flux/kontext/record-info?taskId=\cf9 \strokec9 $\{\cf6 \strokec6 taskId\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8         console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 'Flux Polling URL:'\cf9 \strokec9 ,\cf6 \strokec6  pollingUrl\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\
+\cb8         
+\f7\i \cf12 \strokec12 /* 2.  Poll until finished ----------------------------------------------- */
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  poll \cf9 \strokec9 =\cf6 \strokec6  \cf9 \strokec9 ()\cf6 \strokec6  \cf9 \strokec9 =>\cf6 \cb1 \strokec6 \
+\cb8             fetch\cf9 \strokec9 (\cf6 \strokec6 pollingUrl\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8                 headers\cf9 \strokec9 :\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  \cf10 \strokec10 'Authorization'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 `Bearer \cf9 \strokec9 $\{\cf6 \strokec6 apiKey\cf9 \strokec9 \}\cf10 \strokec10 `\cf6 \strokec6  \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8             \cf9 \strokec9 \}).\cf6 \strokec6 then\cf9 \strokec9 (\cf6 \strokec6 r \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8                 \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 r\cf9 \strokec9 .\cf6 \strokec6 ok\cf9 \strokec9 )\cf6 \strokec6  \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 'Poll request failed '\cf6 \strokec6  \cf9 \strokec9 +\cf6 \strokec6  r\cf9 \strokec9 .\cf6 \strokec6 status\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8                 \cf7 \strokec7 return\cf6 \strokec6  r\cf9 \strokec9 .\cf6 \strokec6 json\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8             \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8         \cf7 \strokec7 let\cf6 \strokec6  pollData\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  maxAttempts \cf9 \strokec9 =\cf6 \strokec6  \cf11 \strokec11 150\cf9 \strokec9 ;\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // 5 minutes max timeout (150 attempts * 2s)
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         \cb1 \
+\cb8         \cf7 \strokec7 for\cf6 \strokec6  \cf9 \strokec9 (\cf7 \strokec7 let\cf6 \strokec6  attempts \cf9 \strokec9 =\cf6 \strokec6  \cf11 \strokec11 0\cf9 \strokec9 ;\cf6 \strokec6  attempts \cf9 \strokec9 <\cf6 \strokec6  maxAttempts\cf9 \strokec9 ;\cf6 \strokec6  attempts\cf9 \strokec9 ++)\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 await\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Promise\cf9 \strokec9 (\cf6 \strokec6 r \cf9 \strokec9 =>\cf6 \strokec6  setTimeout\cf9 \strokec9 (\cf6 \strokec6 r\cf9 \strokec9 ,\cf6 \strokec6  \cf11 \strokec11 2000\cf9 \strokec9 ));\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // 2-second pause
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8             \cb1 \
+\cb8             pollData \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  poll\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 const\cf6 \strokec6  successFlag \cf9 \strokec9 =\cf6 \strokec6  pollData\cf9 \strokec9 .\cf6 \strokec6 data\cf9 \strokec9 ?.\cf6 \strokec6 successFlag\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8             \cb1 \
+\cb8             console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 `Poll Status Flag: \cf9 \strokec9 $\{\cf6 \strokec6 successFlag\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\
+\cb8             
+\f7\i \cf12 \strokec12 // Success status: 1 = SUCCESS
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 successFlag \cf9 \strokec9 ===\cf6 \strokec6  \cf11 \strokec11 1\cf9 \strokec9 )\cf6 \strokec6  \cf7 \strokec7 break\cf9 \strokec9 ;\cf6 \strokec6  \cb1 \
+\cb8             console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf6 \strokec6 pollData\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8             
+\f7\i \cf12 \strokec12 // Failure statuses: 2 = CREATE_TASK_FAILED, 3 = GENERATE_FAILED
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 successFlag \cf9 \strokec9 ===\cf6 \strokec6  \cf11 \strokec11 2\cf6 \strokec6  \cf9 \strokec9 ||\cf6 \strokec6  successFlag \cf9 \strokec9 ===\cf6 \strokec6  \cf11 \strokec11 3\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8                  \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 `Flux generation failed (Error Code \cf9 \strokec9 $\{\cf6 \strokec6 successFlag\cf9 \strokec9 \}\cf10 \strokec10 ): \cf9 \strokec9 $\{\cf6 \strokec6 pollData\cf9 \strokec9 .\cf6 \strokec6 data\cf9 \strokec9 ?.\cf6 \strokec6 errorMessage \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 'Check task record for details.'\cf9 \strokec9 \}\cf10 \strokec10 , Poll data: \cf9 \strokec9 $\{\cf6 \strokec6 pollData\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8             \cb1 \
+\cb8             \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `\cf9 \strokec9 $\{\cf6 \strokec6 formatCurrentDate\cf9 \strokec9 ()\}\cf10 \strokec10 : Still waiting for image generation... Status: GENERATING`\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8         \cb1 \
+\cb8         \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 pollData\cf9 \strokec9 ?.\cf6 \strokec6 data\cf9 \strokec9 ?.\cf6 \strokec6 successFlag \cf9 \strokec9 !==\cf6 \strokec6  \cf11 \strokec11 1\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8              \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 'Image generation timed out after 5 minutes.'\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8         
+\f7\i \cf12 \strokec12 /* 3.  Download the picture ---------------------------------------------- */
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         
+\f7\i \cf12 \strokec12 // Extract the result from the confirmed structure: data.response.resultImageUrl
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  imageUrl \cf9 \strokec9 =\cf6 \strokec6  pollData\cf9 \strokec9 .\cf6 \strokec6 data\cf9 \strokec9 ?.\cf6 \strokec6 response\cf9 \strokec9 ?.\cf6 \strokec6 resultImageUrl\cf9 \strokec9 ;\cf6 \strokec6  \cb1 \
+\cb8         \cb1 \
+\cb8         \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 imageUrl\cf9 \strokec9 )\cf6 \strokec6  \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 'No resultImageUrl in completed task response.'\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  imgResp \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  fetch\cf9 \strokec9 (\cf6 \strokec6 imageUrl\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 imgResp\cf9 \strokec9 .\cf6 \strokec6 ok\cf9 \strokec9 )\cf6 \strokec6  \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 'Could not download finished image'\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cb1 \
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  blob \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  imgResp\cf9 \strokec9 .\cf6 \strokec6 blob\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  file \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 File\cf9 \strokec9 ([\cf6 \strokec6 blob\cf9 \strokec9 ],\cf6 \strokec6  \cf10 \strokec10 'Flux.jpeg'\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  type\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'image/jpeg'\cf6 \strokec6  \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8         \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `\cf9 \strokec9 $\{\cf6 \strokec6 formatCurrentDate\cf9 \strokec9 ()\}\cf10 \strokec10 : Image generation complete`\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 return\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  imageUrl\cf9 \strokec9 ,\cf6 \strokec6  blob\cf9 \strokec9 ,\cf6 \strokec6  file \cf9 \strokec9 \};\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 `\cf9 \strokec9 $\{\cf6 \strokec6 formatCurrentDate\cf9 \strokec9 ()\}\cf10 \strokec10 : Error generating Image: \cf9 \strokec9 $\{\cf6 \strokec6 error\cf9 \strokec9 .\cf6 \strokec6 message\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8         console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 'Error:'\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 throw\cf6 \strokec6  error\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+
+\f7\i \cf12 \cb8 \strokec12 // FORMAT CURRENT Date
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 function\cf6 \strokec6  formatCurrentDate\cf9 \strokec9 ()\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  currentDate \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Date\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8   \cb1 \
+\cb8   
+\f7\i \cf12 \strokec12 // Array of month abbreviations
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  months \cf9 \strokec9 =\cf6 \strokec6  \cf9 \strokec9 [\cf10 \strokec10 'Jan'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 'Feb'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 'Mar'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 'Apr'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 'May'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 'Jun'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 'Jul'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 'Aug'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 'Sep'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 'Oct'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 'Nov'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 'Dec'\cf9 \strokec9 ];\cf6 \cb1 \strokec6 \
+\cb8   \cb1 \
+\cb8   
+\f7\i \cf12 \strokec12 // Get date components
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  month \cf9 \strokec9 =\cf6 \strokec6  months\cf9 \strokec9 [\cf6 \strokec6 currentDate\cf9 \strokec9 .\cf6 \strokec6 getMonth\cf9 \strokec9 ()];\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  day \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 String\cf9 \strokec9 (\cf6 \strokec6 currentDate\cf9 \strokec9 .\cf6 \strokec6 getDate\cf9 \strokec9 ()).\cf6 \strokec6 padStart\cf9 \strokec9 (\cf11 \strokec11 2\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 '0'\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  year \cf9 \strokec9 =\cf6 \strokec6  currentDate\cf9 \strokec9 .\cf6 \strokec6 getFullYear\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8   \cb1 \
+\cb8   
+\f7\i \cf12 \strokec12 // Get time components
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 let\cf6 \strokec6  hours \cf9 \strokec9 =\cf6 \strokec6  currentDate\cf9 \strokec9 .\cf6 \strokec6 getHours\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  minutes \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 String\cf9 \strokec9 (\cf6 \strokec6 currentDate\cf9 \strokec9 .\cf6 \strokec6 getMinutes\cf9 \strokec9 ()).\cf6 \strokec6 padStart\cf9 \strokec9 (\cf11 \strokec11 2\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 '0'\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8   \cb1 \
+\cb8   
+\f7\i \cf12 \strokec12 // Convert to 12-hour format
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  ampm \cf9 \strokec9 =\cf6 \strokec6  hours \cf9 \strokec9 >=\cf6 \strokec6  \cf11 \strokec11 12\cf6 \strokec6  \cf9 \strokec9 ?\cf6 \strokec6  \cf10 \strokec10 'PM'\cf6 \strokec6  \cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'AM'\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   hours \cf9 \strokec9 =\cf6 \strokec6  hours \cf9 \strokec9 %\cf6 \strokec6  \cf11 \strokec11 12\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   hours \cf9 \strokec9 =\cf6 \strokec6  hours \cf9 \strokec9 ?\cf6 \strokec6  hours \cf9 \strokec9 :\cf6 \strokec6  \cf11 \strokec11 12\cf9 \strokec9 ;\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // the hour '0' should be '12'
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8   hours \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 String\cf9 \strokec9 (\cf6 \strokec6 hours\cf9 \strokec9 ).\cf6 \strokec6 padStart\cf9 \strokec9 (\cf11 \strokec11 2\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 '0'\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8   \cb1 \
+\cb8   
+\f7\i \cf12 \strokec12 // Get timezone abbreviation
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  timeZone \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Intl\cf9 \strokec9 .\cf10 \strokec10 DateTimeFormat\cf9 \strokec9 ().\cf6 \strokec6 resolvedOptions\cf9 \strokec9 ().\cf6 \strokec6 timeZone\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 const\cf6 \strokec6  timeZoneAbbr \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Intl\cf9 \strokec9 .\cf10 \strokec10 DateTimeFormat\cf9 \strokec9 (\cf10 \strokec10 'en'\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  timeZoneName\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'short'\cf6 \strokec6  \cf9 \strokec9 \})\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 .\cf6 \strokec6 formatToParts\cf9 \strokec9 (\cf6 \strokec6 currentDate\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 .\cf6 \strokec6 find\cf9 \strokec9 (\cf6 \strokec6 part \cf9 \strokec9 =>\cf6 \strokec6  part\cf9 \strokec9 .\cf6 \strokec6 type \cf9 \strokec9 ===\cf6 \strokec6  \cf10 \strokec10 'timeZoneName'\cf9 \strokec9 ).\cf6 \strokec6 value\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\
+\cb8   
+\f7\i \cf12 \strokec12 // Construct the formatted string
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 return\cf6 \strokec6  \cf10 \strokec10 `\cf9 \strokec9 $\{\cf6 \strokec6 month\cf9 \strokec9 \}$\{\cf6 \strokec6 day\cf9 \strokec9 \}$\{\cf6 \strokec6 year\cf9 \strokec9 \}\cf10 \strokec10 . \cf9 \strokec9 $\{\cf6 \strokec6 hours\cf9 \strokec9 \}\cf10 \strokec10 :\cf9 \strokec9 $\{\cf6 \strokec6 minutes\cf9 \strokec9 \}\cf10 \strokec10  \cf9 \strokec9 $\{\cf6 \strokec6 timeZoneAbbr\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+
+\f7\i \cf12 \cb8 \strokec12 // CALL JWT Service in CLOUD RUN to request Google Token for 0AUTH
+\f6\i0 \cf6 \cb1 \strokec6 \
+
+\f7\i \cf12 \cb8 \strokec12 // It used the default Google service account in cloud run
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 async\cf6 \strokec6  \cf7 \strokec7 function\cf6 \strokec6  callJwtService\cf9 \strokec9 ()\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  url \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 'https://jwt-token-service-445556218231.us-east4.run.app/getToken'\cf9 \strokec9 ;\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Replace with your Cloud Run URL
+\f6\i0 \cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  response \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  fetch\cf9 \strokec9 (\cf6 \strokec6 url\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             method\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'POST'\cf9 \strokec9 ,\cf6 \strokec6  \cb1 \
+\cb8             headers\cf9 \strokec9 :\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8                 \cf10 \strokec10 'Content-Type'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'application/json'\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8             \cf9 \strokec9 \},\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8         \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 ok\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 `HTTP error! status: \cf9 \strokec9 $\{\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 status\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  data \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  response\cf9 \strokec9 .\cf6 \strokec6 json\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 return\cf6 \strokec6  data\cf9 \strokec9 .\cf6 \strokec6 token\cf9 \strokec9 ;\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Adjust based on your API response structure
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 'Error calling JWT service:'\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 throw\cf6 \strokec6  error\cf9 \strokec9 ;\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Rethrow or handle as needed
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs36 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 \
+3) Generate Infograph\
+\
+3.1) Find available Infograph templates:\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f6\fs24 \cf7 \cb8 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec7 async\cf6 \strokec6  \cf7 \strokec7 function\cf6 \strokec6  fetchInfographicImage\cf9 \strokec9 (\cf10 \strokec10 Value\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 let\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  data\cf9 \strokec9 :\cf6 \strokec6  infographic\cf9 \strokec9 ,\cf6 \strokec6  error \cf9 \strokec9 \}\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  \cf10 \strokec10 Noodl\cf9 \strokec9 .\cf10 \strokec10 Variables\cf9 \strokec9 .\cf6 \strokec6 supabase\cb1 \
+\cb8       \cf9 \strokec9 .\cf7 \strokec7 from\cf9 \strokec9 (\cf10 \strokec10 'infographic'\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8       \cf9 \strokec9 .\cf6 \strokec6 select\cf9 \strokec9 (\cf10 \strokec10 "*"\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8       \cf9 \strokec9 .\cf6 \strokec6 eq\cf9 \strokec9 (\cf10 \strokec10 'id'\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 Value\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8       \cb1 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Supabase response:"\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  infographic\cf9 \strokec9 ,\cf6 \strokec6  error \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 `Error fetching infographic: \cf9 \strokec9 $\{\cf6 \strokec6 error\cf9 \strokec9 .\cf6 \strokec6 message\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 infographic \cf9 \strokec9 ||\cf6 \strokec6  \cf9 \strokec9 !\cf10 \strokec10 Array\cf9 \strokec9 .\cf6 \strokec6 isArray\cf9 \strokec9 (\cf6 \strokec6 infographic\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 ||\cf6 \strokec6  infographic\cf9 \strokec9 .\cf6 \strokec6 length \cf9 \strokec9 ===\cf6 \strokec6  \cf11 \strokec11 0\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "No infographic data found"\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8       \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Items\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  \cf9 \strokec9 [];\cf6 \cb1 \strokec6 \
+\cb8       \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Success\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8       \cf7 \strokec7 return\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Fetched infographic:"\cf9 \strokec9 ,\cf6 \strokec6  infographic\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cb1 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  image \cf9 \strokec9 =\cf6 \strokec6  infographic\cf9 \strokec9 [\cf11 \strokec11 0\cf9 \strokec9 ].\cf6 \strokec6 sampleImage\cf9 \strokec9 ;\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Correctly accessing sampleImage
+\f6\i0 \cf6 \cb1 \strokec6 \
+\
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Sample infographic:"\cf9 \strokec9 ,\cf6 \strokec6  image\cf9 \strokec9 );\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Changed from sampleImage to image
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 image \cf9 \strokec9 =\cf6 \strokec6  image\cf9 \strokec9 ;\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Ensure Outputs is set up to handle this
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Success\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 err\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 "Error in fetchInfographic:"\cf9 \strokec9 ,\cf6 \strokec6  err\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Failure\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+
+\f7\i \cf12 \cb8 \strokec12 // Call the function
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8 fetchInfographicImage\cf9 \strokec9 (\cf10 \strokec10 Inputs\cf9 \strokec9 .\cf10 \strokec10 Value\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs36 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 \
+This is a sample infographic record from table infographic:\
+\
+\{\
+  "created_at": "2024-10-07T22:54:30.69902+00:00",\
+  "CSS": "@import url('https://fonts.googleapis.com/css2?family=Merriweather:ital@1&family=Oswald:wght@500&display=swap');\\n@import url('https://pro.fontawesome.com/releases/v6.0.0-beta1/css/all.css');\\n\\n/* Reset and base styles */\\n*, *::before, *::after \{ \\n  margin: 0; \\n  padding: 0; \\n  box-sizing: border-box;\\n\}\\n\\nbody \{\\n  margin: 0;\\n  padding: 0;\\n  display: flex;\\n  flex-direction: column;\\n  align-items: center;\\n  justify-content: flex-start;\\n  width: 100%;\\n  min-height: 100vh;\\n  background-color: #f5f5f5;\\n  font-family: 'Merriweather', serif;\\n\}\\n\\n.content-wrapper \{\\n  width: 100%;\\n  max-width: 60rem;\\n  margin: 0 auto;\\n  padding: 1rem 1rem 0;\\n\}\\n\\n/* Heading styles */\\nh1 \{\\n  font-size: 2.0rem;\\n  font-family: 'Oswald', sans-serif;\\n  text-align: center;\\n  font-weight: normal;\\n  margin-bottom: 1rem;\\n\}\\n\\n/* Ordered list styles */\\nol \{ \\n  display: grid;\\n  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));\\n  gap: 1rem;\\n  width: 100%;\\n  padding: 1rem 1rem 0;\\n  margin-bottom: 0;\\n  list-style: none;\\n  counter-reset: count;\\n\}\\n\\n/* Card styles */\\nol > li \{\\n  --card-background-color: #f0f0f0;\\n  --card-text-color: #0F0F0F;\\n  --card-border-radius: 0.5rem;\\n  --card-padding-block: 1.5rem;\\n  --card-padding-inline: 1rem;\\n  --outset-size: 0.75rem;\\n  --outset-background-color: #e5e5e5;\\n  --number-font-size: 3rem;\\n  --number-overlap: 0.5rem;\\n  --number-font-family: 'Oswald', sans-serif;\\n  --number-font-weight: 500;\\n  \\n  margin: var(--outset-size);\\n  margin-top: calc(var(--number-font-size) - var(--number-overlap));\\n  border-radius: var(--card-border-radius);\\n  padding: var(--card-padding-block) var(--card-padding-inline);\\n  color: var(--card-text-color);\\n  background-color: var(--card-background-color);\\n  box-shadow: \\n    inset 1px 1px 0px rgb(255 255 255 / .5),\\n    inset -1px -1px 0px rgb(0 0 0 / .25),\\n    calc(var(--outset-size) * .25) calc(var(--outset-size) * .25) calc(var(--outset-size) * .5) rgb(0 0 0 / .25);\\n  position: relative;\\n  counter-increment: count;\\n\}\\n\\nol > li::after \{\\n  content: counter(count, decimal-leading-zero);\\n  position: absolute;\\n  bottom: calc(100% - var(--number-overlap));\\n  left: 50%;\\n  transform: translateX(-50%);\\n  color: var(--accent-color);\\n  font-family: var(--number-font-family);\\n  font-weight: var(--number-font-weight);\\n  font-size: var(--number-font-size);\\n  line-height: 1;\\n  z-index: -1;\\n\}\\n\\nol > li::before \{\\n  content: \\"\\";\\n  position: absolute;\\n  width: calc(100% + (var(--outset-size) * 2));\\n  height: 100%;\\n  bottom: calc(var(--outset-size) * -1);\\n  left: calc(var(--outset-size) * -1);\\n  z-index: -1;\\n  border-bottom-left-radius: calc(var(--card-border-radius) + var(--outset-size));\\n  border-bottom-right-radius: calc(var(--card-border-radius) + var(--outset-size));\\n  background-color: var(--outset-background-color);\\n  background-image: \\n    linear-gradient(to left, var(--outset-background-color) calc(var(--outset-size) * 2), transparent 0),\\n    linear-gradient(135deg, var(--accent-color) 80%, var(--outset-background-color) 0);    \\n\}\\n\\n/* Card content styles */\\n.icon \{\\n  font-size: 2rem;\\n  text-align: center;\\n  margin-bottom: calc(var(--card-padding-block) * .5);\\n\}\\n\\n.title \{\\n  text-transform: uppercase;\\n  font-family: 'Oswald', sans-serif;\\n  text-align: center;\\n  color: var(--accent-color);\\n\}\\n\\n.descr \{\\n  color: var(--text-color);\\n  font-size: 0.75rem;\\n  text-align: center;\\n\}",\
+  "HTML": "<div class=\\"content-wrapper\\">\\n  <h1>+title+</h1>\\n  <ol>\\n    <li style=\\"--accent-color: #FF6F00\\">\\n      <div class=\\"icon\\"><i class=\\"fa-light fa-+icon1+\\"></i></div>\\n      <div class=\\"title\\">+item1+</div>\\n      <div class=\\"descr\\">+description1+</div>\\n    </li>\\n    <li style=\\"--accent-color: #008DC2\\">\\n      <div class=\\"icon\\"><i class=\\"fa-light fa-+icon2+\\"></i></div>\\n      <div class=\\"title\\">+item2+</div>\\n      <div class=\\"descr\\">+description2+</div>\\n    </li>\\n    <li style=\\"--accent-color: #0B456A\\">\\n      <div class=\\"icon\\"><i class=\\"fa-light fa-+icon3+\\"></i></div>\\n      <div class=\\"title\\">+item3+</div>\\n      <div class=\\"descr\\">+description3+</div>\\n    </li>\\n    <li style=\\"--accent-color: #6A829A\\">\\n      <div class=\\"icon\\"><i class=\\"fa-light fa-+icon4+\\"></i></div>\\n      <div class=\\"title\\">+item4+</div>\\n      <div class=\\"descr\\">+description4+</div>\\n    </li>\\n  </ol>\\n</div>",\
+  "numberOfItems": 4,\
+  "JS": null,\
+  "prompt": "You will be writing the content for a simple infographics that shows a title and then a list of four items  with their short descriptions.  Items are named item1, item2, item3, item4  and their respective descriptions description1, description2, description3, description4.. Title can have a maximum of 20 characters,  items a max of 13 characters and description a maximum of 30 characters. You also need to provide Font Awesome icon names (e.a. ring or house) in fields icon1, icon2, icon3 and icon4 that best relate to the topic in the corresponding item.\\nOutput format: The output Must be in the following JSON Format\\n\\n\{\\n  \\"title\\": \\"\\",\\n   \\"items\\": [\\n    \{\\n      \\"item1\\": \\"\\",\\n      \\"description1\\": \\"\\",\\n      \\"icon1\\": \\"\\"\\n    \},\\n    \{\\n      \\"item2\\": \\"\\",\\n      \\"description2\\": \\"\\",\\n      \\"icon2\\": \\"\\"\\n    \},\\n    \{\\n      \\"item3\\": \\"\\",\\n      \\"description3\\": \\"\\",\\n      \\"icon3\\": \\"\\"\\n    \},\\n    \{\\n      \\"item4\\": \\"\\",\\n      \\"description4\\": \\"\\",\\n      \\"icon4\\": \\"\\"\\n    \}\\n  ],\\n  \\"summary\\": \\"\\"\\n\}\\n",\
+  "jsonStructure": "\{\\n  \\"title\\": \\"\\",\\n   \\"items\\": [\\n    \{\\n      \\"item1\\": \\"\\",\\n      \\"description1\\": \\"\\"\\n    \},\\n    \{\\n      \\"item2\\": \\"\\",\\n      \\"description2\\": \\"\\"\\n    \},\\n    \{\\n      \\"item3\\": \\"\\",\\n      \\"description3\\": \\"\\"\\n    \},\\n    \{\\n      \\"item4\\": \\"\\",\\n      \\"description4\\": \\"\\"\\n    \}\\n  ],\\n  \\"summary\\": \\"\\"\\n\}\\n",\
+  "type": null,\
+  "height": 600,\
+  "width": 900,\
+  "clipX": 5,\
+  "clipY": 0,\
+  "clipWidth": 900,\
+  "clipHeight": 350,\
+  "sampleImage": "https://sbcontent.aichieve.net/storage/v1/object/public/App%20Files/Infographics/file_1733231112671_919.png",\
+  "Value": "2",\
+  "Label": "4 OL Cards"\
+\}\
+\
+3.2  Get CSS/HTML Template detaiLS:\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f6\fs24 \cf7 \cb8 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec7 const\cf6 \strokec6  id \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 infographId\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 let\cf6 \strokec6  items \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 items\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8 console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 'items:'\cf9 \strokec9 ,\cf6 \strokec6  items\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\
+\
+
+\f7\i \cf12 \cb8 \strokec12 // Check if items is an array
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 let\cf6 \strokec6  infographics \cf9 \strokec9 =\cf6 \strokec6  items\cf9 \strokec9 .\cf6 \strokec6 find\cf9 \strokec9 (\cf6 \strokec6 item \cf9 \strokec9 =>\cf6 \strokec6  \cf10 \strokec10 String\cf9 \strokec9 (\cf6 \strokec6 item\cf9 \strokec9 .\cf10 \strokec10 Value\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 ===\cf6 \strokec6  \cf10 \strokec10 String\cf9 \strokec9 (\cf6 \strokec6 id\cf9 \strokec9 ));\cf6 \cb1 \strokec6 \
+\cb8 console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 'items:'\cf9 \strokec9 ,\cf6 \strokec6  items\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8 console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 'infographics:'\cf9 \strokec9 ,\cf6 \strokec6  infographics\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\
+
+\f7\i \cf12 \cb8 \strokec12 // Check if an item was found
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 infographics\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 CSS\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  infographics\cf9 \strokec9 .\cf10 \strokec10 CSS\cf6 \strokec6  \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ''\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 clipX \cf9 \strokec9 =\cf6 \strokec6  infographics\cf9 \strokec9 .\cf6 \strokec6 clipX \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ''\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 clipY \cf9 \strokec9 =\cf6 \strokec6  infographics\cf9 \strokec9 .\cf6 \strokec6 clipY \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ''\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 clipWidth \cf9 \strokec9 =\cf6 \strokec6  infographics\cf9 \strokec9 .\cf6 \strokec6 clipWidth \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ''\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 clipHeight \cf9 \strokec9 =\cf6 \strokec6  infographics\cf9 \strokec9 .\cf6 \strokec6 clipHeight \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ''\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 HTML\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  infographics\cf9 \strokec9 .\cf10 \strokec10 HTML\cf6 \strokec6  \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ''\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 height \cf9 \strokec9 =\cf6 \strokec6  infographics\cf9 \strokec9 .\cf6 \strokec6 height  \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ''\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8      \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 width\cf9 \strokec9 =\cf6 \strokec6  infographics\cf9 \strokec9 .\cf6 \strokec6 width \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ''\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 prompt \cf9 \strokec9 =\cf6 \strokec6  infographics\cf9 \strokec9 .\cf6 \strokec6 prompt \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ''\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 jsonStructure \cf9 \strokec9 =\cf6 \strokec6  infographics\cf9 \strokec9 .\cf6 \strokec6 jsonStructure \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ''\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 infographicsName \cf9 \strokec9 =\cf6 \strokec6  infographics\cf9 \strokec9 .\cf10 \strokec10 Label\cf6 \strokec6  \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 ''\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 warn\cf9 \strokec9 (\cf10 \strokec10 `No item found with id: \cf9 \strokec9 $\{\cf6 \strokec6 id\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 CSS\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 ''\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 HTML\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 ''\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8 console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "infographicId 1:"\cf9 \strokec9 ,\cf6 \strokec6  id\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\
+
+\f7\i \cf12 \cb8 \strokec12 // Define the async function
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 async\cf6 \strokec6  \cf7 \strokec7 function\cf6 \strokec6  fetchInfographicDetails\cf9 \strokec9 (\cf6 \strokec6 infographicId\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "infographicId 2:"\cf9 \strokec9 ,\cf6 \strokec6  infographicId\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8     
+\f7\i \cf12 \strokec12 // Fetch data from Supabase
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 let\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  data\cf9 \strokec9 :\cf6 \strokec6  infographicDetails\cf9 \strokec9 ,\cf6 \strokec6  error \cf9 \strokec9 \}\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  \cf10 \strokec10 Noodl\cf9 \strokec9 .\cf10 \strokec10 Variables\cf9 \strokec9 .\cf6 \strokec6 supabase\cb1 \
+\cb8       \cf9 \strokec9 .\cf7 \strokec7 from\cf9 \strokec9 (\cf10 \strokec10 'infographicDetails'\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8       \cf9 \strokec9 .\cf6 \strokec6 select\cf9 \strokec9 (\cf10 \strokec10 "*"\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8       \cf9 \strokec9 .\cf6 \strokec6 eq\cf9 \strokec9 (\cf10 \strokec10 'infographicId'\cf9 \strokec9 ,\cf6 \strokec6  infographicId\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\
+\cb8     
+\f7\i \cf12 \strokec12 // Log the raw response for debugging
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Supabase response infographicDetails:"\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  infographicDetails\cf9 \strokec9 ,\cf6 \strokec6  error \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8     
+\f7\i \cf12 \strokec12 // Check for errors in fetching data
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 `Error fetching infographicDetails: \cf9 \strokec9 $\{\cf6 \strokec6 error\cf9 \strokec9 .\cf6 \strokec6 message\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8     
+\f7\i \cf12 \strokec12 // Check if infographic data exists and is an array
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 infographicDetails \cf9 \strokec9 ||\cf6 \strokec6  \cf9 \strokec9 !\cf10 \strokec10 Array\cf9 \strokec9 .\cf6 \strokec6 isArray\cf9 \strokec9 (\cf6 \strokec6 infographicDetails\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 ||\cf6 \strokec6  infographicDetails\cf9 \strokec9 .\cf6 \strokec6 length \cf9 \strokec9 ===\cf6 \strokec6  \cf11 \strokec11 0\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "No infographicDetails data found"\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8       \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 infographicDetails \cf9 \strokec9 =\cf6 \strokec6  infographicDetails\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8       \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Success\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8       \cf7 \strokec7 return\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8     \cb1 \
+\cb8     
+\f7\i \cf12 \strokec12 // Log the infographic data
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Fetched infographic:"\cf9 \strokec9 ,\cf6 \strokec6  infographicDetails\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cb1 \
+\cb8     
+\f7\i \cf12 \strokec12 // Set outputs
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 infographicDetails \cf9 \strokec9 =\cf6 \strokec6  infographicDetails\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cb1 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Success\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 err\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 "Error in fetchInfographic:"\cf9 \strokec9 ,\cf6 \strokec6  err\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Failure\cf9 \strokec9 (\cf6 \strokec6 err\cf9 \strokec9 .\cf6 \strokec6 message\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+
+\f7\i \cf12 \cb8 \strokec12 // Call the function correctly and handle the Promise
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8 fetchInfographicDetails\cf9 \strokec9 (\cf6 \strokec6 id\cf9 \strokec9 ).\cf6 \strokec6 then\cf9 \strokec9 (()\cf6 \strokec6  \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Fetch completed"\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}).\cf7 \strokec7 catch\cf9 \strokec9 ((\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 =>\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 "Error in main execution:"\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \});\cf6 \cb1 \strokec6 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs36 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 \
+\
+3.3  LLM call to generate a JSON file  from an input text in an output format required by the infographic template:\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f6\fs24 \cf7 \cb8 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec7 const\cf6 \strokec6  supabase \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  \cf10 \strokec10 Noodl\cf9 \strokec9 .\cf10 \strokec10 Variables\cf9 \strokec9 .\cf6 \strokec6 supabase\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  perplexityKey \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 perplexitykey\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  geminiKey \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 geminiKey\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 let\cf6 \strokec6  promptText \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 promptText\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  openAIKey \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 openAIKey\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  \cf10 \strokec10 LLM\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf10 \strokec10 LLM\cf6 \strokec6  \cf9 \strokec9 ||\cf6 \strokec6  \cf10 \strokec10 "Gemini"\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  infographic \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 infograpic\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 const\cf6 \strokec6  topic \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 Inputs\cf9 \strokec9 .\cf6 \strokec6 topic\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8 promptText \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 "You need to find something related to the topic that can be shown in an infograph and then fill the corresponding fields in the output JSON file. Following is the topic: '"\cf6 \strokec6  \cf9 \strokec9 +\cf6 \strokec6  topic \cf9 \strokec9 +\cf6 \strokec6  \cf10 \strokec10 "'. "\cf6 \strokec6  \cf9 \strokec9 +\cf6 \strokec6  promptText\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 async\cf6 \strokec6  \cf7 \strokec7 function\cf6 \strokec6  processLLMResponse\cf9 \strokec9 ()\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 let\cf6 \strokec6  extractedText\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\
+\cb8     
+\f7\i \cf12 \strokec12 // CALL LLM Gemini or Perplexity
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "CALL LLM  to create Infographic"\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf10 \strokec10 LLM\cf6 \strokec6  \cf9 \strokec9 ===\cf6 \strokec6  \cf10 \strokec10 "Perplexity"\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "LLM CALL 2 Perplexity"\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8       extractedText \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  callPerplexityAPI\cf9 \strokec9 (\cf6 \strokec6 promptText\cf9 \strokec9 ,\cf6 \strokec6  perplexityKey\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf10 \strokec10 LLM\cf6 \strokec6  \cf9 \strokec9 ===\cf6 \strokec6  \cf10 \strokec10 "Gemini"\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "LLM CALL 2 GEMINI"\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8       console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "promptText:"\cf9 \strokec9 ,\cf6 \strokec6 promptText\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8       extractedText \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  callGeminiAPI\cf9 \strokec9 (\cf6 \strokec6 promptText\cf9 \strokec9 ,\cf6 \strokec6  geminiKey\cf9 \strokec9 ,\cf6 \strokec6  \cf7 \strokec7 true\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf10 \strokec10 LLM\cf6 \strokec6  \cf9 \strokec9 ===\cf6 \strokec6  \cf10 \strokec10 "OpenAI"\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "LLM CALL 2 Chat Gpt 4o"\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8       extractedText \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  callOpenAIChatGPT\cf9 \strokec9 (\cf6 \strokec6 promptText\cf9 \strokec9 ,\cf6 \strokec6  openAIKey\cf9 \strokec9 ,\cf6 \strokec6  useJsonOutput \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 true\cf9 \strokec9 )\cf6 \strokec6  \cb1 \
+\cb8     \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 "Invalid LLM specified"\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8       console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Outline Generation Completed. ORIGINAL TEXT BEFORE JSON extraction: >> "\cf9 \strokec9 ,\cf6 \strokec6 extractedText \cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8     extractedText \cf9 \strokec9 =\cf6 \strokec6   extractJson\cf9 \strokec9 (\cf6 \strokec6 extractedText\cf9 \strokec9 )\cf6 \strokec6  \cb1 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Outline Generation Completed. TEXT AFTER JSON extraction: >> "\cf9 \strokec9 ,\cf6 \strokec6  extractedText\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8         
+\f7\i \cf12 \strokec12 // Check if the output is Parseable
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Check if LLM output is Parseable"\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 let\cf6 \strokec6  isParseable \cf9 \strokec9 =\cf6 \strokec6  isJSONParseable\cf9 \strokec9 (\cf6 \strokec6 extractedText\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 isParseable\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Answer\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  extractedText\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8       \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 "Outline Generation Completed"\cf6 \cb1 \strokec6 \
+\cb8       \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Success\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   \cb1 \
+\cb8         
+\f7\i \cf12 \strokec12 // Second attempt: Use LLM to fix JSON
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Second attempt: Use LLM to fix JSON"\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  fixPrompt \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 "The following JSON text is not parseable. Please fix it and output the correct text that is ready for parsing. Your response Text will be directly sent to a JSON.parse(responseText) so do not include any other extra text: "\cf6 \strokec6  \cf9 \strokec9 +\cf6 \strokec6  extractedText\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf10 \strokec10 LLM\cf6 \strokec6  \cf9 \strokec9 ===\cf6 \strokec6  \cf10 \strokec10 "Perplexity"\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8           extractedText \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  callPerplexityAPI\cf9 \strokec9 (\cf6 \strokec6 fixPrompt\cf9 \strokec9 ,\cf6 \strokec6  perplexityKey\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 else\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8           extractedText \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  callGeminiAPI\cf9 \strokec9 (\cf6 \strokec6 fixPrompt\cf9 \strokec9 ,\cf6 \strokec6  geminiKey\cf9 \strokec9 ,\cf6 \strokec6  \cf7 \strokec7 false\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8         
+\f7\i \cf12 \strokec12 // Apply SimpleCleaning again to the fixed JSON
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8           extractedText \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  \cf10 \strokec10 SimpleCleaning\cf9 \strokec9 (\cf6 \strokec6 extractedText\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 cleaningError\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8           console\cf9 \strokec9 .\cf6 \strokec6 warn\cf9 \strokec9 (\cf10 \strokec10 "Simple cleaning failed after LLM fix:"\cf9 \strokec9 ,\cf6 \strokec6  cleaningError\cf9 \strokec9 .\cf6 \strokec6 message\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8         \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Answer\cf6 \strokec6  \cf9 \strokec9 =\cf6 \strokec6  extractedText\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8         console\cf9 \strokec9 .\cf6 \strokec6 log\cf9 \strokec9 (\cf10 \strokec10 "Outline Generation Completed. Text after cleaning:"\cf9 \strokec9 ,\cf6 \strokec6  extractedText\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8         \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 "Outline Generation Completed"\cf6 \cb1 \strokec6 \
+\cb8         \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Success\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8       \cb1 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 "Error in processLLMResponse:"\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 error \cf9 \strokec9 =\cf6 \strokec6  error\cf9 \strokec9 .\cf6 \strokec6 message\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf6 \strokec6 status \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 "Infographic Generation Failed. Try generating again"\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 Outputs\cf9 \strokec9 .\cf10 \strokec10 Failure\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cf7 \cb8 \strokec7 function\cf6 \strokec6  isJSONParseable\cf9 \strokec9 (\cf6 \strokec6 jsonString\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf10 \strokec10 JSON\cf9 \strokec9 .\cf6 \strokec6 parse\cf9 \strokec9 (\cf6 \strokec6 jsonString\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 return\cf6 \strokec6  \cf7 \strokec7 true\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 return\cf6 \strokec6  \cf7 \strokec7 false\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\
+\cf7 \cb8 \strokec7 async\cf6 \strokec6  \cf7 \strokec7 function\cf6 \strokec6  callGeminiAPI\cf9 \strokec9 (\cf6 \strokec6 promptText\cf9 \strokec9 ,\cf6 \strokec6  geminiKey\cf9 \strokec9 ,\cf6 \strokec6  useJsonOutput \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 true\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  generationConfig \cf9 \strokec9 =\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   
+\f7\i \cf12 \strokec12 //    temperature: 0.7,
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8       topK\cf9 \strokec9 :\cf6 \strokec6  \cf11 \strokec11 40\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       topP\cf9 \strokec9 :\cf6 \strokec6  \cf11 \strokec11 0.95\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       maxOutputTokens\cf9 \strokec9 :\cf6 \strokec6  \cf11 \strokec11 2048\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \};\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 useJsonOutput\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       generationConfig\cf9 \strokec9 .\cf6 \strokec6 response_mime_type \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 "application/json"\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  response \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  fetch\cf9 \strokec9 (\cf10 \strokec10 "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="\cf6 \strokec6  \cf9 \strokec9 +\cf6 \strokec6  geminiKey\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       method\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "POST"\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       headers\cf9 \strokec9 :\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         \cf10 \strokec10 'Content-Type'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "application/json"\cf6 \cb1 \strokec6 \
+\cb8       \cf9 \strokec9 \},\cf6 \cb1 \strokec6 \
+\cb8       body\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 JSON\cf9 \strokec9 .\cf6 \strokec6 stringify\cf9 \strokec9 (\{\cf6 \cb1 \strokec6 \
+\cb8         contents\cf9 \strokec9 :\cf6 \strokec6  \cf9 \strokec9 [\{\cf6 \cb1 \strokec6 \
+\cb8           parts\cf9 \strokec9 :\cf6 \strokec6  \cf9 \strokec9 [\{\cf6 \cb1 \strokec6 \
+\cb8             text\cf9 \strokec9 :\cf6 \strokec6  promptText\cb1 \
+\cb8           \cf9 \strokec9 \}]\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}],\cf6 \cb1 \strokec6 \
+\cb8         generationConfig\cf9 \strokec9 :\cf6 \strokec6  generationConfig\cb1 \
+\cb8       \cf9 \strokec9 \})\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 ok\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 `HTTP error! status: \cf9 \strokec9 $\{\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 status\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  data \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  response\cf9 \strokec9 .\cf6 \strokec6 json\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 return\cf6 \strokec6  data\cf9 \strokec9 .\cf6 \strokec6 candidates\cf9 \strokec9 [\cf11 \strokec11 0\cf9 \strokec9 ].\cf6 \strokec6 content\cf9 \strokec9 .\cf6 \strokec6 parts\cf9 \strokec9 [\cf11 \strokec11 0\cf9 \strokec9 ].\cf6 \strokec6 text\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 "Error calling Gemini API:"\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 throw\cf6 \strokec6  error\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\
+\cf7 \cb8 \strokec7 async\cf6 \strokec6  \cf7 \strokec7 function\cf6 \strokec6  callOpenAIChatGPT\cf9 \strokec9 (\cf6 \strokec6 promptText\cf9 \strokec9 ,\cf6 \strokec6  openAIKey\cf9 \strokec9 ,\cf6 \strokec6  useJsonOutput \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 true\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  generationConfig \cf9 \strokec9 =\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8  
+\f7\i \cf12 \strokec12 //     model: "gpt-4-1106-preview",
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8  
+\f7\i \cf12 \strokec12 //      model: "gpt-4o"
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8       model\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "gpt-4o-mini"\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       temperature\cf9 \strokec9 :\cf6 \strokec6  \cf11 \strokec11 0.7\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       max_tokens\cf9 \strokec9 :\cf6 \strokec6  \cf11 \strokec11 2048\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       top_p\cf9 \strokec9 :\cf6 \strokec6  \cf11 \strokec11 0.95\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       frequency_penalty\cf9 \strokec9 :\cf6 \strokec6  \cf11 \strokec11 0\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       presence_penalty\cf9 \strokec9 :\cf6 \strokec6  \cf11 \strokec11 0\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \};\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  headers \cf9 \strokec9 =\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       \cf10 \strokec10 'Content-Type'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 'application/json'\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       \cf10 \strokec10 'Authorization'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 `Bearer \cf9 \strokec9 $\{\cf6 \strokec6 openAIKey\cf9 \strokec9 \}\cf10 \strokec10 `\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \};\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  messages \cf9 \strokec9 =\cf6 \strokec6  \cf9 \strokec9 [\cf6 \cb1 \strokec6 \
+\cb8       \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         role\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "system"\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         content\cf9 \strokec9 :\cf6 \strokec6  useJsonOutput \cf9 \strokec9 ?\cf6 \strokec6  \cf10 \strokec10 "You must respond in JSON format. Your response should be a valid JSON object."\cf6 \strokec6  \cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "You are a helpful assistant."\cf6 \cb1 \strokec6 \
+\cb8       \cf9 \strokec9 \},\cf6 \cb1 \strokec6 \
+\cb8       \cf9 \strokec9 \{\cf6 \strokec6  role\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "user"\cf9 \strokec9 ,\cf6 \strokec6  content\cf9 \strokec9 :\cf6 \strokec6  promptText \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 ];\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  requestBody \cf9 \strokec9 =\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       messages\cf9 \strokec9 :\cf6 \strokec6  messages\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       \cf9 \strokec9 ...\cf6 \strokec6 generationConfig\cb1 \
+\cb8     \cf9 \strokec9 \};\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 useJsonOutput\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       requestBody\cf9 \strokec9 .\cf6 \strokec6 response_format \cf9 \strokec9 =\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \strokec6  type\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "json_object"\cf6 \strokec6  \cf9 \strokec9 \};\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  response \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  fetch\cf9 \strokec9 (\cf10 \strokec10 "https://api.openai.com/v1/chat/completions"\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       method\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "POST"\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       headers\cf9 \strokec9 :\cf6 \strokec6  headers\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       body\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 JSON\cf9 \strokec9 .\cf6 \strokec6 stringify\cf9 \strokec9 (\cf6 \strokec6 requestBody\cf9 \strokec9 )\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 ok\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 `HTTP error! status: \cf9 \strokec9 $\{\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 status\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  data \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  response\cf9 \strokec9 .\cf6 \strokec6 json\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 return\cf6 \strokec6  data\cf9 \strokec9 .\cf6 \strokec6 choices\cf9 \strokec9 [\cf11 \strokec11 0\cf9 \strokec9 ].\cf6 \strokec6 message\cf9 \strokec9 .\cf6 \strokec6 content\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 "Error calling OpenAI API:"\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 throw\cf6 \strokec6  error\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cf7 \cb8 \strokec7 async\cf6 \strokec6  \cf7 \strokec7 function\cf6 \strokec6  callPerplexityAPI\cf9 \strokec9 (\cf6 \strokec6 promptText\cf9 \strokec9 ,\cf6 \strokec6  perplexityKey\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8   \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  response \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  fetch\cf9 \strokec9 (\cf10 \strokec10 "https://api.perplexity.ai/chat/completions"\cf9 \strokec9 ,\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       method\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "POST"\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8       headers\cf9 \strokec9 :\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         \cf10 \strokec10 'authorization'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 `Bearer \cf9 \strokec9 $\{\cf6 \strokec6 perplexityKey\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         \cf10 \strokec10 'Content-Type'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "application/json"\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         \cf10 \strokec10 'accept'\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "application/json"\cf6 \cb1 \strokec6 \
+\cb8       \cf9 \strokec9 \},\cf6 \cb1 \strokec6 \
+\cb8       body\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 JSON\cf9 \strokec9 .\cf6 \strokec6 stringify\cf9 \strokec9 (\{\cf6 \cb1 \strokec6 \
+\cb8         \cf10 \strokec10 "model"\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "llama-3.1-sonar-large-128k-online"\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8         \cf10 \strokec10 "messages"\cf9 \strokec9 :\cf6 \strokec6  \cf9 \strokec9 [\cf6 \cb1 \strokec6 \
+\cb8           \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             \cf10 \strokec10 "role"\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "system"\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8             \cf10 \strokec10 "content"\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "Be precise"\cf6 \cb1 \strokec6 \
+\cb8           \cf9 \strokec9 \},\cf6 \cb1 \strokec6 \
+\cb8           \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             \cf10 \strokec10 "role"\cf9 \strokec9 :\cf6 \strokec6  \cf10 \strokec10 "user"\cf9 \strokec9 ,\cf6 \cb1 \strokec6 \
+\cb8             \cf10 \strokec10 "content"\cf9 \strokec9 :\cf6 \strokec6  promptText\cb1 \
+\cb8           \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 ]\cf6 \cb1 \strokec6 \
+\cb8       \cf9 \strokec9 \})\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \});\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 if\cf6 \strokec6  \cf9 \strokec9 (!\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 ok\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8       \cf7 \strokec7 throw\cf6 \strokec6  \cf7 \strokec7 new\cf6 \strokec6  \cf10 \strokec10 Error\cf9 \strokec9 (\cf10 \strokec10 `HTTP error! status: \cf9 \strokec9 $\{\cf6 \strokec6 response\cf9 \strokec9 .\cf6 \strokec6 status\cf9 \strokec9 \}\cf10 \strokec10 `\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 const\cf6 \strokec6  data \cf9 \strokec9 =\cf6 \strokec6  \cf7 \strokec7 await\cf6 \strokec6  response\cf9 \strokec9 .\cf6 \strokec6 json\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 return\cf6 \strokec6  data\cf9 \strokec9 .\cf6 \strokec6 choices\cf9 \strokec9 [\cf11 \strokec11 0\cf9 \strokec9 ].\cf6 \strokec6 message\cf9 \strokec9 .\cf6 \strokec6 content\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 "Error calling Perplexity API:"\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8     \cf7 \strokec7 throw\cf6 \strokec6  error\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8   \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf7 \cb8 \strokec7 function\cf6 \strokec6  extractJson\cf9 \strokec9 (\cf6 \strokec6 textResponse\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8     
+\f7\i \cf12 \strokec12 // Remove any non-printable characters
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     textResponse \cf9 \strokec9 =\cf6 \strokec6  textResponse\cf9 \strokec9 .\cf6 \strokec6 replace\cf9 \strokec9 (\cf13 \strokec13 /[\\x00-\\x1F\\x7F-\\x9F]/\cf7 \strokec7 g\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 ""\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\
+\cb8     
+\f7\i \cf12 \strokec12 // Replace curly quotes with straight quotes
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     textResponse \cf9 \strokec9 =\cf6 \strokec6  textResponse\cf9 \strokec9 .\cf6 \strokec6 replace\cf9 \strokec9 (\cf13 \strokec13 /[\\u201C\\u201D]/\cf7 \strokec7 g\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 '"'\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\
+\cb8     
+\f7\i \cf12 \strokec12 // Remove any leading or trailing whitespace
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8     textResponse \cf9 \strokec9 =\cf6 \strokec6  textResponse\cf9 \strokec9 .\cf6 \strokec6 trim\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\
+\cb8     \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         
+\f7\i \cf12 \strokec12 // Attempt to parse the entire string
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 const\cf6 \strokec6  jsonObj \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 JSON\cf9 \strokec9 .\cf6 \strokec6 parse\cf9 \strokec9 (\cf6 \strokec6 textResponse\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8         \cb1 \
+\cb8         
+\f7\i \cf12 \strokec12 // If successful, return the string
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 return\cf6 \strokec6  textResponse\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8         console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 "Error parsing JSON:"\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\
+\cb8         
+\f7\i \cf12 \strokec12 // If parsing fails, try to fix common issues
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         \cf7 \strokec7 let\cf6 \strokec6  fixedText \cf9 \strokec9 =\cf6 \strokec6  textResponse\cb1 \
+\cb8             \cf9 \strokec9 .\cf6 \strokec6 replace\cf9 \strokec9 (\cf13 \strokec13 /\\n/\cf7 \strokec7 g\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 "\\\\n"\cf9 \strokec9 )\cf6 \strokec6   
+\f7\i \cf12 \strokec12 // Replace newlines with escaped newlines
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8             \cf9 \strokec9 .\cf6 \strokec6 replace\cf9 \strokec9 (\cf13 \strokec13 /\\r/\cf7 \strokec7 g\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 "\\\\r"\cf9 \strokec9 )\cf6 \strokec6   
+\f7\i \cf12 \strokec12 // Replace carriage returns with escaped carriage returns
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8             \cf9 \strokec9 .\cf6 \strokec6 replace\cf9 \strokec9 (\cf13 \strokec13 /\\t/\cf7 \strokec7 g\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 "\\\\t"\cf9 \strokec9 )\cf6 \strokec6   
+\f7\i \cf12 \strokec12 // Replace tabs with escaped tabs
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8             \cf9 \strokec9 .\cf6 \strokec6 replace\cf9 \strokec9 (\cf13 \strokec13 /\\\\/\cf7 \strokec7 g\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 "\\\\\\\\"\cf9 \strokec9 )\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Escape backslashes
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8             \cf9 \strokec9 .\cf6 \strokec6 replace\cf9 \strokec9 (\cf13 \strokec13 /\\u2028/\cf7 \strokec7 g\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 "\\\\u2028"\cf9 \strokec9 )\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Replace line separator
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8             \cf9 \strokec9 .\cf6 \strokec6 replace\cf9 \strokec9 (\cf13 \strokec13 /\\u2029/\cf7 \strokec7 g\cf9 \strokec9 ,\cf6 \strokec6  \cf10 \strokec10 "\\\\u2029"\cf9 \strokec9 );\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // Replace paragraph separator
+\f6\i0 \cf6 \cb1 \strokec6 \
+\
+\cb8         \cf7 \strokec7 try\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             
+\f7\i \cf12 \strokec12 // Try parsing again after fixes
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 const\cf6 \strokec6  jsonObj \cf9 \strokec9 =\cf6 \strokec6  \cf10 \strokec10 JSON\cf9 \strokec9 .\cf6 \strokec6 parse\cf9 \strokec9 (\cf6 \strokec6 fixedText\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 return\cf6 \strokec6  fixedText\cf9 \strokec9 ;\cf6 \strokec6  
+\f7\i \cf12 \strokec12 // If successful, return the fixed string
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \strokec6  \cf7 \strokec7 catch\cf6 \strokec6  \cf9 \strokec9 (\cf6 \strokec6 error\cf9 \strokec9 )\cf6 \strokec6  \cf9 \strokec9 \{\cf6 \cb1 \strokec6 \
+\cb8             console\cf9 \strokec9 .\cf6 \strokec6 error\cf9 \strokec9 (\cf10 \strokec10 "Error parsing JSON after fixes:"\cf9 \strokec9 ,\cf6 \strokec6  error\cf9 \strokec9 );\cf6 \cb1 \strokec6 \
+\cb8             \cf7 \strokec7 return\cf6 \strokec6  \cf7 \strokec7 null\cf9 \strokec9 ;\cf6 \cb1 \strokec6 \
+\cb8         \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cb8     \cf9 \strokec9 \}\cf6 \cb1 \strokec6 \
+\cf9 \cb8 \strokec9 \}\cf6 \cb1 \strokec6 \
+
+\f7\i \cf12 \cb8 \strokec12 // Call the main function
+\f6\i0 \cf6 \cb1 \strokec6 \
+\cb8 processLLMResponse\cf9 \strokec9 ();\cf6 \cb1 \strokec6 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs36 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 \
+\
+\
+\
+}

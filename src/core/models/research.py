@@ -26,6 +26,8 @@ class ResearchTone(str, Enum):
     CASUAL = "casual"
     TECHNICAL = "technical"
     PERSUASIVE = "persuasive"
+    PROFESSIONAL = "professional"
+    FRIENDLY = "friendly"
 
 
 class ResearchStatus(str, Enum):
@@ -46,7 +48,7 @@ class ResearchRequest(BaseModel):
     # LLM Configuration
     provider: str = Field(..., description="LLM provider (e.g., 'openai', 'anthropic')")
     model: str = Field(..., description="Model name (e.g., 'gpt-4', 'claude-3.5-sonnet')")
-    api_key: str = Field(..., min_length=1, description="LLM API key")
+    api_key: Optional[str] = Field(None, min_length=1, description="LLM API key (optional if resolved from DB)")
     
     # Research Parameters
     depth: ResearchDepth = Field(default=ResearchDepth.STANDARD, description="Research depth")

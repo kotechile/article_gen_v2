@@ -1,0 +1,84 @@
+# =============================================================================
+# Trend Analysis Platform - Development Requirements
+# =============================================================================
+# This file contains additional dependencies for development, testing, and debugging.
+# Install with: pip install -r requirements-dev.txt
+# =============================================================================
+
+# Include base requirements
+-r requirements.txt
+
+# =============================================================================
+# ADDITIONAL TESTING & DEBUGGING
+# =============================================================================
+# Additional testing tools
+pytest-xdist==3.3.1          # Parallel test execution
+pytest-mock==3.11.1          # Mocking utilities
+pytest-html==3.2.0           # HTML test reports
+pytest-benchmark==4.0.0      # Performance benchmarking
+factory-boy==3.3.0           # Test data factories
+faker==20.1.0                # Fake data generation
+
+# =============================================================================
+# CODE QUALITY & LINTING (ADDITIONAL)
+# =============================================================================
+# Additional code quality tools
+pre-commit==3.5.0             # Git hooks for code quality
+bandit==1.7.5                 # Security linting
+safety==2.3.5                 # Security vulnerability scanning
+mypy-extensions==1.0.0        # Additional mypy extensions
+types-requests==2.31.0.10     # Type stubs for requests
+types-redis==4.6.0.11         # Type stubs for redis
+
+# =============================================================================
+# DEVELOPMENT TOOLS
+# =============================================================================
+# Development utilities
+ipython==8.17.2               # Enhanced Python shell
+jupyter==1.0.0                # Jupyter notebooks
+ipdb==0.13.13                 # Enhanced debugger
+rich==13.7.0                  # Rich text and beautiful formatting
+click==8.1.7                  # Command line interface creation
+
+# =============================================================================
+# API TESTING & DOCUMENTATION
+# =============================================================================
+# API testing and documentation
+httpx==0.24.1                 # HTTP client for testing
+requests-mock==1.11.0         # Mock requests library
+swagger-ui-bundle==1.1.0      # Swagger UI for API docs
+redoc==0.1.7                  # ReDoc for API documentation
+
+# =============================================================================
+# DATABASE TOOLS
+# =============================================================================
+# Database management and migration tools
+alembic==1.12.1               # Database migrations
+sqlalchemy-utils==0.41.1      # SQLAlchemy utilities
+pgcli==4.0.1                  # PostgreSQL command line interface
+
+# =============================================================================
+# MONITORING & PROFILING
+# =============================================================================
+# Performance monitoring and profiling
+memory-profiler==0.61.0       # Memory usage profiling
+line-profiler==4.1.1          # Line-by-line profiling
+py-spy==0.3.14                # Sampling profiler
+pyflame==1.6.7                # Flame graph profiler
+
+# =============================================================================
+# SECURITY TESTING
+# =============================================================================
+# Security testing tools
+# cryptography==41.0.7          # Cryptographic utilities (already in base requirements)
+# python-nmap==0.7.1            # Network security scanner (requires system packages)
+# sqlmap==1.7.2                 # SQL injection testing (requires system packages)
+
+# =============================================================================
+# DOCUMENTATION & REPORTING
+# =============================================================================
+# Additional documentation tools
+mkdocs==1.5.3                 # Static site generator
+mkdocs-material==9.4.8        # Material theme for MkDocs
+mkdocs-mermaid2-plugin==1.1.1 # Mermaid diagrams in docs
+coverage==7.3.2               # Code coverage reporting

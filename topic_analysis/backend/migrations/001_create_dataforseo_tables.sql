@@ -1,0 +1,160 @@
+-- Migration: Create DataForSEO tables
+-- Description: Creates tables for trend analysis and keyword research data
+-- Created: 2024-01-15
+-- Author: DataForSEO Integration
+
+-- Enable UUID extension if not already enabled
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Create trend_analysis_data table
+CREATE TABLE IF NOT EXISTS trend_analysis_data (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    subtopic VARCHAR(255) NOT NULL,
+    location VARCHAR(100) NOT NULL,
+    time_range VARCHAR(20) NOT NULL,
+    average_interest DECIMAL(10,2) NOT NULL DEFAULT 0,
+    peak_interest DECIMAL(10,2) NOT NULL DEFAULT 0,
+    timeline_data JSONB NOT NULL DEFAULT '[]',
+    related_queries JSONB NOT NULL DEFAULT '[]',
+    demographic_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    
+    -- Constraints
+    CONSTRAINT trend_analysis_data_subtopic_check CHECK (LENGTH(subtopic) > 0),
+    CONSTRAINT trend_analysis_data_location_check CHECK (LENGTH(location) > 0),
+    CONSTRAINT trend_analysis_data_time_range_check CHECK (time_range IN ('1m', '3m', '6m', '12m', '24m')),
+    CONSTRAINT trend_analysis_data_average_interest_check CHECK (average_interest >= 0),
+    CONSTRAINT trend_analysis_data_peak_interest_check CHECK (peak_interest >= 0),
+    CONSTRAINT trend_analysis_data_timeline_data_check CHECK (jsonb_typeof(timeline_data) = 'array'),
+    CONSTRAINT trend_analysis_data_related_queries_check CHECK (jsonb_typeof(related_queries) = 'array')
+);
+
+-- Create keyword_research_data table
+CREATE TABLE IF NOT EXISTS keyword_research_data (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    keyword VARCHAR(500) NOT NULL UNIQUE,
+    search_volume INTEGER NOT NULL DEFAULT 0,
+    keyword_difficulty INTEGER NOT NULL DEFAULT 0,
+    cpc DECIMAL(10,2) NOT NULL DEFAULT 0,
+    competition_value INTEGER NOT NULL DEFAULT 0,
+    trend_percentage DECIMAL(5,2) NOT NULL DEFAULT 0,
+    intent_type VARCHAR(20) NOT NULL DEFAULT 'INFORMATIONAL',
+    priority_score DECIMAL(5,2),
+    related_keywords JSONB NOT NULL DEFAULT '[]',
+    search_volume_trend JSONB NOT NULL DEFAULT '[]',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    
+    -- Constraints
+    CONSTRAINT keyword_research_data_keyword_check CHECK (LENGTH(keyword) > 0),
+    CONSTRAINT keyword_research_data_search_volume_check CHECK (search_volume >= 0),
+    CONSTRAINT keyword_research_data_difficulty_check CHECK (keyword_difficulty >= 0 AND keyword_difficulty <= 100),
+    CONSTRAINT keyword_research_data_cpc_check CHECK (cpc >= 0),
+    CONSTRAINT keyword_research_data_competition_check CHECK (competition_value >= 0 AND competition_value <= 100),
+    CONSTRAINT keyword_research_data_intent_type_check CHECK (intent_type IN ('INFORMATIONAL', 'COMMERCIAL', 'TRANSACTIONAL')),
+    CONSTRAINT keyword_research_data_priority_score_check CHECK (priority_score IS NULL OR (priority_score >= 0 AND priority_score <= 100)),
+    CONSTRAINT keyword_research_data_related_keywords_check CHECK (jsonb_typeof(related_keywords) = 'array'),
+    CONSTRAINT keyword_research_data_search_volume_trend_check CHECK (jsonb_typeof(search_volume_trend) = 'array')
+);
+
+-- Create subtopic_suggestions table
+CREATE TABLE IF NOT EXISTS subtopic_suggestions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    topic VARCHAR(255) NOT NULL UNIQUE,
+    trending_status VARCHAR(20) NOT NULL DEFAULT 'STABLE',
+    growth_potential DECIMAL(5,2) NOT NULL DEFAULT 0,
+    search_volume INTEGER NOT NULL DEFAULT 0,
+    related_queries JSONB NOT NULL DEFAULT '[]',
+    competition_level VARCHAR(10) NOT NULL DEFAULT 'MEDIUM',
+    commercial_intent DECIMAL(5,2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    
+    -- Constraints
+    CONSTRAINT subtopic_suggestions_topic_check CHECK (LENGTH(topic) > 0),
+    CONSTRAINT subtopic_suggestions_trending_status_check CHECK (trending_status IN ('TRENDING', 'STABLE', 'DECLINING')),
+    CONSTRAINT subtopic_suggestions_growth_potential_check CHECK (growth_potential >= 0),
+    CONSTRAINT subtopic_suggestions_search_volume_check CHECK (search_volume >= 0),
+    CONSTRAINT subtopic_suggestions_competition_level_check CHECK (competition_level IN ('LOW', 'MEDIUM', 'HIGH')),
+    CONSTRAINT subtopic_suggestions_commercial_intent_check CHECK (commercial_intent >= 0),
+    CONSTRAINT subtopic_suggestions_related_queries_check CHECK (jsonb_typeof(related_queries) = 'array')
+);
+
+-- Create dataforseo_api_logs table for monitoring
+CREATE TABLE IF NOT EXISTS dataforseo_api_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    endpoint VARCHAR(255) NOT NULL,
+    request_data JSONB NOT NULL DEFAULT '{}',
+    response_data JSONB,
+    status_code INTEGER,
+    response_time_ms INTEGER,
+    error_message TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    
+    -- Constraints
+    CONSTRAINT dataforseo_api_logs_endpoint_check CHECK (LENGTH(endpoint) > 0),
+    CONSTRAINT dataforseo_api_logs_request_data_check CHECK (jsonb_typeof(request_data) = 'object'),
+    CONSTRAINT dataforseo_api_logs_response_data_check CHECK (response_data IS NULL OR jsonb_typeof(response_data) = 'object'),
+    CONSTRAINT dataforseo_api_logs_status_code_check CHECK (status_code IS NULL OR (status_code >= 100 AND status_code < 600)),
+    CONSTRAINT dataforseo_api_logs_response_time_check CHECK (response_time_ms IS NULL OR response_time_ms >= 0)
+);
+
+-- Create indexes for performance
+CREATE INDEX IF NOT EXISTS idx_trend_analysis_data_subtopic_location ON trend_analysis_data(subtopic, location);
+CREATE INDEX IF NOT EXISTS idx_trend_analysis_data_time_range ON trend_analysis_data(time_range);
+CREATE INDEX IF NOT EXISTS idx_trend_analysis_data_updated_at ON trend_analysis_data(updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_keyword_research_data_keyword ON keyword_research_data(keyword);
+CREATE INDEX IF NOT EXISTS idx_keyword_research_data_search_volume ON keyword_research_data(search_volume);
+CREATE INDEX IF NOT EXISTS idx_keyword_research_data_difficulty ON keyword_research_data(keyword_difficulty);
+CREATE INDEX IF NOT EXISTS idx_keyword_research_data_intent_type ON keyword_research_data(intent_type);
+CREATE INDEX IF NOT EXISTS idx_keyword_research_data_priority_score ON keyword_research_data(priority_score);
+CREATE INDEX IF NOT EXISTS idx_keyword_research_data_updated_at ON keyword_research_data(updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_subtopic_suggestions_topic ON subtopic_suggestions(topic);
+CREATE INDEX IF NOT EXISTS idx_subtopic_suggestions_trending_status ON subtopic_suggestions(trending_status);
+CREATE INDEX IF NOT EXISTS idx_subtopic_suggestions_growth_potential ON subtopic_suggestions(growth_potential);
+CREATE INDEX IF NOT EXISTS idx_subtopic_suggestions_updated_at ON subtopic_suggestions(updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_dataforseo_api_logs_endpoint ON dataforseo_api_logs(endpoint);
+CREATE INDEX IF NOT EXISTS idx_dataforseo_api_logs_created_at ON dataforseo_api_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_dataforseo_api_logs_status_code ON dataforseo_api_logs(status_code);
+
+-- Create composite indexes for common queries
+CREATE INDEX IF NOT EXISTS idx_trend_analysis_data_composite ON trend_analysis_data(subtopic, location, time_range, updated_at);
+CREATE INDEX IF NOT EXISTS idx_keyword_research_data_composite ON keyword_research_data(intent_type, keyword_difficulty, search_volume, updated_at);
+
+-- Add comments for documentation
+COMMENT ON TABLE trend_analysis_data IS 'Stores trend analysis data from DataForSEO Trends API';
+COMMENT ON TABLE keyword_research_data IS 'Stores keyword research data from DataForSEO Labs API';
+COMMENT ON TABLE subtopic_suggestions IS 'Stores trending subtopic suggestions and recommendations';
+COMMENT ON TABLE dataforseo_api_logs IS 'Logs API requests and responses for monitoring and debugging';
+
+COMMENT ON COLUMN trend_analysis_data.subtopic IS 'The subtopic keyword being analyzed';
+COMMENT ON COLUMN trend_analysis_data.location IS 'Geographic location for the analysis';
+COMMENT ON COLUMN trend_analysis_data.time_range IS 'Time range for the analysis (1m, 3m, 6m, 12m, 24m)';
+COMMENT ON COLUMN trend_analysis_data.average_interest IS 'Average interest value over the time range';
+COMMENT ON COLUMN trend_analysis_data.peak_interest IS 'Peak interest value over the time range';
+COMMENT ON COLUMN trend_analysis_data.timeline_data IS 'JSON array of timeline data points';
+COMMENT ON COLUMN trend_analysis_data.related_queries IS 'JSON array of related search queries';
+COMMENT ON COLUMN trend_analysis_data.demographic_data IS 'JSON object containing demographic information';
+
+COMMENT ON COLUMN keyword_research_data.keyword IS 'The keyword being researched';
+COMMENT ON COLUMN keyword_research_data.search_volume IS 'Monthly search volume for the keyword';
+COMMENT ON COLUMN keyword_research_data.keyword_difficulty IS 'Keyword difficulty score (0-100)';
+COMMENT ON COLUMN keyword_research_data.cpc IS 'Cost per click for the keyword';
+COMMENT ON COLUMN keyword_research_data.competition_value IS 'Competition value (0-100)';
+COMMENT ON COLUMN keyword_research_data.trend_percentage IS 'Trend percentage change';
+COMMENT ON COLUMN keyword_research_data.intent_type IS 'Search intent type (INFORMATIONAL, COMMERCIAL, TRANSACTIONAL)';
+COMMENT ON COLUMN keyword_research_data.priority_score IS 'Computed priority score for keyword ranking';
+COMMENT ON COLUMN keyword_research_data.related_keywords IS 'JSON array of related keywords';
+COMMENT ON COLUMN keyword_research_data.search_volume_trend IS 'JSON array of monthly search volume trends';
+
+COMMENT ON COLUMN subtopic_suggestions.topic IS 'The suggested subtopic';
+COMMENT ON COLUMN subtopic_suggestions.trending_status IS 'Current trending status (TRENDING, STABLE, DECLINING)';
+COMMENT ON COLUMN subtopic_suggestions.growth_potential IS 'Growth potential percentage';
+COMMENT ON COLUMN subtopic_suggestions.search_volume IS 'Current search volume';
+COMMENT ON COLUMN subtopic_suggestions.related_queries IS 'JSON array of related search queries';
+COMMENT ON COLUMN subtopic_suggestions.competition_level IS 'Competition level (LOW, MEDIUM, HIGH)';
+COMMENT ON COLUMN subtopic_suggestions.commercial_intent IS 'Commercial intent score (0-100)';

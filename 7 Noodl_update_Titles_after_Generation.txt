@@ -1,0 +1,187 @@
+// Initialize variables and get user data
+const articleId = Inputs.titleId;
+const htmlContent = Inputs.htmlContent;
+let currUser = Noodl.Object.get("userProperties");
+const user_id = currUser.data.data[0].id;
+const supabase = Noodl.Variables.supabase;
+const block = false
+
+// ----------  citation helpers ----------
+const CIT_IN_TEXT  = /\[\^(\d+)]/g;          // [^1]  [^12] …
+const CIT_REF_BLOCK= /^\[\^(\d+)]:/m;       // [^1]:  (at start of a line)
+
+const collectCitations = (html) => {
+  const found = new Set();
+  let m;
+  while ((m = CIT_IN_TEXT.exec(html)) !== null) found.add(m[1]);
+  return found;
+};
+
+
+console.log('LAST UPDATE TO TABLE OF CONTENT: SPLIT TO LINES AND INSERT TO TABLE OF CONTENT');
+
+// Helper function to generate chapter numbers
+// Initialize chapter counters (remove H1 from here)
+let chapterCounts = { H2: 0, H3: 0 };
+
+const generateChapterNumber = (headerType) => {
+    if (headerType === 'H2') {
+        chapterCounts.H2++;
+        chapterCounts.H3 = 0;
+        return chapterCounts.H2.toString();
+    }
+    if (headerType === 'H3') {
+        chapterCounts.H3++;
+        return `${chapterCounts.H2}.${chapterCounts.H3}`;
+    }
+    return '';
+};
+
+async function createTableOfContents(htmlContent, articleId, user_id) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlContent, 'text/html');
+    const tableOfContents = [];
+    let sequence = 1000;
+    const citationMap = new Map();          // element → Set of citation ids
+    let cumulative = new Set();             // citations seen so far
+
+
+    // Reset counters for new articles
+    chapterCounts = { H2: 0, H3: 0 };
+
+const addToTableOfContents = (element, headerType = null, content = null) => {
+    const html = content || element.outerHTML.trim();
+    if (!html) return;
+
+    const ownCits = new Set(cumulative);    // citations that appear *before* this element
+    citationMap.set(element || html, ownCits);
+
+    let chapterNumber = '';
+    if (headerType) chapterNumber = generateChapterNumber(headerType);
+
+    tableOfContents.push({
+        TitleID: articleId,
+        headerType: headerType || (element ? element.tagName : 'P'),
+        chapter: chapterNumber || null,
+        sequence,
+        content: html,
+        user_id,
+        citation_id: ownCits.size ? [...ownCits][0] : null   // <-- store first one
+    });
+    sequence += 1000;
+};
+
+    // Process all body elements including text nodes
+    const processNodes = (node) => {
+        // Skip empty text nodes and whitespace
+        if (node.nodeType === Node.TEXT_NODE) {
+            const text = node.textContent.trim();
+            if (text) {
+                // Wrap text in paragraph tags if it's not empty
+                addToTableOfContents(null, 'P', `<p>${text}</p>`);
+            }
+            return;
+        }
+
+        // Process element nodes
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            const tagName = node.tagName;
+
+            // Check if this is a direct child element we want to process
+            const isDirectTarget = ['H2', 'H3', 'P', 'TABLE', 'UL', 'OL'].includes(tagName);
+            
+            if (isDirectTarget) {
+                /* 1.  decide which HTML we are going to keep */
+                const html = node.outerHTML.trim();
+
+                /* 2.  UPDATE CITATION SET (NEW) */
+                const cits = collectCitations(html);
+                cits.forEach(id => cumulative.add(id));   // feed them into the running set
+
+                /* 3.  push to TOC */
+                if (tagName === 'H2' || tagName === 'H3') {
+                    addToTableOfContents(node, tagName);
+                } else {
+                    addToTableOfContents(node);
+                }
+            } else {
+                // For non-target elements, process their children
+                // This prevents duplication by only processing direct children
+                Array.from(node.childNodes).forEach(child => processNodes(child));
+            }
+        }
+    };
+
+    // Start processing from the body element
+    Array.from(doc.body.childNodes).forEach(node => processNodes(node));
+
+    return tableOfContents;
+}
+
+// Function to delete existing table of contents records
+async function deleteTableOfContentsRecords(supabase, titleID, user_id) {
+    console.log("Deleting previous records from TOC. TitleID:", titleID, ", User ID:", user_id);
+    try {
+        const { error } = await supabase
+            .from('TableOfContents')
+            .delete()
+            .eq('TitleID', titleID)
+            .eq('user_id', user_id);
+
+        if (error) throw error;
+        console.log(`Successfully deleted TableOfContents records for titleID: ${titleID} and user_id: ${user_id}`);
+    } catch (error) {
+        console.error('Error deleting TableOfContents records:', error);
+        throw error;
+    }
+}
+
+
+
+
+// Main function to process the article and update Supabase
+async function processArticle() {
+    try {
+        await UpdateTitleRecord();
+        await deleteTableOfContentsRecords(supabase, articleId, user_id);
+
+        const tableOfContents = await createTableOfContents(htmlContent, articleId, user_id);
+        console.log("TABLE OF CONTENTS:", tableOfContents);
+
+        const { data, error: insertError } = await supabase
+            .from('TableOfContents')
+            .insert(tableOfContents);
+
+        if (insertError) {
+            console.error('Supabase insert error details:', insertError);
+            throw insertError;
+        }
+
+        console.log('Table of contents updated successfully');
+        Outputs.Success()
+    } catch (error) {
+        console.error('Error updating table of contents:', error);
+        Outputs.error = error.message; // Changed from Outputs.Error(error)
+    }
+}
+
+// Add this function before the processArticle function
+async function UpdateTitleRecord() {
+    console.log('Updating html in Titles table. user_id:', user_id, ", TitleID:", articleId);
+    const { data, error } = await supabase
+        .from('Titles')
+        .update({ htmlArticle: htmlContent })
+        .eq('user_id', user_id)
+        .eq('id', articleId)
+        .select();
+    
+    if (error) {
+        console.error('Error updating Titles record:', error);
+        throw error;
+    }
+}
+
+if (!block) {
+    // Execute the main function
+    processArticle();
+}

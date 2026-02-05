@@ -22,6 +22,17 @@ PID_DIR="pids"
 mkdir -p "$LOG_DIR"
 mkdir -p "$PID_DIR"
 
+# Load environment variables
+# Load environment variables
+# if [ -f .env ]; then
+#     echo "Loading environment variables from .env..."
+#     set -a
+#     source .env
+#     set +a
+# else
+#     print_warning ".env file not found! Services may fail."
+# fi
+
 echo -e "${BLUE}🔄 Content Generator V2 - Service Restart Script${NC}"
 echo "=================================================="
 

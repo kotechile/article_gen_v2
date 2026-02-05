@@ -51,6 +51,7 @@ class Config:
     LINKUP_API_KEY: Optional[str] = os.environ.get('LINKUP_API_KEY')
     LITELLM_API_URL: Optional[str] = os.environ.get('LITELLM_API_URL')
     LITELLM_API_KEY: Optional[str] = os.environ.get('LITELLM_API_KEY')
+    RENDER_SERVICE_URL: str = os.environ.get('RENDER_SERVICE_URL', 'http://localhost:8082/generate-image')
     
     # Celery configuration
     CELERY_BROKER_URL: str = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
@@ -70,7 +71,7 @@ class Config:
     ENABLE_METRICS: bool = os.environ.get('ENABLE_METRICS', 'true').lower() == 'true'
     
     # Request settings
-    MAX_CONTENT_LENGTH: int = int(os.environ.get('MAX_CONTENT_LENGTH', 1048576))  # 1MB
+    MAX_CONTENT_LENGTH: int = int(os.environ.get('MAX_CONTENT_LENGTH', 50 * 1024 * 1024))  # 50MB
     REQUEST_TIMEOUT: int = int(os.environ.get('REQUEST_TIMEOUT', 30))
     
     # CORS settings

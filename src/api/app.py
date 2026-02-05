@@ -57,9 +57,19 @@ def create_app(config_name: str = None) -> Flask:
     app.before_request(AuthMiddleware.before_request)
     app.after_request(LoggingMiddleware.after_request)
     
+    # Register endpoints
+    from .endpoints.research import research_bp
+    from .endpoints.health import health_bp
+    from .endpoints.images import images_bp
+    from .endpoints.research_topics import research_topics_bp
+    from .wordpress import wordpress_bp
+    
     # Register blueprints
     app.register_blueprint(research_bp)
     app.register_blueprint(health_bp)
+    app.register_blueprint(images_bp)
+    app.register_blueprint(research_topics_bp)
+    app.register_blueprint(wordpress_bp)
     
     # Register error handlers
     ErrorHandler.register_handlers(app)
@@ -70,6 +80,7 @@ def create_app(config_name: str = None) -> Flask:
         return jsonify(ErrorResponse(
             error="not_found",
             message="The requested resource was not found",
+            error_code="NOT_FOUND",
             status=404
         ).dict()), 404
     
@@ -78,6 +89,7 @@ def create_app(config_name: str = None) -> Flask:
         return jsonify(ErrorResponse(
             error="method_not_allowed",
             message="The method is not allowed for the requested URL",
+            error_code="METHOD_NOT_ALLOWED",
             status=405
         ).dict()), 405
     
@@ -188,7 +200,57 @@ def create_app(config_name: str = None) -> Flask:
     logger = logging.getLogger(__name__)
     logger.info(f"Flask application created with config: {config_name}")
     
+    # Perform startup cleanup
+    cleanup_stuck_tasks()
+    
     return app
+
+
+def cleanup_stuck_tasks():
+    """
+    Reset any tasks stuck in 'Generating' state to 'Error' on startup.
+    This prevents the UI from showing stuck progress bars for killed tasks.
+    """
+    logger = logging.getLogger(__name__)
+    try:
+        # Import here to avoid circular dependencies and ensure env is loaded
+        import sys
+        import os
+        
+        # Add root directory to path if needed to find supabase_client
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        if root_dir not in sys.path:
+            sys.path.append(root_dir)
+            
+        from supabase_client import get_supabase_client
+        
+        supabase = get_supabase_client()
+        if not supabase:
+            logger.warning("Startup cleanup: Failed to initialize Supabase client")
+            return
+
+        # Find stuck tasks
+        response = supabase.table('Titles').select('id').eq('status', 'Generating').execute()
+        stuck_tasks = response.data
+        
+        if stuck_tasks:
+            count = len(stuck_tasks)
+            logger.warning(f"Startup cleanup: Found {count} stuck 'Generating' tasks. Resetting to 'Error'...")
+            
+            for task in stuck_tasks:
+                article_id = task['id']
+                supabase.table('Titles').update({
+                    'status': 'Error', 
+                    'error_message': 'Generation interrupted by server restart'
+                }).eq('id', article_id).execute()
+                
+            logger.info(f"Startup cleanup: Successfully reset {count} tasks.")
+        else:
+            logger.info("Startup cleanup: No stuck tasks found.")
+            
+    except Exception as e:
+        logger.error(f"Startup cleanup failed: {str(e)}")
 
 
 def run_app(host: str = '0.0.0.0', port: int = 5001, debug: bool = False):

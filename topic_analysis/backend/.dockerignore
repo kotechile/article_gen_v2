@@ -1,0 +1,233 @@
+# =============================================================================
+# Trend Analysis Platform - Backend .dockerignore
+# =============================================================================
+# This file specifies which files and directories should be excluded from
+# the Docker build context to optimize build performance and security.
+# =============================================================================
+
+# =============================================================================
+# VERSION CONTROL
+# =============================================================================
+.git
+.gitignore
+.gitattributes
+.gitmodules
+
+# =============================================================================
+# PYTHON
+# =============================================================================
+# Bytecode and cache files
+__pycache__/
+*.py[cod]
+*.pyc
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# =============================================================================
+# VIRTUAL ENVIRONMENTS
+# =============================================================================
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.env/
+
+# =============================================================================
+# TESTING
+# =============================================================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# =============================================================================
+# DEVELOPMENT TOOLS
+# =============================================================================
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# =============================================================================
+# DOCUMENTATION
+# =============================================================================
+docs/
+*.md
+README.md
+CHANGELOG.md
+LICENSE
+LICENSE.txt
+
+# =============================================================================
+# LOGS AND TEMPORARY FILES
+# =============================================================================
+*.log
+logs/
+tmp/
+temp/
+.tmp/
+.temp/
+
+# =============================================================================
+# ENVIRONMENT AND CONFIGURATION
+# =============================================================================
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+.env.staging
+config.local.py
+settings.local.py
+
+# =============================================================================
+# DATABASE
+# =============================================================================
+*.db
+*.sqlite
+*.sqlite3
+migrations/
+alembic/versions/
+
+# =============================================================================
+# SECURITY
+# =============================================================================
+# Security keys and certificates
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+secrets/
+.secrets/
+
+# =============================================================================
+# DOCKER
+# =============================================================================
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+.docker/
+
+# =============================================================================
+# CI/CD
+# =============================================================================
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+Jenkinsfile
+azure-pipelines.yml
+
+# =============================================================================
+# MONITORING AND METRICS
+# =============================================================================
+prometheus/
+grafana/
+monitoring/
+metrics/
+
+# =============================================================================
+# BACKUP AND ARCHIVE
+# =============================================================================
+*.tar
+*.tar.gz
+*.zip
+*.rar
+*.7z
+backup/
+backups/
+
+# =============================================================================
+# OS SPECIFIC
+# =============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# PROJECT SPECIFIC
+# =============================================================================
+# Test files
+test_*.py
+*_test.py
+tests/
+test/
+
+# Development scripts
+dev_*.py
+debug_*.py
+debug_*.sh
+
+# Local configuration
+local_*.py
+local_*.json
+local_*.yaml
+local_*.yml
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+*.rej

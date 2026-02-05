@@ -1,0 +1,2 @@
+Main Decomposition Error: Strict Quality Policy: LLM service not available for provider 'openai'
+Type: <class 'ValueError'>

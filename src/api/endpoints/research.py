@@ -131,10 +131,35 @@ def create_research_task():
         # fields not in Pydantic model (e.g., rag_collection_name, use_verbalized_sampling, etc.)
         task_data = research_request.dict()
         # Add additional fields from original data that tasks.py expects
-        extra_fields = ['rag_collection_name', 'use_verbalized_sampling', 'rag_balance_emphasis', 'draft_title']
+        extra_fields = ['rag_collection_name', 'use_verbalized_sampling', 'rag_balance_emphasis', 'draft_title', 'article_id']
         for field in extra_fields:
             if field in data and field not in task_data:
                 task_data[field] = data[field]
+        
+        # Helper to resolve API Key from DB if not provided or dummy
+        final_api_key = task_data.get('api_key')
+        
+        # Check if we need to resolve the key from DB
+        # Conditions: Key is missing, OR Key is 'development' (frontend fallback)
+        if not final_api_key or final_api_key == 'development':
+            from supabase_client import get_llm_api_key
+            
+            provider = task_data.get('provider')
+            model = task_data.get('model')
+            
+            logger.info(f"Resolving API key from DB for {provider}/{model}...")
+            db_key = get_llm_api_key(provider, model)
+            
+            if db_key:
+                task_data['api_key'] = db_key
+                logger.info("Successfully resolved API key from database")
+            elif final_api_key == 'development':
+                 # If we have a dummy key and failed to resolve, warn but proceed
+                 # (Task might fail later if key is truly required by LLM client)
+                 logger.warning("Could not resolve real API key from DB, using 'development' placeholder")
+            else:
+                 # No key at all and failed to resolve
+                 logger.warning("No API key provided and failed to resolve from DB")
         
         # Create research task
         task = process_research_task.delay(task_data)
@@ -217,7 +242,13 @@ def get_research_status(task_id):
             "message": task_status.get("message", ""),
             "stage": task_status.get("stage", ""),
             "eta": task_status.get("eta"),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "info": {
+                "progress": task_status.get("progress_percent", 0),
+                "message": task_status.get("message", ""),
+                "stage": task_status.get("stage", ""),
+                "current_step": task_status.get("current_step", "")
+            }
         }
         
         # Add result if task is completed

@@ -1,0 +1,169 @@
+sync function main() {
+    // Inputs from Noodl
+    const file = Inputs.fileInput;
+    const title = Inputs.title;
+    const currUser = Noodl.Object.get("userProperties");
+
+    const supabase = await Noodl.Variables.supabase;
+    const userData = await Noodl.Variables.supabase.auth.getUser();
+ //   const userID = userData.data.user.id;
+    const llm = Inputs.llm || 'deepseek';
+    const collections = Inputs.collections;
+    const selectedCollectionId = Inputs.selectedCollectionId;
+
+    Outputs.status = "UPLOADING FILE";
+    Outputs.progress = 60;
+
+    const selectedCollection = collections?.find(collection => collection.Value === selectedCollectionId);
+    const collectionLabel = selectedCollection?.Label || '';
+    Outputs.collectionLabel = collectionLabel
+    console.log("UPLOAD collectionLabel:", collectionLabel)
+
+    
+    // Validate critical inputs
+    if (!file) {
+        console.error("No file provided");
+        Outputs.status = "Error: No file selected";
+        return;
+    }
+    if (!title || !selectedCollectionId) {
+        console.error("Missing title or collection ID");
+        Outputs.status = "Error: Title and Collection ID are required";
+        return;
+    }
+    
+    // Extract user ID with null checks
+    const userID = currUser?.data?.data?.[0]?.id;
+    if (!userID) {
+        console.error("User ID not found");
+        Outputs.status = "Error: User authentication failed";
+        return;
+    }
+    
+    Outputs.progress = 2;
+    
+    try {
+        // Insert document metadata
+        const { data: insertedData, error: insertError } = await Noodl.Variables.supabase
+            .from('lindex_documents')
+            .insert([{
+                title: title,
+                source_type: ' ',
+                in_vector_store: false,
+                user_id: userID,
+                collectionId: selectedCollectionId
+            }])
+            .select('id');
+            
+        if (insertError) {
+            throw new Error(`Database error: ${insertError.message}`);
+        }
+        
+        const newDocumentId = insertedData[0].id;
+        Outputs.docid = newDocumentId;
+        console.log("Created document ID:", newDocumentId);
+        
+        // Prepare file upload
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('docid', newDocumentId);
+        formData.append('collection_name', collectionLabel)
+        
+        Outputs.status = 'Uploading and parsing file...';
+        Outputs.progress = 10;
+        
+        // Send to processing endpoint (this only starts the process)
+        const response = await fetch('http://127.0.0.1:8080/upload', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log("Upload started:", result);
+        Outputs.uploadResponse = result;
+        Outputs.progress = 30;
+        
+        // ✅ NOW WAIT FOR ACTUAL PROCESSING TO COMPLETE
+        await waitForProcessingComplete(newDocumentId);
+        
+        // ✅ Only call Success() when actually ready
+        Outputs.Success();
+        Outputs.status = 'Document fully processed and ready for summary';
+        
+    } catch (error) {
+        console.error("Processing failed:", error);
+        Outputs.uploadError = error;
+        Outputs.status = `Error: ${error.message}`;
+        Outputs.progress = -1;
+    }
+}
+
+// Function to wait for background processing to complete
+async function waitForProcessingComplete(docid) {
+    const maxWaitTime = 300000; // 5 minutes
+    const pollInterval = 2000;   // 2 seconds
+    const startTime = Date.now();
+    
+    console.log(`Waiting for document ${docid} processing to complete...`);
+    
+    while (Date.now() - startTime < maxWaitTime) {
+        try {
+            // Check document status in Supabase
+            const { data: docData, error } = await Noodl.Variables.supabase
+                .from('lindex_documents')
+                .select('processing_status, in_vector_store, error_message, chunk_count')
+                .eq('id', docid)
+                .single();
+            
+            if (error) {
+                console.error("Error checking document status:", error);
+                throw new Error(`Status check failed: ${error.message}`);
+            }
+            
+            console.log(`Document ${docid} status:`, docData);
+            
+            // ✅ Check if processing is truly complete
+            if (docData.processing_status === 'completed' && docData.in_vector_store === true) {
+                const chunkCount = docData.chunk_count || 0;
+                console.log(`✅ Document ${docid} processing completed! Chunks: ${chunkCount}`);
+                Outputs.status = `Processing complete! Generated ${chunkCount} chunks.`;
+                Outputs.progress = 90;
+                return; // Exit - ready for summary
+            }
+            
+            // ❌ Check if processing failed
+            if (docData.processing_status === 'error') {
+                const errorMsg = docData.error_message || 'Unknown processing error';
+                console.error(`❌ Document ${docid} processing failed:`, errorMsg);
+                throw new Error(`Document processing failed: ${errorMsg}`);
+            }
+            
+            // 🔄 Update progress based on current status
+            if (docData.processing_status === 'processing') {
+                Outputs.progress = 60;
+                Outputs.status = "Generating chunks and embeddings...";
+            } else if (docData.processing_status === 'parsed') {
+                Outputs.progress = 40;
+                Outputs.status = "Document parsed, starting chunk processing...";
+            } else {
+                Outputs.status = `Processing status: ${docData.processing_status}`;
+            }
+            
+        } catch (error) {
+            console.error("Error during status check:", error);
+            throw error;
+        }
+        
+        // Wait before next poll
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+    }
+    
+    // Timeout reached
+    throw new Error(`Timeout: Document processing took longer than ${maxWaitTime/1000} seconds`);
+}
+
+main();

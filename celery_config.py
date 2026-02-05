@@ -78,12 +78,8 @@ celery_app.conf.update(
     worker_task_log_format='[%(asctime)s: %(levelname)s/%(processName)s][%(task_name)s(%(task_id)s)] %(message)s',
 )
 
-# Import tasks to register them with Celery
-try:
-    from tasks import process_research_task, get_task_status, cancel_task
-except ImportError as e:
-    import logging
-    logging.warning(f"Could not import tasks: {e}. Tasks will be auto-discovered at worker startup.")
+# Tasks are auto-discovered via the 'imports' configuration above.
+# No need for manual import here which causes circular dependencies.
 
 if __name__ == '__main__':
     celery_app.start()

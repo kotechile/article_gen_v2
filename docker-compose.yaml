@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    restart: always
+    environment:
+      # Application
+      - SECRET_KEY
+      - DEBUG
+      - ENVIRONMENT
+      - LOG_LEVEL
+
+      # Database / Supabase
+      - SUPABASE_URL
+      - SUPABASE_SERVICE_KEY
+      - SUPABASE_ANON_KEY
+
+      # Redis / Celery
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+
+      # External APIs
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
+      - GOOGLE_API_KEY
+      - GEMINI_API_KEY
+      - LINKUP_API_KEY
+      - RAG_API_URL
+      - RAG_API_KEY
+
+      # Render / Image Gen
+      - RENDER_SERVICE_URL
+
+    ports:
+      - "5001:5001"
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    restart: always
+    command: celery -A celery_config.celery worker --loglevel=info
+    environment:
+      # Application
+      - SECRET_KEY
+      - ENVIRONMENT
+      - LOG_LEVEL
+
+      # Database
+      - SUPABASE_URL
+      - SUPABASE_SERVICE_KEY
+
+      # Redis
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+
+      # External APIs
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
+      - GOOGLE_API_KEY
+      - GEMINI_API_KEY
+      - LINKUP_API_KEY
+
+    depends_on:
+      - backend
+      - redis
+
+  frontend:
+    build: ./frontend
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  redis:
+    image: redis:alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:
