@@ -69,7 +69,12 @@ services:
       - redis
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        - VITE_SUPABASE_URL
+        - VITE_SUPABASE_ANON_KEY
+        - VITE_API_KEY
     restart: always
     ports:
       - "3000:80"

@@ -7,6 +7,17 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
+
+# Build args
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_API_KEY
+
+# Convert args to env vars for build time
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+ENV VITE_API_KEY=$VITE_API_KEY
+
 RUN npm run build
 
 # Production stage
