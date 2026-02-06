@@ -427,9 +427,10 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
         rag_sources = 0
         web_sources = 0
         
-        # Collect evidence from RAG if enabled and endpoint is provided
+        # Collect evidence from RAG if enabled
         rag_enabled = research_data.get('rag_enabled', False)
-        if rag_enabled and research_data.get('rag_endpoint'):
+        # We check endpoint validity inside the block now to allow fallback to config
+        if rag_enabled:
             # Update sub-progress
             if task_instance:
                 task_instance.update_state(
@@ -440,7 +441,29 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                         'message': 'Searching internal knowledge base (RAG)...'
                     }
                 )
-            logger.info("🔍 RAG search enabled - collecting evidence from RAG system")
+            
+            # Resolve RAG configuration
+            from src.utils.config import get_config
+            app_config = get_config()
+            
+            # Determine RAG endpoint: research_data > config > None
+            rag_endpoint = research_data.get('rag_endpoint')
+            if not rag_endpoint and app_config.RAG_API_URL:
+                rag_endpoint = app_config.RAG_API_URL
+                logger.info(f"Using RAG endpoint from config: {rag_endpoint}")
+            
+            # Determine RAG API Key
+            rag_api_key = research_data.get('rag_api_key') or app_config.RAG_API_KEY
+            
+            if rag_enabled and rag_endpoint:
+                logger.info(f"🔍 RAG search enabled - query target: {rag_endpoint}")
+                
+                # Ensure endpoint is full URL to query path
+                if not rag_endpoint.endswith('/query_hybrid_enhanced'):
+                    base_url = rag_endpoint.rstrip('/')
+                    rag_endpoint = f"{base_url}/query_hybrid_enhanced"
+                    logger.info(f"Adjusted RAG endpoint to: {rag_endpoint}")
+            
             try:
                 # Use provided collection - no default, require explicit collection name
                 rag_collection = research_data.get('rag_collection') or research_data.get('rag_collection_name')
@@ -453,7 +476,8 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                     logger.warning("⚠️ Skipping RAG search - collection name required")
                 else:
                     rag_client = create_rag_client(
-                        endpoint=research_data.get('rag_endpoint'),
+                        endpoint=rag_endpoint,
+                        api_key=rag_api_key,
                         collection=rag_collection,
                         max_results=5,
                         similarity_threshold=0.7

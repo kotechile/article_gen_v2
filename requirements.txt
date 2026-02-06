@@ -63,6 +63,7 @@ black
 flake8
 mypy
 linkup-sdk
+playwright
 
 # Optional: Advanced Features
 # elasticsearch>=8.8.0  # For search capabilities
