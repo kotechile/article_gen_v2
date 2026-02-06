@@ -10,6 +10,7 @@ services:
       - DEBUG
       - ENVIRONMENT
       - LOG_LEVEL
+      - API_KEYS
 
       # Database / Supabase
       - SUPABASE_URL
@@ -47,6 +48,7 @@ services:
       - SECRET_KEY
       - ENVIRONMENT
       - LOG_LEVEL
+      - API_KEYS
 
       # Database
       - SUPABASE_URL
