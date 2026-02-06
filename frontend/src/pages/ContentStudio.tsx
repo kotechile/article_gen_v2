@@ -311,7 +311,7 @@ export const ContentStudio: React.FC = () => {
             // Set taskId to null before new request
             setTaskId(null);
 
-            const response = await axios.post('http://localhost:5001/api/v1/research', payload, {
+            const response = await axios.post(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/v1/research`, payload, {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'X-API-Key': 'development'

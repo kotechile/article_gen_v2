@@ -36,7 +36,7 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
             // 1. Prefer API Polling if taskId is available
             if (taskId) {
                 try {
-                    const { data } = await axios.get(`http://localhost:5001/api/v1/research/${taskId}`, {
+                    const { data } = await axios.get(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/v1/research/${taskId}`, {
                         headers: { 'X-API-Key': 'development' }
                     });
 
