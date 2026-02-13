@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from celery import current_task
 from celery_config import celery
-from supabase_client import get_supabase_client, get_llm_api_key, get_linkup_api_key
+from supabase_client import get_supabase_client, get_llm_api_key, get_linkup_api_key, get_default_llm_provider
 
 # ...
 
@@ -352,19 +352,36 @@ def _extract_claims(result: Dict[str, Any], task_instance: Any = None) -> Dict[s
         keywords = research_data.get('keywords', '')
         
         # Create LLM client
-        # Use strict API key retrieval from Payload or Database
-        # api_key = _fetch_api_key_strict(research_data)
-        api_key = get_llm_api_key(
-             research_data.get('provider', 'openai'),
-             research_data.get('model', 'gpt-4')
-        )
-        if not api_key:
-             # Fallback to legacy behavior or error if needed, but get_llm_api_key should handle it
-             logger.warning(f"Could not fetch API key for {research_data.get('provider')}/{research_data.get('model')}")
         
+        # Verify provider/model and fetch API key
+        provider = research_data.get('provider')
+        model = research_data.get('model')
+        api_key = None
+        
+        if not provider or not model:
+            logger.info("Provider or model not specified in research_data - fetching default from Supabase")
+            def_provider, def_model, def_key = get_default_llm_provider()
+            if def_provider and def_model and def_key:
+                provider = def_provider
+                model = def_model
+                api_key = def_key
+                # Update research_data for consistency
+                research_data['provider'] = provider
+                research_data['model'] = model
+            else:
+                 logger.warning("Failed to fetch default LLM provider - falling back to 'openai'/'gpt-4' (and likely missing key)")
+                 provider = 'openai'
+                 model = 'gpt-4'
+        else:
+             # Fetch key for specific provider/model
+             api_key = get_llm_api_key(provider, model)
+
+        if not api_key:
+             logger.warning(f"Could not fetch API key for {provider}/{model}")
+
         llm_client = create_llm_client(
-            provider=research_data.get('provider', 'openai'),
-            model=research_data.get('model', 'gpt-4'),
+            provider=provider,
+            model=model,
             api_key=api_key,
             temperature=0.3  # Lower temperature for more focused extraction
         )
@@ -1184,15 +1201,34 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
         # Ensure research_data has the correct tone for downstream stages
         research_data['tone'] = final_tone
         
-        # Use strict API key retrieval from Payload or Database
-        # api_key = _fetch_api_key_strict(research_data)
-        api_key = get_llm_api_key(
-             research_data.get('provider', 'openai'),
-             research_data.get('model', 'gpt-4')
-        )
+        # Ensure research_data has the correct tone for downstream stages
+        research_data['tone'] = final_tone
+        
+        # Verify provider/model and fetch API key
+        provider = research_data.get('provider')
+        model = research_data.get('model')
+        api_key = None
+        
+        if not provider or not model:
+            logger.info("Provider or model not specified - fetching default from Supabase")
+            def_provider, def_model, def_key = get_default_llm_provider()
+            if def_provider and def_model and def_key:
+                provider = def_provider
+                model = def_model
+                api_key = def_key
+                # Update research_data
+                research_data['provider'] = provider
+                research_data['model'] = model
+            else:
+                 logger.warning("Failed to fetch default LLM provider - falling back to 'openai'/'gpt-4'")
+                 provider = 'openai'
+                 model = 'gpt-4'
+        else:
+             api_key = get_llm_api_key(provider, model)
+
         llm_client = create_llm_client(
-            provider=research_data.get('provider', 'openai'),
-            model=research_data.get('model', 'gpt-4'),
+            provider=provider,
+            model=model,
             api_key=api_key,
             temperature=0.7,
             timeout=180  # Increased timeout for content generation (3 minutes)

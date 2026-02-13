@@ -206,3 +206,55 @@ def get_llm_api_key(provider: str, model: str) -> Optional[str]:
     except Exception as e:
         logger.error(f"Error fetching LLM API key for {provider}/{model}: {str(e)}")
         return None
+
+
+def get_default_llm_provider() -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    Fetch the default LLM provider and model configuration from Supabase.
+    
+    Query:
+    1. Table 'llm_providers' where is_default = true
+    2. Retrieve model_name, provider
+    3. Use api_keys_id to fetch the key_value from 'api_keys' table
+    
+    Returns:
+        Tuple of (provider_name, model_name, api_key_value)
+        Returns (None, None, None) if not found.
+    """
+    try:
+        client = get_supabase_client()
+        if not client:
+            logger.warning("Supabase client not available for fetching default LLM")
+            return None, None, None
+            
+        # 1. Get default provider record
+        response = client.table('llm_providers').select('provider, model_name, api_keys_id').eq('is_default', True).limit(1).execute()
+        
+        if not response.data or len(response.data) == 0:
+            logger.warning("No default LLM provider found (is_default=true) in llm_providers table")
+            return None, None, None
+            
+        record = response.data[0]
+        provider = record.get('provider')
+        model = record.get('model_name')
+        api_keys_id = record.get('api_keys_id')
+        
+        if not api_keys_id:
+            logger.warning(f"Default LLM provider {provider}/{model} found but has no api_keys_id")
+            return provider, model, None
+            
+        # 2. Get API key
+        key_resp = client.table('api_keys').select('key_value').eq('id', api_keys_id).execute()
+        
+        if key_resp.data and len(key_resp.data) > 0:
+            api_key = key_resp.data[0].get('key_value')
+            if api_key:
+                logger.info(f"Successfully fetched default LLM: {provider}/{model}")
+                return provider, model, api_key
+        
+        logger.warning(f"API Key for default LLM {provider}/{model} (ID: {api_keys_id}) not found or empty")
+        return provider, model, None
+        
+    except Exception as e:
+        logger.error(f"Error fetching default LLM provider: {str(e)}")
+        return None, None, None
