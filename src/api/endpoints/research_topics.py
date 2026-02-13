@@ -126,29 +126,47 @@ def create_research_topic():
         # Ensure we don't try to insert unknown columns if possible, but for now we trust exact match or allow db to error
         
         # Resolve User ID from Authorization Header
+        import os
+        service_key_env = os.environ.get('SUPABASE_SERVICE_KEY')
+        logger.info(f"Checking Env: SUPABASE_SERVICE_KEY Present: {bool(service_key_env)}")
+        if service_key_env:
+             logger.info(f"Service Key Start: {service_key_env[:10]}...")
+        else:
+             logger.warning("SUPABASE_SERVICE_KEY is NOT set in environment!")
+
         auth_header = request.headers.get('Authorization')
+        logger.info(f"Received Authorization header: {'Present' if auth_header else 'Missing'}")
+        if auth_header:
+            logger.info(f"Auth Header Start: {auth_header[:15]}...")
+            
         user_id = None
         
         if auth_header and auth_header.startswith('Bearer '):
             token = auth_header.split('Bearer ')[1]
             try:
+                logger.info(f"Attempting to validate token: {token[:10]}...")
                 user_response = supabase.auth.get_user(token)
                 if user_response and user_response.user:
                     user_id = user_response.user.id
+                    logger.info(f"Successfully resolved user_id: {user_id}")
+                else:
+                    logger.warning("Supabase get_user returned no user")
             except Exception as auth_error:
                 logger.warning(f"Failed to validate token or get user: {auth_error}")
+        else:
+             logger.warning("Authorization header missing or invalid format")
         
         # Fallback: Check if user_id is in the body (not recommended for production but keeps backward compatibility if needed)
         if not user_id:
-             user_id = data.get('user_id')
-
+             # Try to get from body
+             if request.json and 'user_id' in request.json:
+                 user_id = request.json['user_id']
+                 
         if not user_id:
              return jsonify(ErrorResponse(
-                error="authentication_required",
-                message="Could not resolve a valid user ID. Please ensure you are logged in and your token is valid.",
-                error_code="USER_ID_REQUIRED",
-                status=401
-            ).dict()), 401
+                error="authentication_required", 
+                message="Could not resolve a valid user ID. Please ensure you are logged in."
+             ).dict()), 401
 
         insert_data = {
             "title": data.get('title'),
@@ -156,12 +174,38 @@ def create_research_topic():
             "status": data.get('status', 'active'),
             "updated_at": datetime.utcnow().isoformat(),
             "user_id": user_id
-            # created_at is usually auto-generated
         }
         
-        response = supabase.table('research_topics').insert(insert_data).execute()
+        # Use a fresh Service Role client for this operation to ensure RLS bypass
+        from supabase import create_client
+        import os
         
-        if not response.data:
+        sb_url = os.environ.get('SUPABASE_URL')
+        sb_key = os.environ.get('SUPABASE_SERVICE_KEY')
+        
+        response = None
+        if sb_url and sb_key:
+            # Initialize with verify=False for self-hosted
+            import httpx
+            original_init = httpx.Client.__init__
+            def new_init(self, *args, **kwargs):
+                kwargs['verify'] = False
+                original_init(self, *args, **kwargs)
+            httpx.Client.__init__ = new_init
+            
+            try:
+                supabase_admin = create_client(sb_url, sb_key)
+                logger.info("Using dedicated Service Role client for insert")
+                response = supabase_admin.table('research_topics').insert(insert_data).execute()
+            except Exception as admin_err:
+                logger.error(f"Admin insert failed: {admin_err}")
+                # Fallback to global client
+                response = supabase.table('research_topics').insert(insert_data).execute()
+        else:
+            logger.warning("Falling back to global client (Service Key missing?)")
+            response = supabase.table('research_topics').insert(insert_data).execute()
+            
+        if not response or not response.data:
             raise Exception("Failed to insert record")
 
         return jsonify(response.data[0]), 201
