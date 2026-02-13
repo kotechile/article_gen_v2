@@ -9,39 +9,66 @@ export const AuthCallback: React.FC = () => {
     useEffect(() => {
         const handleAuthCallback = async () => {
             console.log('AuthCallback: Processing login redirect...');
-            console.log('AuthCallback: Hash:', window.location.hash);
+            const hash = window.location.hash;
+            console.log('AuthCallback: Hash present:', !!hash);
 
-            try {
-                // With implicit flow, the session is in the URL.
-                // supabase.auth.getSession() should pick it up automatically.
-                // We just need to wait a moment or verify it.
-
-                const { data: { session }, error } = await supabase.auth.getSession();
-
-                if (error) {
-                    console.error('AuthCallback: Error getting session', error);
-                    navigate('/login?error=auth_callback_failed');
+            if (!hash) {
+                console.warn('AuthCallback: No hash found.');
+                // Allow a small grace period in case the client strips it incredibly fast, 
+                // but typically if it's gone, it's gone.
+                // Try getSession one last time.
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session) {
+                    navigate('/');
                     return;
                 }
+                navigate('/login?error=no_hash');
+                return;
+            }
+
+            try {
+                // Manual Hash Parsing
+                const params = new URLSearchParams(hash.substring(1)); // remove #
+                const accessToken = params.get('access_token');
+                const refreshToken = params.get('refresh_token');
+
+                if (accessToken && refreshToken) {
+                    console.log('AuthCallback: Found tokens in hash. Manually setting session...');
+                    const { data, error } = await supabase.auth.setSession({
+                        access_token: accessToken,
+                        refresh_token: refreshToken,
+                    });
+
+                    if (error) {
+                        console.error('AuthCallback: Error setting session:', error);
+                        navigate(`/login?error=${encodeURIComponent(error.message)}`);
+                        return;
+                    }
+
+                    if (data.session) {
+                        console.log('AuthCallback: Session set successfully! Redirecting...');
+                        navigate('/');
+                        return;
+                    }
+                } else {
+                    console.log('AuthCallback: Access/Refresh token missing from hash.');
+                }
+
+                // Fallback to auto-detection if manual parsing failed or wasn't needed
+                const { data: { session }, error } = await supabase.auth.getSession();
+
+                if (error) throw error;
 
                 if (session) {
-                    console.log('AuthCallback: Session found! Redirecting to dashboard.');
+                    console.log('AuthCallback: Session found via getSession! Redirecting.');
                     navigate('/');
                 } else {
-                    console.warn('AuthCallback: No session found after redirect. Waiting for onAuthStateChange...');
-                    // If getSession didn't pick it up, onAuthStateChange might.
-                    // But if we return here, we might get stuck. 
-                    // Let's rely on AuthProvider's global listener to handle the 'SIGNED_IN' event 
-                    // and redirect us. Or we can force a check.
-
-                    // Fallback: redirects to login if nothing happens after a delay
-                    setTimeout(() => {
-                        navigate('/login?error=no_session_found');
-                    }, 3000);
+                    console.warn('AuthCallback: No session found after processing.');
+                    navigate('/login?error=no_session_set');
                 }
-            } catch (err) {
+            } catch (err: any) {
                 console.error('AuthCallback: Unexpected error', err);
-                navigate('/login');
+                navigate(`/login?error=${encodeURIComponent(err.message || 'Unknown error')}`);
             }
         };
 
