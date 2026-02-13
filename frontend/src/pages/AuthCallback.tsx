@@ -33,6 +33,35 @@ export const AuthCallback: React.FC = () => {
                 const refreshToken = params.get('refresh_token');
 
                 if (accessToken && refreshToken) {
+                    // DIAGNOSTIC START
+                    const envUrl = import.meta.env.VITE_SUPABASE_URL;
+                    const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+                    console.log('DIAGNOSTIC: Env Vars Check');
+                    console.log('URL:', envUrl);
+                    console.log('Key:', envKey ? envKey.substring(0, 10) + '...' : 'MISSING');
+
+                    // Manual Fetch Test
+                    try {
+                        console.log('DIAGNOSTIC: Attempting manual fetch to /auth/v1/user...');
+                        const testRes = await fetch(`${envUrl}/auth/v1/user`, {
+                            headers: {
+                                'Authorization': `Bearer ${accessToken}`,
+                                'apikey': envKey
+                            }
+                        });
+                        console.log('DIAGNOSTIC: Manual fetch status:', testRes.status);
+                        if (!testRes.ok) {
+                            const text = await testRes.text();
+                            console.error('DIAGNOSTIC: Manual fetch failed body:', text);
+                        } else {
+                            const json = await testRes.json();
+                            console.log('DIAGNOSTIC: Manual fetch success!', json);
+                        }
+                    } catch (e) {
+                        console.error('DIAGNOSTIC: Manual fetch error:', e);
+                    }
+                    // DIAGNOSTIC END
+
                     console.log('AuthCallback: Found tokens in hash. Manually setting session...');
                     const { data, error } = await supabase.auth.setSession({
                         access_token: accessToken,
