@@ -44,6 +44,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // 1. Get initial session
         const initializeAuth = async () => {
             try {
+                console.log("AuthProvider: Initializing...");
+                console.log("Current URL:", window.location.href);
+
                 const { data: { session }, error } = await supabase.auth.getSession()
                 if (error) throw error
 
@@ -78,8 +81,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             if (_event === 'SIGNED_OUT') {
-                console.log("AuthProvider: Redirecting to /login");
-                navigate('/login')
+                const currentPath = pathnameRef.current;
+                const isPublic = currentPath === '/login' || currentPath?.startsWith('/auth');
+
+                if (!isPublic) {
+                    console.log("AuthProvider: Redirecting to /login");
+                    navigate('/login');
+                } else {
+                    console.log(`AuthProvider: SIGNED_OUT event on public path (${currentPath}), ignoring redirect.`);
+                }
             }
         })
 
