@@ -35,8 +35,8 @@ services:
       # Render / Image Gen
       - RENDER_SERVICE_URL
 
-    ports:
-      - "5001:5001"
+    # ports:
+    #   - "5001:5001"
     depends_on:
       - redis
 
@@ -81,16 +81,16 @@ services:
         - VITE_API_URL
         - VITE_SITE_URL
     restart: always
-    ports:
-      - "3000:80"
+    # ports:
+    #   - "3000:80"
     depends_on:
       - backend
 
   redis:
     image: redis:alpine
     restart: always
-    ports:
-      - "6379:6379"
+    # ports:
+    #   - "6379:6379"
     volumes:
       - redis_data:/data
 
