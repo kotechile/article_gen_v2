@@ -79,6 +79,7 @@ services:
         - VITE_SUPABASE_ANON_KEY
         - VITE_API_KEY
         - VITE_API_URL
+        - VITE_SITE_URL
     restart: always
     ports:
       - "3000:80"
