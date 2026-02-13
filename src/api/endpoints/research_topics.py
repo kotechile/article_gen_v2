@@ -125,24 +125,30 @@ def create_research_topic():
         # Prepare data for insertion
         # Ensure we don't try to insert unknown columns if possible, but for now we trust exact match or allow db to error
         
-        # Resolve User ID
-        user_id = data.get('user_id')
-        if not user_id:
-            # Try to find a valid user ID from the database
-            try:
-                user_res = supabase.table("wordPress_details").select("user_id").limit(1).execute()
-                if user_res.data:
-                    user_id = user_res.data[0]['user_id']
-            except Exception as e:
-                logger.warning(f"Failed to resolve fallback user_id: {e}")
+        # Resolve User ID from Authorization Header
+        auth_header = request.headers.get('Authorization')
+        user_id = None
         
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split('Bearer ')[1]
+            try:
+                user_response = supabase.auth.get_user(token)
+                if user_response and user_response.user:
+                    user_id = user_response.user.id
+            except Exception as auth_error:
+                logger.warning(f"Failed to validate token or get user: {auth_error}")
+        
+        # Fallback: Check if user_id is in the body (not recommended for production but keeps backward compatibility if needed)
+        if not user_id:
+             user_id = data.get('user_id')
+
         if not user_id:
              return jsonify(ErrorResponse(
                 error="authentication_required",
-                message="Could not resolve a valid user ID. Please ensure authentication is set up.",
+                message="Could not resolve a valid user ID. Please ensure you are logged in and your token is valid.",
                 error_code="USER_ID_REQUIRED",
-                status=400
-            ).dict()), 400
+                status=401
+            ).dict()), 401
 
         insert_data = {
             "title": data.get('title'),
