@@ -52,9 +52,14 @@ export function Research() {
             })
             setTopics([newTopic, ...topics])
             setSearchTerm("")
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to create topic:', err)
-            setError('Failed to create research topic')
+            // Extract specific error message from API response if available
+            const errorMessage = err.response?.data?.detail
+                || err.response?.data?.message
+                || err.message
+                || 'Failed to create research topic';
+            setError(errorMessage)
         }
     }
 
