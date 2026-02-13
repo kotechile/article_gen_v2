@@ -3,6 +3,7 @@
 
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/auth-context';
+import { AuthCallback } from './pages/AuthCallback';
 import { Login } from './pages/Login';
 import { Landing } from './pages/Landing';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -20,6 +21,7 @@ function App() {
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
 
         <Route element={<ProtectedRoute />}>
           {/* Landing page - no layout */}

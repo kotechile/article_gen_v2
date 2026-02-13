@@ -33,10 +33,8 @@ export const Login: React.FC = () => {
 
     const handleGoogleLogin = async () => {
         try {
-            const redirectUrl = import.meta.env.VITE_SITE_URL || window.location.origin;
+            const redirectUrl = `${import.meta.env.VITE_SITE_URL || window.location.origin}/auth/callback`;
             console.log('Initiating Google Login...');
-            console.log('VITE_SITE_URL:', import.meta.env.VITE_SITE_URL);
-            console.log('window.location.origin:', window.location.origin);
             console.log('Using redirectUrl:', redirectUrl);
 
             const { error } = await supabase.auth.signInWithOAuth({
