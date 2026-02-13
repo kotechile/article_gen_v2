@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from celery import current_task
 from celery_config import celery
+from supabase_client import get_supabase_client, get_llm_api_key, get_linkup_api_key
 
 # ...
 
@@ -352,7 +353,15 @@ def _extract_claims(result: Dict[str, Any], task_instance: Any = None) -> Dict[s
         
         # Create LLM client
         # Use strict API key retrieval from Payload or Database
-        api_key = _fetch_api_key_strict(research_data)
+        # api_key = _fetch_api_key_strict(research_data)
+        api_key = get_llm_api_key(
+             research_data.get('provider', 'openai'),
+             research_data.get('model', 'gpt-4')
+        )
+        if not api_key:
+             # Fallback to legacy behavior or error if needed, but get_llm_api_key should handle it
+             logger.warning(f"Could not fetch API key for {research_data.get('provider')}/{research_data.get('model')}")
+        
         llm_client = create_llm_client(
             provider=research_data.get('provider', 'openai'),
             model=research_data.get('model', 'gpt-4'),
@@ -889,7 +898,11 @@ def _generate_structure(result: Dict[str, Any], task_instance: Any = None) -> Di
         
         # Get LLM client and config
         # Use strict API key retrieval from Payload or Database
-        api_key = _fetch_api_key_strict(research_data)
+        # api_key = _fetch_api_key_strict(research_data)
+        api_key = get_llm_api_key(
+             research_data.get('provider', 'gemini'),
+             research_data.get('model', 'gemini-2.5-flash')
+        )
         llm_client = create_llm_client(
             provider=research_data.get('provider', 'gemini'),
             model=research_data.get('model', 'gemini-2.5-flash'),
@@ -1172,7 +1185,11 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
         research_data['tone'] = final_tone
         
         # Use strict API key retrieval from Payload or Database
-        api_key = _fetch_api_key_strict(research_data)
+        # api_key = _fetch_api_key_strict(research_data)
+        api_key = get_llm_api_key(
+             research_data.get('provider', 'openai'),
+             research_data.get('model', 'gpt-4')
+        )
         llm_client = create_llm_client(
             provider=research_data.get('provider', 'openai'),
             model=research_data.get('model', 'gpt-4'),

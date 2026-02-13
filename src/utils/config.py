@@ -47,6 +47,7 @@ class Config:
     # External services
     RAG_API_URL: Optional[str] = os.environ.get('RAG_API_URL')
     RAG_API_KEY: Optional[str] = os.environ.get('RAG_API_KEY')
+    # API Keys (Loaded from Supabase via APIKeyManager, optionally env vars for dev)
     LINKUP_API_URL: Optional[str] = os.environ.get('LINKUP_API_URL')
     LINKUP_API_KEY: Optional[str] = os.environ.get('LINKUP_API_KEY')
     LITELLM_API_URL: Optional[str] = os.environ.get('LITELLM_API_URL')

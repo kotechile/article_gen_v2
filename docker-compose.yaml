@@ -23,11 +23,12 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
 
       # External APIs
-      - OPENAI_API_KEY
-      - ANTHROPIC_API_KEY
-      - GOOGLE_API_KEY
-      - GEMINI_API_KEY
-      - LINKUP_API_KEY
+      # API Keys are now loaded from Supabase
+      # - OPENAI_API_KEY
+      # - ANTHROPIC_API_KEY
+      # - GOOGLE_API_KEY
+      # - GEMINI_API_KEY
+      # - LINKUP_API_KEY
       - RAG_API_URL
       - RAG_API_KEY
 
@@ -58,13 +59,13 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-
       # External APIs
-      - OPENAI_API_KEY
-      - ANTHROPIC_API_KEY
-      - GOOGLE_API_KEY
-      - GEMINI_API_KEY
-      - LINKUP_API_KEY
+      # API Keys are now loaded from Supabase
+      # - OPENAI_API_KEY
+      # - ANTHROPIC_API_KEY
+      # - GOOGLE_API_KEY
+      # - GEMINI_API_KEY
+      # - LINKUP_API_KEY
 
     depends_on:
       - backend
