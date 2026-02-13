@@ -7,6 +7,8 @@ import { Loader2 } from 'lucide-react';
 export const ProtectedRoute: React.FC = () => {
     const { user, isLoading } = useAuth();
 
+    console.log(`ProtectedRoute: isLoading=${isLoading}, user=${user ? 'FOUND' : 'NULL'}`);
+
     if (isLoading) {
         return (
             <div className="h-screen w-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">

@@ -4,6 +4,10 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+console.log('Supabase Config Check:');
+console.log('URL:', supabaseUrl);
+console.log('Key (first 10 chars):', supabaseAnonKey ? supabaseAnonKey.substring(0, 10) : 'MISSING');
+
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Missing Supabase environment variables');
   // Display error on screen
@@ -14,4 +18,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Use placeholders to prevent top-level crash, allowing the app to at least render the error
-export const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabaseAnonKey || 'placeholder');
+export const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabaseAnonKey || 'placeholder', {
+  auth: {
+    flowType: 'implicit',
+    persistSession: true,
+    detectSessionInUrl: true,
+    autoRefreshToken: true,
+    debug: true
+  }
+});
