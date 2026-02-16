@@ -69,3 +69,6 @@ playwright
 # elasticsearch>=8.8.0  # For search capabilities
 # faiss-cpu>=1.7.4      # For vector similarity search
 # transformers>=4.32.0   # For local model inference
+llama-index
+tavily-python
+

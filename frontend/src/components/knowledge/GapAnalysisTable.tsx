@@ -7,9 +7,11 @@ interface GapAnalysisTableProps {
     isLoading: boolean;
     onStartGapFill: (selectedTitles: Title[]) => Promise<void>;
     onEnhancePlus: (selectedTitles: Title[]) => Promise<void>;
+    researchMethod: 'standard' | 'deep';
+    onResearchMethodChange: (method: 'standard' | 'deep') => void;
 }
 
-export const GapAnalysisTable: React.FC<GapAnalysisTableProps> = ({ titles, isLoading, onStartGapFill, onEnhancePlus }) => {
+export const GapAnalysisTable: React.FC<GapAnalysisTableProps> = ({ titles, isLoading, onStartGapFill, onEnhancePlus, researchMethod, onResearchMethodChange }) => {
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [isProcessing, setIsProcessing] = useState(false);
 
@@ -75,7 +77,28 @@ export const GapAnalysisTable: React.FC<GapAnalysisTableProps> = ({ titles, isLo
                             {selectedIds.size} selected
                         </span>
                     )}
-                    <div className="flex gap-3">
+                    <div className="flex gap-3 items-center">
+                        <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-lg mr-2">
+                            <button
+                                onClick={() => onResearchMethodChange('standard')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${researchMethod === 'standard'
+                                        ? 'bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white'
+                                        : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                                    }`}
+                            >
+                                Standard
+                            </button>
+                            <button
+                                onClick={() => onResearchMethodChange('deep')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${researchMethod === 'deep'
+                                        ? 'bg-white dark:bg-gray-700 shadow text-indigo-600 dark:text-indigo-400'
+                                        : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                                    }`}
+                            >
+                                Deep Research
+                            </button>
+                        </div>
+
                         <button
                             onClick={handleEnhance}
                             disabled={selectedIds.size === 0 || isProcessing}

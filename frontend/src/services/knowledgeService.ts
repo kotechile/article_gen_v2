@@ -197,6 +197,32 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
         return await response.json();
     };
 
+    // Deep Research (Agentic / Tavily)
+    // Calls the Content Generator Backend, not the RAG service directly
+    const fillKnowledgeGapsDeep = async (titles: Title[], collectionName: string): Promise<any> => {
+        // Use the VITE_API_URL if available via env, otherwise fallback. 
+        // In knowledgeService we only have ragUrl dependency. 
+        // We'll assume the main backend is serving this.
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        const titleIds = titles.map(t => t.id);
+
+        const response = await fetch(`${apiUrl}/api/research/deep-gap-fill`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                title_ids: titleIds,
+                user_id: userId,
+                collection_name: collectionName
+            })
+        });
+
+        if (!response.ok) throw new Error(`Deep Research failed: ${response.statusText}`);
+        return await response.json();
+    };
+
 
     // --- Manual Actions ---
 
@@ -248,6 +274,7 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
         getNewTitles,
         fillKnowledgeGaps,
         enhanceKnowledge,
+        fillKnowledgeGapsDeep,
         getManualActions,
         updateManualActionStatus,
         deleteManualAction

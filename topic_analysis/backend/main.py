@@ -127,7 +127,12 @@ try:
     from src.routers.content_generator_routes import router as content_generator_router
     app.include_router(content_generator_router)
     
+    # Deep Research Routes
+    from src.api.deep_research_routes import router as deep_research_router
+    app.include_router(deep_research_router)
+    
     logger.info("✅ All API routers included successfully")
+
 except Exception as e:
     logger.error(f"❌ Error including routers: {e}")
 

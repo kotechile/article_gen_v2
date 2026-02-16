@@ -23,6 +23,7 @@ export const KnowledgeGaps: React.FC = () => {
     const [documents, setDocuments] = useState<Document[]>([]);
     const [titles, setTitles] = useState<Title[]>([]);
     const [actions, setActions] = useState<ManualAction[]>([]);
+    const [researchMethod, setResearchMethod] = useState<'standard' | 'deep'>('standard');
 
     const [loadingDocs, setLoadingDocs] = useState(false);
     const [loadingTitles, setLoadingTitles] = useState(false);
@@ -129,14 +130,19 @@ export const KnowledgeGaps: React.FC = () => {
         }
     };
 
-    const handleStartGapFill = async (titles: Title[]) => {
+    const handleStartGapFill = async (titlesToProcess: Title[]) => {
         if (!selectedCollection) {
             alert("Please select a collection to store the enhanced knowledge.");
             return;
         }
         try {
-            await service.fillKnowledgeGaps(titles, selectedCollection.name);
-            alert("Gap filling started! Process running in background.");
+            if (researchMethod === 'deep') {
+                await service.fillKnowledgeGapsDeep(titlesToProcess, selectedCollection.name);
+                alert("Deep Research started! Agents are working in the background.");
+            } else {
+                await service.fillKnowledgeGaps(titlesToProcess, selectedCollection.name);
+                alert("Gap filling started! Process running in background.");
+            }
         } catch (e: any) {
             console.error(e);
             alert(`Failed: ${e.message}`);
@@ -281,6 +287,8 @@ export const KnowledgeGaps: React.FC = () => {
                             isLoading={loadingTitles}
                             onStartGapFill={handleStartGapFill}
                             onEnhancePlus={handleEnhancePlus}
+                            researchMethod={researchMethod}
+                            onResearchMethodChange={setResearchMethod}
                         />
                     </div>
                 )}
