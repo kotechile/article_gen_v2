@@ -274,19 +274,19 @@ export const Settings: React.FC = () => {
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
                 <TabsList className="bg-gray-100/50 dark:bg-gray-800/50 p-1 rounded-xl w-full md:w-auto h-auto grid grid-cols-2 md:grid-cols-4 gap-1">
-                    <TabsTrigger value="research" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm py-2.5">
+                    <TabsTrigger value="research" className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 data-[state=active]:text-indigo-600 dark:data-[state=active]:text-indigo-400 data-[state=active]:shadow-sm py-2.5">
                         <Search className="w-4 h-4 mr-2" />
                         Topic Research
                     </TabsTrigger>
-                    <TabsTrigger value="content" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm py-2.5">
+                    <TabsTrigger value="content" className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 data-[state=active]:text-indigo-600 dark:data-[state=active]:text-indigo-400 data-[state=active]:shadow-sm py-2.5">
                         <Wand2 className="w-4 h-4 mr-2" />
                         Content Generation
                     </TabsTrigger>
-                    <TabsTrigger value="wordpress" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm py-2.5">
+                    <TabsTrigger value="wordpress" className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 data-[state=active]:text-indigo-600 dark:data-[state=active]:text-indigo-400 data-[state=active]:shadow-sm py-2.5">
                         <Globe className="w-4 h-4 mr-2" />
                         WordPress Sync
                     </TabsTrigger>
-                    <TabsTrigger value="posts" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm py-2.5">
+                    <TabsTrigger value="posts" className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 data-[state=active]:text-indigo-600 dark:data-[state=active]:text-indigo-400 data-[state=active]:shadow-sm py-2.5">
                         <FileText className="w-4 h-4 mr-2" />
                         External Posts
                     </TabsTrigger>
