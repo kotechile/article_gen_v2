@@ -1,8 +1,11 @@
 import os
 from supabase import create_client, Client
 
+from dotenv import load_dotenv
+load_dotenv()
+
 url = os.environ.get("SUPABASE_URL")
-key = os.environ.get("SUPABASE_SERVICE_KEY")
+key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY")
 
 if not url or not key:
     print("Missing env vars")

@@ -58,16 +58,44 @@ class DeepResearchService:
         1. Plan research based on outline.
         2. Execute agentic search (Tavily).
         3. Synthesize report.
-        4. Upload to RAG.
+        4. Upload to RAG with citations.
         """
         if not self.tavily_api_key:
             raise ValueError("Tavily API Key is missing. Please add it to Settings -> API Keys.")
 
         logger.info(f"🚀 Starting Deep Research for Title ID: {title_id}")
+        
+        # Container to capture unique citations during the session
+        collected_citations = []
+        seen_urls = set()
+
+        def tavily_search_wrapper(query: str) -> str:
+            """Wrapper to capture headers/urls from search"""
+            client = TavilyClient(api_key=self.tavily_api_key)
+            response = client.search(query, search_depth="advanced", max_results=5)
+            
+            results_text = []
+            for r in response.get('results', []):
+                title = r.get('title', 'Unknown Source')
+                url = r.get('url', '')
+                content = r.get('content', '')
+                
+                # Capture citation if new
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    collected_citations.append({
+                        "source": title,
+                        "url": url,
+                        "title": title
+                    })
+                
+                results_text.append(f"- {title}: {content} ({url})")
+            
+            return "\n".join(results_text)
 
         # 1. Setup Agent
         tavily_tool = FunctionTool.from_defaults(
-            fn=self._tavily_search,
+            fn=tavily_search_wrapper,
             name="web_search",
             description="Useful for searching the web for specific details, facts, and recent information."
         )
@@ -100,14 +128,24 @@ class DeepResearchService:
             response = await agent.achat(prompt)
             report_content = str(response)
 
-            # 3. Upload to RAG
+            # 3. Upload to RAG with Citations
             doc_id = f"deep_research_{title_id}_{uuid4().hex[:8]}"
+            
+            # Prepare metadata
+            metadata = {
+                "source_type": "deep_research",
+                "citations": collected_citations,
+                "title_id": title_id,
+                "research_date": datetime.now().isoformat()
+            }
+            
             upload_success = await self._upload_to_rag(
                 content=report_content,
                 doc_id=doc_id,
                 collection_name=collection_name,
                 user_id=user_id,
-                filename=f"Deep_Research_{title_id}.md"
+                filename=f"Deep_Research_{title_id}.md",
+                metadata=metadata
             )
 
             # 4. Update Title Status/Metadata? 
@@ -117,29 +155,22 @@ class DeepResearchService:
                 "success": True,
                 "doc_id": doc_id,
                 "report_preview": report_content[:200] + "...",
-                "upload_status": upload_success
+                "upload_status": upload_success,
+                "citations_count": len(collected_citations)
             }
 
         except Exception as e:
             logger.error(f"Deep Research failed: {e}")
             return {"success": False, "error": str(e)}
 
-    def _tavily_search(self, query: str) -> str:
-        """Tool wrapper for Tavily Search"""
-        client = TavilyClient(api_key=self.tavily_api_key)
-        response = client.search(query, search_depth="advanced", max_results=5)
-        # Simplify output for LLM
-        results = [f"- {r['title']}: {r['content']} ({r['url']})" for r in response.get('results', [])]
-        return "\n".join(results)
+    # Removed _tavily_search method as it is now an inner wrapper
 
-    async def _upload_to_rag(self, content: str, doc_id: str, collection_name: str, user_id: str, filename: str) -> bool:
+    async def _upload_to_rag(self, content: str, doc_id: str, collection_name: str, user_id: str, filename: str, metadata: Dict[str, Any] = None) -> bool:
         """Uploads the synthesized report to the external RAG system"""
         import aiohttp
-        
-        # We need to send as a file or text. RAG documentation says /upload takes a file.
-        # Let's create a temporary in-memory file
-        
         import io
+        import json
+        
         file_obj = io.BytesIO(content.encode('utf-8'))
         file_obj.name = filename
         
@@ -147,16 +178,22 @@ class DeepResearchService:
         data.add_field('file', file_obj, filename=filename, content_type='text/markdown')
         data.add_field('docid', doc_id)
         data.add_field('collection_name', collection_name)
-        data.add_field('user_id', user_id) # Pass user_id if RAG supports it, otherwise it might be implicit/global?
-        # Checking RAG API docs again... only file, docid, collection_name are listed. 
-        # But maybe we should pass user_id? The current KnowledgeService passes user_id to some endpoints but /upload in RAG docs didn't explicitly show it.
-        # However, RAG documents usually belong to a collection. Ensuring collection is user-specific or shared.
+        data.add_field('user_id', user_id)
         
+        if metadata:
+            data.add_field('metadata', json.dumps(metadata))
+            
         async with aiohttp.ClientSession() as session:
-            async with session.post(f"{self.rag_api_url}/upload", data=data) as resp:
-                if resp.status == 200:
-                    logger.info(f"✅ Automatically indexed Deep Research Report: {doc_id}")
-                    return True
-                else:
-                    logger.error(f"❌ Failed to upload Deep Research Report: {await resp.text()}")
-                    return False
+            try:
+                # Assuming RAG endpoint is /upload
+                url = f"{self.rag_api_url}/upload"
+                async with session.post(url, data=data) as resp:
+                    if resp.status == 200:
+                        logger.info(f"✅ Automatically indexed Deep Research Report: {doc_id} with {len(metadata.get('citations', []))} citations")
+                        return True
+                    else:
+                        logger.error(f"❌ Failed to upload Deep Research Report: {await resp.text()}")
+                        return False
+            except Exception as e:
+                 logger.error(f"❌ Upload Connection Failed: {e}")
+                 return False
