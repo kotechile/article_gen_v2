@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     
     # CORS
     allowed_origins: List[str] = Field(
-        default=["http://localhost:3000", "https://idea-burst.com"],
+        default=["http://localhost:3000", "https://content.buildomain.com"],
         env="ALLOWED_ORIGINS"
     )
     

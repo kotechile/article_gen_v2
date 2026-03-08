@@ -17,8 +17,8 @@ export async function GET(request: NextRequest) {
 
         // Safety Fallback: If host is internal or localhost, force the production domain
         if (!host || host.includes('0.0.0.0') || host.includes('localhost') || host.includes('backend')) {
-            console.log("Auth Callback: Host header was invalid (" + host + "), forcing ideas.aichieve.net");
-            host = 'ideas.aichieve.net';
+            console.log("Auth Callback: Host header was invalid (" + host + "), forcing content.buildomain.com");
+            host = 'content.buildomain.com';
         }
 
         const protocol = request.headers.get('x-forwarded-proto') || 'https';

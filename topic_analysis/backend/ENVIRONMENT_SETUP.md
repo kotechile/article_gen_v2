@@ -6,13 +6,13 @@ Create a `.env` file in the `backend` directory with the following configuration
 
 ```bash
 # Supabase Configuration (REQUIRED)
-SUPABASE_URL=https://sbcontent.aichieve.net
+SUPABASE_URL=https://sbcontent.giniloh.com
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
 SUPABASE_ANON_KEY=your-anon-key-here
 
 # Database Configuration (Optional - for direct PostgreSQL connection if needed)
 # Note: Most operations use Supabase SDK, but direct DB connection may be needed for migrations
-DATABASE_URL=postgresql://postgres:your-password-here@sbcontent.aichieve.net:5432/postgres?sslmode=require
+DATABASE_URL=postgresql://postgres:your-password-here@sbcontent.giniloh.com:5432/postgres?sslmode=require
 
 # Application Configuration
 APP_NAME=Idea Burst API
@@ -56,7 +56,7 @@ REQUEST_TIMEOUT=30
 
 ## Important Notes
 
-1. **Supabase URL**: `https://sbcontent.aichieve.net` - Your self-hosted Supabase instance
+1. **Supabase URL**: `https://sbcontent.giniloh.com` - Your self-hosted Supabase instance
 2. **Service Role Key**: Use this for admin operations (keep it secret!)
 3. **Anon Key**: Safe to use in frontend, but backend can use it too
 4. **Database URL**: Direct PostgreSQL connection string (if needed for migrations or direct SQL)
@@ -66,8 +66,8 @@ REQUEST_TIMEOUT=30
 
 These are the key variables from your Coolify setup:
 
-- `SERVICE_FQDN_SUPABASEKONG=sbcontent.aichieve.net`
-- `SERVICE_URL_SUPABASEKONG=https://sbcontent.aichieve.net`
+- `SERVICE_FQDN_SUPABASEKONG=sbcontent.giniloh.com`
+- `SERVICE_URL_SUPABASEKONG=https://sbcontent.giniloh.com`
 - `SERVICE_PASSWORD_POSTGRES=your-postgres-password-here`
 - `SERVICE_PASSWORD_JWT=your-jwt-secret-here`
 - `SERVICE_SUPABASEANON_KEY` (used as SUPABASE_ANON_KEY)
