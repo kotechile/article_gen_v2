@@ -91,6 +91,17 @@ function ProposeTopicsModal({ isOpen, onClose, topics, loading, error }: {
                         <p className="text-[11px] text-slate-600 text-center pt-2">Click a topic to start a full research session</p>
                     </div>
                 )}
+
+                {/* Cancel button — always visible */}
+                <div className="mt-5 pt-4 border-t border-white/8">
+                    <button
+                        id="propose-topics-cancel"
+                        onClick={onClose}
+                        className="w-full py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 border border-white/8 hover:border-white/15 transition-all"
+                    >
+                        Cancel
+                    </button>
+                </div>
             </motion.div>
         </div>
     );
