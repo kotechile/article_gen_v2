@@ -1,6 +1,6 @@
 import * as React from "react";
 import { motion } from "framer-motion";
-import { X, Sparkles, FileText, Lightbulb, Loader2, Check, ArrowRight, Save } from "lucide-react";
+import { X, Sparkles, FileText, Lightbulb, Loader2, Check, ArrowRight, Save, BookOpen, Code, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { contentIdeasService } from "@/services/content-ideas.service";
 import type { ContentIdea } from "@/types/idea-burst";
@@ -23,9 +23,12 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
     const [error, setError] = React.useState<string | null>(null);
     const [blogIdeas, setBlogIdeas] = React.useState<ContentIdea[]>([]);
     const [softwareIdeas, setSoftwareIdeas] = React.useState<ContentIdea[]>([]);
-    const [selectedIdeas, setSelectedIdeas] = React.useState<Set<string>>(new Set());
+    const [selectedBlogIdeas, setSelectedBlogIdeas] = React.useState<Set<string>>(new Set());
+    const [selectedSoftwareIdeas, setSelectedSoftwareIdeas] = React.useState<Set<string>>(new Set());
     const [publishing, setPublishing] = React.useState(false);
+    const [savingSoftware, setSavingSoftware] = React.useState(false);
     const [published, setPublished] = React.useState(false);
+    const [saved, setSaved] = React.useState(false);
 
     React.useEffect(() => {
         if (isOpen && subtopic && user) {
@@ -40,17 +43,17 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
         setError(null);
         setBlogIdeas([]);
         setSoftwareIdeas([]);
-        setSelectedIdeas(new Set());
+        setSelectedBlogIdeas(new Set());
+        setSelectedSoftwareIdeas(new Set());
         setPublished(false);
+        setSaved(false);
 
         try {
-            // Get keywords from the subtopic
             const keywords = subtopic.keywords || [];
             const keywordStrings = Array.isArray(keywords)
                 ? keywords.map((k: any) => typeof k === 'string' ? k : k.keyword || '').filter(Boolean)
                 : [];
 
-            // Get monetization data for affiliate offers
             const monetizationData = subtopic.monetization_data || {};
             const affiliateOffers = monetizationData.details?.affiliate_categories || [];
 
@@ -72,8 +75,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
         }
     };
 
-    const toggleIdeaSelection = (ideaId: string) => {
-        setSelectedIdeas(prev => {
+    const toggleBlogSelection = (ideaId: string) => {
+        setSelectedBlogIdeas(prev => {
             const newSet = new Set(prev);
             if (newSet.has(ideaId)) {
                 newSet.delete(ideaId);
@@ -84,19 +87,29 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
         });
     };
 
-    const handlePublish = async () => {
-        if (!user || selectedIdeas.size === 0) return;
+    const toggleSoftwareSelection = (ideaId: string) => {
+        setSelectedSoftwareIdeas(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(ideaId)) {
+                newSet.delete(ideaId);
+            } else {
+                newSet.add(ideaId);
+            }
+            return newSet;
+        });
+    };
+
+    const handlePublishBlogs = async () => {
+        if (!user || selectedBlogIdeas.size === 0) return;
 
         setPublishing(true);
         try {
-            const ideaIds = Array.from(selectedIdeas);
+            const ideaIds = Array.from(selectedBlogIdeas);
             await contentIdeasService.publishContentIdeas(ideaIds, user.id);
             setPublished(true);
             setTimeout(() => {
                 onClose();
-                // Navigate to content studio with the first selected idea
-                const firstIdea = blogIdeas.find(i => selectedIdeas.has(i.id)) ||
-                                  softwareIdeas.find(i => selectedIdeas.has(i.id));
+                const firstIdea = blogIdeas.find(i => selectedBlogIdeas.has(i.id));
                 if (firstIdea) {
                     navigate(`/content-studio?id=${firstIdea.id}`);
                 }
@@ -109,18 +122,47 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
         }
     };
 
-    const selectAll = () => {
-        const allIds = [...blogIdeas, ...softwareIdeas].map(i => i.id);
-        setSelectedIdeas(new Set(allIds));
+    const handleSaveSoftware = async () => {
+        if (!user || selectedSoftwareIdeas.size === 0) return;
+
+        setSavingSoftware(true);
+        try {
+            // Mark software ideas as saved (different status)
+            const ideaIds = Array.from(selectedSoftwareIdeas);
+            await contentIdeasService.publishContentIdeas(ideaIds, user.id);
+            setSaved(true);
+            setTimeout(() => {
+                setSaved(false);
+                setSelectedSoftwareIdeas(new Set());
+            }, 2000);
+        } catch (err) {
+            console.error("Failed to save software ideas:", err);
+            setError("Failed to save ideas. Please try again.");
+        } finally {
+            setSavingSoftware(false);
+        }
     };
 
-    const deselectAll = () => {
-        setSelectedIdeas(new Set());
+    const selectAllBlogs = () => {
+        setSelectedBlogIdeas(new Set(blogIdeas.map(i => i.id)));
+    };
+
+    const deselectAllBlogs = () => {
+        setSelectedBlogIdeas(new Set());
+    };
+
+    const selectAllSoftware = () => {
+        setSelectedSoftwareIdeas(new Set(softwareIdeas.map(i => i.id)));
+    };
+
+    const deselectAllSoftware = () => {
+        setSelectedSoftwareIdeas(new Set());
     };
 
     if (!isOpen || !subtopic) return null;
 
-    const totalIdeas = blogIdeas.length + softwareIdeas.length;
+    const totalBlogIdeas = blogIdeas.length;
+    const totalSoftwareIdeas = softwareIdeas.length;
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -128,7 +170,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+                className="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] flex flex-col"
             >
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-white/10">
@@ -172,7 +214,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
                         </div>
                     )}
 
-                    {!loading && !error && totalIdeas === 0 && (
+                    {!loading && !error && totalBlogIdeas === 0 && totalSoftwareIdeas === 0 && (
                         <div className="py-16 text-center">
                             <Lightbulb className="w-12 h-12 text-slate-600 mx-auto mb-4" />
                             <p className="text-slate-400">No ideas generated.</p>
@@ -182,71 +224,146 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
                         </div>
                     )}
 
-                    {!loading && !error && totalIdeas > 0 && (
-                        <div className="space-y-6">
-                            {/* Selection Controls */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm text-slate-400">
-                                        {selectedIdeas.size} of {totalIdeas} selected
-                                    </span>
-                                </div>
-                                <div className="flex gap-2">
-                                    <Button
-                                        onClick={selectAll}
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-xs text-slate-400 hover:text-white"
-                                    >
-                                        Select All
-                                    </Button>
-                                    <Button
-                                        onClick={deselectAll}
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-xs text-slate-400 hover:text-white"
-                                    >
-                                        Deselect All
-                                    </Button>
-                                </div>
-                            </div>
+                    {!loading && !error && (totalBlogIdeas > 0 || totalSoftwareIdeas > 0) && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {/* Blog Articles Column */}
+                            {totalBlogIdeas > 0 && (
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <BookOpen className="w-4 h-4 text-blue-400" />
+                                            <h3 className="text-sm font-semibold text-white">Blog Articles</h3>
+                                            <span className="text-xs text-slate-500">({totalBlogIdeas})</span>
+                                        </div>
+                                        <div className="flex gap-1">
+                                            <Button
+                                                onClick={selectAllBlogs}
+                                                variant="ghost"
+                                                size="sm"
+                                                className="text-xs text-slate-400 hover:text-white h-7 px-2"
+                                            >
+                                                Select All
+                                            </Button>
+                                            <Button
+                                                onClick={deselectAllBlogs}
+                                                variant="ghost"
+                                                size="sm"
+                                                className="text-xs text-slate-400 hover:text-white h-7 px-2"
+                                            >
+                                                Clear
+                                            </Button>
+                                        </div>
+                                    </div>
 
-                            {/* Blog Ideas Section */}
-                            {blogIdeas.length > 0 && (
-                                <div>
-                                    <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-                                        <FileText className="w-4 h-4 text-blue-400" />
-                                        Blog Articles ({blogIdeas.length})
-                                    </h3>
+                                    <p className="text-xs text-slate-500 flex items-center gap-1">
+                                        <Info className="w-3 h-3" />
+                                        These become articles in Content Studio
+                                    </p>
+
                                     <div className="space-y-3">
                                         {blogIdeas.map((idea) => (
-                                            <IdeaCard
+                                            <BlogIdeaCard
                                                 key={idea.id}
                                                 idea={idea}
-                                                isSelected={selectedIdeas.has(idea.id)}
-                                                onToggle={() => toggleIdeaSelection(idea.id)}
+                                                isSelected={selectedBlogIdeas.has(idea.id)}
+                                                onToggle={() => toggleBlogSelection(idea.id)}
                                             />
                                         ))}
+                                    </div>
+
+                                    {/* Blog Actions */}
+                                    <div className="pt-4 border-t border-white/10">
+                                        <Button
+                                            onClick={handlePublishBlogs}
+                                            disabled={selectedBlogIdeas.size === 0 || publishing}
+                                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+                                        >
+                                            {publishing ? (
+                                                <>
+                                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                    Publishing...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <BookOpen className="w-4 h-4 mr-2" />
+                                                    Publish to Content Studio ({selectedBlogIdeas.size})
+                                                </>
+                                            )}
+                                        </Button>
                                     </div>
                                 </div>
                             )}
 
-                            {/* Software/Commercial Ideas Section */}
-                            {softwareIdeas.length > 0 && (
-                                <div>
-                                    <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-                                        <Lightbulb className="w-4 h-4 text-amber-400" />
-                                        Software & Commercial ({softwareIdeas.length})
-                                    </h3>
+                            {/* Software Tools Column */}
+                            {totalSoftwareIdeas > 0 && (
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Code className="w-4 h-4 text-amber-400" />
+                                            <h3 className="text-sm font-semibold text-white">Software Tools to Build</h3>
+                                            <span className="text-xs text-slate-500">({totalSoftwareIdeas})</span>
+                                        </div>
+                                        <div className="flex gap-1">
+                                            <Button
+                                                onClick={selectAllSoftware}
+                                                variant="ghost"
+                                                size="sm"
+                                                className="text-xs text-slate-400 hover:text-white h-7 px-2"
+                                            >
+                                                Select All
+                                            </Button>
+                                            <Button
+                                                onClick={deselectAllSoftware}
+                                                variant="ghost"
+                                                size="sm"
+                                                className="text-xs text-slate-400 hover:text-white h-7 px-2"
+                                            >
+                                                Clear
+                                            </Button>
+                                        </div>
+                                    </div>
+
+                                    <p className="text-xs text-slate-500 flex items-center gap-1">
+                                        <Info className="w-3 h-3" />
+                                        Tools/features to develop for your website
+                                    </p>
+
                                     <div className="space-y-3">
                                         {softwareIdeas.map((idea) => (
-                                            <IdeaCard
+                                            <SoftwareIdeaCard
                                                 key={idea.id}
                                                 idea={idea}
-                                                isSelected={selectedIdeas.has(idea.id)}
-                                                onToggle={() => toggleIdeaSelection(idea.id)}
+                                                isSelected={selectedSoftwareIdeas.has(idea.id)}
+                                                onToggle={() => toggleSoftwareSelection(idea.id)}
                                             />
                                         ))}
+                                    </div>
+
+                                    {/* Software Actions */}
+                                    <div className="pt-4 border-t border-white/10">
+                                        <Button
+                                            onClick={handleSaveSoftware}
+                                            disabled={selectedSoftwareIdeas.size === 0 || savingSoftware}
+                                            variant="outline"
+                                            className="w-full border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                                        >
+                                            {savingSoftware ? (
+                                                <>
+                                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                    Saving...
+                                                </>
+                                            ) : saved ? (
+                                                <>
+                                                    <Check className="w-4 h-4 mr-2" />
+                                                    Saved!
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Save className="w-4 h-4 mr-2" />
+                                                    Save for Later ({selectedSoftwareIdeas.size})
+                                                </>
+                                            )}
+                                        </Button>
                                     </div>
                                 </div>
                             )}
@@ -260,45 +377,27 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
                             className="mt-6 bg-green-500/10 border border-green-500/20 rounded-xl p-4 text-center"
                         >
                             <Check className="w-6 h-6 text-green-400 mx-auto mb-2" />
-                            <p className="text-green-400 font-medium">Ideas published successfully!</p>
+                            <p className="text-green-400 font-medium">Articles published successfully!</p>
                             <p className="text-xs text-slate-500 mt-1">Redirecting to Content Studio...</p>
                         </motion.div>
                     )}
                 </div>
 
                 {/* Footer */}
-                {!loading && !error && totalIdeas > 0 && (
-                    <div className="border-t border-white/10 p-6 flex items-center justify-between">
+                {!loading && !error && (totalBlogIdeas > 0 || totalSoftwareIdeas > 0) && (
+                    <div className="border-t border-white/10 p-4 flex items-center justify-between bg-white/5">
                         <div className="text-xs text-slate-500">
-                            {subtopic.search_volume?.toLocaleString() || 0} monthly searches
-                            {subtopic.cpc && ` • $${subtopic.cpc.toFixed(2)} CPC`}
+                            <span className="text-slate-400">Subtopic:</span> {subtopic.search_volume?.toLocaleString() || 0} monthly searches
+                            {subtopic.cpc ? ` • $${subtopic.cpc.toFixed(2)} CPC` : ''}
                         </div>
-                        <div className="flex gap-3">
-                            <Button
-                                onClick={onClose}
-                                variant="ghost"
-                                className="text-slate-400 hover:text-white"
-                            >
-                                Close
-                            </Button>
-                            <Button
-                                onClick={handlePublish}
-                                disabled={selectedIdeas.size === 0 || publishing}
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white"
-                            >
-                                {publishing ? (
-                                    <>
-                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                        Publishing...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Save className="w-4 h-4 mr-2" />
-                                        Publish {selectedIdeas.size > 0 && `(${selectedIdeas.size})`}
-                                    </>
-                                )}
-                            </Button>
-                        </div>
+                        <Button
+                            onClick={onClose}
+                            variant="ghost"
+                            size="sm"
+                            className="text-slate-400 hover:text-white"
+                        >
+                            Close
+                        </Button>
                     </div>
                 )}
             </motion.div>
@@ -306,14 +405,16 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
     );
 }
 
-// Idea Card Component
-interface IdeaCardProps {
+// Blog Idea Card Component
+interface BlogIdeaCardProps {
     idea: ContentIdea;
     isSelected: boolean;
     onToggle: () => void;
 }
 
-function IdeaCard({ idea, isSelected, onToggle }: IdeaCardProps) {
+function BlogIdeaCard({ idea, isSelected, onToggle }: BlogIdeaCardProps) {
+    const keywords = idea.primary_keywords || idea.keywords || [];
+
     return (
         <motion.div
             layout
@@ -340,12 +441,31 @@ function IdeaCard({ idea, isSelected, onToggle }: IdeaCardProps) {
                         <p className="text-xs text-slate-400 line-clamp-2 mb-2">{idea.description}</p>
                     )}
 
+                    {/* Primary Keywords */}
+                    {keywords.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                            {keywords.slice(0, 4).map((kw, idx) => (
+                                <span
+                                    key={idx}
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300"
+                                >
+                                    {kw}
+                                </span>
+                            ))}
+                            {keywords.length > 4 && (
+                                <span className="text-[10px] text-slate-500 px-1">
+                                    +{keywords.length - 4} more
+                                </span>
+                            )}
+                        </div>
+                    )}
+
                     {/* Metrics */}
-                    <div className="flex items-center gap-4 text-[11px] text-slate-500">
+                    <div className="flex flex-wrap items-center gap-3 text-[11px]">
                         {idea.total_search_volume > 0 && (
                             <span className="flex items-center gap-1">
                                 <span className="text-blue-400">Vol:</span>
-                                {idea.total_search_volume.toLocaleString()}
+                                <span className="text-slate-300">{idea.total_search_volume.toLocaleString()}</span>
                             </span>
                         )}
                         {idea.average_difficulty > 0 && (
@@ -353,25 +473,131 @@ function IdeaCard({ idea, isSelected, onToggle }: IdeaCardProps) {
                                 <span className={idea.average_difficulty > 60 ? 'text-red-400' : idea.average_difficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
                                     KD:
                                 </span>
-                                {Math.round(idea.average_difficulty)}
+                                <span className="text-slate-300">{Math.round(idea.average_difficulty)}</span>
+                            </span>
+                        )}
+                        {idea.average_cpc > 0 && (
+                            <span className="flex items-center gap-1">
+                                <span className="text-emerald-400">CPC:</span>
+                                <span className="text-slate-300">${idea.average_cpc.toFixed(2)}</span>
                             </span>
                         )}
                         {(idea.viability_score || 0) > 0 && (
                             <span className="flex items-center gap-1">
                                 <span className="text-indigo-400">Viability:</span>
-                                {Math.round(idea.viability_score || 0)}%
-                            </span>
-                        )}
-                        {idea.monetization_hook && (
-                            <span className="text-amber-400 truncate max-w-[150px]">
-                                {idea.monetization_hook}
+                                <span className="text-slate-300">{Math.round(idea.viability_score || 0)}%</span>
                             </span>
                         )}
                     </div>
+
+                    {/* Affiliate Hook - Full width */}
+                    {idea.monetization_hook && (
+                        <div className="mt-2 pt-2 border-t border-white/5">
+                            <p className="text-[11px] text-amber-400/80">
+                                <span className="text-amber-500 font-medium">💰 Monetization:</span> {idea.monetization_hook}
+                            </p>
+                        </div>
+                    )}
                 </div>
-                <ArrowRight className={`w-4 h-4 flex-shrink-0 transition-colors ${
-                    isSelected ? 'text-indigo-400' : 'text-slate-700'
-                }`} />
+            </div>
+        </motion.div>
+    );
+}
+
+// Software Idea Card Component
+interface SoftwareIdeaCardProps {
+    idea: ContentIdea;
+    isSelected: boolean;
+    onToggle: () => void;
+}
+
+function SoftwareIdeaCard({ idea, isSelected, onToggle }: SoftwareIdeaCardProps) {
+    const keywords = idea.primary_keywords || idea.keywords || [];
+
+    return (
+        <motion.div
+            layout
+            onClick={onToggle}
+            className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 ${
+                isSelected
+                    ? 'bg-amber-500/10 border-amber-500/50'
+                    : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/8'
+            }`}
+        >
+            <div className="flex items-start gap-3">
+                <div className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                    isSelected
+                        ? 'bg-amber-500 border-amber-500'
+                        : 'border-slate-600'
+                }`}>
+                    {isSelected && <Check className="w-3 h-3 text-white" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <h4 className={`font-medium text-sm mb-1 ${isSelected ? 'text-amber-300' : 'text-white'}`}>
+                        {idea.title}
+                    </h4>
+                    {idea.description && (
+                        <p className="text-xs text-slate-400 line-clamp-2 mb-2">{idea.description}</p>
+                    )}
+
+                    {/* Primary Keywords */}
+                    {keywords.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                            {keywords.slice(0, 4).map((kw, idx) => (
+                                <span
+                                    key={idx}
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300"
+                                >
+                                    {kw}
+                                </span>
+                            ))}
+                            {keywords.length > 4 && (
+                                <span className="text-[10px] text-slate-500 px-1">
+                                    +{keywords.length - 4} more
+                                </span>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Metrics */}
+                    <div className="flex flex-wrap items-center gap-3 text-[11px]">
+                        {idea.total_search_volume > 0 && (
+                            <span className="flex items-center gap-1">
+                                <span className="text-blue-400">Demand:</span>
+                                <span className="text-slate-300">{idea.total_search_volume.toLocaleString()}/mo</span>
+                            </span>
+                        )}
+                        {idea.average_difficulty > 0 && (
+                            <span className="flex items-center gap-1">
+                                <span className={idea.average_difficulty > 60 ? 'text-red-400' : idea.average_difficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
+                                    KD:
+                                </span>
+                                <span className="text-slate-300">{Math.round(idea.average_difficulty)}</span>
+                            </span>
+                        )}
+                        {idea.average_cpc > 0 && (
+                            <span className="flex items-center gap-1">
+                                <span className="text-emerald-400">CPC:</span>
+                                <span className="text-slate-300">${idea.average_cpc.toFixed(2)}</span>
+                            </span>
+                        )}
+                        {(idea.viability_score || 0) > 0 && (
+                            <span className="flex items-center gap-1">
+                                <span className="text-amber-400">Opportunity:</span>
+                                <span className="text-slate-300">{Math.round(idea.viability_score || 0)}%</span>
+                            </span>
+                        )}
+                    </div>
+
+                    {/* Monetization Strategy */}
+                    {idea.monetization_hook && (
+                        <div className="mt-2 pt-2 border-t border-white/5">
+                            <p className="text-[11px] text-emerald-400/80">
+                                <span className="text-emerald-500 font-medium">💡 Revenue Model:</span> {idea.monetization_hook}
+                            </p>
+                        </div>
+                    )}
+                </div>
             </div>
         </motion.div>
     );
