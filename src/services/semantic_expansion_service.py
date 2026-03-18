@@ -278,10 +278,22 @@ class SemanticExpansionService:
             for kw in keywords:
                 if kw.get('search_volume', 0) > 0:
                     scored_keywords.append(kw)
-            
+
             # If still nothing, just take top 10 raw
             if not scored_keywords:
                  scored_keywords = keywords[:10]
+
+        # ADDITIONAL SAFE MODE: If we have very few keywords after filtering,
+        # add more from the original list to ensure good clustering
+        if len(scored_keywords) < 20:
+            logger.warning(f"Only {len(scored_keywords)} keywords passed strict filter. Adding more candidates for clustering.")
+            existing_kws = {k['keyword'] for k in scored_keywords}
+            for kw in keywords:
+                if kw['keyword'] not in existing_kws and kw.get('search_volume', 0) > 0:
+                    kw['profitability_score'] = 0.1  # Low score but keep it
+                    scored_keywords.append(kw)
+                if len(scored_keywords) >= 30:
+                    break
 
         # Sort by Score descending (or volume if score missing)
         scored_keywords.sort(key=lambda x: x.get('profitability_score', x.get('search_volume', 0)), reverse=True)
@@ -361,13 +373,23 @@ class SemanticExpansionService:
         # Prepare list for prompt
         kw_list_str = "\n".join([f"- {k['keyword']} (Vol: {k['search_volume']}, KD: {k['keyword_difficulty']})" for k in keywords])
 
+        # Count keywords to determine appropriate number of clusters
+        kw_count = len(keywords)
+        target_clusters = min(max(kw_count // 8, 3), 12)  # Aim for 3-12 clusters, roughly 8 keywords per cluster
+
         prompt = f"""
-        I have a list of high-potential keywords:
+        I have a list of {kw_count} high-potential keywords:
         {kw_list_str}
 
         Task:
-        Group these keywords into specific "Subtopics" or "Clusters".
-        For each subtopic, list the keywords that belong to it.
+        Group these keywords into {target_clusters} distinct "Subtopics" or "Clusters".
+        Each cluster should represent a specific content theme or micro-niche.
+
+        IMPORTANT:
+        - Create EXACTLY {target_clusters} separate clusters (not 1, not 2, but {target_clusters})
+        - Each cluster should be distinct and non-overlapping
+        - Distribute keywords across all clusters (don't put everything in one cluster)
+        - Focus on specific micro-niches, not broad categories
 
         Output Format (use EXACTLY this format):
 
@@ -383,6 +405,7 @@ class SemanticExpansionService:
         - Separate keywords with commas
         - Do not use markdown code blocks
         - Return ONLY the cluster definitions, no other text
+        - Create {target_clusters} clusters minimum
         """
 
         try:
