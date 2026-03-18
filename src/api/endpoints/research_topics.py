@@ -545,38 +545,48 @@ Generate 5 blog ideas following this format.
 
             # Generate software/commercial ideas
             software_prompt = f"""
-You are a product strategist specializing in software and commercial opportunities.
+You are a product strategist specializing in identifying software tools and features to BUILD (not review).
 
 Current Year: 2026
 Subtopic: {subtopic_name}
 Keywords: {', '.join(keywords[:10])}
 Affiliate Categories: {', '.join(affiliate_offers[:5]) if affiliate_offers else 'General'}
 
-Generate 3 software or commercial content ideas that:
-1. Target software comparisons, tool reviews, or buying guides
-2. Have high commercial intent
-3. Include specific affiliate opportunities
-4. Are comparison or review focused
+Generate 3 ACTUAL SOFTWARE TOOLS or FEATURES to BUILD for a website/app.
 
-For each idea, provide:
-- Title: A compelling title focused on software/tools
-- Description: 1-2 sentences describing the angle
-- Primary Keywords: 2-3 main keywords to target
-- Monetization Hook: Specific affiliate programs or products
+IMPORTANT: These are NOT articles. These are software products/features the user should develop.
+
+Examples of what to generate:
+- Interactive calculators (tax calculator, ROI calculator, comparison tool)
+- Assessment tools (quiz, diagnostic, evaluator)
+- Data visualization tools (chart builder, portfolio tracker, dashboard)
+- Automation tools (planner, scheduler, optimizer)
+- Utilities (converter, analyzer, generator)
+
+Examples of what NOT to generate:
+- "Best Software 2026" (this is a review article)
+- "Top 5 Tools" (this is a listicle article)
+- "Software Comparison" (this is a comparison article)
+
+For each tool idea, provide:
+- Title: Name of the tool/feature to build (e.g., "RSU Tax Calculator", "Portfolio Rebalancing Tool")
+- Description: What the tool does and how users interact with it
+- Primary Keywords: Keywords people would search to find this tool
+- Monetization Hook: How to monetize the tool (lead gen, freemium, affiliate integration, etc.)
 - Estimated Metrics: Search volume, Difficulty, Viability
 
 Output format (use exactly this format):
 SOFTWARE_IDEA: [number]
-TITLE: [title]
-DESCRIPTION: [description]
+TITLE: [tool name - NOT a review article title]
+DESCRIPTION: [what the tool does and user interaction]
 KEYWORDS: [keyword1, keyword2, keyword3]
-MONETIZATION: [specific monetization approach]
+MONETIZATION: [how to monetize the tool]
 VOLUME: [estimated monthly searches as number]
 DIFFICULTY: [SEO difficulty 1-100]
 VIABILITY: [overall viability score 1-100]
 END_IDEA
 
-Generate 3 software/commercial ideas following this format.
+Generate 3 software tools/features to BUILD following this format.
 """
 
             # Generate both in parallel
