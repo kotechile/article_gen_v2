@@ -3,6 +3,7 @@ import * as React from "react"
 import { useAuth } from "@/context/auth-context"
 import { researchTopicsService } from "@/services/research-topics.service"
 import type { ResearchTopic } from "@/types/research"
+import { ResearchTopicStatus } from "@/types/research"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -34,7 +35,7 @@ export function Research() {
             const response = await researchTopicsService.listResearchTopics({
                 order_by: 'created_at',
                 order_direction: 'desc',
-                status: 'active',
+                status: ResearchTopicStatus.ACTIVE,
                 page: pageNum,
                 size: PAGE_SIZE
             })
