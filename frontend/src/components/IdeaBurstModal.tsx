@@ -1,5 +1,5 @@
 import * as React from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { X, Sparkles, FileText, Lightbulb, Loader2, Check, ArrowRight, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { contentIdeasService } from "@/services/content-ideas.service";
@@ -16,7 +16,7 @@ interface IdeaBurstModalProps {
     topicTitle: string;
 }
 
-export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle }: IdeaBurstModalProps) {
+export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle: _topicTitle }: IdeaBurstModalProps) {
     const navigate = useNavigate();
     const { user } = useAuth();
     const [loading, setLoading] = React.useState(false);
@@ -356,10 +356,10 @@ function IdeaCard({ idea, isSelected, onToggle }: IdeaCardProps) {
                                 {Math.round(idea.average_difficulty)}
                             </span>
                         )}
-                        {idea.viability_score > 0 && (
+                        {(idea.viability_score || 0) > 0 && (
                             <span className="flex items-center gap-1">
                                 <span className="text-indigo-400">Viability:</span>
-                                {Math.round(idea.viability_score)}%
+                                {Math.round(idea.viability_score || 0)}%
                             </span>
                         )}
                         {idea.monetization_hook && (
