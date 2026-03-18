@@ -1,6 +1,6 @@
 import * as React from "react";
-import { motion } from "framer-motion";
-import { X, Sparkles, Lightbulb, Loader2, Check, Save, BookOpen, Code, Info } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { X, Sparkles, Lightbulb, Loader2, Check, Save, BookOpen, Code, Info, BarChart3, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { contentIdeasService } from "@/services/content-ideas.service";
 import type { ContentIdea } from "@/types/idea-burst";
@@ -29,6 +29,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
     const [savingSoftware, setSavingSoftware] = React.useState(false);
     const [published, setPublished] = React.useState(false);
     const [saved, setSaved] = React.useState(false);
+    const [expandedMetrics, setExpandedMetrics] = React.useState<string | null>(null);
 
     React.useEffect(() => {
         if (isOpen && subtopic && user) {
@@ -159,6 +160,10 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
         setSelectedSoftwareIdeas(new Set());
     };
 
+    const toggleMetricsExpansion = (ideaId: string) => {
+        setExpandedMetrics(prev => prev === ideaId ? null : ideaId);
+    };
+
     if (!isOpen || !subtopic) return null;
 
     const totalBlogIdeas = blogIdeas.length;
@@ -267,6 +272,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
                                                 idea={idea}
                                                 isSelected={selectedBlogIdeas.has(idea.id)}
                                                 onToggle={() => toggleBlogSelection(idea.id)}
+                                                isExpanded={expandedMetrics === idea.id}
+                                                onToggleMetrics={() => toggleMetricsExpansion(idea.id)}
                                             />
                                         ))}
                                     </div>
@@ -335,6 +342,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
                                                 idea={idea}
                                                 isSelected={selectedSoftwareIdeas.has(idea.id)}
                                                 onToggle={() => toggleSoftwareSelection(idea.id)}
+                                                isExpanded={expandedMetrics === idea.id}
+                                                onToggleMetrics={() => toggleMetricsExpansion(idea.id)}
                                             />
                                         ))}
                                     </div>
@@ -410,96 +419,172 @@ interface BlogIdeaCardProps {
     idea: ContentIdea;
     isSelected: boolean;
     onToggle: () => void;
+    isExpanded: boolean;
+    onToggleMetrics: () => void;
 }
 
-function BlogIdeaCard({ idea, isSelected, onToggle }: BlogIdeaCardProps) {
+function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics }: BlogIdeaCardProps) {
     const keywords = idea.primary_keywords || idea.keywords || [];
+
+    // Calculate per-keyword metrics (distribute aggregate values)
+    const keywordCount = keywords.length || 1;
+    const volumePerKeyword = idea.total_search_volume > 0 ? Math.round(idea.total_search_volume / keywordCount) : 0;
 
     return (
         <motion.div
             layout
-            onClick={onToggle}
-            className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 ${
+            className={`rounded-xl border transition-all duration-200 ${
                 isSelected
                     ? 'bg-indigo-500/10 border-indigo-500/50'
                     : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/8'
             }`}
         >
-            <div className="flex items-start gap-3">
-                <div className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                    isSelected
-                        ? 'bg-indigo-500 border-indigo-500'
-                        : 'border-slate-600'
-                }`}>
-                    {isSelected && <Check className="w-3 h-3 text-white" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                    <h4 className={`font-medium text-sm mb-1 ${isSelected ? 'text-indigo-300' : 'text-white'}`}>
-                        {idea.title}
-                    </h4>
-                    {idea.description && (
-                        <p className="text-xs text-slate-400 line-clamp-2 mb-2">{idea.description}</p>
-                    )}
+            {/* Main card content - clickable for selection */}
+            <div
+                onClick={onToggle}
+                className="p-4 cursor-pointer"
+            >
+                <div className="flex items-start gap-3">
+                    <div className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                        isSelected
+                            ? 'bg-indigo-500 border-indigo-500'
+                            : 'border-slate-600'
+                    }`}>
+                        {isSelected && <Check className="w-3 h-3 text-white" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <h4 className={`font-medium text-sm mb-1 ${isSelected ? 'text-indigo-300' : 'text-white'}`}>
+                            {idea.title}
+                        </h4>
+                        {idea.description && (
+                            <p className="text-xs text-slate-400 line-clamp-2 mb-2">{idea.description}</p>
+                        )}
 
-                    {/* Primary Keywords */}
-                    {keywords.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-2">
-                            {keywords.slice(0, 4).map((kw, idx) => (
-                                <span
-                                    key={idx}
-                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300"
-                                >
-                                    {kw}
+                        {/* Primary Keywords */}
+                        {keywords.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-2">
+                                {keywords.slice(0, 4).map((kw, idx) => (
+                                    <span
+                                        key={idx}
+                                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300"
+                                    >
+                                        {kw}
+                                    </span>
+                                ))}
+                                {keywords.length > 4 && (
+                                    <span className="text-[10px] text-slate-500 px-1">
+                                        +{keywords.length - 4} more
+                                    </span>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Metrics */}
+                        <div className="flex flex-wrap items-center gap-3 text-[11px]">
+                            {idea.total_search_volume > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="text-blue-400">Vol:</span>
+                                    <span className="text-slate-300">{idea.total_search_volume.toLocaleString()}</span>
                                 </span>
-                            ))}
-                            {keywords.length > 4 && (
-                                <span className="text-[10px] text-slate-500 px-1">
-                                    +{keywords.length - 4} more
+                            )}
+                            {idea.average_difficulty > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className={idea.average_difficulty > 60 ? 'text-red-400' : idea.average_difficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
+                                        KD:
+                                    </span>
+                                    <span className="text-slate-300">{Math.round(idea.average_difficulty)}</span>
+                                </span>
+                            )}
+                            {idea.average_cpc > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="text-emerald-400">CPC:</span>
+                                    <span className="text-slate-300">${idea.average_cpc.toFixed(2)}</span>
+                                </span>
+                            )}
+                            {(idea.viability_score || 0) > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="text-indigo-400">Viability:</span>
+                                    <span className="text-slate-300">{Math.round(idea.viability_score || 0)}%</span>
                                 </span>
                             )}
                         </div>
-                    )}
 
-                    {/* Metrics */}
-                    <div className="flex flex-wrap items-center gap-3 text-[11px]">
-                        {idea.total_search_volume > 0 && (
-                            <span className="flex items-center gap-1">
-                                <span className="text-blue-400">Vol:</span>
-                                <span className="text-slate-300">{idea.total_search_volume.toLocaleString()}</span>
-                            </span>
-                        )}
-                        {idea.average_difficulty > 0 && (
-                            <span className="flex items-center gap-1">
-                                <span className={idea.average_difficulty > 60 ? 'text-red-400' : idea.average_difficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
-                                    KD:
-                                </span>
-                                <span className="text-slate-300">{Math.round(idea.average_difficulty)}</span>
-                            </span>
-                        )}
-                        {idea.average_cpc > 0 && (
-                            <span className="flex items-center gap-1">
-                                <span className="text-emerald-400">CPC:</span>
-                                <span className="text-slate-300">${idea.average_cpc.toFixed(2)}</span>
-                            </span>
-                        )}
-                        {(idea.viability_score || 0) > 0 && (
-                            <span className="flex items-center gap-1">
-                                <span className="text-indigo-400">Viability:</span>
-                                <span className="text-slate-300">{Math.round(idea.viability_score || 0)}%</span>
-                            </span>
+                        {/* Affiliate Hook - Full width */}
+                        {idea.monetization_hook && (
+                            <div className="mt-2 pt-2 border-t border-white/5">
+                                <p className="text-[11px] text-amber-400/80">
+                                    <span className="text-amber-500 font-medium">💰 Monetization:</span> {idea.monetization_hook}
+                                </p>
+                            </div>
                         )}
                     </div>
-
-                    {/* Affiliate Hook - Full width */}
-                    {idea.monetization_hook && (
-                        <div className="mt-2 pt-2 border-t border-white/5">
-                            <p className="text-[11px] text-amber-400/80">
-                                <span className="text-amber-500 font-medium">💰 Monetization:</span> {idea.monetization_hook}
-                            </p>
-                        </div>
-                    )}
                 </div>
             </div>
+
+            {/* Expandable Metrics Section */}
+            {keywords.length > 0 && (
+                <div className="border-t border-white/5">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleMetrics();
+                        }}
+                        className="w-full px-4 py-2 flex items-center justify-center gap-2 text-[11px] text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/5 transition-colors"
+                    >
+                        <BarChart3 className="w-3 h-3" />
+                        {isExpanded ? 'Hide Keyword Metrics' : 'View Keyword Metrics'}
+                        {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    </button>
+
+                    <AnimatePresence>
+                        {isExpanded && (
+                            <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="overflow-hidden"
+                            >
+                                <div className="px-4 pb-4">
+                                    <div className="bg-slate-800/50 rounded-lg overflow-hidden border border-white/5">
+                                        <table className="w-full text-[11px]">
+                                            <thead>
+                                                <tr className="bg-slate-800/80 border-b border-white/5">
+                                                    <th className="text-left px-3 py-2 text-slate-400 font-medium">Keyword</th>
+                                                    <th className="text-right px-3 py-2 text-slate-400 font-medium">Volume</th>
+                                                    <th className="text-right px-3 py-2 text-slate-400 font-medium">KD</th>
+                                                    <th className="text-right px-3 py-2 text-slate-400 font-medium">CPC</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {keywords.map((kw, idx) => (
+                                                    <tr key={idx} className="border-b border-white/5 last:border-0">
+                                                        <td className="px-3 py-2 text-slate-300 truncate max-w-[120px]">{kw}</td>
+                                                        <td className="px-3 py-2 text-right text-slate-300">
+                                                            {volumePerKeyword > 0 ? volumePerKeyword.toLocaleString() : '-'}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right">
+                                                            <span className={idea.average_difficulty > 60 ? 'text-red-400' : idea.average_difficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
+                                                                {idea.average_difficulty > 0 ? Math.round(idea.average_difficulty) : '-'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right text-slate-300">
+                                                            {idea.average_cpc > 0 ? `$${idea.average_cpc.toFixed(2)}` : '-'}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 mt-2 text-center">
+                                        Note: Individual keyword metrics are estimated based on aggregate data
+                                    </p>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+            )}
         </motion.div>
     );
 }
@@ -509,96 +594,172 @@ interface SoftwareIdeaCardProps {
     idea: ContentIdea;
     isSelected: boolean;
     onToggle: () => void;
+    isExpanded: boolean;
+    onToggleMetrics: () => void;
 }
 
-function SoftwareIdeaCard({ idea, isSelected, onToggle }: SoftwareIdeaCardProps) {
+function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics }: SoftwareIdeaCardProps) {
     const keywords = idea.primary_keywords || idea.keywords || [];
+
+    // Calculate per-keyword metrics (distribute aggregate values)
+    const keywordCount = keywords.length || 1;
+    const volumePerKeyword = idea.total_search_volume > 0 ? Math.round(idea.total_search_volume / keywordCount) : 0;
 
     return (
         <motion.div
             layout
-            onClick={onToggle}
-            className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 ${
+            className={`rounded-xl border transition-all duration-200 ${
                 isSelected
                     ? 'bg-amber-500/10 border-amber-500/50'
                     : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/8'
             }`}
         >
-            <div className="flex items-start gap-3">
-                <div className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                    isSelected
-                        ? 'bg-amber-500 border-amber-500'
-                        : 'border-slate-600'
-                }`}>
-                    {isSelected && <Check className="w-3 h-3 text-white" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                    <h4 className={`font-medium text-sm mb-1 ${isSelected ? 'text-amber-300' : 'text-white'}`}>
-                        {idea.title}
-                    </h4>
-                    {idea.description && (
-                        <p className="text-xs text-slate-400 line-clamp-2 mb-2">{idea.description}</p>
-                    )}
+            {/* Main card content - clickable for selection */}
+            <div
+                onClick={onToggle}
+                className="p-4 cursor-pointer"
+            >
+                <div className="flex items-start gap-3">
+                    <div className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                        isSelected
+                            ? 'bg-amber-500 border-amber-500'
+                            : 'border-slate-600'
+                    }`}>
+                        {isSelected && <Check className="w-3 h-3 text-white" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <h4 className={`font-medium text-sm mb-1 ${isSelected ? 'text-amber-300' : 'text-white'}`}>
+                            {idea.title}
+                        </h4>
+                        {idea.description && (
+                            <p className="text-xs text-slate-400 line-clamp-2 mb-2">{idea.description}</p>
+                        )}
 
-                    {/* Primary Keywords */}
-                    {keywords.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-2">
-                            {keywords.slice(0, 4).map((kw, idx) => (
-                                <span
-                                    key={idx}
-                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300"
-                                >
-                                    {kw}
+                        {/* Primary Keywords */}
+                        {keywords.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-2">
+                                {keywords.slice(0, 4).map((kw, idx) => (
+                                    <span
+                                        key={idx}
+                                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300"
+                                    >
+                                        {kw}
+                                    </span>
+                                ))}
+                                {keywords.length > 4 && (
+                                    <span className="text-[10px] text-slate-500 px-1">
+                                        +{keywords.length - 4} more
+                                    </span>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Metrics */}
+                        <div className="flex flex-wrap items-center gap-3 text-[11px]">
+                            {idea.total_search_volume > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="text-blue-400">Demand:</span>
+                                    <span className="text-slate-300">{idea.total_search_volume.toLocaleString()}/mo</span>
                                 </span>
-                            ))}
-                            {keywords.length > 4 && (
-                                <span className="text-[10px] text-slate-500 px-1">
-                                    +{keywords.length - 4} more
+                            )}
+                            {idea.average_difficulty > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className={idea.average_difficulty > 60 ? 'text-red-400' : idea.average_difficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
+                                        KD:
+                                    </span>
+                                    <span className="text-slate-300">{Math.round(idea.average_difficulty)}</span>
+                                </span>
+                            )}
+                            {idea.average_cpc > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="text-emerald-400">CPC:</span>
+                                    <span className="text-slate-300">${idea.average_cpc.toFixed(2)}</span>
+                                </span>
+                            )}
+                            {(idea.viability_score || 0) > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="text-amber-400">Opportunity:</span>
+                                    <span className="text-slate-300">{Math.round(idea.viability_score || 0)}%</span>
                                 </span>
                             )}
                         </div>
-                    )}
 
-                    {/* Metrics */}
-                    <div className="flex flex-wrap items-center gap-3 text-[11px]">
-                        {idea.total_search_volume > 0 && (
-                            <span className="flex items-center gap-1">
-                                <span className="text-blue-400">Demand:</span>
-                                <span className="text-slate-300">{idea.total_search_volume.toLocaleString()}/mo</span>
-                            </span>
-                        )}
-                        {idea.average_difficulty > 0 && (
-                            <span className="flex items-center gap-1">
-                                <span className={idea.average_difficulty > 60 ? 'text-red-400' : idea.average_difficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
-                                    KD:
-                                </span>
-                                <span className="text-slate-300">{Math.round(idea.average_difficulty)}</span>
-                            </span>
-                        )}
-                        {idea.average_cpc > 0 && (
-                            <span className="flex items-center gap-1">
-                                <span className="text-emerald-400">CPC:</span>
-                                <span className="text-slate-300">${idea.average_cpc.toFixed(2)}</span>
-                            </span>
-                        )}
-                        {(idea.viability_score || 0) > 0 && (
-                            <span className="flex items-center gap-1">
-                                <span className="text-amber-400">Opportunity:</span>
-                                <span className="text-slate-300">{Math.round(idea.viability_score || 0)}%</span>
-                            </span>
+                        {/* Monetization Strategy */}
+                        {idea.monetization_hook && (
+                            <div className="mt-2 pt-2 border-t border-white/5">
+                                <p className="text-[11px] text-emerald-400/80">
+                                    <span className="text-emerald-500 font-medium">💡 Revenue Model:</span> {idea.monetization_hook}
+                                </p>
+                            </div>
                         )}
                     </div>
-
-                    {/* Monetization Strategy */}
-                    {idea.monetization_hook && (
-                        <div className="mt-2 pt-2 border-t border-white/5">
-                            <p className="text-[11px] text-emerald-400/80">
-                                <span className="text-emerald-500 font-medium">💡 Revenue Model:</span> {idea.monetization_hook}
-                            </p>
-                        </div>
-                    )}
                 </div>
             </div>
+
+            {/* Expandable Metrics Section */}
+            {keywords.length > 0 && (
+                <div className="border-t border-white/5">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleMetrics();
+                        }}
+                        className="w-full px-4 py-2 flex items-center justify-center gap-2 text-[11px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/5 transition-colors"
+                    >
+                        <BarChart3 className="w-3 h-3" />
+                        {isExpanded ? 'Hide Keyword Metrics' : 'View Keyword Metrics'}
+                        {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    </button>
+
+                    <AnimatePresence>
+                        {isExpanded && (
+                            <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="overflow-hidden"
+                            >
+                                <div className="px-4 pb-4">
+                                    <div className="bg-slate-800/50 rounded-lg overflow-hidden border border-white/5">
+                                        <table className="w-full text-[11px]">
+                                            <thead>
+                                                <tr className="bg-slate-800/80 border-b border-white/5">
+                                                    <th className="text-left px-3 py-2 text-slate-400 font-medium">Keyword</th>
+                                                    <th className="text-right px-3 py-2 text-slate-400 font-medium">Volume</th>
+                                                    <th className="text-right px-3 py-2 text-slate-400 font-medium">KD</th>
+                                                    <th className="text-right px-3 py-2 text-slate-400 font-medium">CPC</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {keywords.map((kw, idx) => (
+                                                    <tr key={idx} className="border-b border-white/5 last:border-0">
+                                                        <td className="px-3 py-2 text-slate-300 truncate max-w-[120px]">{kw}</td>
+                                                        <td className="px-3 py-2 text-right text-slate-300">
+                                                            {volumePerKeyword > 0 ? volumePerKeyword.toLocaleString() : '-'}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right">
+                                                            <span className={idea.average_difficulty > 60 ? 'text-red-400' : idea.average_difficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
+                                                                {idea.average_difficulty > 0 ? Math.round(idea.average_difficulty) : '-'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right text-slate-300">
+                                                            {idea.average_cpc > 0 ? `$${idea.average_cpc.toFixed(2)}` : '-'}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 mt-2 text-center">
+                                        Note: Individual keyword metrics are estimated based on aggregate data
+                                    </p>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+            )}
         </motion.div>
     );
 }
