@@ -419,6 +419,9 @@ def generate_subtopics(topic_id):
             saved_subtopics = []
 
             for sub_data in enhanced_subtopics_data:
+                # Debug logging to trace metrics
+                logger.info(f"DEBUG Subtopic '{sub_data.get('title')}': vol={sub_data.get('search_volume')}, cpc={sub_data.get('cpc')}, kd={sub_data.get('keyword_difficulty')}")
+
                 trend_data = {
                     "trend_score":    80,
                     "seo_difficulty": sub_data.get("keyword_difficulty", 50),
@@ -430,6 +433,8 @@ def generate_subtopics(topic_id):
                     "trend_analysis": sub_data.get("trend_analysis"),
                     "monetization":   sub_data.get("monetization_data"),
                 }
+                logger.info(f"DEBUG trend_data: {trend_data}")
+
                 saved = await subtopics_service.create(
                     research_topic_id=topic_id,
                     name=sub_data.get("title"),
@@ -437,6 +442,7 @@ def generate_subtopics(topic_id):
                     trend_data=trend_data,
                 )
                 if saved:
+                    logger.info(f"DEBUG saved subtopic: {saved.get('name')}, vol={saved.get('search_volume')}, cpc={saved.get('cpc')}")
                     saved_subtopics.append(saved)
 
             return saved_subtopics, result
