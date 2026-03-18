@@ -1,6 +1,6 @@
 import * as React from "react";
 import { motion } from "framer-motion";
-import { X, Sparkles, FileText, Lightbulb, Loader2, Check, ArrowRight, Save, BookOpen, Code, Info } from "lucide-react";
+import { X, Sparkles, Lightbulb, Loader2, Check, Save, BookOpen, Code, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { contentIdeasService } from "@/services/content-ideas.service";
 import type { ContentIdea } from "@/types/idea-burst";
