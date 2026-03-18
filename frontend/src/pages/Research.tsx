@@ -6,7 +6,7 @@ import type { ResearchTopic } from "@/types/research"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Search, Sparkles, Clock, Trash2 } from "lucide-react"
+import { Search, Sparkles, Clock, Trash2, Loader2 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
 
@@ -20,19 +20,32 @@ export function Research() {
 
     React.useEffect(() => {
         if (!authLoading && user) {
-            loadTopics()
+            loadTopics(1, false)
         }
     }, [authLoading, user])
 
-    const loadTopics = async () => {
+    const [page, setPage] = React.useState(1)
+    const [hasMore, setHasMore] = React.useState(true)
+    const PAGE_SIZE = 12
+
+    const loadTopics = async (pageNum: number = 1, append: boolean = false) => {
         try {
             setLoading(true)
             const response = await researchTopicsService.listResearchTopics({
                 order_by: 'created_at',
                 order_direction: 'desc',
-                size: 10
+                status: 'active',
+                page: pageNum,
+                size: PAGE_SIZE
             })
-            setTopics(response.items)
+
+            if (append) {
+                setTopics(prev => [...prev, ...response.items])
+            } else {
+                setTopics(response.items)
+            }
+
+            setHasMore(response.items.length === PAGE_SIZE && response.has_next)
             setError(null)
         } catch (err) {
             console.error('Failed to load topics:', err)
@@ -40,6 +53,12 @@ export function Research() {
         } finally {
             setLoading(false)
         }
+    }
+
+    const handleLoadMore = () => {
+        const nextPage = page + 1
+        setPage(nextPage)
+        loadTopics(nextPage, true)
     }
 
     const handleCreateTopic = async () => {
@@ -52,6 +71,7 @@ export function Research() {
             })
             setTopics([newTopic, ...topics])
             setSearchTerm("")
+            setPage(1)
         } catch (err: any) {
             console.error('Failed to create topic:', err)
             // Extract specific error message from API response if available
@@ -186,49 +206,72 @@ export function Research() {
                             </p>
                         </motion.div>
                     ) : (
-                        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                            {topics.map((topic, index) => (
-                                <motion.div
-                                    key={topic.id}
-                                    initial={{ opacity: 0, y: 20 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ duration: 0.4, delay: index * 0.05 }}
-                                    onClick={() => navigate(`/research/${topic.id}`)}
-                                    className="group relative bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-8 cursor-pointer hover:-translate-y-1 hover:border-indigo-500/50 transition-all duration-300"
-                                >
-                                    {/* Header with Status Badge */}
-                                    <div className="flex items-start justify-between mb-4">
-                                        <h3 className="text-lg font-bold text-white line-clamp-2 pr-4 flex-1">
-                                            {topic.title}
-                                        </h3>
-                                        <div className="flex items-center gap-2 flex-shrink-0">
-                                            <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-500/10 text-green-400 border border-green-500/20 uppercase tracking-wide">
-                                                {topic.status}
-                                            </span>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                onClick={(e) => handleDeleteTopic(e, topic.id)}
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
+                        <>
+                            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                                {topics.map((topic, index) => (
+                                    <motion.div
+                                        key={topic.id}
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ duration: 0.4, delay: index * 0.05 }}
+                                        onClick={() => navigate(`/research/${topic.id}`)}
+                                        className="group relative bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-8 cursor-pointer hover:-translate-y-1 hover:border-indigo-500/50 transition-all duration-300"
+                                    >
+                                        {/* Header with Status Badge */}
+                                        <div className="flex items-start justify-between mb-4">
+                                            <h3 className="text-lg font-bold text-white line-clamp-2 pr-4 flex-1">
+                                                {topic.title}
+                                            </h3>
+                                            <div className="flex items-center gap-2 flex-shrink-0">
+                                                <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-500/10 text-green-400 border border-green-500/20 uppercase tracking-wide">
+                                                    {topic.status}
+                                                </span>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    onClick={(e) => handleDeleteTopic(e, topic.id)}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
                                         </div>
-                                    </div>
 
-                                    {/* Timestamp */}
-                                    <div className="flex items-center text-xs text-slate-500 mb-4">
-                                        <Clock className="h-3 w-3 mr-1.5 opacity-70" />
-                                        {formatDate(topic.created_at)}
-                                    </div>
+                                        {/* Timestamp */}
+                                        <div className="flex items-center text-xs text-slate-500 mb-4">
+                                            <Clock className="h-3 w-3 mr-1.5 opacity-70" />
+                                            {formatDate(topic.created_at)}
+                                        </div>
 
-                                    {/* Description */}
-                                    <p className="text-sm text-slate-400 line-clamp-2 leading-relaxed">
-                                        {topic.description}
-                                    </p>
-                                </motion.div>
-                            ))}
-                        </div>
+                                        {/* Description */}
+                                        <p className="text-sm text-slate-400 line-clamp-2 leading-relaxed">
+                                            {topic.description}
+                                        </p>
+                                    </motion.div>
+                                ))}
+                            </div>
+
+                            {/* Load More Button */}
+                            {hasMore && (
+                                <div className="flex justify-center mt-8">
+                                    <Button
+                                        variant="outline"
+                                        onClick={handleLoadMore}
+                                        disabled={loading}
+                                        className="px-8 py-3 bg-white/5 border-white/10 text-white hover:bg-white/10 hover:border-indigo-500/30"
+                                    >
+                                        {loading ? (
+                                            <>
+                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                Loading...
+                                            </>
+                                        ) : (
+                                            <>Load More Projects</>
+                                        )}
+                                    </Button>
+                                </div>
+                            )}
+                        </>
                     )}
                 </div>
             </div>

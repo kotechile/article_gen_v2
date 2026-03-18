@@ -343,7 +343,7 @@ export function Landing() {
                     </div>
                 </motion.div>
 
-                {/* ── Secondary: Content Library Link ──────────────────────────── */}
+                {/* ── Secondary: Navigation Links ──────────────────────────── */}
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -351,7 +351,23 @@ export function Landing() {
                     className="border-t border-white/5 pt-8"
                 >
                     <p className="text-xs text-slate-600 uppercase tracking-widest font-medium text-center mb-5">Continue Your Work</p>
-                    <div className="flex justify-center">
+                    <div className="flex flex-col sm:flex-row justify-center gap-4">
+                        {/* Research Projects Button */}
+                        <Link
+                            to="/research"
+                            className="group flex items-center gap-4 px-6 py-4 rounded-2xl bg-white/4 border border-white/8 hover:border-indigo-500/30 hover:bg-indigo-500/6 transition-all duration-200"
+                        >
+                            <div className="w-10 h-10 rounded-xl bg-indigo-500/15 flex items-center justify-center">
+                                <Search className="w-5 h-5 text-indigo-400" />
+                            </div>
+                            <div>
+                                <p className="font-semibold text-white group-hover:text-indigo-300 transition-colors">All Research Topics</p>
+                                <p className="text-xs text-slate-500">View and manage all your research projects</p>
+                            </div>
+                            <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all ml-2" />
+                        </Link>
+
+                        {/* Content Library Button */}
                         <Link
                             to="/my-articles"
                             className="group flex items-center gap-4 px-6 py-4 rounded-2xl bg-white/4 border border-white/8 hover:border-purple-500/30 hover:bg-purple-500/6 transition-all duration-200"
