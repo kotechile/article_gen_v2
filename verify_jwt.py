@@ -30,7 +30,7 @@ def verify_token(name, token, secret):
 def check_user(user_id):
     print(f"\n--- Checking User {user_id} ---")
     try:
-        url = "https://sbcontent.giniloh.com"
+        url = "https://sbcontent.buildomain.com"
         supabase = create_client(url, SERVICE_ROLE_KEY)
         # We can't query auth.users directly via client usually, but we can use admin api
         user = supabase.auth.admin.get_user_by_id(user_id)

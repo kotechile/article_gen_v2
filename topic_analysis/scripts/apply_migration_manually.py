@@ -3,7 +3,7 @@ import psycopg2
 from urllib.parse import urlparse
 
 # URL extracted from backend/.env
-DATABASE_URL = "postgresql://postgres:cV3dWDPG8U73tIajmm1f2Hm9Wp8KlRoJ@sbcontent.giniloh.com:5432/postgres?sslmode=require"
+DATABASE_URL = "postgresql://postgres:cV3dWDPG8U73tIajmm1f2Hm9Wp8KlRoJ@sbcontent.buildomain.com:5432/postgres?sslmode=require"
 
 MIGRATION_FILE = "backend/migrations/enrich_titles_schema.sql"
 
