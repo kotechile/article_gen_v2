@@ -23,4 +23,4 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 5001
 
 # Default command (can be overridden by docker-compose)
-CMD ["gunicorn", "--bind", "0.0.0.0:5001", "src.api.app:create_app()"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5001", "--timeout", "300", "--workers", "2", "src.api.app:create_app()"]

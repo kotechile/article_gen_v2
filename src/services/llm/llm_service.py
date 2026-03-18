@@ -133,21 +133,48 @@ class LLMService:
         """
         import json
         import re
-        
+
         # Enforce JSON instruction if not present (optional, but good practice)
         if "json" not in prompt.lower():
             prompt += "\n\nPlease output valid JSON."
-            
+
         try:
             response = await self.generate_text(prompt, provider, **kwargs)
             content = response.content.strip()
-            
-            # Simple cleanup to find JSON block if surrounded by markdown
-            match = re.search(r'```json(.*?)```', content, re.DOTALL)
+
+            # Strategy 1: complete ```json ... ``` block
+            match = re.search(r'```(?:json)?\s*(.*?)```', content, re.DOTALL)
             if match:
                 content = match.group(1).strip()
-            
-            return json.loads(content)
+            else:
+                # Strategy 2: opening fence with no closing (truncated response) — take everything after ```json
+                match = re.search(r'```(?:json)?\s*(.*)', content, re.DOTALL)
+                if match:
+                    content = match.group(1).strip()
+                else:
+                    # Strategy 3: find first { or [ and extract from there
+                    json_start = re.search(r'[{\[]', content)
+                    if json_start:
+                        content = content[json_start.start():]
+
+            # If content is empty after all strategies, raise a clear error
+            if not content or not content.strip():
+                raise ValueError("LLM returned empty content after JSON extraction attempts")
+
+            # Try to parse the JSON
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                # Strategy 4: Try to fix common truncation issues
+                # If content ends abruptly, try to close open structures
+                fixed_content = self._attempt_to_fix_truncated_json(content)
+                if fixed_content:
+                    try:
+                        return json.loads(fixed_content)
+                    except json.JSONDecodeError:
+                        pass
+                raise
+
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON from LLM response: {e}")
             logger.debug(f"Raw content: {response.content}")
@@ -155,6 +182,44 @@ class LLMService:
         except Exception as e:
             logger.error(f"LLM JSON Generation failed: {e}")
             raise
+
+    def _attempt_to_fix_truncated_json(self, content: str) -> Optional[str]:
+        """
+        Attempt to fix truncated JSON by closing open braces/brackets.
+        Returns fixed content or None if cannot fix.
+        """
+        import json
+
+        # Try progressively closing open structures
+        attempts = [
+            content,  # Original
+            content + '"}',  # Missing closing quote and brace (for "key": "value)
+            content + '}',   # Missing closing brace
+            content + ']}',  # Missing closing bracket and brace
+            content + '}}', # Missing two closing braces
+            content + ']}]}', # Common for nested arrays
+        ]
+
+        # Also try removing trailing commas before closing
+        # Find the last complete key-value pair or array element
+        lines = content.split('\n')
+        for i in range(len(lines), 0, -1):
+            partial = '\n'.join(lines[:i])
+            # Remove trailing comma if present
+            partial = partial.rstrip().rstrip(',').rstrip()
+            attempts.append(partial + '}')
+            attempts.append(partial + ']}')
+            attempts.append(partial + '}}')
+
+        # Try each attempt
+        for attempt in attempts:
+            try:
+                json.loads(attempt)
+                return attempt
+            except json.JSONDecodeError:
+                continue
+
+        return None
 
 # Singleton instance
 llm_service = LLMService()

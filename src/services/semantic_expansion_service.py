@@ -82,21 +82,24 @@ class SemanticExpansionService:
         prompt = f"""
         You are a Keyword Research Expert.
         I have a central topic: "{topic}".
-        
+
         Task:
         1. Identify 10 distinct sub-niches related to this topic.
         2. For EACH sub-niche, generate 3-5 specific, long-tail search terms (seeds).
-        
+
         Constraints:
         - DO NOT generate generic terms like "Best [Topic]" (e.g., "Best Gardening" is bad).
         - Focus on specific problems, questions, or product comparison queries.
         - Keywords must be 3-5 words long.
-        
+
         Output Format:
         Return ONLY a flat list of these search terms, one per line. No other text.
         """
         try:
-            response = await llm_service.generate_text(prompt=prompt, max_tokens=500)
+            response = await asyncio.wait_for(
+                llm_service.generate_text(prompt=prompt, max_tokens=500),
+                timeout=30.0  # 30 second timeout for seed generation
+            )
             text = response.content.strip()
             # Split by newlines and clean
             seeds = [line.strip().lstrip('- ').strip() for line in text.split('\n') if line.strip()]
@@ -353,45 +356,48 @@ class SemanticExpansionService:
     async def cluster_keywords(self, keywords: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Step 4: Group keywords into concepts.
+        Uses delimited text format instead of JSON for better reliability.
         """
         # Prepare list for prompt
         kw_list_str = "\n".join([f"- {k['keyword']} (Vol: {k['search_volume']}, KD: {k['keyword_difficulty']})" for k in keywords])
-        
+
         prompt = f"""
         I have a list of high-potential keywords:
         {kw_list_str}
-        
+
         Task:
-        1. Group these keywords into specific "Article Concepts" or "Clusters".
-        1. Group these keywords into specific "Subtopics" or "Clusters".
-        2. For each subtopic, provide a list of "seed_keywords" that belong to it.
-        
-        Output Format (JSON List):
-        [
-            {{
-                "subtopic_name": "Subtopic Name",
-                "seed_keywords": ["kw1", "kw2", "kw3"]
-            }},
-            ...
-        ]
-        Return ONLY valid JSON.
+        Group these keywords into specific "Subtopics" or "Clusters".
+        For each subtopic, list the keywords that belong to it.
+
+        Output Format (use EXACTLY this format):
+
+        CLUSTER: Subtopic Name Here
+        KEYWORDS: keyword1, keyword2, keyword3
+
+        CLUSTER: Another Subtopic Name
+        KEYWORDS: keyword4, keyword5, keyword6
+
+        Rules:
+        - Start each cluster with "CLUSTER: " followed by the name
+        - List keywords on the next line starting with "KEYWORDS: "
+        - Separate keywords with commas
+        - Do not use markdown code blocks
+        - Return ONLY the cluster definitions, no other text
         """
-        
+
         try:
-            response = await llm_service.generate_json(prompt=prompt, max_tokens=1500)
-            
-            # generate_json usually returns a dict or list. Assume list of clusters.
-            subtopics = []
-            if isinstance(response, list):
-                subtopics = response
-            elif isinstance(response, dict) and 'clusters' in response:
-                 subtopics = response['clusters']
-            elif isinstance(response, dict) and 'subtopics' in response:
-                 subtopics = response['subtopics']
-            else:
-                 # Fallback if structure is weird
-                 logger.warning(f"Unexpected JSON structure from clustering: {response}")
-                 return []
+            response = await asyncio.wait_for(
+                llm_service.generate_text(prompt=prompt, max_tokens=1500),
+                timeout=45.0  # 45 second timeout for clustering
+            )
+
+            # Parse delimited text response
+            text = response.content.strip()
+            subtopics = self._parse_cluster_response(text)
+
+            if not subtopics:
+                logger.warning(f"No clusters parsed from LLM response. Raw text: {text[:500]}")
+                return []
 
             # Create lookup map for keyword data
             kw_map = {k['keyword'].lower(): k for k in keywords}
@@ -613,17 +619,30 @@ class SemanticExpansionService:
         """
         Check 12-month trend slope.
         """
-        # Fetch trend data
+        # Fetch trend data with timeout protection
         # Note: DataForSEO trends API might require dates. Let's assume default (last 12 mo) or specified.
         # We need past 12 months.
         end_date = datetime.now()
         start_date = end_date - timedelta(days=365)
-        
-        data = await dataforseo_api.get_keyword_trends(
-            [keyword], 
-            date_from=start_date.strftime('%Y-%m-%d'),
-            date_to=end_date.strftime('%Y-%m-%d')
-        )
+
+        try:
+            data = await asyncio.wait_for(
+                dataforseo_api.get_keyword_trends(
+                    [keyword],
+                    date_from=start_date.strftime('%Y-%m-%d'),
+                    date_to=end_date.strftime('%Y-%m-%d')
+                ),
+                timeout=15.0  # 15 second timeout for trend API call
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Trend analysis timed out for keyword '{keyword}'")
+            return {
+                "status": "PASS",
+                "reason": "Trend analysis timeout",
+                "slope": 0.0,
+                "label": "Neutral (Timeout)",
+                "historical_data": []
+            }
         
         # Calculate slope
         slope = 0.0
@@ -687,6 +706,143 @@ class SemanticExpansionService:
             "historical_data": values if 'values' in locals() else [] 
         }
 
+    def _parse_cluster_response(self, text: str) -> List[Dict[str, Any]]:
+        """
+        Parse delimited cluster text into structured format.
+        Handles variations in LLM output formatting.
+        """
+        clusters = []
+
+        # Normalize line endings and clean up
+        text = text.replace('\r\n', '\n').strip()
+
+        # Split by CLUSTER: marker
+        # Pattern matches "CLUSTER:" followed by name, then "KEYWORDS:" followed by comma-separated list
+        pattern = r'CLUSTER:\s*(.+?)\nKEYWORDS:\s*(.+?)(?=\nCLUSTER:|\Z)'
+        matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
+
+        if matches:
+            for name, keywords_str in matches:
+                # Clean up the keywords
+                keywords = [k.strip().strip('- ') for k in keywords_str.split(',') if k.strip()]
+                if keywords:  # Only add if we have keywords
+                    clusters.append({
+                        'subtopic_name': name.strip(),
+                        'seed_keywords': keywords
+                    })
+        else:
+            # Fallback: try simpler parsing if regex fails
+            lines = text.split('\n')
+            current_cluster = None
+            current_keywords = []
+
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+
+                # Check for cluster header (various formats)
+                if line.upper().startswith('CLUSTER:') or line.startswith('**') or ':' in line:
+                    # Save previous cluster if exists
+                    if current_cluster and current_keywords:
+                        clusters.append({
+                            'subtopic_name': current_cluster,
+                            'seed_keywords': current_keywords
+                        })
+
+                    # Extract new cluster name
+                    if ':' in line:
+                        current_cluster = line.split(':', 1)[1].strip().strip('* ')
+                    else:
+                        current_cluster = line.strip('* ')
+                    current_keywords = []
+
+                # Check for keywords line
+                elif line.upper().startswith('KEYWORDS:') or line.startswith('-'):
+                    # Extract keywords
+                    if ':' in line:
+                        kw_part = line.split(':', 1)[1]
+                    else:
+                        kw_part = line.lstrip('- ')
+
+                    keywords = [k.strip() for k in kw_part.split(',') if k.strip()]
+                    current_keywords.extend(keywords)
+
+            # Don't forget the last cluster
+            if current_cluster and current_keywords:
+                clusters.append({
+                    'subtopic_name': current_cluster,
+                    'seed_keywords': current_keywords
+                })
+
+        return clusters
+
+    def _parse_monetization_response(self, text: str) -> Dict[str, Any]:
+        """
+        Parse delimited monetization text into structured format.
+        Handles variations in LLM output formatting.
+        """
+        result = {
+            "intent": "Commercial",  # Default
+            "price_range": "Mid",    # Default
+            "affiliate_categories": []
+        }
+
+        # Normalize line endings
+        text = text.replace('\r\n', '\n').strip()
+        lines = text.split('\n')
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Parse INTENT line
+            if line.upper().startswith('INTENT:'):
+                intent_val = line.split(':', 1)[1].strip()
+                # Normalize to valid values
+                intent_lower = intent_val.lower()
+                if 'transactional' in intent_lower:
+                    result['intent'] = 'Transactional'
+                elif 'informational' in intent_lower:
+                    result['intent'] = 'Informational'
+                else:
+                    result['intent'] = 'Commercial'  # Default/fallback
+
+            # Parse PRICE_RANGE line
+            elif line.upper().startswith('PRICE_RANGE:') or line.upper().startswith('PRICE RANGE:'):
+                if ':' in line:
+                    price_val = line.split(':', 1)[1].strip()
+                else:
+                    price_val = line.split(None, 1)[1].strip() if ' ' in line else line
+
+                # Normalize to valid values
+                price_lower = price_val.lower()
+                if 'low' in price_lower:
+                    result['price_range'] = 'Low'
+                elif 'high' in price_lower:
+                    result['price_range'] = 'High'
+                else:
+                    result['price_range'] = 'Mid'
+
+            # Parse AFFILIATE_CATEGORIES line
+            elif line.upper().startswith('AFFILIATE_CATEGORIES:') or line.upper().startswith('AFFILIATE CATEGORIES:'):
+                if ':' in line:
+                    cats_val = line.split(':', 1)[1].strip()
+                else:
+                    cats_val = line.split(None, 1)[1].strip() if ' ' in line else ''
+
+                # Split by comma and clean
+                if cats_val:
+                    categories = [c.strip() for c in cats_val.split(',') if c.strip()]
+                    result['affiliate_categories'] = categories
+
+        # If no categories were found, add a default
+        if not result['affiliate_categories']:
+            result['affiliate_categories'] = ['General']
+
+        return result
+
     def _calculate_slope(self, values: List[float]) -> float:
         """
         Simple linear regression slope (y = mx + b).
@@ -724,48 +880,91 @@ class SemanticExpansionService:
     async def check_monetization(self, keyword: str, topic: str) -> Dict[str, Any]:
         """
         Ask LLM for intent AND fetch real affiliate programs.
+        Uses delimited text format instead of JSON for better reliability.
         """
         # 1. LLM Analysis for Intent & Price
         prompt = f"""
         Analyze the keyword: '{keyword}' for the topic '{topic}'.
+
         1. Is the intent Transactional, Commercial, or Informational?
         2. If a user buys a product related to this, what is the estimated price range (Low: <$20, Mid: $20-$100, High: >$100)?
         3. List 2 potential affiliate categories (e.g., Amazon Home, ClickBank Crypto).
-        
-        Output JSON:
-        {{
-            "intent": "Commercial",
-            "price_range": "Mid",
-            "affiliate_categories": ["Cat1", "Cat2"]
-        }}
+
+        Output Format (use EXACTLY this format, one per line):
+        INTENT: Commercial
+        PRICE_RANGE: Mid
+        AFFILIATE_CATEGORIES: Category1, Category2
+
+        Rules:
+        - INTENT must be exactly: Transactional, Commercial, or Informational
+        - PRICE_RANGE must be exactly: Low, Mid, or High
+        - Return ONLY these three lines, no other text
         """
         monetization_result = { "status": "PASS", "details": {}, "offers": [] }
-        
+
         try:
-            # Run LLM analysis
-            analysis = await llm_service.generate_json(prompt, max_tokens=300)
+            # Run LLM analysis with timeout to prevent hanging
+            response = await asyncio.wait_for(
+                llm_service.generate_text(prompt, max_tokens=300),
+                timeout=30.0  # 30 second timeout for LLM call
+            )
+
+            # Parse delimited text response
+            analysis = self._parse_monetization_response(response.content)
             monetization_result['details'] = analysis
-            
-            # 2. Real Affiliate Search (New: Fix for 0 offers)
+
+        except asyncio.TimeoutError:
+            logger.warning(f"Monetization LLM call timed out for keyword '{keyword}'")
+            monetization_result['details'] = {
+                "intent": "Unknown (Timeout)",
+                "price_range": "Unknown",
+                "affiliate_categories": []
+            }
+        except Exception as e:
+            logger.error(f"Monetization LLM analysis error for '{keyword}': {e}")
+            # Fallback: provide default structure so rest of pipeline continues
+            monetization_result['details'] = {
+                "intent": "Commercial",  # Default assumption
+                "price_range": "Mid",
+                "affiliate_categories": ["General"],
+                "parse_error": str(e)
+            }
+            # Fallback: provide default structure so rest of pipeline continues
+            monetization_result['details'] = {
+                "intent": "Commercial",  # Default assumption
+                "price_range": "Mid",
+                "affiliate_categories": ["General"],
+                "parse_error": str(e)
+            }
+
+        # 2. Real Affiliate Search (New: Fix for 0 offers) - run with timeout
+        try:
             from .affiliate_research_service import AffiliateResearchService
             app_affiliate_service = AffiliateResearchService()
-            
+
             # Simple search to get count. limit to 5 to be fast.
-            search_res = await app_affiliate_service.search_affiliate_programs(
-                search_term=keyword,
-                niche=None, # Auto-detect
-                ignore_cache=False
+            search_res = await asyncio.wait_for(
+                app_affiliate_service.search_affiliate_programs(
+                    search_term=keyword,
+                    niche=None, # Auto-detect
+                    ignore_cache=False
+                ),
+                timeout=10.0  # 10 second timeout for affiliate search
             )
-            
+
             programs = search_res.get('programs', [])
             monetization_result['offers'] = programs
             monetization_result['offer_count'] = len(programs)
-            
-            return monetization_result
-            
+        except asyncio.TimeoutError:
+            logger.warning(f"Affiliate search timed out for keyword '{keyword}'")
+            monetization_result['offers'] = []
+            monetization_result['offer_count'] = 0
         except Exception as e:
-            logger.error(f"Monetization check error: {e}")
-            return { "status": "PASS", "details": {"error": str(e)}, "offers": [], "offer_count": 0 }
+            logger.error(f"Affiliate search error for '{keyword}': {e}")
+            monetization_result['offers'] = []
+            monetization_result['offer_count'] = 0
+
+        return monetization_result
 
 # Global instance
 semantic_expansion_service = SemanticExpansionService()
