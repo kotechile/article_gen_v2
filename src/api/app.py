@@ -62,6 +62,7 @@ def create_app(config_name: str = None) -> Flask:
     from .endpoints.health import health_bp
     from .endpoints.images import images_bp
     from .endpoints.research_topics import research_topics_bp
+    from .endpoints.ai import ai_bp
     from .wordpress import wordpress_bp
     
     # Register blueprints
@@ -70,6 +71,7 @@ def create_app(config_name: str = None) -> Flask:
     app.register_blueprint(images_bp)
     app.register_blueprint(research_topics_bp)
     app.register_blueprint(wordpress_bp)
+    app.register_blueprint(ai_bp)
     
     # Register error handlers
     ErrorHandler.register_handlers(app)

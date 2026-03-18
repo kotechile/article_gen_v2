@@ -1,5 +1,5 @@
 import * as React from "react"
-import { LayoutDashboard, Settings, TrendingUp, ChevronLeft, ChevronRight, LogOut } from "lucide-react"
+import { Settings, TrendingUp, ChevronLeft, ChevronRight, LogOut, Home, BookOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -35,6 +35,13 @@ export function Sidebar({ className }: SidebarProps) {
                 {/* Navigation */}
                 <ScrollArea className="flex-1 px-3 py-4">
                     <NavItem
+                        href="/"
+                        icon={<Home className="h-5 w-5" />}
+                        label="Command Center"
+                        isCollapsed={isCollapsed}
+                        active={pathname === "/"}
+                    />
+                    <NavItem
                         href="/research"
                         icon={<TrendingUp className="h-5 w-5" />}
                         label="Topic Analysis"
@@ -42,11 +49,11 @@ export function Sidebar({ className }: SidebarProps) {
                         active={pathname?.startsWith("/research")}
                     />
                     <NavItem
-                        href="/"
-                        icon={<LayoutDashboard className="h-5 w-5" />}
-                        label="My Articles"
+                        href="/my-articles"
+                        icon={<BookOpen className="h-5 w-5" />}
+                        label="Content Library"
                         isCollapsed={isCollapsed}
-                        active={pathname === "/" || pathname?.startsWith("/my-articles")}
+                        active={pathname?.startsWith("/my-articles")}
                     />
                     <NavItem
                         href="/settings"

@@ -14,19 +14,27 @@ import {
     RefreshCw,
     CheckCircle2,
     AlertCircle,
-    TrendingUp
+    TrendingUp,
+    Layout
 } from 'lucide-react';
 import { TrendReportModal } from '../components/TrendReportModal';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
-import { apiClient } from '../api-client'; // Use the same client as Research.tsx
+import { useProject } from '../context/project-context';
+import { apiClient } from '../api-client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import type { WordPressDetail } from '../types';
+import type { Project } from '../types';
+
+// Read tab from URL query (?tab=niches)
+function getInitialTab() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('tab') === 'niches' ? 'niches' : 'research';
+}
 
 interface ResearchSettings {
     min_volume: number;
@@ -53,7 +61,8 @@ interface ApplicationSettings {
 
 export const Settings: React.FC = () => {
     const { user } = useAuth();
-    const [activeTab, setActiveTab] = useState('research');
+    const { refreshProjects } = useProject();
+    const [activeTab, setActiveTab] = useState(getInitialTab);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -70,11 +79,12 @@ export const Settings: React.FC = () => {
     // Content Settings State (LLM Keys etc)
     const [appSettings, setAppSettings] = useState<Partial<ApplicationSettings>>({});
 
-    // WordPress State
-    const [sites, setSites] = useState<WordPressDetail[]>([]);
-    const [editingSiteId, setEditingSiteId] = useState<string | null>(null);
-    const [siteFormData, setSiteFormData] = useState<Partial<WordPressDetail>>({});
-    const [isSavingSite, setIsSavingSite] = useState(false);
+    // Projects (niches/websites) State
+    const [projects, setProjects] = useState<Project[]>([]);
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [formData, setFormData] = useState<Partial<Project>>({});
+    const [isSaving, setIsSaving] = useState(false);
+    const [showWpFields, setShowWpFields] = useState(false);
 
     // Posts State
     const [importedPosts, setImportedPosts] = useState<any[]>([]);
@@ -82,7 +92,7 @@ export const Settings: React.FC = () => {
     const [isSyncing, setIsSyncing] = useState(false);
 
     // Trend Report State
-    const [trendSite, setTrendSite] = useState<WordPressDetail | null>(null);
+    const [trendProject, setTrendProject] = useState<Project | null>(null);
 
     useEffect(() => {
         if (user) {
@@ -96,7 +106,7 @@ export const Settings: React.FC = () => {
             await Promise.all([
                 fetchResearchSettings(),
                 fetchAppSettings(),
-                fetchWordPressSites(),
+                fetchProjects(),
                 fetchImportedPosts()
             ]);
         } catch (err) {
@@ -130,14 +140,15 @@ export const Settings: React.FC = () => {
         }
     };
 
-    const fetchWordPressSites = async () => {
+    const fetchProjects = async () => {
         const { data, error } = await supabase
-            .from('wordPress_details')
+            .from('projects')
             .select('*')
-            .eq('user_id', user!.id);
+            .eq('user_id', user!.id)
+            .order('created_at', { ascending: false });
 
         if (!error) {
-            setSites(data || []);
+            setProjects((data as Project[]) || []);
         }
     };
 
@@ -192,41 +203,48 @@ export const Settings: React.FC = () => {
         }
     };
 
-    const handleSaveSite = async () => {
-        if (!user || !siteFormData.domain || !siteFormData.wpUserName || !siteFormData.wordpress_key) return;
-        setIsSavingSite(true);
+    const handleSaveProject = async () => {
+        if (!user) return;
+        // Require at minimum an app_name or domain
+        if (!formData.app_name && !formData.domain) {
+            alert('Please enter at least a Project Name or Domain URL.');
+            return;
+        }
+        setIsSaving(true);
         try {
-            const payload = { ...siteFormData, user_id: user.id };
-            let error;
-            if (editingSiteId && editingSiteId !== 'new') {
-                const { error: err } = await supabase.from('wordPress_details').update(payload).eq('id', editingSiteId);
-                error = err;
+            const payload = { ...formData, user_id: user.id };
+            let saveError;
+            if (editingId && editingId !== 'new') {
+                const { error: err } = await supabase.from('projects').update(payload).eq('id', editingId);
+                saveError = err;
             } else {
-                const { error: err } = await supabase.from('wordPress_details').insert([payload]);
-                error = err;
+                const { error: err } = await supabase.from('projects').insert([payload]);
+                saveError = err;
             }
-            if (error) throw error;
-            setEditingSiteId(null);
-            setSiteFormData({});
-            fetchWordPressSites();
+            if (saveError) throw saveError;
+            setEditingId(null);
+            setFormData({});
+            setShowWpFields(false);
+            await fetchProjects();
+            await refreshProjects(); // update global context
         } catch (err: any) {
-            alert(err.message || "Failed to save site");
+            alert(err.message || "Failed to save project");
         } finally {
-            setIsSavingSite(false);
+            setIsSaving(false);
         }
     };
 
-    const handleDeleteSite = async (id: string) => {
-        if (!confirm('Are you sure?')) return;
-        await supabase.from('wordPress_details').delete().eq('id', id);
-        fetchWordPressSites();
+    const handleDeleteProject = async (id: string) => {
+        if (!confirm('Delete this project? This cannot be undone.')) return;
+        await supabase.from('projects').delete().eq('id', id);
+        await fetchProjects();
+        await refreshProjects();
     };
 
     const handleSync = async () => {
         if (!user) return;
         setIsSyncing(true);
         try {
-            // Unified backend is on port 8000 (proxy handled by /api)
             const response = await fetch('/api/wordpress/sync-posts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -282,9 +300,9 @@ export const Settings: React.FC = () => {
                         <Wand2 className="w-4 h-4 mr-2" />
                         Content Generation
                     </TabsTrigger>
-                    <TabsTrigger value="wordpress" className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 data-[state=active]:text-indigo-600 dark:data-[state=active]:text-indigo-400 data-[state=active]:shadow-sm py-2.5">
-                        <Globe className="w-4 h-4 mr-2" />
-                        WordPress Sync
+                    <TabsTrigger value="niches" className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 data-[state=active]:text-indigo-600 dark:data-[state=active]:text-indigo-400 data-[state=active]:shadow-sm py-2.5">
+                        <Layout className="w-4 h-4 mr-2" />
+                        Niches / Websites
                     </TabsTrigger>
                     <TabsTrigger value="posts" className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 data-[state=active]:text-indigo-600 dark:data-[state=active]:text-indigo-400 data-[state=active]:shadow-sm py-2.5">
                         <FileText className="w-4 h-4 mr-2" />
@@ -373,7 +391,7 @@ export const Settings: React.FC = () => {
                 <TabsContent value="content" className="animate-in fade-in-50 duration-500">
                     <Card className="border-gray-200 dark:border-gray-800 shadow-sm">
                         <CardHeader className="bg-gray-50/50 dark:bg-gray-900/50 border-b">
-                            <CardTitle>AI & Media API Keys</CardTitle>
+                            <CardTitle>AI &amp; Media API Keys</CardTitle>
                             <CardDescription>
                                 Configure the credentials used for content generation and media sourcing.
                             </CardDescription>
@@ -410,7 +428,7 @@ export const Settings: React.FC = () => {
                                 <div className="space-y-6">
                                     <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500 flex items-center gap-2">
                                         <div className="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
-                                        Media & Utils
+                                        Media &amp; Utils
                                     </h3>
                                     <div className="space-y-4">
                                         <div className="space-y-2">
@@ -443,45 +461,63 @@ export const Settings: React.FC = () => {
                     </Card>
                 </TabsContent>
 
-                {/* WordPress Sites */}
-                <TabsContent value="wordpress" className="animate-in fade-in-50 duration-500">
+                {/* ── Niches / Websites Tab ──────────────────────────────────── */}
+                <TabsContent value="niches" className="animate-in fade-in-50 duration-500">
                     <div className="space-y-6">
+                        {/* Info Banner */}
+                        <div className="flex items-start gap-3 p-4 rounded-xl bg-indigo-50/50 dark:bg-indigo-900/10 border border-indigo-100/50 dark:border-indigo-900/20">
+                            <Globe className="w-5 h-5 text-indigo-500 flex-shrink-0 mt-0.5" />
+                            <div>
+                                <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Niches &amp; Websites</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    Add any project here — a WordPress site with full sync, or just a niche description for AI-driven content without a website. The active project on your Command Center is selected from this list.
+                                </p>
+                            </div>
+                        </div>
+
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {sites.map(site => (
-                                <Card key={site.id} className="relative group overflow-hidden border-gray-200 dark:border-gray-800 hover:border-indigo-500/50 transition-all">
+                            {projects.map(project => (
+                                <Card key={project.id} className="relative group overflow-hidden border-gray-200 dark:border-gray-800 hover:border-indigo-500/50 transition-all">
                                     <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500 group-hover:w-2 transition-all"></div>
                                     <CardHeader className="pb-2">
                                         <div className="flex justify-between items-start">
                                             <div>
-                                                <CardTitle className="text-lg truncate max-w-[180px]">{site.domain}</CardTitle>
+                                                <CardTitle className="text-lg truncate max-w-[180px]">
+                                                    {project.domain || project.app_name || 'Unnamed Project'}
+                                                </CardTitle>
                                                 <CardDescription className="flex items-center gap-1.5 mt-1">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                                                    {site.wpUserName}
+                                                    {project.domain
+                                                        ? <><span className="w-1.5 h-1.5 rounded-full bg-green-500"></span> WordPress</>
+                                                        : <><span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span> Niche Only</>
+                                                    }
                                                 </CardDescription>
                                             </div>
                                             <div className="flex gap-1">
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-indigo-600" onClick={() => { setEditingSiteId(site.id); setSiteFormData(site); }}>
+                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-indigo-600" onClick={() => { setEditingId(project.id); setFormData(project); setShowWpFields(!!project.wordpress_key || !!project.wpUserName); }}>
                                                     <Edit2 className="h-4 w-4" />
                                                 </Button>
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => handleDeleteSite(site.id)}>
+                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => handleDeleteProject(project.id)}>
                                                     <Trash2 className="h-4 w-4" />
                                                 </Button>
                                             </div>
                                         </div>
                                     </CardHeader>
                                     <CardContent>
-                                        <div className="flex items-center justify-between mt-4">
-                                            <div className="flex gap-2">
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="h-7 text-xs gap-1.5 border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700"
-                                                    onClick={() => setTrendSite(site)}
-                                                >
-                                                    <TrendingUp className="w-3 h-3" />
-                                                    What's Trending
-                                                </Button>
-                                            </div>
+                                        {(project.site_description || project.websiteDescription) && (
+                                            <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
+                                                {project.site_description || project.websiteDescription}
+                                            </p>
+                                        )}
+                                        <div className="flex items-center justify-between mt-2">
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-7 text-xs gap-1.5 border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700"
+                                                onClick={() => setTrendProject(project)}
+                                            >
+                                                <TrendingUp className="w-3 h-3" />
+                                                What's Trending
+                                            </Button>
                                             <Globe className="w-4 h-4 text-gray-300" />
                                         </div>
                                     </CardContent>
@@ -489,48 +525,108 @@ export const Settings: React.FC = () => {
                             ))}
 
                             <button
-                                onClick={() => { setEditingSiteId('new'); setSiteFormData({}); }}
-                                className="h-[140px] border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-2xl flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-indigo-500 hover:text-indigo-500 hover:bg-indigo-50/30 transition-all group"
+                                onClick={() => { setEditingId('new'); setFormData({}); setShowWpFields(false); }}
+                                className="h-[160px] border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-2xl flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-indigo-500 hover:text-indigo-500 hover:bg-indigo-50/30 transition-all group"
                             >
                                 <Plus className="w-8 h-8 group-hover:scale-110 transition-transform" />
-                                <span className="text-sm font-medium">Add WordPress Site</span>
+                                <span className="text-sm font-medium">Add Niche / Website</span>
                             </button>
                         </div>
 
-                        {editingSiteId && (
+                        {/* Edit / Create Form */}
+                        {editingId && (
                             <Card className="border-indigo-100 dark:border-indigo-900 bg-indigo-50/20 dark:bg-indigo-900/5 overflow-hidden ring-1 ring-indigo-500/20">
                                 <CardHeader className="border-b border-indigo-100/50 dark:border-indigo-900/50">
-                                    <CardTitle className="text-lg">{editingSiteId === 'new' ? 'New WordPress Configuration' : 'Edit Site Configuration'}</CardTitle>
+                                    <CardTitle className="text-lg">
+                                        {editingId === 'new' ? 'New Niche / Website' : 'Edit Project'}
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Fill in a project name and niche description. Add WordPress credentials only if you want to sync content.
+                                    </CardDescription>
                                 </CardHeader>
-                                <CardContent className="p-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <CardContent className="p-6 space-y-6">
+                                    {/* Core fields — always shown */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div className="space-y-2">
-                                            <Label className="text-xs font-semibold">Domain URL</Label>
-                                            <Input placeholder="example.com" value={siteFormData.domain || ''} onChange={e => setSiteFormData({ ...siteFormData, domain: e.target.value })} className="h-10 rounded-lg" />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-semibold">WP Username</Label>
-                                            <Input placeholder="admin" value={siteFormData.wpUserName || ''} onChange={e => setSiteFormData({ ...siteFormData, wpUserName: e.target.value })} className="h-10 rounded-lg" />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-semibold">Application Password</Label>
-                                            <Input type="password" placeholder="xxxx xxxx xxxx xxxx" value={siteFormData.wordpress_key || ''} onChange={e => setSiteFormData({ ...siteFormData, wordpress_key: e.target.value })} className="h-10 rounded-lg font-mono" />
-                                        </div>
-                                        <div className="space-y-2 md:col-span-3">
-                                            <Label className="text-xs font-semibold">Site Description (for AI Trend Analysis)</Label>
+                                            <Label className="text-xs font-semibold">Project / Niche Name <span className="text-indigo-500">*</span></Label>
                                             <Input
-                                                placeholder="E.g. A home improvement blog focusing on DIY renovations and sustainable materials..."
-                                                value={siteFormData.site_description || ''}
-                                                onChange={e => setSiteFormData({ ...siteFormData, site_description: e.target.value })}
+                                                placeholder="e.g. Home & DIY Blog"
+                                                value={formData.app_name || ''}
+                                                onChange={e => setFormData({ ...formData, app_name: e.target.value })}
+                                                className="h-10 rounded-lg"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-semibold">Website URL (optional)</Label>
+                                            <Input
+                                                placeholder="wellroost.com"
+                                                value={formData.domain || ''}
+                                                onChange={e => setFormData({ ...formData, domain: e.target.value })}
+                                                className="h-10 rounded-lg"
+                                            />
+                                        </div>
+                                        <div className="space-y-2 md:col-span-2">
+                                            <Label className="text-xs font-semibold">Niche Description (used by AI) <span className="text-indigo-500">*</span></Label>
+                                            <textarea
+                                                placeholder="E.g. A home improvement blog focusing on DIY renovations, sustainable materials, and budget-friendly interior design for first-time homeowners."
+                                                value={formData.site_description || ''}
+                                                onChange={e => setFormData({ ...formData, site_description: e.target.value })}
+                                                rows={3}
+                                                className="w-full px-3 py-2 text-sm rounded-lg border border-input bg-background resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                                            />
+                                        </div>
+                                        <div className="space-y-2 md:col-span-2">
+                                            <Label className="text-xs font-semibold">Target Audience Description (optional)</Label>
+                                            <Input
+                                                placeholder="E.g. First-time homeowners aged 25-45 looking for budget DIY tips"
+                                                value={formData.targetAudienceDescription || ''}
+                                                onChange={e => setFormData({ ...formData, targetAudienceDescription: e.target.value })}
                                                 className="h-10 rounded-lg"
                                             />
                                         </div>
                                     </div>
-                                    <div className="flex justify-end gap-3 mt-8">
-                                        <Button variant="ghost" onClick={() => { setEditingSiteId(null); setSiteFormData({}); }}>Cancel</Button>
-                                        <Button onClick={handleSaveSite} disabled={isSavingSite} className="bg-indigo-600 hover:bg-indigo-700 rounded-xl px-8 h-10">
-                                            {isSavingSite ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-                                            {editingSiteId === 'new' ? 'Add Site' : 'Update Site'}
+
+                                    {/* WordPress toggle */}
+                                    <div className="flex items-center gap-3">
+                                        <Switch
+                                            id="wp-toggle"
+                                            checked={showWpFields}
+                                            onCheckedChange={setShowWpFields}
+                                        />
+                                        <Label htmlFor="wp-toggle" className="text-sm font-medium cursor-pointer">
+                                            This project has a WordPress website (add sync credentials)
+                                        </Label>
+                                    </div>
+
+                                    {showWpFields && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-indigo-100/50 dark:border-indigo-900/30">
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-semibold">WP Username</Label>
+                                                <Input
+                                                    placeholder="admin"
+                                                    value={formData.wpUserName || ''}
+                                                    onChange={e => setFormData({ ...formData, wpUserName: e.target.value })}
+                                                    className="h-10 rounded-lg"
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-semibold">Application Password</Label>
+                                                <Input
+                                                    type="password"
+                                                    placeholder="xxxx xxxx xxxx xxxx"
+                                                    value={formData.wordpress_key || ''}
+                                                    onChange={e => setFormData({ ...formData, wordpress_key: e.target.value })}
+                                                    className="h-10 rounded-lg font-mono"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="flex justify-end gap-3 pt-2 border-t border-indigo-100/50 dark:border-indigo-900/30">
+                                        <Button variant="ghost" onClick={() => { setEditingId(null); setFormData({}); setShowWpFields(false); }}>Cancel</Button>
+                                        <Button onClick={handleSaveProject} disabled={isSaving} className="bg-indigo-600 hover:bg-indigo-700 rounded-xl px-8 h-10">
+                                            {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                                            {editingId === 'new' ? 'Add Project' : 'Update Project'}
                                         </Button>
                                     </div>
                                 </CardContent>
@@ -547,7 +643,7 @@ export const Settings: React.FC = () => {
                                 <CardTitle>External Articles History</CardTitle>
                                 <CardDescription>Articles imported from your WordPress sites for internal linking.</CardDescription>
                             </div>
-                            <Button onClick={handleSync} disabled={isSyncing || sites.length === 0} className="rounded-xl border-gray-200" variant="outline">
+                            <Button onClick={handleSync} disabled={isSyncing || projects.filter(p => p.wordpress_key).length === 0} className="rounded-xl border-gray-200" variant="outline">
                                 <RefreshCw className={cn("w-4 h-4 mr-2", isSyncing && "animate-spin")} />
                                 {isSyncing ? "Syncing..." : "Sync Posts"}
                             </Button>
@@ -589,19 +685,18 @@ export const Settings: React.FC = () => {
                 </TabsContent>
             </Tabs>
 
-            {trendSite && (
+            {trendProject && (
                 <TrendReportModal
-                    siteId={trendSite.id}
-                    siteDomain={trendSite.domain}
-                    isOpen={!!trendSite}
-                    onClose={() => setTrendSite(null)}
+                    siteId={trendProject.id}
+                    siteDomain={trendProject.domain || trendProject.app_name}
+                    isOpen={!!trendProject}
+                    onClose={() => setTrendProject(null)}
                 />
             )}
         </div>
     );
 };
 
-// Helper for cn
 function cn(...classes: any[]) {
     return classes.filter(Boolean).join(' ');
 }

@@ -8,17 +8,15 @@ export interface Article {
     status: string;
     published: boolean;
     dateCreatedOn: string;
-    wordCount?: number; // Inferred or from articleLength?
+    wordCount?: number;
     articleLength: string;
     LLM: string;
     tone: string;
     hook?: string;
     thesis?: string;
     htmlArticle?: string;
-    // Stats for the cards
     seo_optimization_score?: number;
     readability_score?: number;
-    // New Metrics
     difficulty_level?: string;
     estimated_reading_time?: string;
     target_audience?: string;
@@ -31,14 +29,11 @@ export interface Article {
     avg_keyword_difficulty?: number;
     traffic_potential_score?: number;
     competition_score?: number;
-    // Featured Image
     featuredImageUrl?: string;
     featuredImageAuthor?: string;
     MediaAltText?: string;
     mediaTitle?: string;
     mediaCaption?: string;
-
-    // Mapped Fields from ProfitPath
     content_outline?: string;
     source_idea_id?: string;
     topic_id?: string;
@@ -46,6 +41,28 @@ export interface Article {
     content_type?: string;
 }
 
+/** Generic project/niche model — maps to the `projects` Supabase table */
+export interface Project {
+    id: string;
+    created_at: string;
+    user_id: string;
+    /** Generic niche name, e.g. "Home DIY Blog" */
+    app_name?: string;
+    /** Optional website URL, e.g. "wellroost.com" */
+    domain?: string;
+    /** WordPress Application Password (optional) */
+    wordpress_key?: string;
+    wpUserName?: string;
+    /** PRIMARY niche description used by AI for content generation */
+    site_description?: string;
+    websiteDescription?: string;
+    targetAudienceDescription?: string;
+    categories?: string;
+    last_trend_report?: any;
+    target_keywords?: string[];
+}
+
+/** @deprecated Use Project instead */
 export interface WordPressDetail {
     id: string;
     created_at: string;
