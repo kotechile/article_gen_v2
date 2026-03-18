@@ -43,7 +43,7 @@ class SemanticExpansionService:
              return []
 
         # Step 3: Profit Filtering (Math)
-        filtered_keywords = self.filter_profitable_keywords(raw_keywords)
+        filtered_keywords = await self.filter_profitable_keywords(raw_keywords)
         if not filtered_keywords:
             logger.warning("No profitable keywords found after filtering. Aborting.")
             return []
@@ -197,6 +197,13 @@ class SemanticExpansionService:
     async def _get_research_settings(self) -> Dict[str, Any]:
         """Fetch research settings from database or return defaults"""
         try:
+            # Import here to avoid circular deps; get_supabase_client is a top-level helper
+            try:
+                from supabase_client import get_supabase_client
+            except ImportError:
+                import sys, os
+                sys.path.append(os.getcwd())
+                from supabase_client import get_supabase_client
             supabase = get_supabase_client()
             response = supabase.table('application_settings').select('research_settings').limit(1).execute()
             if response.data:
