@@ -350,8 +350,8 @@ class SemanticExpansionService:
                         k['keyword_difficulty'] = int(new_kd)
                         
                         # Recalculate profit score with REAL KD
-                        vol = k.get('search_volume', 0)
-                        cpc = k.get('cpc', 0)
+                        vol = k.get('search_volume') or 0
+                        cpc = k.get('cpc') or 0
                         safe_kd = max(new_kd, 1)
                         k['profitability_score'] = (vol * cpc) / safe_kd
                         updated_count += 1
@@ -450,9 +450,9 @@ class SemanticExpansionService:
                     k_clean = k_str.lower().strip()
                     if k_clean in kw_map:
                         kw_data = kw_map[k_clean]
-                        vol = kw_data.get('search_volume', 0)
-                        cpc = kw_data.get('cpc', 0) or 0
-                        kd = kw_data.get('keyword_difficulty', 0) or 0
+                        vol = kw_data.get('search_volume') or 0
+                        cpc = kw_data.get('cpc') or 0
+                        kd = kw_data.get('keyword_difficulty') or 0
                         
                         total_vol += vol
                         total_cpc += cpc
@@ -488,17 +488,17 @@ class SemanticExpansionService:
                                  # Re-create object structure to match
                                  matched_kw_objects.append({
                                     "keyword": kw_obj['keyword'],
-                                    "search_volume": kw_obj.get('search_volume', 0),
-                                    "cpc": kw_obj.get('cpc', 0),
-                                    "keyword_difficulty": kw_obj.get('keyword_difficulty', 0),
+                                    "search_volume": kw_obj.get('search_volume') or 0,
+                                    "cpc": kw_obj.get('cpc') or 0,
+                                    "keyword_difficulty": kw_obj.get('keyword_difficulty') or 0,
                                     "competition": kw_obj.get('competition'),
                                     "main_intent": kw_obj.get('main_intent') or kw_obj.get('intent', 'commercial'),
                                     "profitability_score": kw_obj.get('profitability_score')
                                  })
                                  
-                                 total_vol += kw_obj.get('search_volume', 0)
-                                 total_cpc += kw_obj.get('cpc', 0)
-                                 max_kd = max(max_kd, kw_obj.get('keyword_difficulty', 0))
+                                 total_vol += kw_obj.get('search_volume') or 0
+                                 total_cpc += kw_obj.get('cpc') or 0
+                                 max_kd = max(max_kd, kw_obj.get('keyword_difficulty') or 0)
                                  count += 1
                                  
                                  if len(matched_kw_objects) >= 5: # Limit fallback to 5
@@ -512,12 +512,12 @@ class SemanticExpansionService:
                          kw_obj = keywords[i]
                          matched_kw_objects.append({
                             "keyword": kw_obj['keyword'],
-                            "search_volume": kw_obj.get('search_volume', 0),
-                            "cpc": kw_obj.get('cpc', 0),
-                            "keyword_difficulty": kw_obj.get('keyword_difficulty', 0),
+                            "search_volume": kw_obj.get('search_volume') or 0,
+                            "cpc": kw_obj.get('cpc') or 0,
+                            "keyword_difficulty": kw_obj.get('keyword_difficulty') or 0,
                             "profitability_score": kw_obj.get('profitability_score')
                          })
-                         total_vol += kw_obj.get('search_volume', 0)
+                         total_vol += kw_obj.get('search_volume') or 0
                          count += 1
 
                 # Average CPC
