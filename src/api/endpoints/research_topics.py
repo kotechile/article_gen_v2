@@ -511,6 +511,7 @@ def idea_burst():
             blog_prompt = f"""
 You are a content strategist specializing in SEO-optimized blog content.
 
+Current Year: 2026
 Subtopic: {subtopic_name}
 Keywords: {', '.join(keywords[:10])}
 Affiliate Categories: {', '.join(affiliate_offers[:5]) if affiliate_offers else 'General'}
@@ -520,9 +521,10 @@ Generate 5 blog article ideas that:
 2. Have clear search intent (informational, commercial, or transactional)
 3. Include monetization opportunities
 4. Are specific and actionable (not generic)
+5. Use current year (2026) in titles where appropriate (e.g., "...in 2026", "...for 2026")
 
 For each idea, provide:
-- Title: A compelling, SEO-optimized title
+- Title: A compelling, SEO-optimized title (use 2026, not 2024 or 2025)
 - Description: 1-2 sentences describing the angle
 - Primary Keywords: 2-3 main keywords to target
 - Monetization Hook: How to monetize (affiliate product, service, etc.)
@@ -546,6 +548,7 @@ Generate 5 blog ideas following this format.
             software_prompt = f"""
 You are a product strategist specializing in software and commercial opportunities.
 
+Current Year: 2026
 Subtopic: {subtopic_name}
 Keywords: {', '.join(keywords[:10])}
 Affiliate Categories: {', '.join(affiliate_offers[:5]) if affiliate_offers else 'General'}
@@ -555,9 +558,10 @@ Generate 3 software or commercial content ideas that:
 2. Have high commercial intent
 3. Include specific affiliate opportunities
 4. Are comparison or review focused
+5. Use current year (2026) in titles where appropriate (e.g., "...in 2026", "...for 2026")
 
 For each idea, provide:
-- Title: A compelling title focused on software/tools
+- Title: A compelling title focused on software/tools (use 2026, not 2024 or 2025)
 - Description: 1-2 sentences describing the angle
 - Primary Keywords: 2-3 main keywords to target
 - Monetization Hook: Specific affiliate programs or products
