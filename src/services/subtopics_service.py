@@ -21,10 +21,22 @@ class SubtopicsService:
         self.supabase = get_supabase_service()
         self.table_name = "subtopics"
     
-    async def create(self, research_topic_id: UUID, name: str, user_id: UUID, 
+    async def create(self, research_topic_id: UUID, name: str, user_id: UUID,
                      trend_data: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """Create a new subtopic"""
         try:
+            # Check for duplicates - normalize name for comparison
+            name_normalized = name.strip().lower()
+            existing = await self.supabase.get_by_filters(
+                table=self.table_name,
+                filters={"project_id": str(research_topic_id)},
+                user_id=user_id
+            )
+            for sub in existing:
+                if sub.get("name", "").strip().lower() == name_normalized:
+                    logger.info(f"Skipping duplicate subtopic: {name}")
+                    return None  # Skip duplicate
+
             data = {
                 "project_id": str(research_topic_id), # Mapped to project_id
                 "user_id": str(user_id),
