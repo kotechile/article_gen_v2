@@ -6,6 +6,7 @@ This module provides endpoints for managing research topics.
 
 import logging
 from datetime import datetime
+from uuid import uuid4
 from flask import Blueprint, request, jsonify
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -468,3 +469,231 @@ def generate_subtopics(topic_id):
         ).dict()), 500
 
 
+@research_topics_bp.route('/idea-burst', methods=['POST'])
+@require_api_key
+def idea_burst():
+    """
+    Generate content ideas for a specific subtopic.
+    Takes a subtopic with its keywords and generates blog and software/commercial content ideas.
+    """
+    try:
+        if not request.is_json:
+            return jsonify(ErrorResponse(
+                error="invalid_content_type",
+                message="Content-Type must be application/json",
+                error_code="INVALID_CONTENT_TYPE",
+                status=400
+            ).dict()), 400
+
+        data = request.get_json()
+        user_id = data.get('user_id')
+        topic_id = data.get('topic_id')
+        subtopic_name = data.get('subtopic')
+        keywords = data.get('keywords', [])
+        affiliate_offers = data.get('affiliate_offers', [])
+
+        if not all([user_id, topic_id, subtopic_name]):
+            return jsonify(ErrorResponse(
+                error="validation_error",
+                message="user_id, topic_id, and subtopic are required",
+                error_code="VALIDATION_ERROR",
+                status=400
+            ).dict()), 400
+
+        logger.info(f"Generating idea burst for subtopic: {subtopic_name}")
+
+        # Generate ideas using LLM
+        import asyncio
+        from src.services.llm.llm_service import llm_service
+
+        async def generate_ideas():
+            # Generate blog ideas
+            blog_prompt = f"""
+You are a content strategist specializing in SEO-optimized blog content.
+
+Subtopic: {subtopic_name}
+Keywords: {', '.join(keywords[:10])}
+Affiliate Categories: {', '.join(affiliate_offers[:5]) if affiliate_offers else 'General'}
+
+Generate 5 blog article ideas that:
+1. Target specific long-tail keywords
+2. Have clear search intent (informational, commercial, or transactional)
+3. Include monetization opportunities
+4. Are specific and actionable (not generic)
+
+For each idea, provide:
+- Title: A compelling, SEO-optimized title
+- Description: 1-2 sentences describing the angle
+- Primary Keywords: 2-3 main keywords to target
+- Monetization Hook: How to monetize (affiliate product, service, etc.)
+- Estimated Metrics: Search volume (low/medium/high), Difficulty (1-100), Viability (1-100)
+
+Output format (use exactly this format):
+BLOG_IDEA: [number]
+TITLE: [title]
+DESCRIPTION: [description]
+KEYWORDS: [keyword1, keyword2, keyword3]
+MONETIZATION: [monetization approach]
+VOLUME: [estimated monthly searches as number]
+DIFFICULTY: [SEO difficulty 1-100]
+VIABILITY: [overall viability score 1-100]
+END_IDEA
+
+Generate 5 blog ideas following this format.
+"""
+
+            # Generate software/commercial ideas
+            software_prompt = f"""
+You are a product strategist specializing in software and commercial opportunities.
+
+Subtopic: {subtopic_name}
+Keywords: {', '.join(keywords[:10])}
+Affiliate Categories: {', '.join(affiliate_offers[:5]) if affiliate_offers else 'General'}
+
+Generate 3 software or commercial content ideas that:
+1. Target software comparisons, tool reviews, or buying guides
+2. Have high commercial intent
+3. Include specific affiliate opportunities
+4. Are comparison or review focused
+
+For each idea, provide:
+- Title: A compelling title focused on software/tools
+- Description: 1-2 sentences describing the angle
+- Primary Keywords: 2-3 main keywords to target
+- Monetization Hook: Specific affiliate programs or products
+- Estimated Metrics: Search volume, Difficulty, Viability
+
+Output format (use exactly this format):
+SOFTWARE_IDEA: [number]
+TITLE: [title]
+DESCRIPTION: [description]
+KEYWORDS: [keyword1, keyword2, keyword3]
+MONETIZATION: [specific monetization approach]
+VOLUME: [estimated monthly searches as number]
+DIFFICULTY: [SEO difficulty 1-100]
+VIABILITY: [overall viability score 1-100]
+END_IDEA
+
+Generate 3 software/commercial ideas following this format.
+"""
+
+            # Generate both in parallel
+            blog_response = await llm_service.generate_text(blog_prompt, max_tokens=2000)
+            software_response = await llm_service.generate_text(software_prompt, max_tokens=1500)
+
+            return blog_response.content, software_response.content
+
+        blog_text, software_text = asyncio.run(generate_ideas())
+
+        # Parse the responses
+        blog_ideas = parse_idea_response(blog_text, 'blog', topic_id, user_id, subtopic_name)
+        software_ideas = parse_idea_response(software_text, 'software', topic_id, user_id, subtopic_name)
+
+        return jsonify({
+            "success": True,
+            "blog_ideas": [idea.to_dict() if hasattr(idea, 'to_dict') else idea for idea in blog_ideas],
+            "software_ideas": [idea.to_dict() if hasattr(idea, 'to_dict') else idea for idea in software_ideas]
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error in idea burst: {e}", exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message=str(e),
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+def parse_idea_response(text: str, content_type: str, topic_id: str, user_id: str, subtopic_name: str):
+    """Parse LLM response into ContentIdea objects."""
+    import re
+    from uuid import uuid4
+
+    ideas = []
+    current_idea = {}
+
+    lines = text.split('\n')
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # Check for idea start
+        if re.match(r'^(BLOG_IDEA|SOFTWARE_IDEA):', line, re.IGNORECASE):
+            if current_idea and 'title' in current_idea:
+                ideas.append(create_idea_dict(current_idea, content_type, topic_id, user_id, subtopic_name))
+            current_idea = {'id': str(uuid4())}
+
+        # Parse fields
+        elif line.upper().startswith('TITLE:'):
+            current_idea['title'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('DESCRIPTION:'):
+            current_idea['description'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('KEYWORDS:'):
+            kw_text = line.split(':', 1)[1].strip()
+            current_idea['keywords'] = [k.strip() for k in kw_text.split(',') if k.strip()]
+        elif line.upper().startswith('MONETIZATION:'):
+            current_idea['monetization_hook'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('VOLUME:'):
+            try:
+                vol_text = line.split(':', 1)[1].strip().replace(',', '')
+                # Extract number from text
+                vol_match = re.search(r'(\d+)', vol_text)
+                current_idea['total_search_volume'] = int(vol_match.group(1)) if vol_match else 0
+            except:
+                current_idea['total_search_volume'] = 0
+        elif line.upper().startswith('DIFFICULTY:'):
+            try:
+                diff_text = line.split(':', 1)[1].strip()
+                diff_match = re.search(r'(\d+)', diff_text)
+                current_idea['average_difficulty'] = int(diff_match.group(1)) if diff_match else 50
+            except:
+                current_idea['average_difficulty'] = 50
+        elif line.upper().startswith('VIABILITY:'):
+            try:
+                via_text = line.split(':', 1)[1].strip()
+                via_match = re.search(r'(\d+)', via_text)
+                current_idea['viability_score'] = int(via_match.group(1)) if via_match else 50
+            except:
+                current_idea['viability_score'] = 50
+        elif re.match(r'^END_IDEA', line, re.IGNORECASE):
+            if current_idea and 'title' in current_idea:
+                ideas.append(create_idea_dict(current_idea, content_type, topic_id, user_id, subtopic_name))
+                current_idea = {}
+
+    # Don't forget the last idea
+    if current_idea and 'title' in current_idea:
+        ideas.append(create_idea_dict(current_idea, content_type, topic_id, user_id, subtopic_name))
+
+    return ideas
+
+
+def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id: str, subtopic_name: str) -> dict:
+    """Create a standardized idea dictionary."""
+    from datetime import datetime
+    from uuid import uuid4
+
+    return {
+        "id": idea_data.get('id', str(uuid4())),
+        "title": idea_data.get('title', 'Untitled Idea'),
+        "content_type": content_type,
+        "description": idea_data.get('description', ''),
+        "primary_keywords": idea_data.get('keywords', []),
+        "secondary_keywords": [],
+        "seo_optimization_score": 0,
+        "traffic_potential_score": 0,
+        "total_search_volume": idea_data.get('total_search_volume', 0),
+        "average_difficulty": idea_data.get('average_difficulty', 50),
+        "average_cpc": 0.0,
+        "created_at": datetime.utcnow().isoformat(),
+        "user_id": user_id,
+        "topic_id": topic_id,
+        "subtopic": subtopic_name,
+        "monetization_hook": idea_data.get('monetization_hook', ''),
+        "viability_score": idea_data.get('viability_score', 50),
+        "trend_score": 0,
+        "monetization_score": 0,
+        "seo_ease_score": 0,
+        "status": "draft"
+    }

@@ -7,8 +7,9 @@ import { subtopicsService } from "@/services/subtopics.service"
 import type { ResearchTopic, Subtopic } from "@/types/research"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ArrowLeft, FileText, TrendingUp, DollarSign, Target, Sparkles, RefreshCw } from "lucide-react"
+import { ArrowLeft, FileText, TrendingUp, DollarSign, Target, Sparkles, RefreshCw, Lightbulb } from "lucide-react"
 import { motion } from "framer-motion"
+import { IdeaBurstModal } from "@/components/IdeaBurstModal"
 
 export function TopicDetail() {
     const { id } = useParams<{ id: string }>()
@@ -18,10 +19,11 @@ export function TopicDetail() {
     // State
     const [topic, setTopic] = React.useState<ResearchTopic | null>(null)
     const [subtopics, setSubtopics] = React.useState<Subtopic[]>([])
-
     const [loading, setLoading] = React.useState(true)
     const [decomposing, setDecomposing] = React.useState(false)
     const [error, setError] = React.useState<string | null>(null)
+    const [selectedSubtopic, setSelectedSubtopic] = React.useState<Subtopic | null>(null)
+    const [showIdeaModal, setShowIdeaModal] = React.useState(false)
 
     React.useEffect(() => {
         if (!authLoading && user && id) {
@@ -62,6 +64,11 @@ export function TopicDetail() {
         } finally {
             setDecomposing(false)
         }
+    }
+
+    const handleSubtopicClick = (sub: Subtopic) => {
+        setSelectedSubtopic(sub)
+        setShowIdeaModal(true)
     }
 
     // Calculate metrics from subtopics
@@ -296,10 +303,12 @@ export function TopicDetail() {
                                         initial={{ opacity: 0, y: 20 }}
                                         animate={{ opacity: 1, y: 0 }}
                                         transition={{ delay: i * 0.05 }}
+                                        onClick={() => handleSubtopicClick(sub)}
                                         className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5 cursor-pointer hover:bg-white/10 hover:border-indigo-500/30 transition-all duration-200 group"
                                     >
                                         <div className="flex items-start justify-between mb-3">
-                                            <h3 className="font-semibold text-slate-200 line-clamp-2 flex-1 pr-2 group-hover:text-white transition-colors">
+                                            <h3 className="font-semibold text-slate-200 line-clamp-2 flex-1 pr-2 group-hover:text-white transition-colors flex items-center gap-2">
+                                                <Lightbulb className="w-4 h-4 text-indigo-400 flex-shrink-0" />
                                                 {sub.name}
                                             </h3>
                                             <span className={`text-xs px-2 py-1 rounded-full border flex-shrink-0 ${sub.trend_direction === 'up'
@@ -360,6 +369,14 @@ export function TopicDetail() {
                         </motion.div>
                     </div>
                 )}
+                {/* Idea Burst Modal */}
+                <IdeaBurstModal
+                    isOpen={showIdeaModal}
+                    onClose={() => setShowIdeaModal(false)}
+                    subtopic={selectedSubtopic}
+                    topicId={id || ''}
+                    topicTitle={topic?.title || ''}
+                />
             </div>
         </div>
     )
