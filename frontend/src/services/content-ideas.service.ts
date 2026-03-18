@@ -24,7 +24,7 @@ class ContentIdeasService {
         affiliateOffers: string[];
         userId: string;
     }): Promise<{ success: boolean, blog_ideas: ContentIdea[], software_ideas: ContentIdea[] }> {
-        return await apiClient.post('/api/research-topics/idea-burst', {
+        return await apiClient.post('/research-topics/idea-burst', {
             user_id: request.userId,
             topic_id: request.topicId,
             subtopic: request.subtopicName,
