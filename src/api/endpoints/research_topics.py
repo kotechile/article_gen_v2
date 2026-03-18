@@ -377,25 +377,22 @@ subtopics_service = SubtopicsService()
 
 @research_topics_bp.route('/<topic_id>/subtopics/generate', methods=['POST'])
 @require_api_key
-async def generate_subtopics(topic_id):
+def generate_subtopics(topic_id):
     """
     Generate subtopics for a research topic using the Enhanced Decomposition Pipeline.
-    
-    This uses the 6-phase process:
-    1. Semantic Explosion (LLM)
-    2. Bulk Data Retrieval (DataForSEO)
-    3. Profitability Mathematical Filtering
-    4. SEO Difficulty Enrichment
-    5. Semantic Clustering
-    6. Multi-dimensional Verification
+
+    Flask is a synchronous framework — async def routes are not natively supported.
+    We bridge to the async service pipeline using asyncio.run() so the event loop
+    is created fresh per request (safe for WSGI/Gunicorn workers).
     """
+    import asyncio
+
     try:
         supabase = get_supabase_client()
-        
-        # 1. Get Topic Title and User ID
-        # We need the user_id to correctly attribute the subtopics and check permissions
+
+        # 1. Fetch topic metadata
         topic_res = supabase.table('research_topics').select('title, user_id').eq('id', topic_id).single().execute()
-        
+
         if not topic_res.data:
             return jsonify(ErrorResponse(
                 error="not_found",
@@ -403,62 +400,55 @@ async def generate_subtopics(topic_id):
                 error_code="NOT_FOUND",
                 status=404
             ).dict()), 404
-            
+
         topic_title = topic_res.data['title']
-        user_id = topic_res.data['user_id']
-        
-        # 2. Trigger Enhanced Decomposition Service
-        # This is an async call that performs the heavy lifting
-        result = await enhanced_decomposition_service.decompose_topic_enhanced(
-            query=topic_title,
-            user_id=user_id,
-            max_subtopics=12  # Generate a good number of options
-        )
-        
-        if not result.get("success"):
-            raise Exception(result.get("message", "Decomposition failed"))
-            
-        enhanced_subtopics_data = result.get("subtopics", [])
-        
-        # 3. Save Verified Subtopics to Database
-        saved_subtopics = []
-        
-        for sub_data in enhanced_subtopics_data:
-            # Map EnhancedSubtopic dictionary to what SubtopicsService expects
-            # The enhanced service returns a dict representation of EnhancedSubtopic
-            
-            # Construct trend_data for rich persistence
-            trend_data = {
-                "trend_score": 80,  # Default high score for verified items, or extract if available
-                "seo_difficulty": sub_data.get("keyword_difficulty", 50),
-                "search_volume": sub_data.get("search_volume", 0),
-                "cpc": sub_data.get("cpc", 0.0),
-                "keywords": sub_data.get("seed_keywords", []),
-                "rationale": sub_data.get("rationale"),
-                "target_audience": sub_data.get("target_audience"),
-                "trend_analysis": sub_data.get("trend_analysis"),
-                "monetization": sub_data.get("monetization_data")
-            }
-            
-            # Create subtopic record
-            saved_subtopic = await subtopics_service.create(
-                research_topic_id=topic_id,
-                name=sub_data.get("title"),
+        user_id     = topic_res.data['user_id']
+
+        # 2. Run the async decomposition pipeline synchronously
+        async def _run():
+            result = await enhanced_decomposition_service.decompose_topic_enhanced(
+                query=topic_title,
                 user_id=user_id,
-                trend_data=trend_data
+                max_subtopics=12
             )
-            
-            if saved_subtopic:
-                saved_subtopics.append(saved_subtopic)
-                
-        # 4. Return results (Mapped to frontend expectations)
-        # Frontend expects { items: Subtopic[], total: number }
+
+            if not result.get("success"):
+                raise Exception(result.get("message", "Decomposition failed"))
+
+            enhanced_subtopics_data = result.get("subtopics", [])
+            saved_subtopics = []
+
+            for sub_data in enhanced_subtopics_data:
+                trend_data = {
+                    "trend_score":    80,
+                    "seo_difficulty": sub_data.get("keyword_difficulty", 50),
+                    "search_volume":  sub_data.get("search_volume", 0),
+                    "cpc":            sub_data.get("cpc", 0.0),
+                    "keywords":       sub_data.get("seed_keywords", []),
+                    "rationale":      sub_data.get("rationale"),
+                    "target_audience": sub_data.get("target_audience"),
+                    "trend_analysis": sub_data.get("trend_analysis"),
+                    "monetization":   sub_data.get("monetization_data"),
+                }
+                saved = await subtopics_service.create(
+                    research_topic_id=topic_id,
+                    name=sub_data.get("title"),
+                    user_id=user_id,
+                    trend_data=trend_data,
+                )
+                if saved:
+                    saved_subtopics.append(saved)
+
+            return saved_subtopics, result
+
+        saved_subtopics, result = asyncio.run(_run())
+
         return jsonify({
             "items": saved_subtopics,
             "total": len(saved_subtopics),
             "meta": {
-                "processing_time": result.get("processing_time"),
-                "enhancement_methods": result.get("enhancement_methods")
+                "processing_time":    result.get("processing_time"),
+                "enhancement_methods": result.get("enhancement_methods"),
             }
         }), 200
 
@@ -470,4 +460,5 @@ async def generate_subtopics(topic_id):
             error_code="INTERNAL_ERROR",
             status=500
         ).dict()), 500
+
 
