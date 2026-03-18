@@ -136,55 +136,102 @@ Respond ONLY with a valid JSON array in this exact format:
 
 Do not include any text before or after the JSON array."""
 
-    # ── Call LLM ──────────────────────────────────────────────────────────────
-    try:
-        provider, model, api_key = _get_llm_config()
-    except RuntimeError as e:
-        return jsonify({"error": str(e)}), 503
+    # ── Call LLM — try providers in priority order, skip on auth errors ──────
+    PROVIDER_PRIORITY = [
+        lambda s: ('gemini',     s.get('geminiModel') or 'gemini-1.5-flash',  s['geminiKey'])      if s.get('geminiKey')         else None,
+        lambda s: ('openai',     s.get('openAIModel') or 'gpt-4o-mini',       s['openAIKey'])      if s.get('openAIKey')         else None,
+        lambda s: ('anthropic',  'claude-3-haiku-20240307',                   s['claudeKey'])      if s.get('claudeKey')         else None,
+        lambda s: ('perplexity', s.get('perplexityModel') or 'llama-3.1-sonar-small-128k-online', s['perplexityAI_key']) if s.get('perplexityAI_key') else None,
+    ]
 
+    # Fetch settings once
     try:
-        # Handle Perplexity separately (OpenAI-compatible but different base URL)
-        if provider == 'perplexity':
-            import openai
-            client = openai.OpenAI(
-                api_key=api_key,
-                base_url="https://api.perplexity.ai"
-            )
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
+        from supabase_client import get_supabase_client as _gsb
+    except ImportError:
+        import sys as _sys
+        _sys.path.append(os.getcwd())
+        from supabase_client import get_supabase_client as _gsb
+
+    _sb = _gsb()
+    _res = _sb.table('application_settings').select(
+        'geminiKey, geminiModel, openAIKey, openAIModel, perplexityAI_key, perplexityModel, claudeKey'
+    ).eq('id', 1).single().execute()
+    _s = _res.data or {}
+
+    import sys as _sys2
+    _sys2.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__))
+    ))))
+    from llm_client_direct import create_llm_client
+
+    raw_content = None
+    last_error = None
+
+    for provider_fn in PROVIDER_PRIORITY:
+        creds = provider_fn(_s)
+        if not creds:
+            continue
+        provider, model, api_key = creds
+
+        try:
+            if provider == 'perplexity':
+                import openai as _oai
+                _client = _oai.OpenAI(api_key=api_key, base_url="https://api.perplexity.ai")
+                _resp = _client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user",   "content": user_prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=1500
+                )
+                raw_content = _resp.choices[0].message.content
+            else:
+                # Single attempt — no retries for auth-type errors
+                llm = create_llm_client(
+                    provider=provider,
+                    model=model,
+                    api_key=api_key,
+                    temperature=0.7,
+                    max_tokens=1500,
+                    timeout=60,
+                    max_retries=0   # Don't retry on first provider; move to next on failure
+                )
+                raw_content = llm.generate([
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.7,
-                max_tokens=1500
-            )
-            raw_content = response.choices[0].message.content
-        else:
-            # Use the existing LLMClient for all other providers
-            import sys
-            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
-                os.path.dirname(os.path.abspath(__file__))
-            ))))
-            from llm_client_direct import create_llm_client
+                    {"role": "user",   "content": user_prompt}
+                ]).content
 
-            llm = create_llm_client(
-                provider=provider,
-                model=model,
-                api_key=api_key,
-                temperature=0.7,
-                max_tokens=1500,
-                timeout=60
-            )
-            llm_response = llm.generate([
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+            logger.info(f"propose-topics: succeeded with provider={provider} model={model}")
+            break  # success — stop trying other providers
+
+        except Exception as e:
+            err_str = str(e).lower()
+            is_auth_err = any(kw in err_str for kw in [
+                'api key', 'api_key', 'invalid_argument', 'expired',
+                'authentication', 'unauthorized', 'permission', 'quota'
             ])
-            raw_content = llm_response.content
+            last_error = e
+            if is_auth_err:
+                logger.warning(f"propose-topics: auth/key error for provider={provider} ({e.__class__.__name__}), trying next provider")
+            else:
+                logger.error(f"propose-topics: non-auth error for provider={provider}: {e}", exc_info=True)
+            continue
 
-    except Exception as e:
-        logger.error(f"LLM call failed for propose-topics: {e}", exc_info=True)
-        return jsonify({"error": f"LLM generation failed: {str(e)}"}), 500
+    if raw_content is None:
+        # All providers failed
+        err_msg = str(last_error) if last_error else "Unknown error"
+        is_key_issue = last_error and any(kw in str(last_error).lower() for kw in [
+            'api key', 'expired', 'invalid_argument', 'unauthorized', 'quota'
+        ])
+        if is_key_issue:
+            return jsonify({
+                "error": "Your LLM API key is expired or invalid. Please update it in Settings → Content Generation and try again."
+            }), 503
+
+        logger.error(f"propose-topics: all providers failed. Last error: {err_msg}", exc_info=True)
+        return jsonify({"error": f"LLM generation failed: {err_msg}"}), 500
 
     # ── Parse LLM response ────────────────────────────────────────────────────
     try:
