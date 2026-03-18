@@ -1,14 +1,16 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
     Sparkles, Newspaper, PenLine, BookOpen,
-    Search, ArrowRight, Loader2, Zap, Lock
+    Search, ArrowRight, Loader2, Zap, Lock, Clock, FlaskConical
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProject } from '@/context/project-context';
+import { useAuth } from '@/context/auth-context';
 import { ProjectSwitcher } from '@/components/layout/ProjectSwitcher';
 import { TrendReportModal } from '@/components/TrendReportModal';
 import { researchTopicsService } from '@/services/research-topics.service';
+import type { ResearchTopic } from '@/types/research';
 import { apiClient } from '@/api-client';
 
 // ─── Propose-Topics Modal ─────────────────────────────────────────────────────
@@ -124,7 +126,21 @@ export function Landing() {
     // News Pulse state
     const [trendOpen, setTrendOpen] = useState(false);
 
-    // ── Topic Explosion ──────────────────────────────────────────────────────
+    // Recent Topics state
+    const { user } = useAuth();
+    const [recentTopics, setRecentTopics] = useState<ResearchTopic[]>([]);
+    const [topicsLoading, setTopicsLoading] = useState(false);
+
+    useEffect(() => {
+        if (!user) return;
+        setTopicsLoading(true);
+        researchTopicsService.listResearchTopics({ order_by: 'created_at', order_direction: 'desc', size: 6 })
+            .then(r => setRecentTopics(r.items || []))
+            .catch(() => {})
+            .finally(() => setTopicsLoading(false));
+    }, [user]);
+
+
     const handleTopicExplosion = async () => {
         if (!searchTerm.trim() || !activeProject) return;
         setIsExploding(true);
@@ -351,6 +367,53 @@ export function Landing() {
                         </Link>
                     </div>
                 </motion.div>
+
+                {/* ── Recent Research Topics ───────────────────────────────── */}
+
+                {(recentTopics.length > 0 || topicsLoading) && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.5, delay: 0.35 }}
+                        className="border-t border-white/5 pt-8 mt-2"
+                    >
+                        <div className="flex items-center justify-between mb-4">
+                            <p className="text-xs text-slate-600 uppercase tracking-widest font-medium">Recent Research Topics</p>
+                            <Link to="/research" className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">View all →</Link>
+                        </div>
+
+                        {topicsLoading ? (
+                            <div className="flex gap-3">
+                                {[1,2,3].map(i => (
+                                    <div key={i} className="flex-1 h-16 rounded-xl bg-white/4 animate-pulse" />
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {recentTopics.map(topic => (
+                                    <Link
+                                        key={topic.id}
+                                        to={`/research/${topic.id}`}
+                                        className="group flex items-center gap-3 px-4 py-3 rounded-xl bg-white/4 border border-white/6 hover:border-indigo-500/30 hover:bg-indigo-500/6 transition-all duration-200"
+                                    >
+                                        <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
+                                            <FlaskConical className="w-4 h-4 text-indigo-400" />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-sm font-medium text-white group-hover:text-indigo-300 transition-colors truncate">{topic.title}</p>
+                                            <p className="text-[11px] text-slate-600 flex items-center gap-1 mt-0.5">
+                                                <Clock className="w-3 h-3" />
+                                                {new Date(topic.created_at).toLocaleDateString()}
+                                            </p>
+                                        </div>
+                                        <ArrowRight className="w-4 h-4 text-slate-700 group-hover:text-indigo-400 flex-shrink-0 transition-colors" />
+                                    </Link>
+                                ))}
+                            </div>
+                        )}
+                    </motion.div>
+                )}
+
             </div>
 
             {/* ── Modals ──────────────────────────────────────────────────────── */}
