@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import html
+import sys
 import concurrent.futures
 import asyncio
 from datetime import datetime
@@ -19,6 +20,16 @@ from supabase_client import get_supabase_client, get_llm_api_key, get_linkup_api
 # Setup logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+def _ensure_project_root_on_path() -> None:
+    """
+    Ensure imports like `src.services...` work even if the worker starts
+    from a non-project working directory.
+    """
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
 
 # Task status constants
 TASK_STATUS = {
@@ -2392,6 +2403,8 @@ def process_trend_task(self, site_id: str) -> Dict[str, Any]:
     logger.info(f"Starting trend analysis task for site_id: {site_id}")
     
     try:
+        _ensure_project_root_on_path()
+
         # Import here to avoid circular dependencies if any
         from src.services.trend_engine import TrendEngine
         
