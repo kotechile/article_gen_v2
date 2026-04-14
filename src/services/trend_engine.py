@@ -31,7 +31,7 @@ class TrendEngine:
         # 1. Database Extraction
         site = self._get_site_details(site_id)
         if not site:
-            logger.error(f"Site ID {site_id} not found in wordPress_details")
+            logger.error(f"Site/Project ID {site_id} not found in projects or wordPress_details")
             raise ValueError(f"Site ID {site_id} not found")
 
         # 'categories' might be a JSON array or text list. Assuming JSON array or comma-separated string.
@@ -118,8 +118,14 @@ class TrendEngine:
         # Fetch recent articles for context to avoid duplication
         recent_posts = []
         try:
-             # Fetch last 10 posts for this site
-             rp_resp = self.supabase.table('wordpress_imported_posts').select('title').eq('wordpress_detail_id', site_id).order('created_at', desc=True).limit(10).execute()
+             # Fetch last 10 posts for this site/project.
+             # Modern UI passes a `projects.id` UUID; legacy flows may still use `wordPress_details.id`.
+             posts_query = self.supabase.table('wordpress_imported_posts').select('title').order('created_at', desc=True).limit(10)
+             if site.get('_source_table') == 'projects' and site.get('user_id'):
+                 posts_query = posts_query.eq('user_id', site['user_id'])
+             else:
+                 posts_query = posts_query.eq('wordpress_detail_id', site_id)
+             rp_resp = posts_query.execute()
              if rp_resp.data:
                  recent_posts = [p['title'] for p in rp_resp.data]
         except Exception as e:
@@ -150,20 +156,35 @@ class TrendEngine:
         
         # 7. Database Update
         logger.info("Saving report to DB...")
-        self._save_report(site_id, full_report)
+        self._save_report(site, full_report)
         
         return full_report
     
     def _get_site_details(self, site_id: str) -> Optional[Dict[str, Any]]:
         """
-        Fetch a site's configuration from `wordPress_details`.
+        Fetch a site's configuration from the modern `projects` table first,
+        then fall back to legacy `wordPress_details`.
         """
         try:
             if not self.supabase:
                 logger.error("Supabase client is not initialized")
                 return None
 
-            response = (
+            project_response = (
+                self.supabase
+                .table('projects')
+                .select('*')
+                .eq('id', site_id)
+                .limit(1)
+                .execute()
+            )
+            if project_response.data:
+                return {
+                    **project_response.data[0],
+                    '_source_table': 'projects',
+                }
+
+            legacy_response = (
                 self.supabase
                 .table('wordPress_details')
                 .select('*')
@@ -171,9 +192,11 @@ class TrendEngine:
                 .limit(1)
                 .execute()
             )
-
-            if response.data:
-                return response.data[0]
+            if legacy_response.data:
+                return {
+                    **legacy_response.data[0],
+                    '_source_table': 'wordPress_details',
+                }
 
             return None
         except Exception as e:
@@ -307,10 +330,15 @@ class TrendEngine:
             logger.error(f"Synthesis failed: {e}")
             return {"error": "Failed to generate insights", "raw_content": str(e)}
 
-    def _save_report(self, site_id: str, report: Dict[str, Any]):
+    def _save_report(self, site: Dict[str, Any], report: Dict[str, Any]):
         try:
-             # Use jsonb column
-             self.supabase.table('wordPress_details').update({'last_trend_report': report}).eq('id', site_id).execute()
+             source_table = site.get('_source_table', 'wordPress_details')
+             record_id = site.get('id')
+             if not record_id:
+                 logger.error("Cannot save trend report without a record id")
+                 return
+
+             self.supabase.table(source_table).update({'last_trend_report': report}).eq('id', record_id).execute()
         except Exception as e:
             logger.error(f"Failed to save report to DB: {e}")
 
