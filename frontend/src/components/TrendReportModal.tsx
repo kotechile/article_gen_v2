@@ -11,7 +11,16 @@ interface TrendReport {
             title: string;
             rationale: string;
             suggested_angle: string;
+            pain_point?: string;
+            source_signal?: string;
         }>;
+        pain_points?: Array<{
+            source: string;
+            question: string;
+            hook: string;
+        }>;
+        error?: string;
+        raw_content?: string;
     };
     raw_data: {
         keywords: Array<{
@@ -53,6 +62,12 @@ export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, site
     const [report, setReport] = useState<TrendReport | null>(null);
     const [error, setError] = useState<string | null>(null);
     // const [pollCount, setPollCount] = useState(0);
+
+    const topics = report?.report_content?.topics || [];
+    const painPoints = report?.report_content?.pain_points || report?.pain_points || [];
+    const keywords = report?.raw_data?.keywords || [];
+    const newsItems = report?.raw_data?.news || [];
+    const synthesisError = report?.report_content?.error;
 
     useEffect(() => {
         if (isOpen && siteId) {
@@ -171,14 +186,21 @@ export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, site
                     ) : report ? (
                         <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
 
+                            {synthesisError && (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+                                    AI synthesis returned a partial result, so some sections may be incomplete: {synthesisError}
+                                </div>
+                            )}
+
                             {/* 1. Content Opportunities (Gemini) */}
                             <section>
                                 <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-gray-900 dark:text-white">
                                     <FileText className="w-5 h-5 text-indigo-500" />
                                     AI Content Opportunities
                                 </h3>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    {report.report_content?.topics?.map((topic, i) => (
+                                {topics.length > 0 ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        {topics.map((topic, i) => (
                                         <Card key={i} className="bg-indigo-50/30 dark:bg-indigo-900/10 border-indigo-100 dark:border-indigo-800 hover:shadow-md transition-shadow">
                                             <CardContent className="p-5 space-y-3">
                                                 <h4 className="font-bold text-indigo-900 dark:text-indigo-100 leading-tight">{topic.title}</h4>
@@ -186,25 +208,36 @@ export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, site
                                                     <p className="text-xs font-semibold uppercase text-gray-500">Why it's trending</p>
                                                     <p className="text-sm text-gray-600 dark:text-gray-300">{topic.rationale}</p>
                                                 </div>
+                                                {topic.pain_point && (
+                                                    <div className="pt-2 border-t border-indigo-100 dark:border-indigo-800/50">
+                                                        <p className="text-xs font-semibold uppercase text-gray-500 mb-1">Pain Point</p>
+                                                        <p className="text-sm text-gray-600 dark:text-gray-300">{topic.pain_point}</p>
+                                                    </div>
+                                                )}
                                                 <div className="pt-2 border-t border-indigo-100 dark:border-indigo-800/50">
                                                     <p className="text-xs font-semibold uppercase text-gray-500 mb-1">Suggested Angle</p>
                                                     <p className="text-sm text-gray-600 dark:text-gray-300 italic">"{topic.suggested_angle}"</p>
                                                 </div>
                                             </CardContent>
                                         </Card>
-                                    ))}
-                                </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 p-4 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-400">
+                                        No AI content opportunities were returned for this run. The source data may have been too narrow or the AI synthesis may have produced only partial output.
+                                    </div>
+                                )}
                             </section>
 
                             {/* SOCIAL PULSE / PAIN POINTS SECTION */}
-                            {report.pain_points && report.pain_points.length > 0 && (
+                            {painPoints.length > 0 && (
                                 <section>
                                     <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-gray-900 dark:text-white">
                                         <MessageCircle className="w-5 h-5 text-blue-500" />
                                         Social Pulse (Pain Points)
                                     </h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                        {report.pain_points.map((pp: any, idx: number) => (
+                                        {painPoints.map((pp: any, idx: number) => (
                                             <Card key={idx} className="bg-slate-50 dark:bg-slate-900 border-none">
                                                 <CardContent className="p-4 space-y-3">
                                                     <div className="flex items-center justify-between">
@@ -237,8 +270,9 @@ export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, site
                                         <ArrowUpRight className="w-5 h-5 text-green-500" />
                                         Growing Search Terms
                                     </h3>
-                                    <div className="space-y-3">
-                                        {report.raw_data?.keywords?.map((kw, i) => (
+                                    {keywords.length > 0 ? (
+                                        <div className="space-y-3">
+                                            {keywords.map((kw, i) => (
                                             <div key={i} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-700">
                                                 <div>
                                                     <p className="font-medium text-gray-900 dark:text-gray-100">{kw.keyword}</p>
@@ -250,8 +284,13 @@ export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, site
                                                     </span>
                                                 </div>
                                             </div>
-                                        ))}
-                                    </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 p-4 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-400">
+                                            No growing search terms were found for this run. That usually means the keyword source returned sparse or off-niche data.
+                                        </div>
+                                    )}
                                 </section>
 
                                 {/* News */}
@@ -261,12 +300,17 @@ export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, site
                                         Recent News Headlines
                                     </h3>
                                     <div className="space-y-3">
-                                        {report.raw_data?.news?.map((item, i) => (
+                                        {newsItems.map((item, i) => (
                                             <a key={i} href={item.url} target="_blank" rel="noopener noreferrer" className="block p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-700 hover:bg-gray-100 transition-colors group">
                                                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100 group-hover:text-blue-600 line-clamp-2">{item.title}</p>
                                                 <p className="text-xs text-gray-400 mt-1">{item.source}</p>
                                             </a>
                                         ))}
+                                        {newsItems.length === 0 && (
+                                            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 p-4 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-400">
+                                                No recent news headlines were returned for this niche.
+                                            </div>
+                                        )}
                                     </div>
                                 </section>
                             </div>
