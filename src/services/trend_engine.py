@@ -2,6 +2,7 @@
 import logging
 import json
 import asyncio
+import re
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
@@ -45,11 +46,16 @@ class TrendEngine:
             except:
                 categories = [c.strip() for c in raw_categories.split(',')]
         
-        site_description = site.get('site_description') or "A general interest website."
+        site_description = (
+            site.get('site_description')
+            or site.get('websiteDescription')
+            or "A general interest website."
+        )
+        focus_topics = self._build_focus_topics(site, categories, site_description)
         
         # 2. DataForSEO Integration (Keyword Ideas - Standard Method)
-        # Use first category as seed, or site description keywords
-        seed_keyword = categories[0] if categories else "trends"
+        # Use niche-specific focus topics first, then categories as fallback.
+        seed_keyword = focus_topics[0] if focus_topics else (categories[0] if categories else "trends")
         
         logger.info(f"Fetching keyword ideas (Standard/Queued) for seed: {seed_keyword}")
         
@@ -72,8 +78,8 @@ class TrendEngine:
         logger.info(f"Found {len(top_growing)} growing keywords.")
 
         # 3. News Aggregation (Standard Method)
-        # Query: site's categories
-        news_query = " ".join(categories[:3]) if categories else seed_keyword
+        # Query should stay tightly aligned to the site's actual niche.
+        news_query = " ".join(focus_topics[:3]) if focus_topics else (" ".join(categories[:3]) if categories else seed_keyword)
         logger.info(f"Fetching news (Standard/Queued) for query: {news_query}")
         
         news_articles = await self.dfs.get_news_search_standard(keyword=news_query, limit=5)
@@ -135,6 +141,7 @@ class TrendEngine:
         trend_report_content = await self._generate_synthesis(
             site_description=site_description,
             categories=categories,
+            focus_topics=focus_topics,
             keywords=top_growing,
             news=news_articles,
             pinterest=pinterest_trends,
@@ -255,17 +262,78 @@ class TrendEngine:
         )
 
         return [kw for kw in processed_keywords if (kw.get("growth_pct") or 0) >= 0]
+
+    def _build_focus_topics(self, site: Dict[str, Any], categories: List[str], site_description: str) -> List[str]:
+        """
+        Build niche-specific topics from saved project metadata so external queries
+        stay anchored to the actual site instead of drifting into generic trends.
+        """
+        candidates: List[str] = []
+
+        target_keywords = site.get('target_keywords') or []
+        if isinstance(target_keywords, str):
+            try:
+                target_keywords = json.loads(target_keywords)
+            except Exception:
+                target_keywords = [k.strip() for k in target_keywords.split(',') if k.strip()]
+
+        if isinstance(target_keywords, list):
+            candidates.extend([str(k).strip() for k in target_keywords if str(k).strip()])
+
+        candidates.extend([c.strip() for c in categories if isinstance(c, str) and c.strip()])
+
+        if site_description:
+            cleaned = re.sub(r'\s+', ' ', site_description).strip()
+            phrase_candidates = re.split(r'[.;]|\band\b', cleaned, flags=re.IGNORECASE)
+            for phrase in phrase_candidates:
+                phrase = phrase.strip(" ,:-")
+                if not phrase:
+                    continue
+
+                lower_phrase = phrase.lower()
+                skip_markers = (
+                    "wellroost transforms",
+                    "tailored to individual needs",
+                    "their products and services",
+                    "enjoy automation",
+                    "lower utility bills",
+                    "personalized home improvements",
+                    "elevate your living experience",
+                    "diy-friendly approach",
+                    "creating your dream space",
+                )
+                if any(marker in lower_phrase for marker in skip_markers):
+                    continue
+
+                if 2 <= len(phrase.split()) <= 6:
+                    candidates.append(phrase)
+
+        seen = set()
+        focus_topics = []
+        for candidate in candidates:
+            normalized = candidate.strip().lower()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            focus_topics.append(candidate.strip())
+            if len(focus_topics) >= 6:
+                break
+
+        return focus_topics
     
     # ... (helper methods) ...
 
-    async def _generate_synthesis(self, site_description: str, categories: List[str], keywords, news, pinterest, social_pulse, recent_posts: List[str] = []) -> Any:
+    async def _generate_synthesis(self, site_description: str, categories: List[str], focus_topics: List[str], keywords, news, pinterest, social_pulse, recent_posts: List[str] = []) -> Any:
         
         prompt = f"""
-        Act as a content director for the following website:
+        Act as a content director and niche editor for the following website.
+
+        SITE NICHE:
         Description: {site_description}
         Categories: {', '.join(categories)}
+        Core Focus Topics: {', '.join(focus_topics)}
 
-        We want to create NEW, TRENDING content.
+        We want to create NEW, TRENDING content that is tightly aligned to this site's niche.
         
         CONTEXT:
         We have already published articles on the following topics (DO NOT suggest duplicates):
@@ -286,16 +354,21 @@ class TrendEngine:
         {json.dumps(social_pulse, indent=2)}
 
         Instructions:
-        1. Check the Reddit/Quora/LinkedIn discussions. What specific problems or "pain points" are people complaining about?
-        2. Suggest 3 high-impact blog post topics.
-        3. For each, include a 'Why it's trending' section explaining the data.
-        4. Include a 'Pain Point' section identifying the specific user frustration (e.g., "Why is X so hard?").
-        5. Provide the output in strictly valid JSON format with the following structure:
+        1. First infer the site's true niche from the description and core focus topics.
+        2. Reject any keyword, headline, Pinterest idea, or social discussion that does NOT clearly relate to the site's niche.
+        3. Do NOT suggest off-topic lifestyle content such as fashion, beauty, celebrity, dating, generic women's lifestyle, or unrelated wellness unless it is explicitly supported by the site's niche description.
+        4. Favor topics connected to home improvement, smart home technology, energy management, home security, outdoor living, DIY upgrades, efficient home office setups, water systems, or waste solutions when the data supports them.
+        5. Check the Reddit/Quora/LinkedIn discussions. What specific homeowner or DIY pain points are people complaining about?
+        6. Suggest exactly 3 high-impact blog post topics that would make sense for this site to publish.
+        7. For each topic, explain specifically why it fits THIS site, not just why it is trending generally.
+        8. Include a 'Pain Point' section identifying the specific user frustration.
+        9. If the source data is weak or partially irrelevant, still stay on-niche and use only the relevant fragments.
+        10. Provide the output in strictly valid JSON format with the following structure:
         {{
             "topics": [
                 {{
                     "title": "Topic Title",
-                    "rationale": "Why it's trending...",
+                    "rationale": "Why it's trending and why it fits this site's niche...",
                     "suggested_angle": "How to approach it...",
                     "pain_point": "Specific user problem found in social data",
                     "source_signal": "Reddit/LinkedIn/News"
