@@ -154,6 +154,85 @@ class TrendEngine:
         
         return full_report
     
+    def _get_site_details(self, site_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a site's configuration from `wordPress_details`.
+        """
+        try:
+            if not self.supabase:
+                logger.error("Supabase client is not initialized")
+                return None
+
+            response = (
+                self.supabase
+                .table('wordPress_details')
+                .select('*')
+                .eq('id', site_id)
+                .limit(1)
+                .execute()
+            )
+
+            if response.data:
+                return response.data[0]
+
+            return None
+        except Exception as e:
+            logger.error(f"Failed to fetch site details for {site_id}: {e}")
+            return None
+
+    def _process_keywords_for_growth(self, keyword_ideas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Rank keyword ideas by year-over-year growth while favoring lower competition.
+        """
+        processed_keywords = []
+
+        competition_rank = {
+            "LOW": 0,
+            "MEDIUM": 1,
+            "HIGH": 2,
+            "UNKNOWN": 3,
+        }
+
+        for item in keyword_ideas or []:
+            monthly_searches = item.get("monthly_searches") or []
+            current_volume = item.get("search_volume") or 0
+            prior_volume = 0
+
+            if isinstance(monthly_searches, list) and len(monthly_searches) >= 12:
+                latest = monthly_searches[0] or {}
+                year_ago = monthly_searches[11] or {}
+                current_volume = latest.get("search_volume", current_volume) or current_volume
+                prior_volume = year_ago.get("search_volume", 0) or 0
+            elif isinstance(monthly_searches, list) and len(monthly_searches) >= 2:
+                latest = monthly_searches[0] or {}
+                previous = monthly_searches[-1] or {}
+                current_volume = latest.get("search_volume", current_volume) or current_volume
+                prior_volume = previous.get("search_volume", 0) or 0
+
+            if prior_volume > 0:
+                growth_pct = ((current_volume - prior_volume) / prior_volume) * 100
+            elif current_volume > 0:
+                growth_pct = 100.0
+            else:
+                growth_pct = 0.0
+
+            processed = {
+                **item,
+                "growth_pct": round(growth_pct, 1),
+                "growth_formatted": f"{growth_pct:+.1f}%",
+            }
+            processed_keywords.append(processed)
+
+        processed_keywords.sort(
+            key=lambda kw: (
+                competition_rank.get((kw.get("competition") or "UNKNOWN").upper(), 3),
+                -(kw.get("growth_pct") or 0),
+                -(kw.get("search_volume") or 0),
+            )
+        )
+
+        return [kw for kw in processed_keywords if (kw.get("growth_pct") or 0) >= 0]
+    
     # ... (helper methods) ...
 
     async def _generate_synthesis(self, site_description: str, categories: List[str], keywords, news, pinterest, social_pulse, recent_posts: List[str] = []) -> Any:
@@ -259,4 +338,3 @@ class TrendEngine:
             logger.warning(f"Failed to fetch LLM config from DB, using defaults: {e}")
             
         return default_provider, default_model
-
