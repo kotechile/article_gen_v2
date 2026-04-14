@@ -71,7 +71,7 @@ export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, site
         // setPollCount(0);
 
         try {
-            const startRes = await apiClient.post<any>(`/trends/${siteId}`);
+            const startRes = await apiClient.post<any>(`/v1/trends/${siteId}`);
             if (startRes.task_id) {
                 pollTask(startRes.task_id);
             } else {
@@ -89,7 +89,7 @@ export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, site
         console.log("Polling task:", taskId);
         const interval = setInterval(async () => {
             try {
-                const statusRes = await apiClient.get<any>(`/trends/task/${taskId}`);
+                const statusRes = await apiClient.get<any>(`/v1/trends/task/${taskId}`);
                 console.log("Poll Status:", statusRes);
 
                 if (statusRes.status === 'SUCCESS' && statusRes.result) {

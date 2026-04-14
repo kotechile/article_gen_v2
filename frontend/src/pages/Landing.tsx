@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
     Sparkles, Newspaper, PenLine, BookOpen,
-    Search, ArrowRight, Loader2, Zap, Lock, Clock, FlaskConical
+    Search, ArrowRight, Loader2, Zap, Lock, Clock, FlaskConical, Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProject } from '@/context/project-context';
@@ -125,6 +125,7 @@ export function Landing() {
 
     // News Pulse state
     const [trendOpen, setTrendOpen] = useState(false);
+    const [showDesc, setShowDesc] = useState(false);
 
     // Recent Topics state
     const { user } = useAuth();
@@ -218,20 +219,32 @@ export function Landing() {
                     transition={{ duration: 0.5, delay: 0.05 }}
                     className="text-center mb-10"
                 >
-                    <h2 className="text-4xl md:text-5xl font-extrabold tracking-tight text-white leading-tight mb-3">
+                    <h2 className="text-4xl md:text-5xl font-extrabold tracking-tight text-white leading-tight mb-3 flex items-center justify-center flex-wrap gap-2">
                         {hasProject
-                            ? <>Working in <span className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">{activeProject.domain || activeProject.app_name}</span></>
+                            ? <>Working in <span className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">{activeProject.domain || activeProject.app_name}</span>
+                               <button onClick={() => setShowDesc(!showDesc)} className="text-slate-500 hover:text-indigo-400 transition-colors mt-2 md:mt-0" title="Toggle Description">
+                                   <Info className="w-6 h-6 md:w-8 md:h-8" />
+                               </button>
+                              </>
                             : 'Select a Project to Begin'
                         }
                     </h2>
-                    <p className="text-slate-400 text-base md:text-lg max-w-xl mx-auto">
-                        {hasProject && (activeProject.site_description || activeProject.websiteDescription)
-                            ? (activeProject.site_description || activeProject.websiteDescription)
-                            : hasProject
-                                ? 'No niche description set — add one in Settings.'
-                                : 'Choose a project from the dropdown above to activate your Command Center.'
-                        }
-                    </p>
+                    <AnimatePresence>
+                    {(!hasProject || showDesc) && (
+                        <motion.p 
+                            initial={hasProject ? { opacity: 0, height: 0 } : false}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="text-slate-400 text-base md:text-lg max-w-xl mx-auto overflow-hidden">
+                            {hasProject && (activeProject.site_description || activeProject.websiteDescription)
+                                ? (activeProject.site_description || activeProject.websiteDescription)
+                                : hasProject
+                                    ? 'No niche description set — add one in Settings.'
+                                    : 'Choose a project from the dropdown above to activate your Command Center.'
+                            }
+                        </motion.p>
+                    )}
+                    </AnimatePresence>
                 </motion.div>
 
                 {/* ── Action Hero Section ───────────────────────────────────────── */}
