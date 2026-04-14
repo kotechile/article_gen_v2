@@ -15,6 +15,19 @@ from celery import current_task
 from celery_config import celery
 from supabase_client import get_supabase_client, get_llm_api_key, get_linkup_api_key, get_default_llm_provider
 
+# Setup logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Task status constants
+TASK_STATUS = {
+    'PENDING': 'PENDING',
+    'PROGRESS': 'PROGRESS', 
+    'SUCCESS': 'SUCCESS',
+    'FAILURE': 'FAILURE',
+    'CANCELLED': 'CANCELLED'
+}
+
 # ...
 
 @celery.task(bind=True, name='content_generator_v2.tasks.research.process_research_task')
