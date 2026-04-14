@@ -9,6 +9,7 @@ import os
 import re
 import html
 import concurrent.futures
+import asyncio
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from celery import current_task
