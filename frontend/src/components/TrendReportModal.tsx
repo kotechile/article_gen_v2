@@ -94,6 +94,14 @@ export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, site
 
                 if (statusRes.status === 'SUCCESS' && statusRes.result) {
                     clearInterval(interval);
+                    
+                    // Check if celerey returned a nested 'FAILURE' dictionary
+                    if (statusRes.result.status === 'FAILURE') {
+                        setError(statusRes.result.error || "Analysis failed during execution.");
+                        setLoading(false);
+                        return;
+                    }
+
                     // result.result contains the full report from engine
                     setReport(statusRes.result.result);
                     setLoading(false);

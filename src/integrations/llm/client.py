@@ -71,7 +71,7 @@ class LLMClient:
         
         self.retry_handler = RetryHandler(
             max_retries=max_retries,
-            retry_delay=retry_delay
+            base_delay=retry_delay
         )
         
         self.rate_limiter = RateLimiter(
