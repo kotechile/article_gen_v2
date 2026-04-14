@@ -64,6 +64,7 @@ def create_app(config_name: str = None) -> Flask:
     from .endpoints.research_topics import research_topics_bp
     from .endpoints.ai import ai_bp
     from .wordpress import wordpress_bp
+    from .trends import trends_bp
     
     # Register blueprints
     app.register_blueprint(research_bp)
@@ -72,6 +73,7 @@ def create_app(config_name: str = None) -> Flask:
     app.register_blueprint(research_topics_bp)
     app.register_blueprint(wordpress_bp)
     app.register_blueprint(ai_bp)
+    app.register_blueprint(trends_bp)
     
     # Register error handlers
     ErrorHandler.register_handlers(app)
