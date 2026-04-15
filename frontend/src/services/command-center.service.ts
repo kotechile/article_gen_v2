@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase'
 import { apiClient } from '@/api-client'
 import type { Project } from '@/types'
 import type { ProjectCategory, TopicCandidate, TopicCandidateSource } from '@/types/command-center'
+import { researchTopicsService } from './research-topics.service'
 
 interface TopicInsert {
   project_id: string
@@ -184,7 +185,6 @@ class CommandCenterService {
 
   async startResearch(input: StartResearchInput): Promise<Array<{ id: string; title: string }>> {
     const payload = input.topics.map((topic) => ({
-      user_id: input.userId,
       title: topic.title,
       description: this.buildResearchDescription(
         input.project,
@@ -192,7 +192,6 @@ class CommandCenterService {
         input.secondaryCategory,
         topic.title,
       ),
-      status: 'active',
       project_id: input.project.id,
       primary_category_id: input.primaryCategory.id,
       secondary_category_id: input.secondaryCategory?.id ?? null,
@@ -200,16 +199,8 @@ class CommandCenterService {
       source_topic_id: topic.id,
     }))
 
-    const { data, error } = await supabase
-      .from('research_topics')
-      .insert(payload)
-      .select('id, title')
-
-    if (error) {
-      throw error
-    }
-
-    return (data as Array<{ id: string; title: string }>) || []
+    const created = await researchTopicsService.bulkCreateResearchTopics(payload)
+    return created.map((topic) => ({ id: topic.id, title: topic.title }))
   }
 
   getSourceLabel(source: TopicCandidateSource): string {

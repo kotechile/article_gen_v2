@@ -150,6 +150,16 @@ export function TopicDetail() {
                                     }`}>
                                     {topic?.status || 'Unknown'}
                                 </span>
+                                {topic?.project_name && (
+                                    <span className="px-3 py-1 rounded-full text-xs font-medium border border-white/10 bg-white/5 text-slate-200">
+                                        {topic.project_name}
+                                    </span>
+                                )}
+                                {(topic?.primary_category_name || topic?.secondary_category_name) && (
+                                    <span className="px-3 py-1 rounded-full text-xs font-medium border border-indigo-500/20 bg-indigo-500/10 text-indigo-200">
+                                        {[topic.primary_category_name, topic.secondary_category_name].filter(Boolean).join(' / ')}
+                                    </span>
+                                )}
                             </div>
                         </div>
                     </div>

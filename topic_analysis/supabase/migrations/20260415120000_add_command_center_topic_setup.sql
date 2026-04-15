@@ -17,6 +17,7 @@ create unique index if not exists ux_project_categories_project_slug on public.p
 
 alter table public.project_categories enable row level security;
 
+drop policy if exists "Users can view their own project categories" on public.project_categories;
 create policy "Users can view their own project categories"
 on public.project_categories
 as permissive
@@ -24,6 +25,7 @@ for select
 to public
 using (auth.uid() = user_id);
 
+drop policy if exists "Users can insert their own project categories" on public.project_categories;
 create policy "Users can insert their own project categories"
 on public.project_categories
 as permissive
@@ -31,6 +33,7 @@ for insert
 to public
 with check (auth.uid() = user_id);
 
+drop policy if exists "Users can update their own project categories" on public.project_categories;
 create policy "Users can update their own project categories"
 on public.project_categories
 as permissive
@@ -38,6 +41,7 @@ for update
 to public
 using (auth.uid() = user_id);
 
+drop policy if exists "Users can delete their own project categories" on public.project_categories;
 create policy "Users can delete their own project categories"
 on public.project_categories
 as permissive
@@ -69,6 +73,7 @@ on public.project_topic_candidates (
 
 alter table public.project_topic_candidates enable row level security;
 
+drop policy if exists "Users can view their own project topic candidates" on public.project_topic_candidates;
 create policy "Users can view their own project topic candidates"
 on public.project_topic_candidates
 as permissive
@@ -76,6 +81,7 @@ for select
 to public
 using (auth.uid() = user_id);
 
+drop policy if exists "Users can insert their own project topic candidates" on public.project_topic_candidates;
 create policy "Users can insert their own project topic candidates"
 on public.project_topic_candidates
 as permissive
@@ -83,6 +89,7 @@ for insert
 to public
 with check (auth.uid() = user_id);
 
+drop policy if exists "Users can update their own project topic candidates" on public.project_topic_candidates;
 create policy "Users can update their own project topic candidates"
 on public.project_topic_candidates
 as permissive
@@ -90,6 +97,7 @@ for update
 to public
 using (auth.uid() = user_id);
 
+drop policy if exists "Users can delete their own project topic candidates" on public.project_topic_candidates;
 create policy "Users can delete their own project topic candidates"
 on public.project_topic_candidates
 as permissive

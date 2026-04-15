@@ -9,6 +9,14 @@ export interface ResearchTopic {
     updated_at: string
     user_id: string
     sub_topics?: string[]
+    project_id?: string | null
+    primary_category_id?: string | null
+    secondary_category_id?: string | null
+    topic_source?: string | null
+    source_topic_id?: string | null
+    project_name?: string | null
+    primary_category_name?: string | null
+    secondary_category_name?: string | null
 }
 
 export enum ResearchTopicStatus {
@@ -21,7 +29,14 @@ export interface ResearchTopicCreate {
     title: string
     description: string
     status?: ResearchTopicStatus
+    project_id?: string | null
+    primary_category_id?: string | null
+    secondary_category_id?: string | null
+    topic_source?: string | null
+    source_topic_id?: string | null
 }
+
+export interface ResearchTopicBulkCreateItem extends ResearchTopicCreate {}
 
 export interface ResearchTopicUpdate {
     title?: string
@@ -44,6 +59,9 @@ export interface ResearchTopicListParams {
     order_direction?: 'asc' | 'desc'
     page?: number
     size?: number
+    project_id?: string
+    primary_category_id?: string
+    secondary_category_id?: string
 }
 
 export interface ResearchTopicStats {

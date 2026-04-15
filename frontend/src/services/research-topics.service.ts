@@ -2,6 +2,7 @@ import { apiClient } from '../api-client'
 import type {
     ResearchTopic,
     ResearchTopicCreate,
+    ResearchTopicBulkCreateItem,
     ResearchTopicUpdate,
     ResearchTopicListResponse,
     ResearchTopicListParams,
@@ -17,6 +18,16 @@ class ResearchTopicsService {
             return response
         } catch (error) {
             console.error('Failed to create research topic:', error)
+            throw error
+        }
+    }
+
+    async bulkCreateResearchTopics(items: ResearchTopicBulkCreateItem[]): Promise<ResearchTopic[]> {
+        try {
+            const response = await apiClient.post<ResearchTopic[]>(`${this.baseUrl}/bulk-create`, { items })
+            return response
+        } catch (error) {
+            console.error('Failed to bulk create research topics:', error)
             throw error
         }
     }
@@ -58,6 +69,9 @@ class ResearchTopicsService {
             if (params?.order_direction) queryParams.append('order_direction', params.order_direction)
             if (params?.page) queryParams.append('page', params.page.toString())
             if (params?.size) queryParams.append('size', params.size.toString())
+            if (params?.project_id) queryParams.append('project_id', params.project_id)
+            if (params?.primary_category_id) queryParams.append('primary_category_id', params.primary_category_id)
+            if (params?.secondary_category_id) queryParams.append('secondary_category_id', params.secondary_category_id)
 
             const url = queryParams.toString() ? `${this.baseUrl}/?${queryParams}` : `${this.baseUrl}/`
             const response = await apiClient.get<ResearchTopicListResponse>(url)

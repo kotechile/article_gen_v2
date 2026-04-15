@@ -39,6 +39,91 @@ limiter = Limiter(
     storage_uri="memory://"
 )
 
+
+def _resolve_user_id_from_request(supabase, data=None):
+    """Resolve the authenticated Supabase user id from the bearer token or request payload."""
+    auth_header = request.headers.get('Authorization')
+    user_id = None
+
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split('Bearer ')[1]
+        try:
+            user_response = supabase.auth.get_user(token)
+            if user_response and user_response.user:
+                user_id = user_response.user.id
+        except Exception as auth_error:
+            logger.warning(f"Failed to validate token or get user: {auth_error}")
+
+    if not user_id and data and data.get('user_id'):
+        user_id = data['user_id']
+
+    return user_id
+
+
+def _get_admin_supabase_client(default_client):
+    """Return a service-role Supabase client when available."""
+    from supabase import create_client
+    import os
+    import httpx
+
+    sb_url = os.environ.get('SUPABASE_URL')
+    sb_key = os.environ.get('SUPABASE_SERVICE_KEY')
+
+    if not (sb_url and sb_key):
+        return default_client
+
+    original_init = httpx.Client.__init__
+
+    def new_init(self, *args, **kwargs):
+        kwargs['verify'] = False
+        original_init(self, *args, **kwargs)
+
+    httpx.Client.__init__ = new_init
+
+    try:
+        return create_client(sb_url, sb_key)
+    except Exception as admin_err:
+        logger.error(f"Failed to initialize admin Supabase client: {admin_err}")
+        return default_client
+
+
+def _enrich_research_topics(supabase, topics):
+    """Attach project and category display names to research topics."""
+    if not topics:
+        return topics
+
+    project_ids = sorted({topic.get('project_id') for topic in topics if topic.get('project_id')})
+    category_ids = sorted({
+        category_id
+        for topic in topics
+        for category_id in [topic.get('primary_category_id'), topic.get('secondary_category_id')]
+        if category_id
+    })
+
+    projects_by_id = {}
+    categories_by_id = {}
+
+    if project_ids:
+        project_response = supabase.table('projects').select('id, domain, app_name').in_('id', project_ids).execute()
+        projects_by_id = {
+            project['id']: project.get('domain') or project.get('app_name')
+            for project in (project_response.data or [])
+        }
+
+    if category_ids:
+        category_response = supabase.table('project_categories').select('id, name').in_('id', category_ids).execute()
+        categories_by_id = {
+            category['id']: category.get('name')
+            for category in (category_response.data or [])
+        }
+
+    for topic in topics:
+        topic['project_name'] = projects_by_id.get(topic.get('project_id'))
+        topic['primary_category_name'] = categories_by_id.get(topic.get('primary_category_id'))
+        topic['secondary_category_name'] = categories_by_id.get(topic.get('secondary_category_id'))
+
+    return topics
+
 @research_topics_bp.route('/', methods=['GET'])
 @require_api_key
 def list_research_topics():
@@ -59,6 +144,18 @@ def list_research_topics():
         status = request.args.get('status')
         order_by = request.args.get('order_by', 'created_at')
         order_direction = request.args.get('order_direction', 'desc')
+        project_id = request.args.get('project_id')
+        primary_category_id = request.args.get('primary_category_id')
+        secondary_category_id = request.args.get('secondary_category_id')
+        user_id = _resolve_user_id_from_request(supabase)
+
+        if not user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
 
         # Calculate range
         start = (page - 1) * size
@@ -66,9 +163,16 @@ def list_research_topics():
 
         # Build query
         query = supabase.table('research_topics').select('*', count='exact')
+        query = query.eq('user_id', user_id)
 
         if status:
             query = query.eq('status', status)
+        if project_id:
+            query = query.eq('project_id', project_id)
+        if primary_category_id:
+            query = query.eq('primary_category_id', primary_category_id)
+        if secondary_category_id:
+            query = query.eq('secondary_category_id', secondary_category_id)
         
         # Apply sorting
         query = query.order(order_by, desc=(order_direction == 'desc'))
@@ -78,13 +182,14 @@ def list_research_topics():
 
         # Execute
         response = query.execute()
+        items = _enrich_research_topics(supabase, response.data or [])
 
         return jsonify({
-            "items": response.data,
+            "items": items,
             "total": response.count,
             "page": page,
             "size": size,
-            "has_next": (start + len(response.data)) < response.count,
+            "has_next": (start + len(items)) < response.count,
             "has_prev": page > 1
         }), 200
 
@@ -122,51 +227,23 @@ def create_research_topic():
             ).dict()), 400
 
         supabase = get_supabase_client()
-        
-        # Prepare data for insertion
-        # Ensure we don't try to insert unknown columns if possible, but for now we trust exact match or allow db to error
-        
-        # Resolve User ID from Authorization Header
-        import os
-        service_key_env = os.environ.get('SUPABASE_SERVICE_KEY')
-        logger.info(f"Checking Env: SUPABASE_SERVICE_KEY Present: {bool(service_key_env)}")
-        if service_key_env:
-             logger.info(f"Service Key Start: {service_key_env[:10]}...")
-        else:
-             logger.warning("SUPABASE_SERVICE_KEY is NOT set in environment!")
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
 
-        auth_header = request.headers.get('Authorization')
-        logger.info(f"Received Authorization header: {'Present' if auth_header else 'Missing'}")
-        if auth_header:
-            logger.info(f"Auth Header Start: {auth_header[:15]}...")
-            
-        user_id = None
-        
-        if auth_header and auth_header.startswith('Bearer '):
-            token = auth_header.split('Bearer ')[1]
-            try:
-                logger.info(f"Attempting to validate token: {token[:10]}...")
-                user_response = supabase.auth.get_user(token)
-                if user_response and user_response.user:
-                    user_id = user_response.user.id
-                    logger.info(f"Successfully resolved user_id: {user_id}")
-                else:
-                    logger.warning("Supabase get_user returned no user")
-            except Exception as auth_error:
-                logger.warning(f"Failed to validate token or get user: {auth_error}")
-        else:
-             logger.warning("Authorization header missing or invalid format")
-        
-        # Fallback: Check if user_id is in the body (not recommended for production but keeps backward compatibility if needed)
-        if not user_id:
-             # Try to get from body
-             if request.json and 'user_id' in request.json:
-                 user_id = request.json['user_id']
-                 
+        user_id = _resolve_user_id_from_request(supabase, data)
+
         if not user_id:
              return jsonify(ErrorResponse(
                 error="authentication_required", 
-                message="Could not resolve a valid user ID. Please ensure you are logged in."
+                message="Could not resolve a valid user ID. Please ensure you are logged in.",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
              ).dict()), 401
 
         insert_data = {
@@ -174,42 +251,22 @@ def create_research_topic():
             "description": data.get('description', ''),
             "status": data.get('status', 'active'),
             "updated_at": datetime.utcnow().isoformat(),
-            "user_id": user_id
+            "user_id": user_id,
+            "project_id": data.get('project_id'),
+            "primary_category_id": data.get('primary_category_id'),
+            "secondary_category_id": data.get('secondary_category_id'),
+            "topic_source": data.get('topic_source'),
+            "source_topic_id": data.get('source_topic_id'),
         }
-        
-        # Use a fresh Service Role client for this operation to ensure RLS bypass
-        from supabase import create_client
-        import os
-        
-        sb_url = os.environ.get('SUPABASE_URL')
-        sb_key = os.environ.get('SUPABASE_SERVICE_KEY')
-        
-        response = None
-        if sb_url and sb_key:
-            # Initialize with verify=False for self-hosted
-            import httpx
-            original_init = httpx.Client.__init__
-            def new_init(self, *args, **kwargs):
-                kwargs['verify'] = False
-                original_init(self, *args, **kwargs)
-            httpx.Client.__init__ = new_init
-            
-            try:
-                supabase_admin = create_client(sb_url, sb_key)
-                logger.info("Using dedicated Service Role client for insert")
-                response = supabase_admin.table('research_topics').insert(insert_data).execute()
-            except Exception as admin_err:
-                logger.error(f"Admin insert failed: {admin_err}")
-                # Fallback to global client
-                response = supabase.table('research_topics').insert(insert_data).execute()
-        else:
-            logger.warning("Falling back to global client (Service Key missing?)")
-            response = supabase.table('research_topics').insert(insert_data).execute()
+
+        supabase_admin = _get_admin_supabase_client(supabase)
+        response = supabase_admin.table('research_topics').insert(insert_data).execute()
             
         if not response or not response.data:
             raise Exception("Failed to insert record")
 
-        return jsonify(response.data[0]), 201
+        enriched = _enrich_research_topics(supabase, response.data)
+        return jsonify(enriched[0]), 201
 
     except Exception as e:
         logger.error(f"Error creating research topic: {str(e)}", exc_info=True)
@@ -226,7 +283,24 @@ def get_research_topic(topic_id):
     """Get a research topic by ID."""
     try:
         supabase = get_supabase_client()
-        response = supabase.table('research_topics').select('*').eq('id', topic_id).single().execute()
+        user_id = _resolve_user_id_from_request(supabase)
+        if not user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        response = (
+            supabase
+            .table('research_topics')
+            .select('*')
+            .eq('id', topic_id)
+            .eq('user_id', user_id)
+            .single()
+            .execute()
+        )
         
         if not response.data: # Should throw error from single() usually if not found, but safe check
              return jsonify(ErrorResponse(
@@ -235,8 +309,8 @@ def get_research_topic(topic_id):
                 error_code="NOT_FOUND",
                 status=404
             ).dict()), 404
-
-        return jsonify(response.data), 200
+        enriched = _enrich_research_topics(supabase, [response.data])
+        return jsonify(enriched[0]), 200
 
     except Exception as e:
         # Check if it is a "no rows found" error often returned as exception by supabase-py
@@ -263,11 +337,35 @@ def update_research_topic(topic_id):
     try:
         data = request.get_json()
         supabase = get_supabase_client()
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        user_id = _resolve_user_id_from_request(supabase, data)
+        if not user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
         
-        update_data = {k: v for k, v in data.items() if k in ['title', 'description', 'status']}
+        update_data = {k: v for k, v in data.items() if k in ['title', 'description', 'status', 'project_id', 'primary_category_id', 'secondary_category_id', 'topic_source', 'source_topic_id']}
         update_data['updated_at'] = datetime.utcnow().isoformat()
         
-        response = supabase.table('research_topics').update(update_data).eq('id', topic_id).execute()
+        response = (
+            supabase
+            .table('research_topics')
+            .update(update_data)
+            .eq('id', topic_id)
+            .eq('user_id', user_id)
+            .execute()
+        )
         
         if not response.data:
              return jsonify(ErrorResponse(
@@ -277,10 +375,98 @@ def update_research_topic(topic_id):
                 status=404
             ).dict()), 404
 
-        return jsonify(response.data[0]), 200
+        enriched = _enrich_research_topics(supabase, response.data)
+        return jsonify(enriched[0]), 200
 
     except Exception as e:
         logger.error(f"Error updating research topic: {str(e)}", exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message="An error occurred",
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@research_topics_bp.route('/bulk-create', methods=['POST'])
+@require_api_key
+def bulk_create_research_topics():
+    """Create multiple research topics in a single request."""
+    try:
+        if not request.is_json:
+            return jsonify(ErrorResponse(
+                error="invalid_content_type",
+                message="Content-Type must be application/json",
+                error_code="INVALID_CONTENT_TYPE",
+                status=400
+            ).dict()), 400
+
+        data = request.get_json() or {}
+        items = data.get('items') or []
+        if not isinstance(items, list) or not items:
+            return jsonify(ErrorResponse(
+                error="validation_error",
+                message="A non-empty 'items' array is required",
+                error_code="VALIDATION_ERROR",
+                status=400
+            ).dict()), 400
+
+        supabase = get_supabase_client()
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        user_id = _resolve_user_id_from_request(supabase, data)
+
+        if not user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        now = datetime.utcnow().isoformat()
+        insert_payload = []
+        for item in items:
+            title = (item.get('title') or '').strip()
+            if not title:
+                return jsonify(ErrorResponse(
+                    error="validation_error",
+                    message="Each topic must include a title",
+                    error_code="VALIDATION_ERROR",
+                    status=400
+                ).dict()), 400
+
+            insert_payload.append({
+                "title": title,
+                "description": item.get('description', ''),
+                "status": item.get('status', 'active'),
+                "updated_at": now,
+                "user_id": user_id,
+                "project_id": item.get('project_id'),
+                "primary_category_id": item.get('primary_category_id'),
+                "secondary_category_id": item.get('secondary_category_id'),
+                "topic_source": item.get('topic_source'),
+                "source_topic_id": item.get('source_topic_id'),
+            })
+
+        supabase_admin = _get_admin_supabase_client(supabase)
+        response = supabase_admin.table('research_topics').insert(insert_payload).execute()
+
+        if not response or not response.data:
+            raise Exception("Failed to insert records")
+
+        enriched = _enrich_research_topics(supabase, response.data)
+        return jsonify(enriched), 201
+
+    except Exception as e:
+        logger.error(f"Error bulk creating research topics: {str(e)}", exc_info=True)
         return jsonify(ErrorResponse(
             error="internal_error",
             message="An error occurred",
@@ -294,7 +480,23 @@ def delete_research_topic(topic_id):
     """Delete a research topic."""
     try:
         supabase = get_supabase_client()
-        response = supabase.table('research_topics').delete().eq('id', topic_id).execute()
+        user_id = _resolve_user_id_from_request(supabase)
+        if not user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        response = (
+            supabase
+            .table('research_topics')
+            .delete()
+            .eq('id', topic_id)
+            .eq('user_id', user_id)
+            .execute()
+        )
         
         # Note: delete() might return empty list if not found, but we can consider it success (idempotent)
         return jsonify({"message": "Topic deleted successfully"}), 200
@@ -354,8 +556,24 @@ def get_subtopics(topic_id):
     """Get subtopics for a research topic."""
     try:
         supabase = get_supabase_client()
+        user_id = _resolve_user_id_from_request(supabase)
+        if not user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
         # Fetch directly from DB if possible
-        response = supabase.table('subtopics').select('*').eq('project_id', topic_id).execute()
+        response = (
+            supabase
+            .table('subtopics')
+            .select('*')
+            .eq('research_topic_id', topic_id)
+            .eq('user_id', user_id)
+            .execute()
+        )
         
         return jsonify({
             "items": response.data,
@@ -390,6 +608,14 @@ def generate_subtopics(topic_id):
 
     try:
         supabase = get_supabase_client()
+        request_user_id = _resolve_user_id_from_request(supabase)
+        if not request_user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
 
         # 1. Fetch topic metadata
         topic_res = supabase.table('research_topics').select('title, user_id').eq('id', topic_id).single().execute()
@@ -404,6 +630,13 @@ def generate_subtopics(topic_id):
 
         topic_title = topic_res.data['title']
         user_id     = topic_res.data['user_id']
+        if user_id != request_user_id:
+            return jsonify(ErrorResponse(
+                error="forbidden",
+                message="You do not have access to this research topic",
+                error_code="FORBIDDEN",
+                status=403
+            ).dict()), 403
 
         # 2. Run the async decomposition pipeline synchronously
         async def _run():
@@ -486,11 +719,29 @@ def idea_burst():
             ).dict()), 400
 
         data = request.get_json()
-        user_id = data.get('user_id')
+        supabase = get_supabase_client()
+        request_user_id = _resolve_user_id_from_request(supabase, data)
+        if not request_user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        user_id = data.get('user_id') or request_user_id
         topic_id = data.get('topic_id')
         subtopic_name = data.get('subtopic')
         keywords = data.get('keywords', [])
         affiliate_offers = data.get('affiliate_offers', [])
+
+        if user_id != request_user_id:
+            return jsonify(ErrorResponse(
+                error="forbidden",
+                message="You do not have access to this user_id",
+                error_code="FORBIDDEN",
+                status=403
+            ).dict()), 403
 
         if not all([user_id, topic_id, subtopic_name]):
             return jsonify(ErrorResponse(
@@ -499,6 +750,15 @@ def idea_burst():
                 error_code="VALIDATION_ERROR",
                 status=400
             ).dict()), 400
+
+        topic_owner = supabase.table('research_topics').select('user_id').eq('id', topic_id).single().execute()
+        if not topic_owner.data or topic_owner.data.get('user_id') != request_user_id:
+            return jsonify(ErrorResponse(
+                error="forbidden",
+                message="You do not have access to this research topic",
+                error_code="FORBIDDEN",
+                status=403
+            ).dict()), 403
 
         logger.info(f"Generating idea burst for subtopic: {subtopic_name}")
 

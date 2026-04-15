@@ -1,33 +1,44 @@
 
 import * as React from "react"
 import { useAuth } from "@/context/auth-context"
+import { useProject } from "@/context/project-context"
 import { researchTopicsService } from "@/services/research-topics.service"
 import type { ResearchTopic } from "@/types/research"
 import { ResearchTopicStatus } from "@/types/research"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Search, Sparkles, Clock, Trash2, Loader2 } from "lucide-react"
+import { Search, Clock, Trash2, ArrowUpRight, Loader2 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
 
 export function Research() {
     const { user, isLoading: authLoading } = useAuth()
+    const { projects, activeProject } = useProject()
     const navigate = useNavigate()
     const [topics, setTopics] = React.useState<ResearchTopic[]>([])
     const [loading, setLoading] = React.useState(true)
     const [searchTerm, setSearchTerm] = React.useState("")
     const [error, setError] = React.useState<string | null>(null)
+    const [projectFilter, setProjectFilter] = React.useState<string>("")
 
     React.useEffect(() => {
-        if (!authLoading && user) {
-            loadTopics(1, false)
+        // Default to the active project when available.
+        if (activeProject?.id && !projectFilter) {
+            setProjectFilter(activeProject.id)
         }
-    }, [authLoading, user])
+    }, [activeProject?.id])
 
     const [page, setPage] = React.useState(1)
     const [hasMore, setHasMore] = React.useState(true)
     const PAGE_SIZE = 12
+
+    React.useEffect(() => {
+        if (!authLoading && user) {
+            setPage(1)
+            loadTopics(1, false)
+        }
+    }, [authLoading, user, projectFilter])
 
     const loadTopics = async (pageNum: number = 1, append: boolean = false) => {
         try {
@@ -37,7 +48,8 @@ export function Research() {
                 order_direction: 'desc',
                 status: ResearchTopicStatus.ACTIVE,
                 page: pageNum,
-                size: PAGE_SIZE
+                size: PAGE_SIZE,
+                project_id: projectFilter || undefined,
             })
 
             if (append) {
@@ -62,31 +74,9 @@ export function Research() {
         loadTopics(nextPage, true)
     }
 
-    const handleCreateTopic = async () => {
-        if (!searchTerm.trim()) return
-
-        try {
-            const newTopic = await researchTopicsService.createResearchTopic({
-                title: searchTerm,
-                description: `Research topic: ${searchTerm}`
-            })
-            setTopics([newTopic, ...topics])
-            setSearchTerm("")
-            setPage(1)
-        } catch (err: any) {
-            console.error('Failed to create topic:', err)
-            // Extract specific error message from API response if available
-            const errorMessage = err.response?.data?.detail
-                || err.response?.data?.message
-                || err.message
-                || 'Failed to create research topic';
-            setError(errorMessage)
-        }
-    }
-
     const handleDeleteTopic = async (e: React.MouseEvent, topicId: string) => {
         e.stopPropagation()
-        if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) return
+        if (!confirm('Delete this research topic? This cannot be undone.')) return
 
         try {
             await researchTopicsService.deleteResearchTopic(topicId)
@@ -116,54 +106,75 @@ export function Research() {
         )
     }
 
+    const filteredTopics = topics.filter((topic) => {
+        if (!searchTerm.trim()) return true
+        const haystack = [
+            topic.title,
+            topic.project_name,
+            topic.primary_category_name,
+            topic.secondary_category_name,
+        ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+        return haystack.includes(searchTerm.trim().toLowerCase())
+    })
+
     return (
         <div className="min-h-screen bg-slate-950 relative overflow-hidden">
             {/* Radial gradient background */}
             <div className="absolute inset-0 bg-gradient-to-b from-indigo-900/20 to-transparent pointer-events-none" />
 
-            <div className="relative z-10 max-w-7xl mx-auto px-6 py-12">
-                {/* Hero Section with Search */}
+            <div className="relative z-10 max-w-7xl mx-auto px-6 py-10">
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.6 }}
-                    className="text-center mb-16"
+                    transition={{ duration: 0.5 }}
+                    className="mb-10"
                 >
-                    {/* Header */}
-                    <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-4 text-white">
-                        Discover Your Next{" "}
-                        <span className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-                            Profitable Niche
-                        </span>
-                    </h1>
-                    <p className="text-lg text-slate-400 mb-12 max-w-2xl mx-auto">
-                        Combine SEO data, Google Trends, and affiliate offers in one powerful workflow
-                    </p>
+                    <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                        <div>
+                            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-white">
+                                All Research
+                            </h1>
+                            <p className="mt-2 text-slate-400">
+                                Browse research topics across projects, with the category context attached.
+                            </p>
+                        </div>
+                        <Button
+                            variant="outline"
+                            className="border-white/10 text-slate-300 hover:bg-white/5"
+                            onClick={() => navigate('/')}
+                        >
+                            New Research
+                            <ArrowUpRight className="ml-2 h-4 w-4" />
+                        </Button>
+                    </div>
 
-                    {/* Premium Search Bar */}
-                    <div className="max-w-3xl mx-auto">
-                        <div className="relative group">
-                            {/* Glow effect on focus */}
-                            <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 rounded-2xl blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity duration-300" />
+                    <div className="mt-6 grid gap-3 md:grid-cols-[220px_1fr]">
+                        <select
+                            className="h-12 rounded-2xl border border-white/10 bg-slate-900/70 px-4 text-sm text-white outline-none focus:border-indigo-500/50"
+                            value={projectFilter}
+                            onChange={(e) => {
+                                setProjectFilter(e.target.value)
+                            }}
+                        >
+                            <option value="">All projects</option>
+                            {projects.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                    {p.domain || p.app_name || 'Untitled Project'}
+                                </option>
+                            ))}
+                        </select>
 
-                            <div className="relative flex items-center bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden focus-within:border-indigo-500/50 transition-all">
-                                <Search className="absolute left-6 h-5 w-5 text-slate-500" />
-                                <Input
-                                    placeholder='e.g., "Sustainable Fashion", "SaaS Marketing", "Web3 Gaming"...'
-                                    className="flex-1 pl-14 pr-4 h-16 text-base bg-transparent border-0 text-white placeholder:text-slate-500 focus-visible:ring-0 focus-visible:ring-offset-0"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleCreateTopic()}
-                                />
-                                <Button
-                                    className="m-2 h-12 px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-colors"
-                                    onClick={handleCreateTopic}
-                                    disabled={!searchTerm.trim()}
-                                >
-                                    <Sparkles className="mr-2 h-4 w-4" />
-                                    Start Research
-                                </Button>
-                            </div>
+                        <div className="relative">
+                            <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                            <Input
+                                placeholder="Search titles, projects, categories..."
+                                className="h-12 pl-11 bg-slate-900/70 border-white/10 text-white placeholder:text-slate-500 rounded-2xl focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-indigo-500/50"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
                         </div>
                     </div>
                 </motion.div>
@@ -179,9 +190,8 @@ export function Research() {
                     </motion.div>
                 )}
 
-                {/* Recent Projects Section */}
                 <div className="space-y-6">
-                    <h2 className="text-2xl font-bold text-white tracking-tight">Recent Projects</h2>
+                    <h2 className="text-xl font-semibold text-white tracking-tight">Recent Topics</h2>
 
                     {loading ? (
                         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -193,23 +203,23 @@ export function Research() {
                                 </div>
                             ))}
                         </div>
-                    ) : topics.length === 0 ? (
+                    ) : filteredTopics.length === 0 ? (
                         <motion.div
                             initial={{ opacity: 0, scale: 0.95 }}
                             animate={{ opacity: 1, scale: 1 }}
                             transition={{ duration: 0.4 }}
                             className="bg-white/5 backdrop-blur-md border border-white/10 border-dashed rounded-2xl p-12 text-center"
                         >
-                            <Sparkles className="h-16 w-16 text-slate-600 mx-auto mb-4" />
-                            <h3 className="text-xl font-semibold text-white mb-2">No projects yet</h3>
+                            <div className="h-16 w-16 rounded-3xl border border-white/10 bg-white/5 mx-auto mb-4" />
+                            <h3 className="text-xl font-semibold text-white mb-2">No topics yet</h3>
                             <p className="text-slate-400">
-                                Start your first research project by entering a topic above
+                                Create a new research queue from the command center.
                             </p>
                         </motion.div>
                     ) : (
                         <>
                             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                                {topics.map((topic, index) => (
+                                {filteredTopics.map((topic, index) => (
                                     <motion.div
                                         key={topic.id}
                                         initial={{ opacity: 0, y: 20 }}
@@ -248,6 +258,21 @@ export function Research() {
                                         <p className="text-sm text-slate-400 line-clamp-2 leading-relaxed">
                                             {topic.description}
                                         </p>
+
+                                        {(topic.project_name || topic.primary_category_name || topic.secondary_category_name) && (
+                                            <div className="mt-4 flex flex-wrap gap-2">
+                                                {topic.project_name && (
+                                                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-300">
+                                                        {topic.project_name}
+                                                    </span>
+                                                )}
+                                                {(topic.primary_category_name || topic.secondary_category_name) && (
+                                                    <span className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-3 py-1 text-[11px] text-indigo-200">
+                                                        {[topic.primary_category_name, topic.secondary_category_name].filter(Boolean).join(' / ')}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
                                     </motion.div>
                                 ))}
                             </div>

@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator"
 import { useAuth } from "@/context/auth-context"
 import { Link, useLocation } from "react-router-dom"
 import { supabase } from "@/lib/supabase"
+import { ZenithLogo } from "./ZenithLogo"
 
 const SIDEBAR_STORAGE_KEY = "zenith_sidebar_collapsed"
 
@@ -94,14 +95,9 @@ export function Sidebar({ className }: SidebarProps) {
                 <div className="flex h-full flex-col">
                     <div className={cn("flex h-20 items-center px-5", isCollapsed ? "justify-center" : "justify-between")}>
                         {isCollapsed ? (
-                            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-500/15 text-sm font-semibold text-blue-200">
-                                ZC
-                            </div>
+                            <ZenithLogo compact className="w-full max-w-[54px] px-0 py-2" />
                         ) : (
-                            <div>
-                                <p className="text-lg font-semibold tracking-tight text-white">Zenith Creator</p>
-                                <p className="text-[11px] uppercase tracking-[0.32em] text-slate-500">Command Center</p>
-                            </div>
+                            <ZenithLogo className="w-full" />
                         )}
                     </div>
 

@@ -1,16 +1,19 @@
 import * as React from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Loader2, Plus, Sparkles, Newspaper, Trash2, CheckCircle2, Globe2, Layers3, BookOpenText } from 'lucide-react'
+import { Loader2, Plus, Sparkles, Newspaper, Trash2, CheckCircle2, Globe2, Layers3, BookOpenText, CircleDot, Circle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProject } from '@/context/project-context'
 import { useAuth } from '@/context/auth-context'
 import { commandCenterService } from '@/services/command-center.service'
 import type { Project } from '@/types'
 import type { ProjectCategory, TopicCandidate } from '@/types/command-center'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { ZenithLogo } from '@/components/layout/ZenithLogo'
 
 const selectClasses = "h-14 w-full rounded-2xl border border-white/10 bg-[#0d1728]/90 px-4 text-sm text-white outline-none transition focus:border-blue-400/40"
 const panelClasses = "rounded-[28px] border border-white/8 bg-white/[0.04] shadow-[0_30px_80px_rgba(4,10,24,0.45)] backdrop-blur-xl"
+type TopicInputMode = 'ai' | 'news' | 'manual'
 
 function getProjectLabel(project: Project | null) {
     return project?.domain || project?.app_name || 'Select a website'
@@ -31,6 +34,8 @@ export function Landing() {
     const [topicCandidates, setTopicCandidates] = React.useState<TopicCandidate[]>([])
     const [selectedTopicIds, setSelectedTopicIds] = React.useState<Set<string>>(new Set())
     const [manualTopic, setManualTopic] = React.useState('')
+    const [topicInputMode, setTopicInputMode] = React.useState<TopicInputMode>('ai')
+    const [manualModalOpen, setManualModalOpen] = React.useState(false)
 
     const [categoryLoading, setCategoryLoading] = React.useState(false)
     const [topicsLoading, setTopicsLoading] = React.useState(false)
@@ -83,7 +88,12 @@ export function Landing() {
                 setSecondaryCategoryId(firstSecondary?.id || '')
             } catch (error) {
                 console.error(error)
-                toast.error('Unable to load categories for this project.')
+                const msg = (error as any)?.message || ''
+                if (msg.toLowerCase().includes('project_categories') || msg.toLowerCase().includes('relation')) {
+                    toast.error('Categories are not set up yet. Apply the Supabase migration for the command center tables.')
+                } else {
+                    toast.error('Unable to load categories for this project.')
+                }
             } finally {
                 setCategoryLoading(false)
             }
@@ -119,7 +129,12 @@ export function Landing() {
                 setTopicCandidates(loadedTopics)
             } catch (error) {
                 console.error(error)
-                toast.error('Unable to load starter topics for this category.')
+                const msg = (error as any)?.message || ''
+                if (msg.toLowerCase().includes('project_topic_candidates') || msg.toLowerCase().includes('relation')) {
+                    toast.error('Topic workspace is not set up yet. Apply the Supabase migration for the command center tables.')
+                } else {
+                    toast.error('Unable to load starter topics for this category.')
+                }
             } finally {
                 setTopicsLoading(false)
             }
@@ -221,13 +236,13 @@ export function Landing() {
 
     const handleAddManualTopic = async () => {
         if (!activeProject || !user || !activePrimaryCategory || !activeSecondaryCategory || !manualTopic.trim()) {
-            return
+            return false
         }
 
         const normalizedTitle = manualTopic.trim().toLowerCase()
         if (topicCandidates.some((topic) => topic.title.trim().toLowerCase() === normalizedTitle)) {
             toast.message('That topic is already in the workspace.')
-            return
+            return false
         }
 
         setManualLoading(true)
@@ -245,9 +260,11 @@ export function Landing() {
             setTopicCandidates((current) => [...current, inserted])
             setSelectedTopicIds((current) => new Set(current).add(inserted.id))
             setManualTopic('')
+            return true
         } catch (error) {
             console.error(error)
             toast.error('Unable to save that topic.')
+            return false
         } finally {
             setManualLoading(false)
         }
@@ -321,7 +338,27 @@ export function Landing() {
         }
     }
 
+    const handleAddItemsToWorkspace = async () => {
+        if (topicInputMode === 'ai') {
+            await handleGenerateAiTopics()
+            return
+        }
+
+        if (topicInputMode === 'news') {
+            await handleGenerateNewsTopics()
+            return
+        }
+
+        setManualModalOpen(true)
+    }
+
     const selectionLocked = !activeProject || categoryLoading || projectLoading
+    const addItemsLoading = aiLoading || newsLoading || manualLoading
+    const generationOptions: Array<{ id: TopicInputMode; label: string; description: string }> = [
+        { id: 'ai', label: 'AI Generated', description: 'Suggest broad research topics based on the current category.' },
+        { id: 'news', label: 'Hot in the News', description: 'Bring in trend-driven topics pulled from recent signals.' },
+        { id: 'manual', label: 'Manual Entry', description: 'Open a small dialog and add your own topic directly.' },
+    ]
 
     return (
         <div className="relative min-h-screen overflow-hidden bg-[#07111e]">
@@ -334,9 +371,9 @@ export function Landing() {
                     transition={{ duration: 0.35 }}
                     className="mb-8"
                 >
-                    <p className="mb-3 text-[11px] uppercase tracking-[0.34em] text-slate-500">Research Workflow</p>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                         <div className="max-w-3xl">
+                            <ZenithLogo className="mb-5 w-fit" />
                             <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl lg:text-5xl">
                                 Build the next research queue without the noise.
                             </h1>
@@ -428,72 +465,57 @@ export function Landing() {
                     initial={{ opacity: 0, y: 24 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.45, delay: 0.1 }}
-                    className="mb-8 grid gap-4 lg:grid-cols-[0.95fr_0.95fr_1.1fr]"
+                    className={`${panelClasses} mb-8 p-5 sm:p-6`}
                 >
-                    <button
-                        type="button"
-                        onClick={handleGenerateAiTopics}
-                        disabled={selectionLocked || !activePrimaryCategory || aiLoading}
-                        className={`${panelClasses} flex min-h-[180px] flex-col items-start justify-between p-6 text-left transition hover:border-blue-400/20 hover:bg-blue-500/[0.06] disabled:cursor-not-allowed disabled:opacity-50`}
-                    >
-                        <div className="rounded-2xl bg-blue-500/15 p-3 text-blue-200">
-                            {aiLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
-                        </div>
-                        <div>
-                            <p className="text-lg font-medium text-white">AI Generated Topics</p>
-                            <p className="mt-2 text-sm leading-6 text-slate-400">
-                                Pull in broad topics aligned with the selected website and category path.
-                            </p>
-                        </div>
-                    </button>
-
-                    <button
-                        type="button"
-                        onClick={handleGenerateNewsTopics}
-                        disabled={selectionLocked || !activePrimaryCategory || newsLoading}
-                        className={`${panelClasses} flex min-h-[180px] flex-col items-start justify-between p-6 text-left transition hover:border-cyan-300/20 hover:bg-cyan-400/[0.05] disabled:cursor-not-allowed disabled:opacity-50`}
-                    >
-                        <div className="rounded-2xl bg-cyan-400/15 p-3 text-cyan-100">
-                            {newsLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Newspaper className="h-5 w-5" />}
-                        </div>
-                        <div>
-                            <p className="text-lg font-medium text-white">Hot in the News</p>
-                            <p className="mt-2 text-sm leading-6 text-slate-400">
-                                Use the trend engine to surface timely topics with current momentum.
-                            </p>
-                        </div>
-                    </button>
-
-                    <div className={`${panelClasses} flex min-h-[180px] flex-col justify-between p-6`}>
-                        <div>
-                            <p className="text-lg font-medium text-white">Manual Topic</p>
-                            <p className="mt-2 text-sm leading-6 text-slate-400">
-                                Add your own topic to the workspace, then include it in the next batch.
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                        <div className="flex-1">
+                            <p className="text-sm font-medium text-white">Add Topics to the Workspace</p>
+                            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+                                Pick one source, then add a fresh batch without taking over the entire page.
                             </p>
                         </div>
 
-                        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                            <input
-                                value={manualTopic}
-                                onChange={(event) => setManualTopic(event.target.value)}
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                        void handleAddManualTopic()
-                                    }
-                                }}
-                                placeholder="Type a broad topic"
-                                className="h-14 flex-1 rounded-2xl border border-white/10 bg-[#0d1728]/90 px-4 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-blue-400/40"
-                                disabled={selectionLocked}
-                            />
-                            <button
-                                type="button"
-                                onClick={handleAddManualTopic}
-                                disabled={selectionLocked || !manualTopic.trim() || manualLoading}
-                                className="inline-flex h-14 items-center justify-center rounded-2xl bg-white px-5 text-sm font-medium text-slate-950 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                {manualLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                            </button>
-                        </div>
+                        <button
+                            type="button"
+                            onClick={handleAddItemsToWorkspace}
+                            disabled={selectionLocked || !activePrimaryCategory || addItemsLoading}
+                            className="inline-flex h-12 items-center justify-center rounded-2xl bg-white px-5 text-sm font-medium text-slate-950 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {addItemsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                            <span className="ml-2">Add New Items to Workspace</span>
+                        </button>
+                    </div>
+
+                    <div className="mt-5 grid gap-3 lg:grid-cols-3">
+                        {generationOptions.map((option) => {
+                            const active = topicInputMode === option.id
+                            const Icon = option.id === 'ai' ? Sparkles : option.id === 'news' ? Newspaper : Plus
+                            return (
+                                <button
+                                    key={option.id}
+                                    type="button"
+                                    onClick={() => setTopicInputMode(option.id)}
+                                    className={`flex items-start gap-3 rounded-[24px] border px-4 py-4 text-left transition ${
+                                        active
+                                            ? 'border-blue-400/25 bg-blue-500/10'
+                                            : 'border-white/8 bg-[#0b1524] hover:border-white/12 hover:bg-white/[0.045]'
+                                    }`}
+                                >
+                                    <span className={`mt-0.5 ${active ? 'text-blue-200' : 'text-slate-500'}`}>
+                                        {active ? <CircleDot className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
+                                    </span>
+                                    <span className="flex min-w-0 flex-1 gap-3">
+                                        <span className={`rounded-2xl p-2 ${active ? 'bg-blue-500/15 text-blue-100' : 'bg-white/[0.05] text-slate-400'}`}>
+                                            <Icon className="h-4 w-4" />
+                                        </span>
+                                        <span>
+                                            <span className="block text-sm font-medium text-white">{option.label}</span>
+                                            <span className="mt-1 block text-sm leading-6 text-slate-400">{option.description}</span>
+                                        </span>
+                                    </span>
+                                </button>
+                            )
+                        })}
                     </div>
                 </motion.section>
 
@@ -558,48 +580,58 @@ export function Landing() {
                                 </p>
                             </div>
                         ) : (
-                            <div className="space-y-3">
-                                {topicCandidates.map((topic) => {
-                                    const checked = selectedTopicIds.has(topic.id)
-                                    return (
-                                        <label
-                                            key={topic.id}
-                                            className={`flex cursor-pointer items-center gap-4 rounded-[26px] border px-4 py-4 transition sm:px-5 ${
-                                                checked
-                                                    ? 'border-blue-400/30 bg-blue-500/[0.09]'
-                                                    : 'border-white/8 bg-[#0c1525] hover:border-white/14 hover:bg-white/[0.045]'
-                                            }`}
-                                        >
-                                            <input
-                                                type="checkbox"
-                                                checked={checked}
-                                                onChange={() => toggleTopic(topic.id)}
-                                                className="h-5 w-5 rounded border-white/15 bg-transparent text-blue-400 focus:ring-blue-400"
-                                            />
+                            <div className="rounded-[24px] border border-white/8 bg-[#0b1524]">
+                                <div className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 border-b border-white/8 px-4 py-3 text-[11px] uppercase tracking-[0.24em] text-slate-500 sm:px-5">
+                                    <span>Select</span>
+                                    <span>Topic</span>
+                                    <span className="hidden sm:block">Source</span>
+                                    <span className="justify-self-end">Remove</span>
+                                </div>
 
-                                            <div className="min-w-0 flex-1">
-                                                <p className="truncate text-sm font-medium text-white sm:text-base">{topic.title}</p>
-                                                <div className="mt-2 flex flex-wrap gap-2">
-                                                    <span className="rounded-full border border-white/8 bg-white/[0.04] px-3 py-1 text-xs text-slate-400">
-                                                        {topic.source_label || commandCenterService.getSourceLabel(topic.topic_source)}
-                                                    </span>
-                                                </div>
-                                            </div>
+                                <ScrollArea className="max-h-[460px]">
+                                    <div className="divide-y divide-white/6">
+                                        {topicCandidates.map((topic) => {
+                                            const checked = selectedTopicIds.has(topic.id)
+                                            return (
+                                                <label
+                                                    key={topic.id}
+                                                    className={`grid cursor-pointer grid-cols-[auto_1fr_auto_auto] items-center gap-3 px-4 py-3 transition sm:px-5 ${
+                                                        checked ? 'bg-blue-500/[0.07]' : 'hover:bg-white/[0.035]'
+                                                    }`}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={checked}
+                                                        onChange={() => toggleTopic(topic.id)}
+                                                        className="h-4 w-4 rounded border-white/15 bg-transparent text-blue-400 focus:ring-blue-400"
+                                                    />
 
-                                            <button
-                                                type="button"
-                                                onClick={(event) => {
-                                                    event.preventDefault()
-                                                    void handleRemoveTopic(topic.id)
-                                                }}
-                                                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/8 text-slate-500 transition hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-200"
-                                                aria-label={`Remove ${topic.title}`}
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </button>
-                                        </label>
-                                    )
-                                })}
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-sm font-medium text-white">{topic.title}</p>
+                                                    </div>
+
+                                                    <div className="hidden sm:block">
+                                                        <span className="rounded-full border border-white/8 px-2.5 py-1 text-xs text-slate-400">
+                                                            {topic.source_label || commandCenterService.getSourceLabel(topic.topic_source)}
+                                                        </span>
+                                                    </div>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={(event) => {
+                                                            event.preventDefault()
+                                                            void handleRemoveTopic(topic.id)
+                                                        }}
+                                                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-red-500/10 hover:text-red-200"
+                                                        aria-label={`Remove ${topic.title}`}
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </button>
+                                                </label>
+                                            )
+                                        })}
+                                    </div>
+                                </ScrollArea>
                             </div>
                         )}
 
@@ -616,6 +648,67 @@ export function Landing() {
                     </div>
                 </motion.section>
             </div>
+
+            {manualModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm">
+                    <div className="w-full max-w-lg rounded-[28px] border border-white/10 bg-[#0b1324] p-6 shadow-[0_30px_80px_rgba(4,10,24,0.6)]">
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <p className="text-lg font-medium text-white">Add Manual Topic</p>
+                                <p className="mt-2 text-sm leading-6 text-slate-400">
+                                    Enter a broad topic and add it directly to the current workspace.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setManualModalOpen(false)}
+                                className="rounded-xl px-3 py-2 text-sm text-slate-500 transition hover:bg-white/[0.05] hover:text-white"
+                            >
+                                Close
+                            </button>
+                        </div>
+
+                        <div className="mt-6 space-y-4">
+                            <input
+                                autoFocus
+                                value={manualTopic}
+                                onChange={(event) => setManualTopic(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                        void handleAddManualTopic()
+                                    }
+                                }}
+                                placeholder="Enter a broad topic"
+                                className="h-14 w-full rounded-2xl border border-white/10 bg-[#0d1728]/90 px-4 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-blue-400/40"
+                            />
+
+                            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => setManualModalOpen(false)}
+                                    className="inline-flex h-12 items-center justify-center rounded-2xl border border-white/10 px-4 text-sm text-slate-300 transition hover:bg-white/[0.05] hover:text-white"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        const added = await handleAddManualTopic()
+                                        if (added) {
+                                            setManualModalOpen(false)
+                                        }
+                                    }}
+                                    disabled={!manualTopic.trim() || manualLoading || selectionLocked}
+                                    className="inline-flex h-12 items-center justify-center rounded-2xl bg-white px-5 text-sm font-medium text-slate-950 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {manualLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                                    <span className="ml-2">Add Topic</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
