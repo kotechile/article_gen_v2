@@ -1,467 +1,621 @@
-import { useRef, useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import {
-    Sparkles, Newspaper, PenLine, BookOpen,
-    Search, ArrowRight, Loader2, Zap, Lock, Clock, FlaskConical, Info
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useProject } from '@/context/project-context';
-import { useAuth } from '@/context/auth-context';
-import { ProjectSwitcher } from '@/components/layout/ProjectSwitcher';
-import { TrendReportModal } from '@/components/TrendReportModal';
-import { researchTopicsService } from '@/services/research-topics.service';
-import type { ResearchTopic } from '@/types/research';
-import { apiClient } from '@/api-client';
+import * as React from 'react'
+import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import { Loader2, Plus, Sparkles, Newspaper, Trash2, CheckCircle2, Globe2, Layers3, BookOpenText } from 'lucide-react'
+import { toast } from 'sonner'
+import { useProject } from '@/context/project-context'
+import { useAuth } from '@/context/auth-context'
+import { commandCenterService } from '@/services/command-center.service'
+import type { Project } from '@/types'
+import type { ProjectCategory, TopicCandidate } from '@/types/command-center'
 
-// ─── Propose-Topics Modal ─────────────────────────────────────────────────────
-interface ProposedTopic {
-    title: string;
-    rationale: string;
+const selectClasses = "h-14 w-full rounded-2xl border border-white/10 bg-[#0d1728]/90 px-4 text-sm text-white outline-none transition focus:border-blue-400/40"
+const panelClasses = "rounded-[28px] border border-white/8 bg-white/[0.04] shadow-[0_30px_80px_rgba(4,10,24,0.45)] backdrop-blur-xl"
+
+function getProjectLabel(project: Project | null) {
+    return project?.domain || project?.app_name || 'Select a website'
 }
 
-function ProposeTopicsModal({ isOpen, onClose, topics, loading, error }: {
-    isOpen: boolean;
-    onClose: () => void;
-    topics: ProposedTopic[];
-    loading: boolean;
-    error: string | null;
-}) {
-    const navigate = useNavigate();
-    const { activeProject } = useProject();
-
-    const handleTopicClick = async (title: string) => {
-        try {
-            const newTopic = await researchTopicsService.createResearchTopic({
-                title,
-                description: `AI-proposed topic for ${activeProject?.domain || activeProject?.app_name}: ${title}`
-            });
-            onClose();
-            navigate(`/research/${newTopic.id}`);
-        } catch (e) {
-            console.error(e);
-        }
-    };
-
-    if (!isOpen) return null;
-
-    return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl max-w-lg w-full p-6"
-            >
-                <div className="flex items-center gap-3 mb-6">
-                    <div className="p-2 bg-indigo-500/20 rounded-xl">
-                        <Sparkles className="w-5 h-5 text-indigo-400" />
-                    </div>
-                    <div>
-                        <h2 className="text-lg font-bold text-white">AI-Proposed Topics</h2>
-                        <p className="text-xs text-slate-500">Based on your active niche</p>
-                    </div>
-                    <button onClick={onClose} className="ml-auto text-slate-500 hover:text-white transition-colors text-xl leading-none">×</button>
-                </div>
-
-                {loading && (
-                    <div className="py-12 flex flex-col items-center gap-4">
-                        <Loader2 className="w-10 h-10 text-indigo-400 animate-spin" />
-                        <p className="text-slate-400">Generating niche-specific topics...</p>
-                    </div>
-                )}
-                {error && <p className="text-red-400 text-center py-8">{error}</p>}
-                {!loading && !error && topics.length > 0 && (
-                    <div className="space-y-3">
-                        {topics.map((t, i) => (
-                            <button
-                                key={i}
-                                onClick={() => handleTopicClick(t.title)}
-                                className="w-full text-left p-4 rounded-xl bg-white/5 border border-white/8 hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all group"
-                            >
-                                <div className="flex items-start gap-3">
-                                    <span className="flex-shrink-0 w-6 h-6 rounded-lg bg-indigo-500/20 text-indigo-400 text-xs font-bold flex items-center justify-center mt-0.5">
-                                        {i + 1}
-                                    </span>
-                                    <div>
-                                        <p className="font-semibold text-white group-hover:text-indigo-300 transition-colors">{t.title}</p>
-                                        {t.rationale && <p className="text-xs text-slate-500 mt-1 leading-relaxed">{t.rationale}</p>}
-                                    </div>
-                                    <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-indigo-400 ml-auto flex-shrink-0 transition-colors mt-1" />
-                                </div>
-                            </button>
-                        ))}
-                        <p className="text-[11px] text-slate-600 text-center pt-2">Click a topic to start a full research session</p>
-                    </div>
-                )}
-
-                {/* Cancel button — always visible */}
-                <div className="mt-5 pt-4 border-t border-white/8">
-                    <button
-                        id="propose-topics-cancel"
-                        onClick={onClose}
-                        className="w-full py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 border border-white/8 hover:border-white/15 transition-all"
-                    >
-                        Cancel
-                    </button>
-                </div>
-            </motion.div>
-        </div>
-    );
+function getProjectDescription(project: Project | null) {
+    return project?.site_description || project?.websiteDescription || 'Choose a website to load its research workspace.'
 }
 
-// ─── Main Landing ─────────────────────────────────────────────────────────────
 export function Landing() {
-    const navigate = useNavigate();
-    const { activeProject, isLoading: projectLoading } = useProject();
-    const searchRef = useRef<HTMLInputElement>(null);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [isExploding, setIsExploding] = useState(false);
+    const navigate = useNavigate()
+    const { user } = useAuth()
+    const { projects, activeProject, setActiveProject, isLoading: projectLoading } = useProject()
 
-    // Propose Topics state
-    const [proposeOpen, setProposeOpen] = useState(false);
-    const [proposedTopics, setProposedTopics] = useState<ProposedTopic[]>([]);
-    const [proposeLoading, setProposeLoading] = useState(false);
-    const [proposeError, setProposeError] = useState<string | null>(null);
+    const [categories, setCategories] = React.useState<ProjectCategory[]>([])
+    const [primaryCategoryId, setPrimaryCategoryId] = React.useState('')
+    const [secondaryCategoryId, setSecondaryCategoryId] = React.useState('')
+    const [topicCandidates, setTopicCandidates] = React.useState<TopicCandidate[]>([])
+    const [selectedTopicIds, setSelectedTopicIds] = React.useState<Set<string>>(new Set())
+    const [manualTopic, setManualTopic] = React.useState('')
 
-    // News Pulse state
-    const [trendOpen, setTrendOpen] = useState(false);
-    const [showDesc, setShowDesc] = useState(false);
+    const [categoryLoading, setCategoryLoading] = React.useState(false)
+    const [topicsLoading, setTopicsLoading] = React.useState(false)
+    const [aiLoading, setAiLoading] = React.useState(false)
+    const [newsLoading, setNewsLoading] = React.useState(false)
+    const [manualLoading, setManualLoading] = React.useState(false)
+    const [startLoading, setStartLoading] = React.useState(false)
 
-    // Recent Topics state
-    const { user } = useAuth();
-    const [recentTopics, setRecentTopics] = useState<ResearchTopic[]>([]);
-    const [topicsLoading, setTopicsLoading] = useState(false);
+    const primaryCategories = React.useMemo(
+        () => categories.filter((category) => category.level === 1),
+        [categories],
+    )
 
-    useEffect(() => {
-        if (!user) return;
-        setTopicsLoading(true);
-        researchTopicsService.listResearchTopics({ order_by: 'created_at', order_direction: 'desc', size: 6 })
-            .then(r => setRecentTopics(r.items || []))
-            .catch(() => {})
-            .finally(() => setTopicsLoading(false));
-    }, [user]);
+    const secondaryCategories = React.useMemo(
+        () => categories.filter((category) => category.level === 2 && category.parent_category_id === primaryCategoryId),
+        [categories, primaryCategoryId],
+    )
 
+    const activePrimaryCategory = React.useMemo(
+        () => primaryCategories.find((category) => category.id === primaryCategoryId) || null,
+        [primaryCategories, primaryCategoryId],
+    )
 
-    const handleTopicExplosion = async () => {
-        if (!searchTerm.trim() || !activeProject) return;
-        setIsExploding(true);
-        try {
-            const newTopic = await researchTopicsService.createResearchTopic({
-                title: searchTerm,
-                description: `Topic explosion for ${activeProject.domain || activeProject.app_name}: ${searchTerm}`
-            });
-            navigate(`/research/${newTopic.id}`);
-        } catch (e) {
-            console.error(e);
-            setIsExploding(false);
-        }
-    };
+    const activeSecondaryCategory = React.useMemo(
+        () => secondaryCategories.find((category) => category.id === secondaryCategoryId) || null,
+        [secondaryCategories, secondaryCategoryId],
+    )
 
-    // ── Propose Topics ───────────────────────────────────────────────────────
-    const handleProposeTopics = async () => {
-        if (!activeProject) return;
-        setProposeOpen(true);
-        setProposeLoading(true);
-        setProposeError(null);
-        setProposedTopics([]);
-        try {
-            const niche = activeProject.site_description || activeProject.websiteDescription || activeProject.domain || activeProject.app_name;
-            const res = await apiClient.post<any>('/ai/propose-topics', {
-                niche_description: niche,
-                count: 5
-            });
-            if (res.topics) {
-                setProposedTopics(res.topics);
-            } else if (Array.isArray(res)) {
-                setProposedTopics(res);
-            } else {
-                setProposeError('No topics returned. Try again.');
+    React.useEffect(() => {
+        const loadCategories = async () => {
+            if (!activeProject) {
+                setCategories([])
+                setPrimaryCategoryId('')
+                setSecondaryCategoryId('')
+                return
             }
-        } catch (e: any) {
-            setProposeError(e?.response?.data?.detail || e?.message || 'Failed to propose topics');
-        } finally {
-            setProposeLoading(false);
-        }
-    };
 
-    const hasProject = !!activeProject;
+            setCategoryLoading(true)
+
+            try {
+                const loadedCategories = await commandCenterService.listCategories(activeProject.id)
+                setCategories(loadedCategories)
+
+                const firstPrimary = loadedCategories.find((category) => category.level === 1)
+                const firstSecondary = loadedCategories.find(
+                    (category) => category.level === 2 && category.parent_category_id === firstPrimary?.id,
+                )
+
+                setPrimaryCategoryId(firstPrimary?.id || '')
+                setSecondaryCategoryId(firstSecondary?.id || '')
+            } catch (error) {
+                console.error(error)
+                toast.error('Unable to load categories for this project.')
+            } finally {
+                setCategoryLoading(false)
+            }
+        }
+
+        loadCategories()
+    }, [activeProject])
+
+    React.useEffect(() => {
+        if (!secondaryCategories.length) {
+            setSecondaryCategoryId('')
+            return
+        }
+
+        const exists = secondaryCategories.some((category) => category.id === secondaryCategoryId)
+        if (!exists) {
+            setSecondaryCategoryId(secondaryCategories[0].id)
+        }
+    }, [secondaryCategories, secondaryCategoryId])
+
+    React.useEffect(() => {
+        const loadTopics = async () => {
+            if (!activeProject || !secondaryCategoryId) {
+                setTopicCandidates([])
+                setSelectedTopicIds(new Set())
+                return
+            }
+
+            setTopicsLoading(true)
+
+            try {
+                const loadedTopics = await commandCenterService.listTopicCandidates(activeProject.id, secondaryCategoryId)
+                setTopicCandidates(loadedTopics)
+            } catch (error) {
+                console.error(error)
+                toast.error('Unable to load starter topics for this category.')
+            } finally {
+                setTopicsLoading(false)
+            }
+        }
+
+        loadTopics()
+    }, [activeProject, secondaryCategoryId])
+
+    React.useEffect(() => {
+        setSelectedTopicIds((current) => {
+            const next = new Set<string>()
+            topicCandidates.forEach((topic) => {
+                if (current.has(topic.id)) {
+                    next.add(topic.id)
+                }
+            })
+            return next
+        })
+    }, [topicCandidates])
+
+    const addTopicsToWorkspace = async (titles: string[], source: 'ai' | 'news') => {
+        if (!activeProject || !user || !activePrimaryCategory || !activeSecondaryCategory) {
+            return
+        }
+
+        const existingTitles = new Set(topicCandidates.map((topic) => topic.title.trim().toLowerCase()))
+        const cleaned = titles
+            .map((title) => title.trim())
+            .filter((title, index, all) => title.length > 0 && all.findIndex((item) => item.toLowerCase() === title.toLowerCase()) === index)
+            .filter((title) => !existingTitles.has(title.toLowerCase()))
+
+        if (!cleaned.length) {
+            toast.message('Those topics are already in the workspace.')
+            return
+        }
+
+        const inserted = await commandCenterService.createTopicCandidates(
+            cleaned.map((title) => ({
+                project_id: activeProject.id,
+                user_id: user.id,
+                primary_category_id: activePrimaryCategory.id,
+                secondary_category_id: activeSecondaryCategory.id,
+                title,
+                topic_source: source,
+                source_label: commandCenterService.getSourceLabel(source),
+            })),
+        )
+
+        setTopicCandidates((current) => [...current, ...inserted])
+        setSelectedTopicIds((current) => {
+            const next = new Set(current)
+            inserted.forEach((topic) => next.add(topic.id))
+            return next
+        })
+        toast.success(`${inserted.length} topics added to the workspace.`)
+    }
+
+    const handleGenerateAiTopics = async () => {
+        if (!activeProject || !activePrimaryCategory) {
+            return
+        }
+
+        setAiLoading(true)
+        try {
+            const titles = await commandCenterService.generateAiTopics({
+                project: activeProject,
+                primaryCategory: activePrimaryCategory,
+                secondaryCategory: activeSecondaryCategory,
+            })
+            await addTopicsToWorkspace(titles, 'ai')
+        } catch (error: any) {
+            console.error(error)
+            toast.error(error?.response?.data?.error || error?.message || 'AI topic generation failed.')
+        } finally {
+            setAiLoading(false)
+        }
+    }
+
+    const handleGenerateNewsTopics = async () => {
+        if (!activeProject || !activePrimaryCategory) {
+            return
+        }
+
+        setNewsLoading(true)
+        try {
+            const titles = await commandCenterService.generateNewsTopics({
+                project: activeProject,
+                primaryCategory: activePrimaryCategory,
+                secondaryCategory: activeSecondaryCategory,
+            })
+            await addTopicsToWorkspace(titles, 'news')
+        } catch (error: any) {
+            console.error(error)
+            toast.error(error?.response?.data?.error || error?.message || 'News-based topic generation failed.')
+        } finally {
+            setNewsLoading(false)
+        }
+    }
+
+    const handleAddManualTopic = async () => {
+        if (!activeProject || !user || !activePrimaryCategory || !activeSecondaryCategory || !manualTopic.trim()) {
+            return
+        }
+
+        const normalizedTitle = manualTopic.trim().toLowerCase()
+        if (topicCandidates.some((topic) => topic.title.trim().toLowerCase() === normalizedTitle)) {
+            toast.message('That topic is already in the workspace.')
+            return
+        }
+
+        setManualLoading(true)
+        try {
+            const inserted = await commandCenterService.createTopicCandidate({
+                project_id: activeProject.id,
+                user_id: user.id,
+                primary_category_id: activePrimaryCategory.id,
+                secondary_category_id: activeSecondaryCategory.id,
+                title: manualTopic.trim(),
+                topic_source: 'manual',
+                source_label: commandCenterService.getSourceLabel('manual'),
+            })
+
+            setTopicCandidates((current) => [...current, inserted])
+            setSelectedTopicIds((current) => new Set(current).add(inserted.id))
+            setManualTopic('')
+        } catch (error) {
+            console.error(error)
+            toast.error('Unable to save that topic.')
+        } finally {
+            setManualLoading(false)
+        }
+    }
+
+    const handleRemoveTopic = async (topicId: string) => {
+        try {
+            await commandCenterService.deleteTopicCandidate(topicId)
+            setTopicCandidates((current) => current.filter((topic) => topic.id !== topicId))
+            setSelectedTopicIds((current) => {
+                const next = new Set(current)
+                next.delete(topicId)
+                return next
+            })
+        } catch (error) {
+            console.error(error)
+            toast.error('Unable to remove this topic.')
+        }
+    }
+
+    const toggleTopic = (topicId: string) => {
+        setSelectedTopicIds((current) => {
+            const next = new Set(current)
+            if (next.has(topicId)) {
+                next.delete(topicId)
+            } else {
+                next.add(topicId)
+            }
+            return next
+        })
+    }
+
+    const handleSelectAll = () => {
+        if (selectedTopicIds.size === topicCandidates.length) {
+            setSelectedTopicIds(new Set())
+            return
+        }
+
+        setSelectedTopicIds(new Set(topicCandidates.map((topic) => topic.id)))
+    }
+
+    const handleStartResearch = async () => {
+        if (!activeProject || !user || !activePrimaryCategory || selectedTopicIds.size === 0) {
+            return
+        }
+
+        const selectedTopics = topicCandidates.filter((topic) => selectedTopicIds.has(topic.id))
+
+        setStartLoading(true)
+        try {
+            const created = await commandCenterService.startResearch({
+                project: activeProject,
+                userId: user.id,
+                primaryCategory: activePrimaryCategory,
+                secondaryCategory: activeSecondaryCategory,
+                topics: selectedTopics,
+            })
+
+            toast.success(`${created.length} research ${created.length === 1 ? 'topic' : 'topics'} started.`)
+
+            if (created.length === 1) {
+                navigate(`/research/${created[0].id}`)
+            } else {
+                navigate('/research')
+            }
+        } catch (error) {
+            console.error(error)
+            toast.error('Unable to start research right now.')
+        } finally {
+            setStartLoading(false)
+        }
+    }
+
+    const selectionLocked = !activeProject || categoryLoading || projectLoading
 
     return (
-        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-start relative overflow-hidden">
-            {/* Background */}
-            <div className="absolute inset-0 bg-gradient-to-b from-indigo-900/25 via-slate-950 to-slate-950 pointer-events-none" />
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-indigo-600/8 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative min-h-screen overflow-hidden bg-[#07111e]">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.16),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(59,130,246,0.12),transparent_28%),linear-gradient(180deg,#07111e_0%,#091426_100%)]" />
 
-            <div className="relative z-10 w-full max-w-4xl mx-auto px-6 pt-12 pb-20">
-
-                {/* ── Brand Header ─────────────────────────────────────────────── */}
+            <div className="relative mx-auto max-w-7xl px-4 pb-12 pt-6 sm:px-6 lg:px-10 lg:pt-10">
                 <motion.div
-                    initial={{ opacity: 0, y: -10 }}
+                    initial={{ opacity: 0, y: 18 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4 }}
-                    className="flex items-center justify-between mb-12"
+                    transition={{ duration: 0.35 }}
+                    className="mb-8"
                 >
-                    <div>
-                        <h1 className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-                            Zenith Creator
-                        </h1>
-                        <p className="text-xs text-slate-600 uppercase tracking-widest font-medium">Command Center</p>
-                    </div>
+                    <p className="mb-3 text-[11px] uppercase tracking-[0.34em] text-slate-500">Research Workflow</p>
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                        <div className="max-w-3xl">
+                            <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl lg:text-5xl">
+                                Build the next research queue without the noise.
+                            </h1>
+                            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-400 sm:text-base">
+                                Choose the website, narrow the category, shape the topic list, and launch one or many research runs from a single workspace.
+                            </p>
+                        </div>
 
-                    {/* Project Switcher — top right */}
-                    <ProjectSwitcher />
+                        <div className="rounded-3xl border border-white/8 bg-white/[0.035] px-5 py-4 text-sm text-slate-300">
+                            <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Active Website</p>
+                            <p className="mt-2 text-lg font-medium text-white">{getProjectLabel(activeProject)}</p>
+                            <p className="mt-2 max-w-md text-sm text-slate-400">{getProjectDescription(activeProject)}</p>
+                        </div>
+                    </div>
                 </motion.div>
 
-                {/* ── Hero Headline ─────────────────────────────────────────────── */}
-                <motion.div
+                <motion.section
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: 0.05 }}
-                    className="text-center mb-10"
+                    transition={{ duration: 0.4, delay: 0.05 }}
+                    className={`${panelClasses} mb-8 p-5 sm:p-7`}
                 >
-                    <h2 className="text-4xl md:text-5xl font-extrabold tracking-tight text-white leading-tight mb-3 flex items-center justify-center flex-wrap gap-2">
-                        {hasProject
-                            ? <>Working in <span className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">{activeProject.domain || activeProject.app_name}</span>
-                               <button onClick={() => setShowDesc(!showDesc)} className="text-slate-500 hover:text-indigo-400 transition-colors mt-2 md:mt-0" title="Toggle Description">
-                                   <Info className="w-6 h-6 md:w-8 md:h-8" />
-                               </button>
-                              </>
-                            : 'Select a Project to Begin'
-                        }
-                    </h2>
-                    <AnimatePresence>
-                    {(!hasProject || showDesc) && (
-                        <motion.p 
-                            initial={hasProject ? { opacity: 0, height: 0 } : false}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="text-slate-400 text-base md:text-lg max-w-xl mx-auto overflow-hidden">
-                            {hasProject && (activeProject.site_description || activeProject.websiteDescription)
-                                ? (activeProject.site_description || activeProject.websiteDescription)
-                                : hasProject
-                                    ? 'No niche description set — add one in Settings.'
-                                    : 'Choose a project from the dropdown above to activate your Command Center.'
-                            }
-                        </motion.p>
-                    )}
-                    </AnimatePresence>
-                </motion.div>
+                    <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr_0.85fr]">
+                        <label className="space-y-2">
+                            <span className="text-sm font-medium text-slate-300">Website</span>
+                            <div className="relative">
+                                <Globe2 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                                <select
+                                    className={`${selectClasses} pl-11`}
+                                    value={activeProject?.id || ''}
+                                    onChange={(event) => {
+                                        const nextProject = projects.find((project) => project.id === event.target.value) || null
+                                        setActiveProject(nextProject)
+                                    }}
+                                >
+                                    <option value="">Select a website</option>
+                                    {projects.map((project) => (
+                                        <option key={project.id} value={project.id}>
+                                            {project.domain || project.app_name || 'Untitled Project'}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </label>
 
-                {/* ── Action Hero Section ───────────────────────────────────────── */}
-                <motion.div
+                        <label className="space-y-2">
+                            <span className="text-sm font-medium text-slate-300">Category</span>
+                            <div className="relative">
+                                <Layers3 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                                <select
+                                    className={`${selectClasses} pl-11`}
+                                    value={primaryCategoryId}
+                                    onChange={(event) => setPrimaryCategoryId(event.target.value)}
+                                    disabled={selectionLocked || primaryCategories.length === 0}
+                                >
+                                    <option value="">Select a category</option>
+                                    {primaryCategories.map((category) => (
+                                        <option key={category.id} value={category.id}>
+                                            {category.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </label>
+
+                        <label className="space-y-2">
+                            <span className="text-sm font-medium text-slate-300">Subcategory</span>
+                            <div className="relative">
+                                <BookOpenText className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                                <select
+                                    className={`${selectClasses} pl-11`}
+                                    value={secondaryCategoryId}
+                                    onChange={(event) => setSecondaryCategoryId(event.target.value)}
+                                    disabled={selectionLocked || secondaryCategories.length === 0}
+                                >
+                                    <option value="">Select a subcategory</option>
+                                    {secondaryCategories.map((category) => (
+                                        <option key={category.id} value={category.id}>
+                                            {category.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </label>
+                    </div>
+                </motion.section>
+
+                <motion.section
                     initial={{ opacity: 0, y: 24 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: 0.1 }}
-                    className="relative mb-8"
+                    transition={{ duration: 0.45, delay: 0.1 }}
+                    className="mb-8 grid gap-4 lg:grid-cols-[0.95fr_0.95fr_1.1fr]"
                 >
-                    {/* Blur overlay when no project is selected */}
-                    <AnimatePresence>
-                        {!hasProject && !projectLoading && (
-                            <motion.div
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                className="absolute inset-0 z-10 rounded-3xl backdrop-blur-md bg-slate-950/70 flex flex-col items-center justify-center gap-3 border border-amber-500/20"
-                            >
-                                <Lock className="w-8 h-8 text-amber-400" />
-                                <p className="text-white font-semibold text-lg">Select a Project to Unlock</p>
-                                <p className="text-slate-400 text-sm">Use the workspace switcher above to get started</p>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-
-                    {/* Search Bar */}
-                    <div className={`transition-all duration-300 ${!hasProject ? 'pointer-events-none' : ''}`}>
-                        <div className="relative group">
-                            {/* Animated glow */}
-                            <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500/30 to-purple-500/30 rounded-3xl blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity duration-500" />
-
-                            <div className="relative flex items-center bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden focus-within:border-indigo-500/50 transition-all duration-300 shadow-xl">
-                                <Search className="absolute left-6 h-5 w-5 text-slate-500 pointer-events-none" />
-                                <input
-                                    ref={searchRef}
-                                    id="topic-search"
-                                    type="text"
-                                    placeholder="Enter a broad topic to explode into SEO ideas..."
-                                    className="flex-1 pl-14 pr-4 h-16 text-base bg-transparent border-0 text-white placeholder:text-slate-600 focus:outline-none"
-                                    value={searchTerm}
-                                    onChange={e => setSearchTerm(e.target.value)}
-                                    onKeyDown={e => e.key === 'Enter' && handleTopicExplosion()}
-                                />
-                                <button
-                                    id="topic-explode-btn"
-                                    onClick={handleTopicExplosion}
-                                    disabled={!searchTerm.trim() || isExploding}
-                                    className="m-2 h-12 px-6 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white rounded-xl transition-all flex items-center gap-2 font-semibold disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-indigo-600/30"
-                                >
-                                    {isExploding
-                                        ? <Loader2 className="h-4 w-4 animate-spin" />
-                                        : <Zap className="h-4 w-4" />
-                                    }
-                                    Explode
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* ── Quick-Start Action Row ─────────────────────────────── */}
-                        <div className="grid grid-cols-3 gap-3 mt-4">
-                            {/* Button A — Propose Topics */}
-                            <button
-                                id="btn-propose-topics"
-                                onClick={handleProposeTopics}
-                                disabled={!hasProject}
-                                className="group flex flex-col items-center gap-2 p-4 rounded-2xl bg-white/5 border border-white/8 hover:border-indigo-500/40 hover:bg-indigo-500/8 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                                <div className="w-10 h-10 rounded-xl bg-indigo-500/15 group-hover:bg-indigo-500/25 flex items-center justify-center transition-colors">
-                                    <Sparkles className="w-5 h-5 text-indigo-400" />
-                                </div>
-                                <div className="text-center">
-                                    <p className="text-sm font-semibold text-white">Propose Topics</p>
-                                    <p className="text-[11px] text-slate-500 leading-tight mt-0.5">AI picks 5 topics for your niche</p>
-                                </div>
-                            </button>
-
-                            {/* Button B — News Pulse */}
-                            <button
-                                id="btn-news-pulse"
-                                onClick={() => setTrendOpen(true)}
-                                disabled={!hasProject}
-                                className="group flex flex-col items-center gap-2 p-4 rounded-2xl bg-white/5 border border-white/8 hover:border-purple-500/40 hover:bg-purple-500/8 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                                <div className="w-10 h-10 rounded-xl bg-purple-500/15 group-hover:bg-purple-500/25 flex items-center justify-center transition-colors">
-                                    <Newspaper className="w-5 h-5 text-purple-400" />
-                                </div>
-                                <div className="text-center">
-                                    <p className="text-sm font-semibold text-white">News Pulse</p>
-                                    <p className="text-[11px] text-slate-500 leading-tight mt-0.5">Latest trends for your niche</p>
-                                </div>
-                            </button>
-
-                            {/* Button C — Manual Entry */}
-                            <button
-                                id="btn-manual-entry"
-                                onClick={() => searchRef.current?.focus()}
-                                disabled={!hasProject}
-                                className="group flex flex-col items-center gap-2 p-4 rounded-2xl bg-white/5 border border-white/8 hover:border-slate-400/40 hover:bg-slate-500/8 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                                <div className="w-10 h-10 rounded-xl bg-slate-500/15 group-hover:bg-slate-500/25 flex items-center justify-center transition-colors">
-                                    <PenLine className="w-5 h-5 text-slate-400" />
-                                </div>
-                                <div className="text-center">
-                                    <p className="text-sm font-semibold text-white">Manual Entry</p>
-                                    <p className="text-[11px] text-slate-500 leading-tight mt-0.5">Type your own topic above</p>
-                                </div>
-                            </button>
-                        </div>
-                    </div>
-                </motion.div>
-
-                {/* ── Secondary: Navigation Links ──────────────────────────── */}
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ duration: 0.5, delay: 0.25 }}
-                    className="border-t border-white/5 pt-8"
-                >
-                    <p className="text-xs text-slate-600 uppercase tracking-widest font-medium text-center mb-5">Continue Your Work</p>
-                    <div className="flex flex-col sm:flex-row justify-center gap-4">
-                        {/* Research Projects Button */}
-                        <Link
-                            to="/research"
-                            className="group flex items-center gap-4 px-6 py-4 rounded-2xl bg-white/4 border border-white/8 hover:border-indigo-500/30 hover:bg-indigo-500/6 transition-all duration-200"
-                        >
-                            <div className="w-10 h-10 rounded-xl bg-indigo-500/15 flex items-center justify-center">
-                                <Search className="w-5 h-5 text-indigo-400" />
-                            </div>
-                            <div>
-                                <p className="font-semibold text-white group-hover:text-indigo-300 transition-colors">All Research Topics</p>
-                                <p className="text-xs text-slate-500">View and manage all your research projects</p>
-                            </div>
-                            <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all ml-2" />
-                        </Link>
-
-                        {/* Content Library Button */}
-                        <Link
-                            to="/my-articles"
-                            className="group flex items-center gap-4 px-6 py-4 rounded-2xl bg-white/4 border border-white/8 hover:border-purple-500/30 hover:bg-purple-500/6 transition-all duration-200"
-                        >
-                            <div className="w-10 h-10 rounded-xl bg-purple-500/15 flex items-center justify-center">
-                                <BookOpen className="w-5 h-5 text-purple-400" />
-                            </div>
-                            <div>
-                                <p className="font-semibold text-white group-hover:text-purple-300 transition-colors">Content Library</p>
-                                <p className="text-xs text-slate-500">View saved roadmaps, drafts &amp; published articles</p>
-                            </div>
-                            <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-purple-400 group-hover:translate-x-1 transition-all ml-2" />
-                        </Link>
-                    </div>
-                </motion.div>
-
-                {/* ── Recent Research Topics ───────────────────────────────── */}
-
-                {(recentTopics.length > 0 || topicsLoading) && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ duration: 0.5, delay: 0.35 }}
-                        className="border-t border-white/5 pt-8 mt-2"
+                    <button
+                        type="button"
+                        onClick={handleGenerateAiTopics}
+                        disabled={selectionLocked || !activePrimaryCategory || aiLoading}
+                        className={`${panelClasses} flex min-h-[180px] flex-col items-start justify-between p-6 text-left transition hover:border-blue-400/20 hover:bg-blue-500/[0.06] disabled:cursor-not-allowed disabled:opacity-50`}
                     >
-                        <div className="flex items-center justify-between mb-4">
-                            <p className="text-xs text-slate-600 uppercase tracking-widest font-medium">Recent Research Topics</p>
-                            <Link to="/research" className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">View all →</Link>
+                        <div className="rounded-2xl bg-blue-500/15 p-3 text-blue-200">
+                            {aiLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
+                        </div>
+                        <div>
+                            <p className="text-lg font-medium text-white">AI Generated Topics</p>
+                            <p className="mt-2 text-sm leading-6 text-slate-400">
+                                Pull in broad topics aligned with the selected website and category path.
+                            </p>
+                        </div>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={handleGenerateNewsTopics}
+                        disabled={selectionLocked || !activePrimaryCategory || newsLoading}
+                        className={`${panelClasses} flex min-h-[180px] flex-col items-start justify-between p-6 text-left transition hover:border-cyan-300/20 hover:bg-cyan-400/[0.05] disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                        <div className="rounded-2xl bg-cyan-400/15 p-3 text-cyan-100">
+                            {newsLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Newspaper className="h-5 w-5" />}
+                        </div>
+                        <div>
+                            <p className="text-lg font-medium text-white">Hot in the News</p>
+                            <p className="mt-2 text-sm leading-6 text-slate-400">
+                                Use the trend engine to surface timely topics with current momentum.
+                            </p>
+                        </div>
+                    </button>
+
+                    <div className={`${panelClasses} flex min-h-[180px] flex-col justify-between p-6`}>
+                        <div>
+                            <p className="text-lg font-medium text-white">Manual Topic</p>
+                            <p className="mt-2 text-sm leading-6 text-slate-400">
+                                Add your own topic to the workspace, then include it in the next batch.
+                            </p>
+                        </div>
+
+                        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                            <input
+                                value={manualTopic}
+                                onChange={(event) => setManualTopic(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                        void handleAddManualTopic()
+                                    }
+                                }}
+                                placeholder="Type a broad topic"
+                                className="h-14 flex-1 rounded-2xl border border-white/10 bg-[#0d1728]/90 px-4 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-blue-400/40"
+                                disabled={selectionLocked}
+                            />
+                            <button
+                                type="button"
+                                onClick={handleAddManualTopic}
+                                disabled={selectionLocked || !manualTopic.trim() || manualLoading}
+                                className="inline-flex h-14 items-center justify-center rounded-2xl bg-white px-5 text-sm font-medium text-slate-950 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {manualLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                            </button>
+                        </div>
+                    </div>
+                </motion.section>
+
+                <motion.section
+                    initial={{ opacity: 0, y: 24 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.45, delay: 0.15 }}
+                    className={`${panelClasses} overflow-hidden`}
+                >
+                    <div className="border-b border-white/8 px-5 py-5 sm:px-7">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                            <div>
+                                <p className="text-sm font-medium text-white">Topic Workspace</p>
+                                <p className="mt-2 text-sm text-slate-400">
+                                    Preloaded topics appear here. Add more from AI, news, or your own manual input, then choose the ones to start.
+                                </p>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 text-xs text-slate-400">
+                                {activePrimaryCategory && (
+                                    <span className="rounded-full border border-white/10 px-3 py-1.5">
+                                        {activePrimaryCategory.name}
+                                    </span>
+                                )}
+                                {activeSecondaryCategory && (
+                                    <span className="rounded-full border border-blue-400/15 bg-blue-500/10 px-3 py-1.5 text-blue-100">
+                                        {activeSecondaryCategory.name}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="px-5 py-5 sm:px-7">
+                        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <button
+                                type="button"
+                                onClick={handleSelectAll}
+                                disabled={topicCandidates.length === 0}
+                                className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.24em] text-slate-400 transition hover:border-white/15 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                <CheckCircle2 className="h-4 w-4" />
+                                {selectedTopicIds.size === topicCandidates.length && topicCandidates.length > 0 ? 'Clear selection' : 'Select all'}
+                            </button>
+
+                            <p className="text-sm text-slate-400">
+                                {selectedTopicIds.size} selected of {topicCandidates.length}
+                            </p>
                         </div>
 
                         {topicsLoading ? (
-                            <div className="flex gap-3">
-                                {[1,2,3].map(i => (
-                                    <div key={i} className="flex-1 h-16 rounded-xl bg-white/4 animate-pulse" />
+                            <div className="space-y-3">
+                                {[1, 2, 3].map((item) => (
+                                    <div key={item} className="h-20 animate-pulse rounded-3xl bg-white/[0.035]" />
                                 ))}
+                            </div>
+                        ) : topicCandidates.length === 0 ? (
+                            <div className="rounded-[26px] border border-dashed border-white/10 bg-[#0c1525] px-6 py-14 text-center">
+                                <p className="text-lg font-medium text-white">No topics in this workspace yet.</p>
+                                <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-slate-400">
+                                    Start with the seeded topics for another category, or generate fresh options from AI and news for this selection.
+                                </p>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {recentTopics.map(topic => (
-                                    <Link
-                                        key={topic.id}
-                                        to={`/research/${topic.id}`}
-                                        className="group flex items-center gap-3 px-4 py-3 rounded-xl bg-white/4 border border-white/6 hover:border-indigo-500/30 hover:bg-indigo-500/6 transition-all duration-200"
-                                    >
-                                        <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
-                                            <FlaskConical className="w-4 h-4 text-indigo-400" />
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                            <p className="text-sm font-medium text-white group-hover:text-indigo-300 transition-colors truncate">{topic.title}</p>
-                                            <p className="text-[11px] text-slate-600 flex items-center gap-1 mt-0.5">
-                                                <Clock className="w-3 h-3" />
-                                                {new Date(topic.created_at).toLocaleDateString()}
-                                            </p>
-                                        </div>
-                                        <ArrowRight className="w-4 h-4 text-slate-700 group-hover:text-indigo-400 flex-shrink-0 transition-colors" />
-                                    </Link>
-                                ))}
+                            <div className="space-y-3">
+                                {topicCandidates.map((topic) => {
+                                    const checked = selectedTopicIds.has(topic.id)
+                                    return (
+                                        <label
+                                            key={topic.id}
+                                            className={`flex cursor-pointer items-center gap-4 rounded-[26px] border px-4 py-4 transition sm:px-5 ${
+                                                checked
+                                                    ? 'border-blue-400/30 bg-blue-500/[0.09]'
+                                                    : 'border-white/8 bg-[#0c1525] hover:border-white/14 hover:bg-white/[0.045]'
+                                            }`}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={() => toggleTopic(topic.id)}
+                                                className="h-5 w-5 rounded border-white/15 bg-transparent text-blue-400 focus:ring-blue-400"
+                                            />
+
+                                            <div className="min-w-0 flex-1">
+                                                <p className="truncate text-sm font-medium text-white sm:text-base">{topic.title}</p>
+                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                    <span className="rounded-full border border-white/8 bg-white/[0.04] px-3 py-1 text-xs text-slate-400">
+                                                        {topic.source_label || commandCenterService.getSourceLabel(topic.topic_source)}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                onClick={(event) => {
+                                                    event.preventDefault()
+                                                    void handleRemoveTopic(topic.id)
+                                                }}
+                                                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/8 text-slate-500 transition hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-200"
+                                                aria-label={`Remove ${topic.title}`}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </button>
+                                        </label>
+                                    )
+                                })}
                             </div>
                         )}
-                    </motion.div>
-                )}
 
+                        <div className="mt-6 border-t border-white/8 pt-6">
+                            <button
+                                type="button"
+                                onClick={handleStartResearch}
+                                disabled={selectedTopicIds.size === 0 || startLoading || !activeProject}
+                                className="inline-flex h-14 w-full items-center justify-center rounded-[22px] bg-[linear-gradient(135deg,#4ea7ff_0%,#3478f6_45%,#2558d7_100%)] px-6 text-base font-medium text-white shadow-[0_18px_40px_rgba(37,88,215,0.4)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {startLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : `Start Research on ${selectedTopicIds.size || ''} Selected Topic${selectedTopicIds.size === 1 ? '' : 's'}`}
+                            </button>
+                        </div>
+                    </div>
+                </motion.section>
             </div>
-
-            {/* ── Modals ──────────────────────────────────────────────────────── */}
-            <ProposeTopicsModal
-                isOpen={proposeOpen}
-                onClose={() => setProposeOpen(false)}
-                topics={proposedTopics}
-                loading={proposeLoading}
-                error={proposeError}
-            />
-
-            {trendOpen && activeProject && (
-                <TrendReportModal
-                    siteId={activeProject.id}
-                    siteDomain={activeProject.domain || activeProject.app_name}
-                    isOpen={trendOpen}
-                    onClose={() => setTrendOpen(false)}
-                />
-            )}
         </div>
-    );
+    )
 }

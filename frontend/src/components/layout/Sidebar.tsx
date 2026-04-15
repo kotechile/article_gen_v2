@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Settings, TrendingUp, ChevronLeft, ChevronRight, LogOut, Home, BookOpen } from "lucide-react"
+import { Settings, TrendingUp, ChevronLeft, ChevronRight, LogOut, Home, BookOpen, Menu } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -7,82 +7,201 @@ import { ModeToggle } from "@/components/mode-toggle"
 import { Separator } from "@/components/ui/separator"
 import { useAuth } from "@/context/auth-context"
 import { Link, useLocation } from "react-router-dom"
+import { supabase } from "@/lib/supabase"
+
+const SIDEBAR_STORAGE_KEY = "zenith_sidebar_collapsed"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> { }
 
 export function Sidebar({ className }: SidebarProps) {
+    const { user } = useAuth()
     const [isCollapsed, setIsCollapsed] = React.useState(false)
+    const [mobileOpen, setMobileOpen] = React.useState(false)
+    const [recentArticles, setRecentArticles] = React.useState<Array<{ id: string; Title: string }>>([])
     const location = useLocation()
     const pathname = location.pathname
 
+    React.useEffect(() => {
+        const saved = window.localStorage.getItem(SIDEBAR_STORAGE_KEY)
+        if (saved) {
+            setIsCollapsed(saved === "true")
+        }
+    }, [])
+
+    React.useEffect(() => {
+        window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(isCollapsed))
+    }, [isCollapsed])
+
+    React.useEffect(() => {
+        setMobileOpen(false)
+    }, [pathname])
+
+    React.useEffect(() => {
+        const loadRecentArticles = async () => {
+            if (!user) {
+                setRecentArticles([])
+                return
+            }
+
+            const { data, error } = await supabase
+                .from("Titles")
+                .select("id, Title")
+                .eq("user_id", user.id)
+                .order("dateCreatedOn", { ascending: false })
+                .limit(4)
+
+            if (error) {
+                console.error("Failed to load recent articles", error)
+                return
+            }
+
+            setRecentArticles(data || [])
+        }
+
+        loadRecentArticles()
+    }, [user])
+
+    const toggleCollapsed = () => setIsCollapsed((current) => !current)
+
     return (
-        <div className={cn("relative h-screen border-r bg-background transition-all duration-300", isCollapsed ? "w-[80px]" : "w-[240px]", className)}>
-            <div className="flex h-full flex-col">
-                {/* Header / Logo */}
-                <div className={cn("flex items-center h-16 px-4", isCollapsed ? "justify-center" : "justify-between")}>
-                    {!isCollapsed && (
-                        <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-zinc-900 to-zinc-500 bg-clip-text text-transparent dark:from-white dark:to-zinc-500">
-                            ProfitPath
-                        </span>
-                    )}
-                    {isCollapsed && (
-                        <span className="text-xl font-bold">PP</span>
-                    )}
-                </div>
+        <>
+            <button
+                type="button"
+                onClick={() => setMobileOpen(true)}
+                className="fixed left-4 top-4 z-50 inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/80 text-white shadow-lg backdrop-blur md:hidden"
+                aria-label="Open navigation"
+            >
+                <Menu className="h-5 w-5" />
+            </button>
 
-                <Separator />
+            {mobileOpen && (
+                <button
+                    type="button"
+                    className="fixed inset-0 z-30 bg-slate-950/65 backdrop-blur-sm md:hidden"
+                    onClick={() => setMobileOpen(false)}
+                    aria-label="Close navigation overlay"
+                />
+            )}
 
-                {/* Navigation */}
-                <ScrollArea className="flex-1 px-3 py-4">
-                    <NavItem
-                        href="/"
-                        icon={<Home className="h-5 w-5" />}
-                        label="Command Center"
-                        isCollapsed={isCollapsed}
-                        active={pathname === "/"}
-                    />
-                    <NavItem
-                        href="/research"
-                        icon={<TrendingUp className="h-5 w-5" />}
-                        label="Topic Analysis"
-                        isCollapsed={isCollapsed}
-                        active={pathname?.startsWith("/research")}
-                    />
-                    <NavItem
-                        href="/my-articles"
-                        icon={<BookOpen className="h-5 w-5" />}
-                        label="Content Library"
-                        isCollapsed={isCollapsed}
-                        active={pathname?.startsWith("/my-articles")}
-                    />
-                    <NavItem
-                        href="/settings"
-                        icon={<Settings className="h-5 w-5" />}
-                        label="Settings"
-                        isCollapsed={isCollapsed}
-                        active={pathname?.startsWith("/settings")}
-                    />
-                </ScrollArea>
-
-                {/* Footer */}
-                <div className="p-3 mt-auto border-t space-y-2">
-                    <UserProfile isCollapsed={isCollapsed} />
-
-                    <Separator />
-
-                    <div className={cn("flex items-center", isCollapsed ? "justify-center" : "justify-between px-2")}>
-                        {!isCollapsed && <span className="text-sm text-muted-foreground">Theme</span>}
-                        <ModeToggle />
+            <aside
+                className={cn(
+                    "fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-white/8 bg-[#0b1324]/95 backdrop-blur-xl transition-all duration-300 md:static md:translate-x-0",
+                    mobileOpen ? "translate-x-0" : "-translate-x-full",
+                    isCollapsed ? "w-[92px]" : "w-[290px]",
+                    className,
+                )}
+            >
+                <div className="flex h-full flex-col">
+                    <div className={cn("flex h-20 items-center px-5", isCollapsed ? "justify-center" : "justify-between")}>
+                        {isCollapsed ? (
+                            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-500/15 text-sm font-semibold text-blue-200">
+                                ZC
+                            </div>
+                        ) : (
+                            <div>
+                                <p className="text-lg font-semibold tracking-tight text-white">Zenith Creator</p>
+                                <p className="text-[11px] uppercase tracking-[0.32em] text-slate-500">Command Center</p>
+                            </div>
+                        )}
                     </div>
 
-                    <div className="flex justify-center pt-2">
-                        <Button variant="ghost" size="sm" className="w-full" onClick={() => setIsCollapsed(!isCollapsed)}>
-                            {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <div className="flex items-center text-muted-foreground text-xs"><ChevronLeft className="h-3 w-3 mr-1" /> Collapse</div>}
+                    <Separator className="bg-white/6" />
+
+                    <ScrollArea className="flex-1 px-3 py-5">
+                        <div className="space-y-2">
+                            <NavItem
+                                href="/"
+                                icon={<Home className="h-5 w-5" />}
+                                label="New Research"
+                                isCollapsed={isCollapsed}
+                                active={pathname === "/"}
+                            />
+                            <NavItem
+                                href="/research"
+                                icon={<TrendingUp className="h-5 w-5" />}
+                                label="All Research"
+                                isCollapsed={isCollapsed}
+                                active={pathname?.startsWith("/research")}
+                            />
+                            <NavItem
+                                href="/my-articles"
+                                icon={<BookOpen className="h-5 w-5" />}
+                                label="Content Library"
+                                isCollapsed={isCollapsed}
+                                active={pathname?.startsWith("/my-articles")}
+                            />
+                            <NavItem
+                                href="/settings"
+                                icon={<Settings className="h-5 w-5" />}
+                                label="Settings"
+                                isCollapsed={isCollapsed}
+                                active={pathname?.startsWith("/settings")}
+                            />
+                        </div>
+
+                        {!isCollapsed && (
+                            <div className="mt-8 rounded-3xl border border-white/8 bg-white/4 p-4">
+                                <div className="mb-3 flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-medium text-white">Content Library</p>
+                                        <p className="text-xs text-slate-500">Recent articles stay tucked away here.</p>
+                                    </div>
+                                    <Link to="/my-articles" className="text-xs text-blue-300 transition-colors hover:text-blue-200">
+                                        Open
+                                    </Link>
+                                </div>
+
+                                <div className="space-y-2">
+                                    {recentArticles.length === 0 && (
+                                        <p className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-xs text-slate-500">
+                                            Your latest articles will appear here.
+                                        </p>
+                                    )}
+
+                                    {recentArticles.map((article) => (
+                                        <Link
+                                            key={article.id}
+                                            to="/my-articles"
+                                            className="block rounded-2xl border border-white/6 bg-slate-950/45 px-3 py-2.5 text-sm text-slate-200 transition-colors hover:border-white/12 hover:text-white"
+                                        >
+                                            <p className="truncate">{article.Title || "Untitled Article"}</p>
+                                        </Link>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </ScrollArea>
+
+                    <div className="mt-auto space-y-3 border-t border-white/6 p-3">
+                        <UserProfile isCollapsed={isCollapsed} />
+
+                        <div className={cn("flex items-center", isCollapsed ? "justify-center" : "justify-between px-2")}>
+                            {!isCollapsed && <span className="text-sm text-slate-500">Theme</span>}
+                            <ModeToggle />
+                        </div>
+
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                                "w-full rounded-2xl border border-white/6 bg-white/4 text-slate-300 hover:bg-white/8 hover:text-white",
+                                isCollapsed ? "px-0" : "justify-start px-4",
+                            )}
+                            onClick={toggleCollapsed}
+                        >
+                            {isCollapsed ? (
+                                <ChevronRight className="h-4 w-4" />
+                            ) : (
+                                <>
+                                    <ChevronLeft className="mr-2 h-4 w-4" />
+                                    Collapse
+                                </>
+                            )}
                         </Button>
                     </div>
                 </div>
-            </div>
-        </div>
+            </aside>
+        </>
     )
 }
 
@@ -91,7 +210,13 @@ function NavItem({ icon, label, isCollapsed, active, href }: { icon: React.React
         <Button
             asChild
             variant={active ? "secondary" : "ghost"}
-            className={cn("w-full justify-start", isCollapsed ? "justify-center px-0" : "px-4")}
+            className={cn(
+                "w-full rounded-2xl border text-slate-300 transition-all",
+                active
+                    ? "border-blue-400/20 bg-blue-500/15 text-white hover:bg-blue-500/20"
+                    : "border-transparent bg-transparent hover:border-white/8 hover:bg-white/5 hover:text-white",
+                isCollapsed ? "justify-center px-0" : "justify-start px-4",
+            )}
             title={isCollapsed ? label : undefined}
         >
             <Link to={href}>
@@ -126,10 +251,10 @@ function UserProfile({ isCollapsed }: { isCollapsed: boolean }) {
     if (isCollapsed) {
         return (
             <div className="flex flex-col items-center space-y-2">
-                <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 bg-primary/10 hover:bg-primary/20" title={user.email || 'User'}>
-                    <span className="text-xs font-bold text-primary">{initials}</span>
+                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full bg-blue-500/15 hover:bg-blue-500/20" title={user.email || 'User'}>
+                    <span className="text-xs font-bold text-blue-200">{initials}</span>
                 </Button>
-                <Button variant="ghost" size="icon" onClick={signOut} title="Sign Out">
+                <Button variant="ghost" size="icon" onClick={signOut} title="Sign Out" className="text-slate-400 hover:text-white">
                     <LogOut className="h-4 w-4" />
                 </Button>
             </div>
@@ -139,14 +264,15 @@ function UserProfile({ isCollapsed }: { isCollapsed: boolean }) {
     return (
         <div className="space-y-2 px-2">
             <div className="flex items-center space-x-3">
-                <div className="flex items-center justify-center h-9 w-9 rounded-full bg-primary/10 border border-primary/20 shadow-sm">
-                    <span className="text-sm font-bold text-primary">{initials}</span>
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-blue-400/15 bg-blue-500/15 shadow-sm">
+                    <span className="text-sm font-bold text-blue-200">{initials}</span>
                 </div>
                 <div className="flex-1 overflow-hidden">
-                    <p className="text-sm font-medium truncate">{user.email}</p>
+                    <p className="truncate text-sm font-medium text-white">{user.email}</p>
+                    <p className="text-xs text-slate-500">Signed in</p>
                 </div>
             </div>
-            <Button variant="outline" size="sm" className="w-full justify-start px-3 h-9 mt-1" onClick={signOut}>
+            <Button variant="outline" size="sm" className="mt-1 h-9 w-full justify-start border-white/10 bg-white/4 px-3 text-slate-300 hover:bg-white/8 hover:text-white" onClick={signOut}>
                 <LogOut className="h-3.5 w-3.5 mr-2" />
                 Sign Out
             </Button>

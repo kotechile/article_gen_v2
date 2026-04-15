@@ -22,11 +22,8 @@ function App() {
         <Route path="/auth/callback" element={<AuthCallback />} />
 
         <Route element={<ProtectedRoute />}>
-          {/* ProjectProvider is inside ProtectedRoute so user is guaranteed */}
-          <Route element={<ProjectProvider><Landing /></ProjectProvider>} path="/" />
-
-          {/* Main Layout routes — also wrapped with ProjectProvider */}
           <Route element={<ProjectProvider><MainLayout /></ProjectProvider>}>
+            <Route path="/" element={<Landing />} />
             <Route path="/my-articles" element={<MyArticles />} />
             <Route path="/knowledge-gaps" element={<KnowledgeGaps />} />
             <Route path="/content-studio" element={<ContentStudio />} />

@@ -6,9 +6,9 @@ import { ThemeProvider } from "@/components/theme-provider"
 export default function MainLayout() {
     return (
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-            <div className="flex h-screen w-full bg-background text-foreground">
+            <div className="min-h-screen w-full bg-[#08101d] text-white md:flex">
                 <Sidebar />
-                <main className="flex-1 overflow-auto">
+                <main className="min-h-screen flex-1 overflow-auto pt-20 md:pt-0">
                     <Outlet />
                 </main>
                 <Toaster />
