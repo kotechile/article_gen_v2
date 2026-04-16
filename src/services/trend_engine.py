@@ -19,9 +19,14 @@ class TrendEngine:
         self.dfs = DataForSEOAPI()
         self.apify = ApifyClient()
         
-        # Initialize LLM with default from DB
-        provider, model = self._get_default_llm_config()
-        self.llm = LLMClient(default_provider=provider, default_model=model)
+        # Initialize LLM using DB preferences + application_settings keys.
+        provider, model, api_key, base_url = self._get_llm_runtime_config()
+        self.llm = LLMClient(
+            default_provider=provider,
+            default_model=model,
+            api_key=api_key,
+            base_url=base_url,
+        )
 
     async def get_whats_trending(self, site_id: str, primary_category_id: Optional[str] = None, secondary_category_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -499,27 +504,152 @@ Instructions:
         except Exception as e:
             logger.error(f"Failed to save report to DB: {e}")
 
-    def _get_default_llm_config(self) -> tuple[str, str]:
-        """Fetch default LLM provider and model from database"""
-        default_provider = "gemini"
-        default_model = "gemini-2.0-flash-exp"
-        
+    def _get_llm_runtime_config(self) -> tuple[str, str, str, Optional[str]]:
+        """
+        Resolve the LLM provider/model AND its API key.
+
+        Notes:
+        - LLMClient/LLMModel require a non-null `api_key`. If missing, Pydantic throws a validation error.
+        - `llm_providers` stores the preferred provider/model, but keys live in `application_settings`.
+        """
+        provider_preference, model_preference = self._get_default_llm_preference()
+
+        # Normalize provider strings coming from older configs.
+        provider_preference = self._normalize_provider(provider_preference)
+
+        settings = self._get_application_settings()
+
+        resolved = self._resolve_llm_from_settings(
+            settings=settings,
+            preferred_provider=provider_preference,
+            preferred_model=model_preference,
+        )
+        if not resolved:
+            raise RuntimeError(
+                "No LLM API key configured. Please add a key in Settings → Content Generation."
+            )
+        return resolved
+
+    def _get_default_llm_preference(self) -> tuple[str, str]:
+        """Fetch preferred LLM provider/model from `llm_providers` (no keys)."""
+        default_provider = "google"
+        default_model = "gemini-1.5-flash"
+
         try:
-            # Try to get default from llm_providers table
-            resp = self.supabase.table('llm_providers').select('provider, model_name').eq('is_default', True).limit(1).execute()
-            
-            if resp.data and len(resp.data) > 0:
-                settings = resp.data[0]
-                if settings.get('provider') and settings.get('model_name'):
-                    return settings['provider'], settings['model_name']
-            
-            # If no default set, try to find any active provider
-            resp = self.supabase.table('llm_providers').select('provider, model_name').eq('is_active', True).limit(1).execute()
-            if resp.data and len(resp.data) > 0:
-                settings = resp.data[0]
-                return settings['provider'], settings['model_name']
-                
+            resp = (
+                self.supabase.table("llm_providers")
+                .select("provider, model_name")
+                .eq("is_default", True)
+                .limit(1)
+                .execute()
+            )
+            if resp.data:
+                row = resp.data[0] or {}
+                if row.get("provider") and row.get("model_name"):
+                    return row["provider"], row["model_name"]
+
+            resp = (
+                self.supabase.table("llm_providers")
+                .select("provider, model_name")
+                .eq("is_active", True)
+                .limit(1)
+                .execute()
+            )
+            if resp.data:
+                row = resp.data[0] or {}
+                if row.get("provider") and row.get("model_name"):
+                    return row["provider"], row["model_name"]
         except Exception as e:
-            logger.warning(f"Failed to fetch LLM config from DB, using defaults: {e}")
-            
+            logger.warning("Failed to fetch LLM preference from DB, using defaults: %s", e)
+
         return default_provider, default_model
+
+    def _normalize_provider(self, provider: Optional[str]) -> str:
+        """Map legacy/alias provider names to the internal provider id."""
+        p = (provider or "").strip().lower()
+        if p in ("gemini", "google"):
+            return "google"
+        if p in ("openai", "anthropic", "perplexity"):
+            return p
+        # Default to google because it has broad availability in our settings table.
+        return "google"
+
+    def _get_application_settings(self) -> Dict[str, Any]:
+        """Load application_settings row (id=1)."""
+        try:
+            res = (
+                self.supabase.table("application_settings")
+                .select(
+                    "geminiKey, geminiModel, openAIKey, openAIModel, perplexityAI_key, perplexityModel, claudeKey"
+                )
+                .eq("id", 1)
+                .single()
+                .execute()
+            )
+            return res.data or {}
+        except Exception as e:
+            logger.warning("Failed to load application_settings for LLM config: %s", e)
+            return {}
+
+    def _resolve_llm_from_settings(
+        self,
+        *,
+        settings: Dict[str, Any],
+        preferred_provider: str,
+        preferred_model: str,
+    ) -> Optional[tuple[str, str, str, Optional[str]]]:
+        """
+        Return (provider, model, api_key, base_url) or None.
+
+        Tries preferred provider first, then falls back in priority order.
+        """
+        def resolve(provider: str, model: str) -> Optional[tuple[str, str, str, Optional[str]]]:
+            provider = self._normalize_provider(provider)
+
+            if provider == "google":
+                api_key = settings.get("geminiKey")
+                if not api_key:
+                    return None
+                model_name = model or settings.get("geminiModel") or "gemini-1.5-flash"
+                return ("google", model_name, api_key, None)
+
+            if provider == "openai":
+                api_key = settings.get("openAIKey")
+                if not api_key:
+                    return None
+                model_name = model or settings.get("openAIModel") or "gpt-4o-mini"
+                return ("openai", model_name, api_key, None)
+
+            if provider == "anthropic":
+                api_key = settings.get("claudeKey")
+                if not api_key:
+                    return None
+                return ("anthropic", model or "claude-3-haiku-20240307", api_key, None)
+
+            if provider == "perplexity":
+                api_key = settings.get("perplexityAI_key")
+                if not api_key:
+                    return None
+                model_name = model or settings.get("perplexityModel") or "llama-3.1-sonar-small-128k-online"
+                # Perplexity is OpenAI-compatible.
+                return ("openai", model_name, api_key, "https://api.perplexity.ai")
+
+            return None
+
+        # 1) Preferred provider/model from DB
+        preferred = resolve(preferred_provider, preferred_model)
+        if preferred:
+            return preferred
+
+        # 2) Fallback order (match /api/ai/propose-topics behavior)
+        for provider, model in [
+            ("google", settings.get("geminiModel") or "gemini-1.5-flash"),
+            ("openai", settings.get("openAIModel") or "gpt-4o-mini"),
+            ("anthropic", "claude-3-haiku-20240307"),
+            ("perplexity", settings.get("perplexityModel") or "llama-3.1-sonar-small-128k-online"),
+        ]:
+            resolved = resolve(provider, model)
+            if resolved:
+                return resolved
+
+        return None
