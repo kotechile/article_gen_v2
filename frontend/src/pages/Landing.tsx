@@ -17,10 +17,6 @@ const smallSelectClasses =
 
 type TopicInputMode = 'ai' | 'news' | 'manual'
 
-function getProjectLabel(project: Project | null) {
-    return project?.domain || project?.app_name || 'Select a website'
-}
-
 function getProjectDescription(project: Project | null) {
     return project?.site_description || project?.websiteDescription || 'Choose a website to load its research workspace.'
 }
