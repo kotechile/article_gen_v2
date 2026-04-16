@@ -7,20 +7,20 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 
 function getStatusStyle(status: string, published: boolean) {
-    if (published || status === 'Published') return { label: 'Published', color: 'text-emerald-400' }
-    if (status === 'Scheduled') return { label: 'Scheduled', color: 'text-purple-400' }
-    if (status === 'Generated') return { label: 'Generated', color: 'text-blue-400' }
-    if (status === 'Draft' || status === 'New') return { label: status || 'Draft', color: 'text-slate-500' }
-    if (status === 'Error' || status === 'Failed') return { label: status, color: 'text-red-400' }
-    if (status === 'Review' || status === 'Editing') return { label: status, color: 'text-amber-400' }
-    return { label: status || 'Draft', color: 'text-slate-500' }
+    if (published || status === 'Published') return { label: 'Published', color: 'text-emerald-500 dark:text-emerald-400' }
+    if (status === 'Scheduled') return { label: 'Scheduled', color: 'text-purple-500 dark:text-purple-400' }
+    if (status === 'Generated') return { label: 'Generated', color: 'text-blue-500 dark:text-blue-400' }
+    if (status === 'Draft' || status === 'New') return { label: status || 'Draft', color: 'text-muted-foreground' }
+    if (status === 'Error' || status === 'Failed') return { label: status, color: 'text-red-500 dark:text-red-400' }
+    if (status === 'Review' || status === 'Editing') return { label: status, color: 'text-amber-500 dark:text-amber-400' }
+    return { label: status || 'Draft', color: 'text-muted-foreground' }
 }
 
 function getScoreColor(score?: number) {
-    if (score == null) return 'text-slate-600'
-    if (score >= 70) return 'text-emerald-400'
-    if (score >= 40) return 'text-amber-400'
-    return 'text-red-400'
+    if (score == null) return 'text-muted-foreground'
+    if (score >= 70) return 'text-emerald-500 dark:text-emerald-400'
+    if (score >= 40) return 'text-amber-500 dark:text-amber-400'
+    return 'text-red-500 dark:text-red-400'
 }
 
 export const MyArticles: React.FC = () => {
@@ -162,7 +162,7 @@ export const MyArticles: React.FC = () => {
     const allSelected = articles.length > 0 && selectedIds.size === filteredArticles.length
 
     return (
-        <div className="min-h-screen bg-[#08101d]">
+        <div className="min-h-screen bg-background">
             <div className="mx-auto max-w-5xl px-8 py-10 lg:py-14">
 
                 {/* Page header */}
@@ -171,10 +171,10 @@ export const MyArticles: React.FC = () => {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.25 }}
                 >
-                    <h1 className="text-2xl font-semibold tracking-tight text-white">
+                    <h1 className="text-2xl font-semibold tracking-tight text-foreground">
                         Content Library
                     </h1>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="mt-1 text-sm text-muted-foreground">
                         {articles.length} articles
                         {publishedCount > 0 && ` · ${publishedCount} published`}
                         {totalWords !== '0' && ` · ${totalWords} words`}
@@ -189,19 +189,19 @@ export const MyArticles: React.FC = () => {
                     className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                     <div className="relative flex-1 sm:max-w-xs">
-                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <input
                             type="text"
                             placeholder="Search articles..."
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            className="h-10 w-full rounded-lg border border-white/10 bg-white/[0.04] pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-blue-400/30 hover:border-white/15"
+                            className="h-10 w-full rounded-lg border border-border bg-muted/50 pl-10 pr-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-blue-400/30 hover:border-border"
                         />
                         {search && (
                             <button
                                 type="button"
                                 onClick={() => setSearch('')}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-500 hover:text-slate-300"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:text-foreground"
                             >
                                 <X className="h-3 w-3" />
                             </button>
@@ -212,7 +212,7 @@ export const MyArticles: React.FC = () => {
                         {selectedIds.size > 0 && (
                             <button
                                 onClick={handleDeleteSelected}
-                                className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-red-400/20 bg-red-500/10 px-3.5 text-sm text-red-300 transition hover:bg-red-500/15 hover:text-red-200"
+                                className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-red-400/20 bg-red-500/10 px-3.5 text-sm text-red-400 transition hover:bg-red-500/15 hover:text-red-300"
                             >
                                 <Trash2 className="h-3.5 w-3.5" />
                                 <span>Delete ({selectedIds.size})</span>
@@ -220,7 +220,7 @@ export const MyArticles: React.FC = () => {
                         )}
                         <button
                             onClick={handleCreateNew}
-                            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3.5 text-sm text-slate-300 transition hover:border-white/15 hover:bg-white/[0.07] hover:text-white"
+                            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-3.5 text-sm text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground"
                         >
                             <Plus className="h-3.5 w-3.5" />
                             <span>New Article</span>
@@ -229,7 +229,7 @@ export const MyArticles: React.FC = () => {
                 </motion.div>
 
                 {/* Divider */}
-                <div className="mt-6 border-t border-white/8" />
+                <div className="mt-6 border-t border-border" />
 
                 {/* Article list */}
                 <motion.div
@@ -241,23 +241,23 @@ export const MyArticles: React.FC = () => {
                     {loading ? (
                         <div className="space-y-2">
                             {[1, 2, 3, 4, 5].map(i => (
-                                <div key={i} className="h-14 animate-pulse rounded-lg bg-white/[0.03]" />
+                                <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />
                             ))}
                         </div>
                     ) : filteredArticles.length === 0 ? (
                         <div className="py-20 text-center">
-                            <p className="text-sm text-slate-500">
+                            <p className="text-sm text-muted-foreground">
                                 {search ? 'No articles match your search.' : 'No articles yet. Create one to get started.'}
                             </p>
                         </div>
                     ) : (
                         <>
                             {/* Table header */}
-                            <div className="grid grid-cols-[2.5rem_1fr_5.5rem_4rem_6rem_auto] items-center gap-2 border-b border-white/8 px-1 pb-3 text-[11px] uppercase tracking-wider text-slate-600">
+                            <div className="grid grid-cols-[2.5rem_1fr_5.5rem_4rem_6rem_auto] items-center gap-2 border-b border-border px-1 pb-3 text-[11px] uppercase tracking-wider text-muted-foreground">
                                 <span className="flex justify-center">
                                     <input
                                         type="checkbox"
-                                        className="h-4 w-4 rounded border-white/15 bg-transparent text-blue-400 focus:ring-blue-400 focus:ring-offset-0"
+                                        className="h-4 w-4 rounded border-border bg-transparent text-blue-400 focus:ring-blue-400 focus:ring-offset-0"
                                         checked={allSelected}
                                         onChange={(e) => {
                                             setSelectedIds(e.target.checked
@@ -269,28 +269,28 @@ export const MyArticles: React.FC = () => {
                                 <button
                                     type="button"
                                     onClick={() => handleSort('Title')}
-                                    className="text-left hover:text-slate-400 transition"
+                                    className="text-left hover:text-foreground transition"
                                 >
                                     Title{sortKey === 'Title' ? (sortAsc ? ' ▲' : ' ▼') : ''}
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => handleSort('status')}
-                                    className="text-left hover:text-slate-400 transition"
+                                    className="text-left hover:text-foreground transition"
                                 >
                                     Status{sortKey === 'status' ? (sortAsc ? ' ▲' : ' ▼') : ''}
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => handleSort('seo_optimization_score')}
-                                    className="text-left hover:text-slate-400 transition"
+                                    className="text-left hover:text-foreground transition"
                                 >
                                     SEO{sortKey === 'seo_optimization_score' ? (sortAsc ? ' ▲' : ' ▼') : ''}
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => handleSort('dateCreatedOn')}
-                                    className="text-left hover:text-slate-400 transition"
+                                    className="text-left hover:text-foreground transition"
                                 >
                                     Date{sortKey === 'dateCreatedOn' ? (sortAsc ? ' ▲' : ' ▼') : ''}
                                 </button>
@@ -298,7 +298,7 @@ export const MyArticles: React.FC = () => {
                             </div>
 
                             {/* Table rows */}
-                            <div className="divide-y divide-white/5">
+                            <div className="divide-y divide-border">
                                 {filteredArticles.map(article => {
                                     const selected = selectedIds.has(article.id)
                                     const status = getStatusStyle(article.status, article.published)
