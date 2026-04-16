@@ -246,6 +246,15 @@ def create_research_topic():
                 status=401
              ).dict()), 401
 
+        # Validate required fields
+        if not data.get('project_id'):
+            return jsonify(ErrorResponse(
+                error="validation_error",
+                message="project_id is required",
+                error_code="VALIDATION_ERROR",
+                status=400
+            ).dict()), 400
+
         insert_data = {
             "title": data.get('title'),
             "description": data.get('description', ''),
@@ -439,6 +448,15 @@ def bulk_create_research_topics():
                 return jsonify(ErrorResponse(
                     error="validation_error",
                     message="Each topic must include a title",
+                    error_code="VALIDATION_ERROR",
+                    status=400
+                ).dict()), 400
+
+            # Validate required fields
+            if not item.get('project_id'):
+                return jsonify(ErrorResponse(
+                    error="validation_error",
+                    message="Each topic must include a project_id",
                     error_code="VALIDATION_ERROR",
                     status=400
                 ).dict()), 400
