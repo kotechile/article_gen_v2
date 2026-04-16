@@ -15,7 +15,9 @@ import {
     CheckCircle2,
     AlertCircle,
     TrendingUp,
-    Layout
+    Layout,
+    FolderTree,
+    ChevronRight
 } from 'lucide-react';
 import { TrendReportModal } from '../components/TrendReportModal';
 import { supabase } from '../lib/supabase';
@@ -94,6 +96,13 @@ export const Settings: React.FC = () => {
     // Trend Report State
     const [trendProject, setTrendProject] = useState<Project | null>(null);
 
+    // Categories State
+    const [selectedProjectForCategories, setSelectedProjectForCategories] = useState<Project | null>(null);
+    const [categories, setCategories] = useState<any[]>([]);
+    const [categoriesLoading, setCategoriesLoading] = useState(false);
+    const [editingCategory, setEditingCategory] = useState<{ id?: string; name: string; level: 1 | 2; parent_category_id?: string } | null>(null);
+    const [isSavingCategory, setIsSavingCategory] = useState(false);
+
     useEffect(() => {
         if (user) {
             fetchAllData();
@@ -164,6 +173,98 @@ export const Settings: React.FC = () => {
             setImportedPosts(data || []);
         }
         setPostsLoading(false);
+    };
+
+    const fetchCategories = async (projectId: string) => {
+        setCategoriesLoading(true);
+        const { data, error } = await supabase
+            .from('project_categories')
+            .select('*')
+            .eq('project_id', projectId)
+            .eq('user_id', user!.id)
+            .order('level', { ascending: true })
+            .order('sort_order', { ascending: true })
+            .order('name', { ascending: true });
+
+        if (!error) {
+            setCategories(data || []);
+        }
+        setCategoriesLoading(false);
+    };
+
+    const handleSaveCategory = async () => {
+        if (!selectedProjectForCategories || !editingCategory || !user) return;
+        if (!editingCategory.name.trim()) {
+            alert('Category name is required');
+            return;
+        }
+
+        setIsSavingCategory(true);
+        try {
+            const slug = editingCategory.name
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/(^-|-$)/g, '');
+
+            const payload = {
+                project_id: selectedProjectForCategories.id,
+                user_id: user.id,
+                name: editingCategory.name,
+                slug,
+                level: editingCategory.level,
+                parent_category_id: editingCategory.level === 2 ? editingCategory.parent_category_id : null,
+                sort_order: categories.filter(c => c.level === editingCategory?.level).length,
+            };
+
+            let error;
+            if (editingCategory.id) {
+                // Update existing
+                const result = await supabase
+                    .from('project_categories')
+                    .update({ ...payload, updated_at: new Date().toISOString() })
+                    .eq('id', editingCategory.id);
+                error = result.error;
+            } else {
+                // Insert new
+                const result = await supabase
+                    .from('project_categories')
+                    .insert([payload]);
+                error = result.error;
+            }
+
+            if (error) throw error;
+
+            setEditingCategory(null);
+            await fetchCategories(selectedProjectForCategories.id);
+        } catch (err: any) {
+            alert(err.message || 'Failed to save category');
+        } finally {
+            setIsSavingCategory(false);
+        }
+    };
+
+    const handleDeleteCategory = async (categoryId: string) => {
+        if (!confirm('Delete this category? Child categories will also be deleted.')) return;
+
+        try {
+            const { error } = await supabase
+                .from('project_categories')
+                .delete()
+                .eq('id', categoryId);
+
+            if (error) throw error;
+
+            if (selectedProjectForCategories) {
+                await fetchCategories(selectedProjectForCategories.id);
+            }
+        } catch (err: any) {
+            alert(err.message || 'Failed to delete category');
+        }
+    };
+
+    const handleSelectProjectForCategories = (project: Project) => {
+        setSelectedProjectForCategories(project);
+        fetchCategories(project.id);
     };
 
     const handleSaveResearch = async () => {
@@ -302,7 +403,7 @@ export const Settings: React.FC = () => {
                     </TabsTrigger>
                     <TabsTrigger value="niches" className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 data-[state=active]:text-indigo-600 dark:data-[state=active]:text-indigo-400 data-[state=active]:shadow-sm py-2.5">
                         <Layout className="w-4 h-4 mr-2" />
-                        Niches / Websites
+                        Projects: Niches/Websites
                     </TabsTrigger>
                     <TabsTrigger value="posts" className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 data-[state=active]:text-indigo-600 dark:data-[state=active]:text-indigo-400 data-[state=active]:shadow-sm py-2.5">
                         <FileText className="w-4 h-4 mr-2" />
@@ -468,7 +569,7 @@ export const Settings: React.FC = () => {
                         <div className="flex items-start gap-3 p-4 rounded-xl bg-indigo-50/50 dark:bg-indigo-900/10 border border-indigo-100/50 dark:border-indigo-900/20">
                             <Globe className="w-5 h-5 text-indigo-500 flex-shrink-0 mt-0.5" />
                             <div>
-                                <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Niches &amp; Websites</p>
+                                <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Projects:Niches &amp; Websites</p>
                                 <p className="text-xs text-muted-foreground mt-0.5">
                                     Add any project here — a WordPress site with full sync, or just a niche description for AI-driven content without a website. The active project on your Command Center is selected from this list.
                                 </p>
@@ -632,6 +733,229 @@ export const Settings: React.FC = () => {
                                 </CardContent>
                             </Card>
                         )}
+
+                        {/* Categories Management Section */}
+                        <div className="mt-10">
+                            <div className="flex items-center justify-between mb-4">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                                        <FolderTree className="w-5 h-5 text-indigo-600" />
+                                        Project Categories
+                                    </h2>
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                        Manage primary (Level 1) and secondary (Level 2) categories for your projects.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Project Selector */}
+                            <div className="mb-6">
+                                <Label className="text-xs font-semibold mb-2 block">Select Project</Label>
+                                <select
+                                    value={selectedProjectForCategories?.id || ''}
+                                    onChange={(e) => {
+                                        const project = projects.find(p => p.id === e.target.value);
+                                        if (project) handleSelectProjectForCategories(project);
+                                    }}
+                                    className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 w-full md:w-96"
+                                >
+                                    <option value="">Choose a project...</option>
+                                    {projects.map(project => (
+                                        <option key={project.id} value={project.id}>
+                                            {project.domain || project.app_name || 'Unnamed Project'}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Categories Display & Management */}
+                            {selectedProjectForCategories && (
+                                <Card className="border-gray-200 dark:border-gray-800">
+                                    <CardHeader className="bg-gray-50/50 dark:bg-gray-900/50 border-b">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <CardTitle className="text-base">
+                                                    Categories for {selectedProjectForCategories.domain || selectedProjectForCategories.app_name}
+                                                </CardTitle>
+                                                <CardDescription>
+                                                    Level 1 categories are primary groups. Level 2 categories are subcategories.
+                                                </CardDescription>
+                                            </div>
+                                            <Button
+                                                onClick={() => setEditingCategory({ name: '', level: 1 })}
+                                                className="h-9 rounded-lg bg-indigo-600 hover:bg-indigo-700"
+                                            >
+                                                <Plus className="w-4 h-4 mr-2" />
+                                                Add Category
+                                            </Button>
+                                        </div>
+                                    </CardHeader>
+                                    <CardContent className="p-0">
+                                        {categoriesLoading ? (
+                                            <div className="p-12 flex justify-center">
+                                                <Loader2 className="w-8 h-8 animate-spin text-gray-300" />
+                                            </div>
+                                        ) : categories.length === 0 ? (
+                                            <div className="p-12 text-center">
+                                                <FolderTree className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                                                <p className="text-sm text-gray-500">No categories yet. Add your first category to get started.</p>
+                                            </div>
+                                        ) : (
+                                            <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                                                {/* Level 1 Categories */}
+                                                {categories.filter(c => c.level === 1).map(category => {
+                                                    const childCategories = categories.filter(c => c.parent_category_id === category.id);
+                                                    return (
+                                                        <div key={category.id} className="p-4">
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
+                                                                        <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">L1</span>
+                                                                    </div>
+                                                                    <div>
+                                                                        <p className="text-sm font-semibold text-gray-900 dark:text-white">{category.name}</p>
+                                                                        <p className="text-xs text-gray-500">{childCategories.length} subcategories</p>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-8 w-8 text-gray-400 hover:text-indigo-600"
+                                                                        onClick={() => setEditingCategory({ id: category.id, name: category.name, level: 1 })}
+                                                                    >
+                                                                        <Edit2 className="h-4 w-4" />
+                                                                    </Button>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-8 w-8 text-gray-400 hover:text-red-600"
+                                                                        onClick={() => handleDeleteCategory(category.id)}
+                                                                    >
+                                                                        <Trash2 className="h-4 w-4" />
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Child Categories (Level 2) */}
+                                                            {childCategories.length > 0 && (
+                                                                <div className="mt-3 ml-11 space-y-2">
+                                                                    {childCategories.map(child => (
+                                                                        <div key={child.id} className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <ChevronRight className="w-4 h-4 text-gray-400" />
+                                                                                <div className="w-6 h-6 rounded bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                                                                                    <span className="text-[10px] font-bold text-gray-600 dark:text-gray-400">L2</span>
+                                                                                </div>
+                                                                                <span className="text-sm text-gray-700 dark:text-gray-300">{child.name}</span>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-1">
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="icon"
+                                                                                    className="h-7 w-7 text-gray-400 hover:text-indigo-600"
+                                                                                    onClick={() => setEditingCategory({ id: child.id, name: child.name, level: 2, parent_category_id: category.id })}
+                                                                                >
+                                                                                    <Edit2 className="h-3.5 w-3.5" />
+                                                                                </Button>
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="icon"
+                                                                                    className="h-7 w-7 text-gray-400 hover:text-red-600"
+                                                                                    onClick={() => handleDeleteCategory(child.id)}
+                                                                                >
+                                                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                                                </Button>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            )}
+
+                            {/* Edit/Add Category Form */}
+                            {editingCategory && selectedProjectForCategories && (
+                                <Card className="mt-6 border-indigo-100 dark:border-indigo-900 bg-indigo-50/20 dark:bg-indigo-900/5 overflow-hidden ring-1 ring-indigo-500/20">
+                                    <CardHeader className="border-b border-indigo-100/50 dark:border-indigo-900/50">
+                                        <CardTitle className="text-lg">
+                                            {editingCategory.id ? 'Edit Category' : 'Add New Category'}
+                                        </CardTitle>
+                                        <CardDescription>
+                                            {editingCategory.level === 1
+                                                ? 'Level 1 categories are primary groups (e.g., "Audience Growth", "Commercial Intent")'
+                                                : 'Level 2 categories are subcategories under a Level 1 parent'}
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="p-6 space-y-6">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-semibold">Category Name</Label>
+                                                <Input
+                                                    placeholder="e.g., Audience Growth"
+                                                    value={editingCategory.name}
+                                                    onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
+                                                    className="h-10 rounded-lg"
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-semibold">Category Level</Label>
+                                                <select
+                                                    value={editingCategory.level}
+                                                    onChange={(e) => setEditingCategory({
+                                                        ...editingCategory,
+                                                        level: parseInt(e.target.value) as 1 | 2,
+                                                        parent_category_id: parseInt(e.target.value) === 1 ? undefined : editingCategory.parent_category_id
+                                                    })}
+                                                    className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                                                >
+                                                    <option value={1}>Level 1 (Primary Category)</option>
+                                                    <option value={2}>Level 2 (Subcategory)</option>
+                                                </select>
+                                            </div>
+                                            {editingCategory.level === 2 && (
+                                                <div className="space-y-2 md:col-span-2">
+                                                    <Label className="text-xs font-semibold">Parent Category (Level 1)</Label>
+                                                    <select
+                                                        value={editingCategory.parent_category_id || ''}
+                                                        onChange={(e) => setEditingCategory({ ...editingCategory, parent_category_id: e.target.value })}
+                                                        className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                                                    >
+                                                        <option value="">Select a parent category...</option>
+                                                        {categories.filter(c => c.level === 1).map(cat => (
+                                                            <option key={cat.id} value={cat.id}>{cat.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="flex justify-end gap-3 pt-2 border-t border-indigo-100/50 dark:border-indigo-900/30">
+                                            <Button
+                                                variant="ghost"
+                                                onClick={() => setEditingCategory(null)}
+                                            >
+                                                Cancel
+                                            </Button>
+                                            <Button
+                                                onClick={handleSaveCategory}
+                                                disabled={isSavingCategory}
+                                                className="bg-indigo-600 hover:bg-indigo-700 rounded-xl px-8 h-10"
+                                            >
+                                                {isSavingCategory ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                                                {editingCategory.id ? 'Update Category' : 'Add Category'}
+                                            </Button>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )}
+                        </div>
                     </div>
                 </TabsContent>
 
