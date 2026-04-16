@@ -93,11 +93,11 @@ export function Sidebar({ className }: SidebarProps) {
                 )}
             >
                 <div className="flex h-full flex-col">
-                    <div className={cn("flex h-20 items-center px-5", isCollapsed ? "justify-center" : "justify-between")}>
+                    <div className={cn("flex h-16 items-center px-5", isCollapsed ? "justify-center" : "justify-start")}>
                         {isCollapsed ? (
-                            <ZenithLogo compact className="w-full max-w-[54px] px-0 py-2" />
+                            <ZenithLogo compact />
                         ) : (
-                            <ZenithLogo className="w-full" />
+                            <ZenithLogo />
                         )}
                     </div>
 
@@ -136,21 +136,18 @@ export function Sidebar({ className }: SidebarProps) {
                         </div>
 
                         {!isCollapsed && (
-                            <div className="mt-8 rounded-3xl border border-white/8 bg-white/4 p-4">
-                                <div className="mb-3 flex items-center justify-between">
-                                    <div>
-                                        <p className="text-sm font-medium text-white">Content Library</p>
-                                        <p className="text-xs text-slate-500">Recent articles stay tucked away here.</p>
-                                    </div>
-                                    <Link to="/my-articles" className="text-xs text-blue-300 transition-colors hover:text-blue-200">
-                                        Open
+                            <div className="mt-8 rounded-2xl border border-white/8 bg-white/4 px-3 py-3">
+                                <div className="mb-2 flex items-center justify-between">
+                                    <p className="text-xs font-medium text-slate-400">Recent Articles</p>
+                                    <Link to="/my-articles" className="text-[11px] text-slate-500 transition-colors hover:text-slate-300">
+                                        View all
                                     </Link>
                                 </div>
 
-                                <div className="space-y-2">
+                                <div className="space-y-0.5">
                                     {recentArticles.length === 0 && (
-                                        <p className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-xs text-slate-500">
-                                            Your latest articles will appear here.
+                                        <p className="px-1 py-3 text-[11px] text-slate-600">
+                                            No articles yet.
                                         </p>
                                     )}
 
@@ -158,9 +155,9 @@ export function Sidebar({ className }: SidebarProps) {
                                         <Link
                                             key={article.id}
                                             to="/my-articles"
-                                            className="block rounded-2xl border border-white/6 bg-slate-950/45 px-3 py-2.5 text-sm text-slate-200 transition-colors hover:border-white/12 hover:text-white"
+                                            className="block truncate rounded-lg px-2 py-1.5 text-sm text-slate-400 transition-colors hover:bg-white/[0.04] hover:text-white"
                                         >
-                                            <p className="truncate">{article.Title || "Untitled Article"}</p>
+                                            {article.Title || "Untitled Article"}
                                         </Link>
                                     ))}
                                 </div>
