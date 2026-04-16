@@ -676,7 +676,7 @@ export const Settings: React.FC = () => {
                                                 placeholder="E.g. A home improvement blog focusing on DIY renovations, sustainable materials, and budget-friendly interior design for first-time homeowners."
                                                 value={formData.site_description || ''}
                                                 onChange={e => setFormData({ ...formData, site_description: e.target.value })}
-                                                rows={3}
+                                                rows={6}
                                                 className="w-full px-3 py-2 text-sm rounded-lg border border-input bg-background resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                                             />
                                         </div>
