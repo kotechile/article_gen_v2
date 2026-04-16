@@ -179,6 +179,12 @@ class CommandCenterService {
         }
 
         const topics = status.result?.result?.report_content?.topics || []
+        console.log('Hot News: trend task success', {
+          taskId: start.task_id,
+          topicsCount: Array.isArray(topics) ? topics.length : 'non_list',
+          topicsPreview: Array.isArray(topics) ? topics.slice(0, 5) : topics,
+          rawResultKeys: Object.keys(status.result?.result || {}),
+        })
         return topics
           .map((topic) => topic.title?.trim())
           .filter((title): title is string => Boolean(title))

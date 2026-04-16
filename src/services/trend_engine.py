@@ -27,7 +27,12 @@ class TrendEngine:
         """
         Generates a "Trend Report" for a specific site ID.
         """
-        logger.info(f"Generating trend report for site_id: {site_id}, primary_category_id: {primary_category_id}, secondary_category_id: {secondary_category_id}")
+        logger.info(
+            "trend_engine: generating site_id=%s primary_category_id=%s secondary_category_id=%s",
+            site_id,
+            primary_category_id,
+            secondary_category_id,
+        )
 
         # 1. Database Extraction
         site = self._get_site_details(site_id)
@@ -60,6 +65,12 @@ class TrendEngine:
             or "A general interest website."
         )
         focus_topics = self._build_focus_topics(site, categories, site_description, primary_category_name=primary_category_name, secondary_category_name=secondary_category_name)
+        logger.info(
+            "trend_engine: scope primary_category=%s secondary_category=%s focus_topics=%s",
+            primary_category_name,
+            secondary_category_name,
+            focus_topics,
+        )
         
         # 2. DataForSEO Integration (Rising search signals - Standard Method)
         # Use niche-specific focus topics first, then categories as fallback.
@@ -87,6 +98,7 @@ class TrendEngine:
         logger.info(f"Fetching news (Standard/Queued) for query: {news_query}")
         
         news_articles = await self.dfs.get_news_search_standard(keyword=news_query, limit=5)
+        logger.info("trend_engine: news_results=%s query=%s", len(news_articles or []), news_query)
         
         # 4. Pinterest Context (via Apify)
         pinterest_trends = []
@@ -170,6 +182,15 @@ class TrendEngine:
         # 7. Database Update
         logger.info("Saving report to DB...")
         self._save_report(site, full_report)
+
+        try:
+            topics = (trend_report_content or {}).get("topics") or []
+            logger.info("trend_engine: synthesized_topics_count=%s", len(topics) if isinstance(topics, list) else "non_list")
+            if isinstance(topics, list):
+                preview = [str((t or {}).get("title") or "")[:80] for t in topics[:5]]
+                logger.info("trend_engine: synthesized_topics_preview=%s", preview)
+        except Exception:
+            logger.warning("trend_engine: failed to log synthesized topics preview", exc_info=True)
         
         return full_report
     

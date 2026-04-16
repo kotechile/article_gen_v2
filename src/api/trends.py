@@ -1,7 +1,9 @@
+import logging
 from flask import Blueprint, jsonify, request
 from tasks import process_trend_task, get_task_status
 
 trends_bp = Blueprint('trends', __name__)
+logger = logging.getLogger(__name__)
 
 @trends_bp.route('/api/v1/trends/<site_id>', methods=['POST'])
 def generate_trend_report_endpoint(site_id):
@@ -12,6 +14,13 @@ def generate_trend_report_endpoint(site_id):
         body = request.get_json(silent=True) or {}
         primary_category_id = body.get('primary_category_id')
         secondary_category_id = body.get('secondary_category_id')
+
+        logger.info(
+            "trends: start site_id=%s primary_category_id=%s secondary_category_id=%s",
+            site_id,
+            primary_category_id,
+            secondary_category_id,
+        )
 
         task = process_trend_task.delay(
             site_id,
@@ -27,6 +36,7 @@ def generate_trend_report_endpoint(site_id):
         }), 202
 
     except Exception as e:
+        logger.error("trends: failed to start site_id=%s error=%s", site_id, str(e), exc_info=True)
         return jsonify({
             'error': str(e),
             'message': 'Failed to start trend analysis'

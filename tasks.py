@@ -2402,7 +2402,13 @@ def process_trend_task(self, site_id: str, primary_category_id: Optional[str] = 
     Returns:
         Dictionary containing the trend report
     """
-    logger.info(f"Starting trend analysis task for site_id: {site_id}, primary_category_id: {primary_category_id}, secondary_category_id: {secondary_category_id}")
+    logger.info(
+        "trend_task: start site_id=%s primary_category_id=%s secondary_category_id=%s task_id=%s",
+        site_id,
+        primary_category_id,
+        secondary_category_id,
+        getattr(self.request, "id", None),
+    )
 
     try:
         _ensure_project_root_on_path()
@@ -2419,7 +2425,19 @@ def process_trend_task(self, site_id: str, primary_category_id: Optional[str] = 
 
         try:
             # Execute the async method
-            result = loop.run_until_complete(engine.get_whats_trending(site_id, primary_category_id=primary_category_id, secondary_category_id=secondary_category_id))
+            result = loop.run_until_complete(
+                engine.get_whats_trending(
+                    site_id,
+                    primary_category_id=primary_category_id,
+                    secondary_category_id=secondary_category_id,
+                )
+            )
+
+            try:
+                topics = (((result or {}).get("report_content") or {}).get("topics") or [])
+                logger.info("trend_task: synthesized_topics_count=%s", len(topics) if isinstance(topics, list) else "non_list")
+            except Exception:
+                logger.warning("trend_task: unable to extract topics for logging")
 
             logger.info(f"Trend analysis completed successfully for site_id: {site_id}")
             return {
