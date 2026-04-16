@@ -64,6 +64,17 @@ export function Sidebar({ className }: SidebarProps) {
 
     const toggleCollapsed = () => setIsCollapsed((current) => !current)
 
+    const getSubtitle = (): string => {
+        if (pathname === "/") return "COMMAND CENTER"
+        if (pathname === "/my-articles") return "MY ARTICLES"
+        if (pathname === "/research" || pathname?.startsWith("/research/")) return "RESEARCH"
+        if (pathname === "/settings") return "SETTINGS"
+        if (pathname === "/knowledge-gaps") return "KNOWLEDGE GAPS"
+        if (pathname?.startsWith("/content-studio")) return "CONTENT STUDIO"
+        if (pathname?.startsWith("/article-editor/")) return "ARTICLE EDITOR"
+        return "CREATOR STUDIO"
+    }
+
     return (
         <>
             <button
@@ -97,7 +108,7 @@ export function Sidebar({ className }: SidebarProps) {
                         {isCollapsed ? (
                             <ZenithLogo compact />
                         ) : (
-                            <ZenithLogo />
+                            <ZenithLogo subtitle={getSubtitle()} />
                         )}
                     </div>
 
