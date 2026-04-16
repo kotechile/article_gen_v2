@@ -82,16 +82,16 @@ const ToolbarButton: React.FC<ToolbarButtonProps> = ({ onClick, isActive, icon, 
                 onMouseEnter={() => setShowTooltip(true)}
                 onMouseLeave={() => setShowTooltip(false)}
                 className={`${paddingClass} rounded-lg transition-colors ${isActive
-                    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300'
-                    : 'text-gray-500 hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-700'
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-muted'
                     }`}
             >
                 {icon}
             </button>
             {showTooltip && displayTitle && (
-                <div className="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap z-50 shadow-lg pointer-events-none">
+                <div className="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 px-2 py-1 bg-popover text-popover-foreground text-xs rounded whitespace-nowrap z-50 shadow-lg pointer-events-none border border-border">
                     {displayTitle}
-                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-b-gray-900"></div>
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-b-popover"></div>
                 </div>
             )}
         </div>
@@ -101,16 +101,16 @@ const ToolbarButton: React.FC<ToolbarButtonProps> = ({ onClick, isActive, icon, 
 const getMetricColorClass = (score: number, isInverse: boolean = false) => {
     if (isInverse) {
         // Lower is better (e.g. Difficulty)
-        // < 40: Green, 40-79: Amber, >= 80: Red
-        if (score >= 80) return "text-red-500";
-        if (score >= 40) return "text-amber-500";
-        return "text-green-500";
+        // < 40: Good, 40-79: Medium, >= 80: Bad
+        if (score >= 80) return "text-destructive";
+        if (score >= 40) return "text-chart-4";
+        return "text-chart-2";
     } else {
         // Higher is better (e.g. Readability, SEO)
-        // >= 60: Green, 40-59: Amber, < 40: Red
-        if (score >= 60) return "text-green-500";
-        if (score >= 40) return "text-amber-500";
-        return "text-red-500";
+        // >= 60: Good, 40-59: Medium, < 40: Bad
+        if (score >= 60) return "text-chart-2";
+        if (score >= 40) return "text-chart-4";
+        return "text-destructive";
     }
 };
 
@@ -125,7 +125,7 @@ const EditorStyles = `
   }
   .ProseMirror td, .ProseMirror th {
     min-width: 1em;
-    border: 1px solid #e5e7eb;
+    border: 1px solid hsl(var(--border));
     padding: 0.75rem;
     vertical-align: top;
     box-sizing: border-box;
@@ -135,27 +135,16 @@ const EditorStyles = `
   .ProseMirror th {
     font-weight: 600;
     text-align: left;
-    background-color: #f9fafb;
-    color: #111827;
+    background-color: hsl(var(--muted));
+    color: hsl(var(--foreground));
   }
   .ProseMirror .selectedCell:after {
     z-index: 2;
     position: absolute;
     content: "";
     left: 0; right: 0; top: 0; bottom: 0;
-    background: rgba(200, 200, 255, 0.4);
+    background: hsl(var(--ring) / 0.2);
     pointer-events: none;
-  }
-  
-  /* Dark Mode Table overrides */
-  .dark .ProseMirror th {
-    background-color: #1f2937;
-    border-color: #374151;
-    color: #f3f4f6;
-  }
-  .dark .ProseMirror td {
-    border-color: #374151;
-    color: #d1d5db;
   }
 
   /* Typography & Spacing - "Professional Look" */
@@ -168,7 +157,7 @@ const EditorStyles = `
     margin-top: 2.5rem;
     margin-bottom: 1.25rem;
     line-height: 1.2;
-    color: #111827;
+    color: hsl(var(--foreground));
   }
   .ProseMirror h2 {
     font-size: 1.75em;
@@ -176,7 +165,7 @@ const EditorStyles = `
     margin-top: 2rem;
     margin-bottom: 1rem;
     line-height: 1.3;
-    color: #1f2937;
+    color: hsl(var(--foreground));
     letter-spacing: -0.025em;
   }
   .ProseMirror h3 {
@@ -185,13 +174,13 @@ const EditorStyles = `
     margin-top: 1.75rem;
     margin-bottom: 0.75rem;
     line-height: 1.4;
-    color: #374151;
+    color: hsl(var(--foreground));
   }
   .ProseMirror p {
     margin-top: 0.5rem;
     margin-bottom: 1.25rem;
     line-height: 1.75; /* Readable line height */
-    color: #4b5563; /* Gray-600 */
+    color: hsl(var(--muted-foreground));
     font-size: 1.05rem;
   }
   .ProseMirror ul, .ProseMirror ol {
@@ -202,18 +191,11 @@ const EditorStyles = `
     margin-bottom: 0.5rem;
   }
   .ProseMirror blockquote {
-    border-left: 4px solid #e5e7eb;
+    border-left: 4px solid hsl(var(--border));
     padding-left: 1rem;
     font-style: italic;
-    color: #6b7280;
+    color: hsl(var(--muted-foreground));
   }
-
-  /* Dark Mode Typography */
-  .dark .ProseMirror h1 { color: #f9fafb; }
-  .dark .ProseMirror h2 { color: #f3f4f6; }
-  .dark .ProseMirror h3 { color: #e5e7eb; }
-  .dark .ProseMirror p { color: #d1d5db; }
-  .dark .ProseMirror blockquote { border-color: #374151; color: #9ca3af; }
 
   /* Citation Styles */
   .citation-link.hidden-citation {
@@ -284,7 +266,7 @@ export const ArticleEditor: React.FC = () => {
         CustomBulletList,
         TiptapImage.configure({
             HTMLAttributes: {
-                class: 'rounded-lg max-w-full h-auto my-8 border border-gray-100 dark:border-gray-800 shadow-sm',
+                class: 'rounded-lg max-w-full h-auto my-8 border border-border shadow-sm',
             },
         }),
         Table.configure({
@@ -305,7 +287,7 @@ export const ArticleEditor: React.FC = () => {
         },
         editorProps: {
             attributes: {
-                class: 'prose prose-indigo dark:prose-invert max-w-none focus:outline-none min-h-[500px] prose-table:border-collapse prose-td:border prose-td:border-gray-300 prose-td:p-2 prose-th:border prose-th:border-gray-300 prose-th:p-2 prose-th:bg-gray-100 dark:prose-td:border-gray-700 dark:prose-th:border-gray-700 dark:prose-th:bg-gray-800',
+                class: 'prose dark:prose-invert max-w-none focus:outline-none min-h-[500px] prose-table:border-collapse',
             },
             handleDOMEvents: {
                 contextmenu: (_, event) => {
@@ -557,7 +539,7 @@ export const ArticleEditor: React.FC = () => {
                                 const sourceIndicator = citation?.source_type ? ` (${citation.source_type.toUpperCase()})` : '';
                                 const linkTitle = `${title}${sourceIndicator}`;
 
-                                return `<a href="${url}" target="_blank" rel="noopener noreferrer" title="${linkTitle}" data-original-index="${originalIndex}" class="citation-link${visibilityClass}" style="color: #0066cc; text-decoration: none; font-weight: 500; border-bottom: 1px dotted #0066cc;">[${newIndex}]</a>`;
+                                return `<a href="${url}" target="_blank" rel="noopener noreferrer" title="${linkTitle}" data-original-index="${originalIndex}" class="citation-link${visibilityClass}" style="color: hsl(var(--primary)); text-decoration: none; font-weight: 500; border-bottom: 1px dotted hsl(var(--primary));">[${newIndex}]</a>`;
                             });
 
                             // Rebuild References section
@@ -581,7 +563,7 @@ export const ArticleEditor: React.FC = () => {
                                     }
 
                                     if (url && url !== '#' && url !== '') {
-                                        referencesHTML += `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #0066cc; text-decoration: underline;">${titleStr}</a>`;
+                                        referencesHTML += `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: hsl(var(--primary)); text-decoration: underline;">${titleStr}</a>`;
                                     } else {
                                         referencesHTML += `<em>${titleStr}</em>`;
                                     }
@@ -696,7 +678,7 @@ export const ArticleEditor: React.FC = () => {
             // Handle visibility via class
             const visibilityClass = showInText ? '' : ' hidden-citation';
 
-            return `<a href="${url}" target="_blank" rel="noopener noreferrer" title="${linkTitle}" data-original-index="${originalIndex}" class="citation-link${visibilityClass}" style="color: #0066cc; text-decoration: none; font-weight: 500; border-bottom: 1px dotted #0066cc;">[${newIndex}]</a>`;
+            return `<a href="${url}" target="_blank" rel="noopener noreferrer" title="${linkTitle}" data-original-index="${originalIndex}" class="citation-link${visibilityClass}" style="color: hsl(var(--primary)); text-decoration: none; font-weight: 500; border-bottom: 1px dotted hsl(var(--primary));">[${newIndex}]</a>`;
         });
 
         // Step 2: Update References section at the end
@@ -737,7 +719,7 @@ export const ArticleEditor: React.FC = () => {
                 }
 
                 if (url && url !== '#' && url !== '') {
-                    referencesHTML += `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #0066cc; text-decoration: underline;">${titleStr}</a>`;
+                    referencesHTML += `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: hsl(var(--primary)); text-decoration: underline;">${titleStr}</a>`;
                 } else {
                     referencesHTML += `<em>${titleStr}</em>`;
                 }
@@ -980,7 +962,7 @@ export const ArticleEditor: React.FC = () => {
                     ? `<strong>${item.text}</strong>`
                     : `<em>${item.text}</em>`;
 
-                const linkClass = "no-underline hover:underline text-indigo-600 dark:text-indigo-400";
+                const linkClass = "no-underline hover:underline text-primary";
                 tocHtml += `<li><a href="#${item.id}" class="${linkClass}">${content}</a></li>`;
 
                 currentLevel = item.level;
@@ -1061,26 +1043,26 @@ export const ArticleEditor: React.FC = () => {
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center min-h-screen">
-                <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+            <div className="flex items-center justify-center min-h-screen bg-background">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-20">
+        <div className="min-h-screen bg-background pb-20">
             <style>{EditorStyles}</style>
-            <div className="sticky top-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+            <div className="sticky top-0 z-30 bg-background border-b border-border shadow-sm">
                 <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
                         <div className="flex items-center gap-4">
                             <button
                                 onClick={() => navigate('/my-articles')}
-                                className="p-2 -ml-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                                className="p-2 -ml-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition"
                             >
                                 <ArrowLeft className="w-5 h-5" />
                             </button>
-                            <h1 className="text-xl font-bold text-gray-900 dark:text-white truncate max-w-md">
+                            <h1 className="text-xl font-bold text-foreground truncate max-w-md">
                                 Edit: {title}
                             </h1>
                         </div>
@@ -1105,7 +1087,7 @@ export const ArticleEditor: React.FC = () => {
                                     }
                                     setShowWordPressModal(true);
                                 }}
-                                className="flex items-center gap-2 px-3 py-2 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition"
+                                className="flex items-center gap-2 px-3 py-2 bg-accent text-accent-foreground rounded-lg hover:bg-accent/80 transition"
                             >
                                 <Globe className="w-4 h-4" />
                                 <span className="hidden sm:inline">Export to WP</span>
@@ -1113,7 +1095,7 @@ export const ArticleEditor: React.FC = () => {
                             <button
                                 onClick={handleSave}
                                 disabled={saving}
-                                className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:opacity-90 transition shadow-lg shadow-indigo-500/25"
+                                className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition shadow-lg"
                             >
                                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                                 Save Changes
@@ -1129,21 +1111,21 @@ export const ArticleEditor: React.FC = () => {
                     <div className="lg:col-span-2 space-y-6">
                         <div className="flex items-center justify-between mb-4">
                             <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-gray-500">Words: {editor?.storage.characterCount.words()}</span>
-                                <span className="text-gray-300">|</span>
-                                <span className="text-sm font-medium text-gray-500">Characters: {editor?.storage.characterCount.characters()}</span>
+                                <span className="text-sm font-medium text-muted-foreground">Words: {editor?.storage.characterCount.words()}</span>
+                                <span className="text-muted-foreground/30">|</span>
+                                <span className="text-sm font-medium text-muted-foreground">Characters: {editor?.storage.characterCount.characters()}</span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => setShowReferenceSelector(!showReferenceSelector)}
-                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition ${showReferenceSelector ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition ${showReferenceSelector ? 'bg-accent text-accent-foreground' : 'bg-background text-foreground border border-border hover:bg-muted'}`}
                                 >
                                     <ListOrdered className="w-4 h-4" />
                                     References
                                 </button>
                                 <button
                                     onClick={() => setIsAddImageModalOpen(true)}
-                                    className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition text-sm text-gray-700 dark:text-gray-300"
+                                    className="flex items-center gap-2 px-3 py-1.5 bg-background border border-border rounded-lg hover:bg-muted transition text-sm text-foreground"
                                 >
                                     <ImageIcon className="w-4 h-4" />
                                     Add Image
@@ -1152,36 +1134,36 @@ export const ArticleEditor: React.FC = () => {
                         </div>
 
                         {/* Title, Hook, Thesis Input Fields */}
-                        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 space-y-4">
+                        <div className="bg-background rounded-xl shadow-sm border border-border p-6 space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Article Title</label>
+                                <label className="block text-sm font-medium mb-1">Article Title</label>
                                 <input
                                     type="text"
                                     value={title}
                                     onChange={(e) => setTitle(e.target.value)}
-                                    className="w-full px-4 py-2 text-lg font-bold rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none transition"
+                                    className="w-full px-4 py-2 text-lg font-bold rounded-lg border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none transition"
                                     placeholder="Enter article title..."
                                 />
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Hook</label>
+                                    <label className="block text-sm font-medium mb-1">Hook</label>
                                     <textarea
                                         value={hook}
                                         onChange={(e) => setHook(e.target.value)}
                                         rows={2}
-                                        className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none transition resize-none"
+                                        className="w-full px-4 py-2 rounded-lg border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none transition resize-none"
                                         placeholder="The hook to grab reader attention..."
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Thesis</label>
+                                    <label className="block text-sm font-medium mb-1">Thesis</label>
                                     <textarea
                                         value={thesis}
                                         onChange={(e) => setThesis(e.target.value)}
                                         rows={2}
-                                        className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none transition resize-none"
+                                        className="w-full px-4 py-2 rounded-lg border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none transition resize-none"
                                         placeholder="The main thesis of the article..."
                                     />
                                 </div>
@@ -1189,12 +1171,12 @@ export const ArticleEditor: React.FC = () => {
 
                             {/* Deck Input */}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Deck (Subtitle/Summary)</label>
+                                <label className="block text-sm font-medium mb-1">Deck (Subtitle/Summary)</label>
                                 <textarea
                                     value={deck}
                                     onChange={(e) => setDeck(e.target.value)}
                                     rows={2}
-                                    className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none transition resize-none"
+                                    className="w-full px-4 py-2 rounded-lg border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none transition resize-none"
                                     placeholder="A brief summary or subtitle for the article (often used below the headline)..."
                                 />
                             </div>
@@ -1202,15 +1184,15 @@ export const ArticleEditor: React.FC = () => {
 
                         {/* References Panel (Conditional) */}
                         {showReferenceSelector && (
-                            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
+                            <div className="bg-background rounded-xl shadow-sm border border-border p-6 mb-6">
                                 <div className="flex items-center justify-between mb-4">
                                     <h3 className="font-semibold text-lg flex items-center gap-2">
-                                        <ListOrdered className="w-5 h-5 text-indigo-500" />
+                                        <ListOrdered className="w-5 h-5 text-primary" />
                                         Reference Manager
                                     </h3>
                                     <button
                                         onClick={() => setShowReferenceSelector(false)}
-                                        className="text-gray-400 hover:text-gray-600"
+                                        className="text-muted-foreground hover:text-foreground"
                                     >
                                         ×
                                     </button>
@@ -1226,9 +1208,9 @@ export const ArticleEditor: React.FC = () => {
                         )}
 
                         {/* Editor Toolbar */}
-                        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                        <div className="bg-background rounded-xl shadow-sm border border-border overflow-hidden">
                             {/* Toolbar Buttons */}
-                            <div className="flex flex-wrap items-center gap-1 p-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 sticky top-0 z-20">
+                            <div className="flex flex-wrap items-center gap-1 p-2 border-b border-border bg-muted/50 text-foreground sticky top-0 z-20">
                                 <ToolbarButton
                                     onClick={() => editor?.chain().focus().toggleBold().run()}
                                     isActive={editor?.isActive('bold')}
@@ -1241,7 +1223,7 @@ export const ArticleEditor: React.FC = () => {
                                     icon={<Italic className="w-4 h-4" />}
                                     tooltip="Italic"
                                 />
-                                <div className="w-px h-6 bg-gray-300 dark:bg-gray-700 mx-1" />
+                                <div className="w-px h-6 bg-border mx-1" />
                                 <ToolbarButton
                                     onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
                                     isActive={editor?.isActive('heading', { level: 2 })}
@@ -1260,7 +1242,7 @@ export const ArticleEditor: React.FC = () => {
                                     icon={<List className="w-4 h-4" />}
                                     tooltip="Bullet List"
                                 />
-                                <div className="w-px h-6 bg-gray-300 dark:bg-gray-700 mx-1" />
+                                <div className="w-px h-6 bg-border mx-1" />
                                 <ToolbarButton
                                     onClick={setLink}
                                     isActive={editor?.isActive('link')}
@@ -1289,16 +1271,16 @@ export const ArticleEditor: React.FC = () => {
                                 />
                                 <ToolbarButton
                                     onClick={addSectionNumbering}
-                                    icon={<ListOrdered className="w-4 h-4 text-purple-600" />}
+                                    icon={<ListOrdered className="w-4 h-4 text-primary" />}
                                     tooltip="Number Sections (H2)"
                                 />
 
                                 {/* Table Controls (Visible only when table selected) */}
                                 {editor?.isActive('table') && (
                                     <>
-                                        <div className="w-px h-6 bg-gray-300 dark:bg-gray-700 mx-1" />
-                                        <div className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/20 rounded px-1">
-                                            <span className="text-[10px] uppercase font-bold text-indigo-500 mr-1">Table</span>
+                                        <div className="w-px h-6 bg-border mx-1" />
+                                        <div className="flex items-center gap-1 bg-accent rounded px-1">
+                                            <span className="text-[10px] uppercase font-bold text-accent-foreground mr-1">Table</span>
                                             <ToolbarButton
                                                 onClick={() => editor?.chain().focus().addColumnBefore().run()}
                                                 icon={<Plus className="w-3 h-3 rotate-45" />} // Approximate
@@ -1317,7 +1299,7 @@ export const ArticleEditor: React.FC = () => {
                                                 tooltip="Delete Col"
                                                 size="sm"
                                             />
-                                            <div className="w-px h-4 bg-gray-300 dark:bg-gray-700 mx-1" />
+                                            <div className="w-px h-4 bg-border mx-1" />
                                             <ToolbarButton
                                                 onClick={() => editor?.chain().focus().addRowBefore().run()}
                                                 icon={<Plus className="w-3 h-3" />}
@@ -1336,7 +1318,7 @@ export const ArticleEditor: React.FC = () => {
                                                 tooltip="Delete Row"
                                                 size="sm"
                                             />
-                                            <div className="w-px h-4 bg-gray-300 dark:bg-gray-700 mx-1" />
+                                            <div className="w-px h-4 bg-border mx-1" />
                                             <ToolbarButton
                                                 onClick={() => editor?.chain().focus().deleteTable().run()}
                                                 icon={<Trash2 className="w-3 h-3 text-red-500" />}
@@ -1356,8 +1338,8 @@ export const ArticleEditor: React.FC = () => {
                     {/* Right Column: Metrics & Sidebar */}
                     <div className="space-y-6">
                         {/* Featured Image Card */}
-                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm text-center">
-                            <h3 className="font-semibold mb-4 text-gray-900 dark:text-white">Featured Image</h3>
+                        <div className="bg-card text-card-foreground p-6 rounded-2xl border border-border shadow-sm text-center">
+                            <h3 className="font-semibold mb-4 text-foreground">Featured Image</h3>
                             {featuredImage ? (
                                 <div className="relative group">
                                     <img
@@ -1371,20 +1353,20 @@ export const ArticleEditor: React.FC = () => {
                                                 setImagePickMode('featured');
                                                 setIsAddImageModalOpen(true);
                                             }}
-                                            className="p-2 bg-white rounded-full text-indigo-600 hover:bg-gray-100"
+                                            className="p-2 bg-background rounded-full text-primary hover:bg-muted"
                                             title="Change Image"
                                         >
                                             <RefreshCw className="w-4 h-4" />
                                         </button>
                                         <button
                                             onClick={() => setFeaturedImage(null)}
-                                            className="p-2 bg-white rounded-full text-red-600 hover:bg-gray-100"
+                                            className="p-2 bg-background rounded-full text-destructive hover:bg-muted"
                                             title="Remove Image"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
                                     </div>
-                                    <p className="mt-2 text-xs text-gray-500 truncate">{featuredImage.title}</p>
+                                    <p className="mt-2 text-xs text-muted-foreground truncate">{featuredImage.title}</p>
                                 </div>
                             ) : (
                                 <div
@@ -1392,7 +1374,7 @@ export const ArticleEditor: React.FC = () => {
                                         setImagePickMode('featured');
                                         setIsAddImageModalOpen(true);
                                     }}
-                                    className="w-full h-48 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-indigo-400 hover:text-indigo-500 cursor-pointer transition bg-gray-50 dark:bg-gray-900/50"
+                                    className="w-full h-48 border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-ring hover:text-foreground cursor-pointer transition bg-muted/30"
                                 >
                                     <ImageIcon className="w-8 h-8 opacity-50" />
                                     <span className="text-sm">Click to add Featured Image</span>
@@ -1401,10 +1383,10 @@ export const ArticleEditor: React.FC = () => {
                         </div>
 
                         {/* Content Metrics Sidebar */}
-                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
+                        <div className="bg-card text-card-foreground p-6 rounded-2xl border border-border shadow-sm">
                             <div className="flex items-center gap-2 mb-4">
-                                <BarChart3 className="w-5 h-5 text-indigo-500" />
-                                <h3 className="font-semibold text-gray-900 dark:text-white">Content Metrics</h3>
+                                <BarChart3 className="w-5 h-5 text-primary" />
+                                <h3 className="font-semibold text-foreground">Content Metrics</h3>
                             </div>
 
                             <div className="space-y-6">
@@ -1444,53 +1426,53 @@ export const ArticleEditor: React.FC = () => {
                                     />
                                 </div>
 
-                                <div className="border-t border-gray-100 dark:border-gray-700 my-4"></div>
+                                <div className="border-t border-border my-4"></div>
 
                                 {/* Secondary Scores Grid */}
                                 <div className="grid grid-cols-3 gap-2">
-                                    <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-center">
-                                        <div className="text-md font-bold text-gray-900 dark:text-white">{metrics.overall_quality_score || 0}%</div>
-                                        <div className="text-[9px] text-gray-500 uppercase">Quality</div>
+                                    <div className="p-2 bg-muted/50 rounded-lg text-center">
+                                        <div className="text-md font-bold text-foreground">{metrics.overall_quality_score || 0}%</div>
+                                        <div className="text-[9px] text-muted-foreground uppercase">Quality</div>
                                     </div>
 
-                                    <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-center relative group">
-                                        <div className="text-md font-bold text-gray-900 dark:text-white">{metrics.traffic_potential_score || 0}%</div>
+                                    <div className="p-2 bg-muted/50 rounded-lg text-center relative group">
+                                        <div className="text-md font-bold text-foreground">{metrics.traffic_potential_score || 0}%</div>
                                         <div className="flex justify-center items-center gap-1">
-                                            <div className="text-[9px] text-gray-500 uppercase">Traffic</div>
+                                            <div className="text-[9px] text-muted-foreground uppercase">Traffic</div>
                                             <MetricTooltip explanation={METRIC_EXPLANATIONS.traffic_potential} />
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className="border-t border-gray-100 dark:border-gray-700 my-4"></div>
+                                <div className="border-t border-border my-4"></div>
 
                                 {/* Bottom Section: Text Metrics */}
                                 <div className="space-y-2">
-                                    <div className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
-                                        <span className="text-xs text-gray-500">Difficulty Level</span>
-                                        <span className="font-medium text-sm text-gray-900 dark:text-white">{metrics.difficulty_level || '-'}</span>
+                                    <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
+                                        <span className="text-xs text-muted-foreground">Difficulty Level</span>
+                                        <span className="font-medium text-sm text-foreground">{metrics.difficulty_level || '-'}</span>
                                     </div>
-                                    <div className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                                    <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
                                         <div className="flex items-center gap-1">
-                                            <span className="text-xs text-gray-500">Est. Reading Time</span>
+                                            <span className="text-xs text-muted-foreground">Est. Reading Time</span>
                                             <MetricTooltip explanation={METRIC_EXPLANATIONS.reading_time} />
                                         </div>
-                                        <span className="font-medium text-sm text-gray-900 dark:text-white">{metrics.estimated_reading_time || '-'}</span>
+                                        <span className="font-medium text-sm text-foreground">{metrics.estimated_reading_time || '-'}</span>
                                     </div>
-                                    <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                                    <div className="p-2 bg-muted/50 rounded-lg">
                                         <div className="flex items-center gap-1 mb-1">
-                                            <span className="text-xs text-gray-500 block">Target Audience</span>
+                                            <span className="text-xs text-muted-foreground block">Target Audience</span>
                                             <MetricTooltip explanation={METRIC_EXPLANATIONS.audience_align} />
                                         </div>
-                                        <span className="font-medium text-gray-900 dark:text-white text-sm">{metrics.target_audience || '-'}</span>
+                                        <span className="font-medium text-foreground text-sm">{metrics.target_audience || '-'}</span>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
                         {/* Affiliate Opportunities */}
-                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
-                            <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Affiliate Opportunities</h3>
+                        <div className="bg-card text-card-foreground p-6 rounded-2xl border border-border shadow-sm">
+                            <h3 className="font-semibold text-foreground mb-4">Affiliate Opportunities</h3>
                             {affiliateOpportunities?.programs?.length > 0 ? (
                                 <div className="space-y-3">
                                     {affiliateOpportunities.programs.slice(0, 3).map((prog: any, i: number) => (
@@ -1499,15 +1481,15 @@ export const ArticleEditor: React.FC = () => {
                                             href={prog.link || prog.url || '#'}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="block p-3 border border-gray-100 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
+                                            className="block p-3 border border-border rounded-xl hover:bg-muted/30 transition"
                                         >
                                             <div className="font-medium text-sm truncate">{prog.name}</div>
-                                            <div className="text-xs text-green-600 dark:text-green-400 mt-1">{prog.commission_rate}% Commission</div>
+                                            <div className="text-xs text-chart-2 mt-1">{prog.commission_rate}% Commission</div>
                                         </a>
                                     ))}
                                 </div>
                             ) : (
-                                <div className="text-sm text-gray-500 text-center py-4">No opportunities found</div>
+                                <div className="text-sm text-muted-foreground text-center py-4">No opportunities found</div>
                             )}
                         </div>
                     </div>
@@ -1516,52 +1498,52 @@ export const ArticleEditor: React.FC = () => {
 
             {contextMenu && (
                 <div
-                    className="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-xl rounded-xl py-2 min-w-[240px] flex flex-col gap-1"
+                    className="fixed z-50 bg-popover text-popover-foreground border border-border shadow-xl rounded-xl py-2 min-w-[240px] flex flex-col gap-1"
                     style={{ top: contextMenu.y, left: contextMenu.x }}
                 >
                     {/* Basic Formatting */}
-                    <div className="px-2 pb-1 border-b border-gray-100 dark:border-gray-700 mb-1">
-                        <button onClick={() => { editor?.chain().focus().toggleBold().run(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm flex items-center gap-3">
-                            <Bold className="w-4 h-4 text-gray-500" /> Bold
+                    <div className="px-2 pb-1 border-b border-border mb-1">
+                        <button onClick={() => { editor?.chain().focus().toggleBold().run(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
+                            <Bold className="w-4 h-4 text-muted-foreground" /> Bold
                         </button>
-                        <button onClick={() => { editor?.chain().focus().toggleItalic().run(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm flex items-center gap-3">
-                            <Italic className="w-4 h-4 text-gray-500" /> Italic
+                        <button onClick={() => { editor?.chain().focus().toggleItalic().run(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
+                            <Italic className="w-4 h-4 text-muted-foreground" /> Italic
                         </button>
-                        <button onClick={() => { setLink(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm flex items-center gap-3">
-                            <LinkIcon className="w-4 h-4 text-gray-500" /> Link
+                        <button onClick={() => { setLink(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
+                            <LinkIcon className="w-4 h-4 text-muted-foreground" /> Link
                         </button>
                     </div>
 
                     {/* Headings & Lists */}
-                    <div className="px-2 pb-1 border-b border-gray-100 dark:border-gray-700 mb-1">
-                        <button onClick={() => { editor?.chain().focus().toggleHeading({ level: 2 }).run(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm flex items-center gap-3">
-                            <Heading2 className="w-4 h-4 text-gray-500" /> Heading 2
+                    <div className="px-2 pb-1 border-b border-border mb-1">
+                        <button onClick={() => { editor?.chain().focus().toggleHeading({ level: 2 }).run(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
+                            <Heading2 className="w-4 h-4 text-muted-foreground" /> Heading 2
                         </button>
-                        <button onClick={() => { editor?.chain().focus().toggleHeading({ level: 3 }).run(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm flex items-center gap-3">
-                            <Heading3 className="w-4 h-4 text-gray-500" /> Heading 3
+                        <button onClick={() => { editor?.chain().focus().toggleHeading({ level: 3 }).run(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
+                            <Heading3 className="w-4 h-4 text-muted-foreground" /> Heading 3
                         </button>
-                        <button onClick={() => { editor?.chain().focus().toggleBulletList().run(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm flex items-center gap-3">
-                            <List className="w-4 h-4 text-gray-500" /> Bullet List
+                        <button onClick={() => { editor?.chain().focus().toggleBulletList().run(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
+                            <List className="w-4 h-4 text-muted-foreground" /> Bullet List
                         </button>
                     </div>
 
                     {/* Insert Actions */}
-                    <div className="px-2 pb-1 border-b border-gray-100 dark:border-gray-700 mb-1">
-                        <button onClick={() => { addImage(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm flex items-center gap-3">
-                            <ImageIcon className="w-4 h-4 text-gray-500" /> Insert Image
+                    <div className="px-2 pb-1 border-b border-border mb-1">
+                        <button onClick={() => { addImage(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
+                            <ImageIcon className="w-4 h-4 text-muted-foreground" /> Insert Image
                         </button>
-                        <button onClick={() => { addTable(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm flex items-center gap-3">
-                            <TableIcon className="w-4 h-4 text-gray-500" /> Insert Table
+                        <button onClick={() => { addTable(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
+                            <TableIcon className="w-4 h-4 text-muted-foreground" /> Insert Table
                         </button>
                     </div>
 
                     {/* Document Actions */}
-                    <div className="px-2 pb-1 border-b border-gray-100 dark:border-gray-700 mb-1">
-                        <button onClick={() => { addTableOfContents(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm flex items-center gap-3">
-                            <ListOrdered className="w-4 h-4 text-gray-500" /> Generate ToC
+                    <div className="px-2 pb-1 border-b border-border mb-1">
+                        <button onClick={() => { addTableOfContents(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
+                            <ListOrdered className="w-4 h-4 text-muted-foreground" /> Generate ToC
                         </button>
-                        <button onClick={() => { addSectionNumbering(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm flex items-center gap-3">
-                            <ListOrdered className="w-4 h-4 text-purple-600" /> Number Sections
+                        <button onClick={() => { addSectionNumbering(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
+                            <ListOrdered className="w-4 h-4 text-primary" /> Number Sections
                         </button>
                     </div>
 
@@ -1576,16 +1558,16 @@ export const ArticleEditor: React.FC = () => {
                                 }
                                 setContextMenu(null);
                             }}
-                            className="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm flex items-center gap-3"
+                            className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3"
                         >
-                            <span className="w-4 h-4 flex items-center justify-center font-mono text-xs text-gray-500 border border-gray-400 rounded">C</span> Copy Selection
+                            <span className="w-4 h-4 flex items-center justify-center font-mono text-xs text-muted-foreground border border-border rounded">C</span> Copy Selection
                         </button>
                         <button
                             onClick={() => {
                                 addImage();
                                 setContextMenu(null);
                             }}
-                            className="w-full text-left px-3 py-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded-lg text-sm flex items-center gap-3 font-medium"
+                            className="w-full text-left px-3 py-1.5 hover:bg-accent text-primary rounded-lg text-sm flex items-center gap-3 font-medium"
                         >
                             <ImageIcon className="w-4 h-4" /> Generate Image from Selection
                         </button>

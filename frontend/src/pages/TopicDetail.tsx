@@ -119,7 +119,7 @@ export function TopicDetail() {
     return (
         <div className="min-h-screen bg-background relative overflow-hidden">
             {/* Background gradient */}
-            <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/10 to-transparent pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-b from-primary/10 to-transparent pointer-events-none" />
 
             <div className="relative z-10 p-6 md:p-8">
                 {/* Header */}
@@ -145,7 +145,7 @@ export function TopicDetail() {
                                 <span className={`px-3 py-1 rounded-full text-xs font-medium uppercase tracking-wide ${topic?.status === 'active'
                                         ? 'bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 border border-emerald-500/20'
                                         : topic?.status === 'completed'
-                                            ? 'bg-blue-500/10 text-blue-500 dark:text-blue-400 border border-blue-500/20'
+                                            ? 'bg-accent text-accent-foreground border border-border'
                                             : 'bg-muted/50 text-muted-foreground border border-border'
                                     }`}>
                                     {topic?.status || 'Unknown'}
@@ -156,7 +156,7 @@ export function TopicDetail() {
                                     </span>
                                 )}
                                 {(topic?.primary_category_name || topic?.secondary_category_name) && (
-                                    <span className="px-3 py-1 rounded-full text-xs font-medium border border-indigo-500/20 bg-indigo-500/10 text-indigo-500 dark:text-indigo-400">
+                                    <span className="px-3 py-1 rounded-full text-xs font-medium border border-primary/20 bg-primary/10 text-primary">
                                         {[topic.primary_category_name, topic.secondary_category_name].filter(Boolean).join(' / ')}
                                     </span>
                                 )}
@@ -287,7 +287,7 @@ export function TopicDetail() {
                                         onClick={handleDecompose}
                                         disabled={decomposing}
                                         size="lg"
-                                        className="bg-indigo-500 hover:bg-indigo-600 dark:hover:bg-indigo-500 text-white px-8"
+                                        className="bg-primary hover:bg-primary/90 text-primary-foreground px-8"
                                     >
                                         {decomposing ? (
                                             <>
@@ -312,11 +312,11 @@ export function TopicDetail() {
                                         animate={{ opacity: 1, y: 0 }}
                                         transition={{ delay: i * 0.05 }}
                                         onClick={() => handleSubtopicClick(sub)}
-                                        className="bg-muted/30 backdrop-blur-sm border border-border rounded-xl p-5 cursor-pointer hover:bg-muted/50 hover:border-indigo-500/30 transition-all duration-200 group"
+                                        className="bg-muted/30 backdrop-blur-sm border border-border rounded-xl p-5 cursor-pointer hover:bg-muted/50 hover:border-ring/50 transition-all duration-200 group"
                                     >
                                         <div className="flex items-start justify-between mb-3">
                                             <h3 className="font-semibold text-foreground line-clamp-2 flex-1 pr-2 group-hover:text-foreground transition-colors flex items-center gap-2">
-                                                <Lightbulb className="w-4 h-4 text-indigo-500 dark:text-indigo-400 flex-shrink-0" />
+                                                <Lightbulb className="w-4 h-4 text-primary flex-shrink-0" />
                                                 {sub.name}
                                             </h3>
                                             <span className={`text-xs px-2 py-1 rounded-full border flex-shrink-0 ${sub.trend_direction === 'up'

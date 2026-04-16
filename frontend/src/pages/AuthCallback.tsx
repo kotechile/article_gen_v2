@@ -105,9 +105,9 @@ export const AuthCallback: React.FC = () => {
     }, [navigate]);
 
     return (
-        <div className="h-screen w-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-4" />
-            <p className="text-gray-500 font-medium">Completing secure sign in...</p>
+        <div className="h-screen w-screen flex flex-col items-center justify-center bg-background">
+            <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
+            <p className="text-muted-foreground font-medium">Completing secure sign in...</p>
         </div>
     );
 };

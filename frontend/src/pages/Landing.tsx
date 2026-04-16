@@ -559,14 +559,14 @@ export function Landing() {
                                             <div
                                                 key={topic.id}
                                                 className={`flex items-center gap-3 py-2.5 transition ${
-                                                    checked ? 'bg-blue-500/[0.04]' : ''
+                                                    checked ? 'bg-primary/[0.05]' : ''
                                                 }`}
                                             >
                                                 <input
                                                     type="checkbox"
                                                     checked={checked}
                                                     onChange={() => toggleTopic(topic.id)}
-                                                    className="h-4 w-4 shrink-0 rounded border-border bg-transparent text-blue-400 focus:ring-blue-400 focus:ring-offset-0"
+                                                    className="h-4 w-4 shrink-0 rounded border-border bg-transparent text-primary focus:ring-ring focus:ring-offset-0"
                                                 />
                                                 <span className={`min-w-0 flex-1 truncate text-sm ${checked ? 'text-foreground' : 'text-muted-foreground'}`}>
                                                     {topic.title}
@@ -580,7 +580,7 @@ export function Landing() {
                                                         event.preventDefault()
                                                         void handleRemoveTopic(topic.id)
                                                     }}
-                                                    className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-red-400"
+                                                    className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-destructive"
                                                     aria-label={`Remove ${topic.title}`}
                                                 >
                                                     <Trash2 className="h-3.5 w-3.5" />
@@ -609,7 +609,7 @@ export function Landing() {
                             type="button"
                             onClick={handleStartResearch}
                             disabled={selectedTopicIds.size === 0 || startLoading || !activeProject}
-                            className="inline-flex h-11 items-center gap-2 rounded-xl bg-blue-500 px-5 text-sm font-medium text-white transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-40"
+                            className="inline-flex h-11 items-center gap-2 rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                             {startLoading ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -647,7 +647,7 @@ export function Landing() {
                                     }
                                 }}
                                 placeholder="Enter a research topic"
-                                className="h-11 w-full rounded-xl border border-border bg-muted/50 px-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-blue-400/30"
+                                className="h-11 w-full rounded-xl border border-border bg-muted/50 px-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring/50"
                             />
 
                             <div className="flex justify-end gap-2">
@@ -667,7 +667,7 @@ export function Landing() {
                                         }
                                     }}
                                     disabled={!manualTopic.trim() || manualLoading || selectionLocked}
-                                    className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-blue-500 px-4 text-sm font-medium text-white transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-40"
+                                    className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                     {manualLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                                     <span>Add Topic</span>

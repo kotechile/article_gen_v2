@@ -343,20 +343,20 @@ export const ContentStudio: React.FC = () => {
         }
     };
 
-    if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-indigo-500 dark:text-indigo-400" /></div>;
+    if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-primary" /></div>;
     if (!article) return <div className="p-8 text-muted-foreground">Article not found</div>;
 
     const getCompetitionColor = (score: number) => {
-        if (score < 40) return 'text-green-500';
-        if (score < 70) return 'text-yellow-500';
-        return 'text-red-500';
+        if (score < 40) return 'text-chart-2';
+        if (score < 70) return 'text-chart-4';
+        return 'text-destructive';
     };
 
     return (
         <div className="max-w-5xl mx-auto space-y-6">
             {error && (
-                <div className="bg-red-500/10 border border-red-500/20 text-red-500 dark:text-red-400 px-4 py-3 rounded-xl flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+                <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-xl flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-destructive" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                     </svg>
                     <span>{error}</span>
@@ -380,7 +380,7 @@ export const ContentStudio: React.FC = () => {
                     <button
                         onClick={handleGenerate}
                         disabled={generating}
-                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl hover:opacity-90 transition shadow-lg shadow-indigo-500/25"
+                        className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition shadow-lg"
                     >
                         {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                         Generate Article
@@ -397,7 +397,7 @@ export const ContentStudio: React.FC = () => {
                         <div>
                             <label className="block text-sm font-medium mb-1">Article Title</label>
                             <input
-                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
                                 value={formData.title}
                                 onChange={(e) => handleChange('title', e.target.value)}
                             />
@@ -406,7 +406,7 @@ export const ContentStudio: React.FC = () => {
                         <div>
                             <label className="block text-sm font-medium mb-1">Brief Description</label>
                             <textarea
-                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none h-32"
+                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none h-32"
                                 value={formData.description}
                                 onChange={(e) => handleChange('description', e.target.value)}
                                 placeholder="Describe what you want to write about..."
@@ -416,7 +416,7 @@ export const ContentStudio: React.FC = () => {
                         <div>
                             <label className="block text-sm font-medium mb-1">Keywords</label>
                             <input
-                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
                                 value={formData.keywords}
                                 onChange={(e) => handleChange('keywords', e.target.value)}
                                 placeholder="Comma separated keywords"
@@ -431,7 +431,7 @@ export const ContentStudio: React.FC = () => {
                             <div>
                                 <label className="block text-sm font-medium mb-1">Tone</label>
                                 <select
-                                    className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
                                     value={formData.tone}
                                     onChange={(e) => handleChange('tone', e.target.value)}
                                 >
@@ -442,7 +442,7 @@ export const ContentStudio: React.FC = () => {
                                 <label className="block text-sm font-medium mb-1">Target Word Count</label>
                                 <input
                                     type="number"
-                                    className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
                                     value={formData.articleLength}
                                     onChange={(e) => handleChange('articleLength', e.target.value)}
                                 />
@@ -452,7 +452,7 @@ export const ContentStudio: React.FC = () => {
                                 <div className="relative">
                                     <BrainCircuit className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                     <select
-                                        className="w-full pl-9 pr-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none appearance-none"
+                                        className="w-full pl-9 pr-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none appearance-none"
                                         value={formData.llmModel}
                                         onChange={(e) => handleChange('llmModel', e.target.value)}
                                     >
@@ -473,7 +473,7 @@ export const ContentStudio: React.FC = () => {
                                 <div>
                                     <label className="block text-sm font-medium mb-1">RAG Collection</label>
                                     <select
-                                        className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
                                         value={formData.ragCollection}
                                         onChange={(e) => handleChange('ragCollection', e.target.value)}
                                     >
@@ -487,7 +487,7 @@ export const ContentStudio: React.FC = () => {
                                         <div>
                                             <label className="block text-sm font-medium mb-1">Query Type</label>
                                             <select
-                                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
                                                 value={formData.ragQueryType}
                                                 onChange={(e) => handleChange('ragQueryType', e.target.value)}
                                             >
@@ -497,7 +497,7 @@ export const ContentStudio: React.FC = () => {
                                         <div>
                                             <label className="block text-sm font-medium mb-1">Emphasis</label>
                                             <select
-                                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
                                                 value={formData.emphasis}
                                                 onChange={(e) => handleChange('emphasis', e.target.value)}
                                             >
@@ -511,7 +511,7 @@ export const ContentStudio: React.FC = () => {
                                     <input
                                         type="checkbox"
                                         id="claims"
-                                        className="w-4 h-4 rounded border-border text-indigo-500 focus:ring-indigo-500"
+                                        className="w-4 h-4 rounded border-border text-primary focus:ring-ring"
                                         checked={formData.claimsValidation}
                                         onChange={(e) => handleChange('claimsValidation', e.target.checked)}
                                     />
@@ -526,14 +526,14 @@ export const ContentStudio: React.FC = () => {
                 <div className="space-y-6">
                     <div className="bg-background p-6 rounded-2xl border border-border shadow-sm">
                         <div className="flex items-center gap-2 mb-4">
-                            <BarChart3 className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
+                            <BarChart3 className="w-5 h-5 text-primary" />
                             <h3 className="font-semibold text-foreground">Content Metrics</h3>
                         </div>
 
                         <div className="space-y-6">
                             {/* Top Section: Main Gauges */}
                             <div className="grid grid-cols-2 gap-4 justify-items-center">
-                                <Gauge value={article.seo_optimization_score || 0} label="SEO Score" color="text-indigo-600" explanation={METRIC_EXPLANATIONS.seo_score} />
+                                <Gauge value={article.seo_optimization_score || 0} label="SEO Score" color="text-primary" explanation={METRIC_EXPLANATIONS.seo_score} />
 
                                 <Gauge
                                     value={article.competition_score || 0}
@@ -545,11 +545,11 @@ export const ContentStudio: React.FC = () => {
                                     value={article.total_search_volume ? Math.min((article.total_search_volume / 1000), 100) : 0}
                                     displayValue={article.total_search_volume || 0}
                                     label="Search Volume"
-                                    color="text-blue-500"
+                                    color="text-chart-1"
                                     explanation={METRIC_EXPLANATIONS.search_volume}
                                     unit=""
                                 />
-                                <Gauge value={article.readability_score || 0} label="Readability" color="text-green-500" />
+                                <Gauge value={article.readability_score || 0} label="Readability" color="text-chart-2" />
                             </div>
 
                             <div className="border-t border-border my-6"></div>

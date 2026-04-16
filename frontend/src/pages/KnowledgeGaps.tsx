@@ -196,26 +196,26 @@ export const KnowledgeGaps: React.FC = () => {
     if (!user) {
         return (
             <div className="flex h-[50vh] items-center justify-center">
-                <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
         );
     }
 
     return (
-        <div className="space-y-8">
+            <div className="space-y-8">
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">
+                    <h1 className="text-3xl font-bold text-foreground">
                         Knowledge Gaps
                     </h1>
-                    <p className="text-gray-500 dark:text-gray-400 mt-1">
+                    <p className="text-muted-foreground mt-1">
                         Identify and fill knowledge gaps to improve content quality.
                     </p>
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <span className="text-sm font-medium text-gray-600 dark:text-gray-300">Active Collection:</span>
+                    <span className="text-sm font-medium">Active Collection:</span>
                     <CollectionSelector
                         collections={collections}
                         selectedCollection={selectedCollection}
@@ -226,24 +226,24 @@ export const KnowledgeGaps: React.FC = () => {
             </div>
 
             {/* Navigation Tabs */}
-            <div className="flex space-x-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">
+            <div className="flex space-x-1 bg-muted/50 p-1 rounded-xl w-fit">
                 <button
                     onClick={() => setActiveTab('gap_analysis')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'gap_analysis' ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}`}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'gap_analysis' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
                 >
                     <Search className="w-4 h-4" />
                     Identify Gaps
                 </button>
                 <button
                     onClick={() => setActiveTab('documents')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'documents' ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}`}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'documents' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
                 >
                     <BookOpen className="w-4 h-4" />
                     RAG Collections
                 </button>
                 <button
                     onClick={() => setActiveTab('actions')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'actions' ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}`}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'actions' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
                 >
                     <ClipboardList className="w-4 h-4" />
                     Actions Needed
@@ -251,25 +251,25 @@ export const KnowledgeGaps: React.FC = () => {
             </div>
 
             {/* Tab Content */}
-            <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 min-h-[500px] flex flex-col">
+            <div className="bg-card text-card-foreground rounded-2xl shadow-sm border border-border p-6 min-h-[500px] flex flex-col">
 
                 {activeTab === 'documents' && (
                     <div className="space-y-6">
                         <div className="flex justify-between items-center">
-                            <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200">
+                            <h2 className="text-xl font-semibold text-foreground">
                                 Collection Documents
                             </h2>
                             <div className="flex gap-3">
                                 <button
                                     onClick={() => setShowManualModal(true)}
-                                    className="flex items-center gap-2 px-4 py-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/20 dark:text-indigo-400 dark:hover:bg-indigo-900/30 rounded-lg transition-colors text-sm font-medium"
+                                    className="flex items-center gap-2 px-4 py-2 text-primary bg-primary/10 hover:bg-primary/15 rounded-lg transition-colors text-sm font-medium"
                                 >
                                     <PlusCircle className="w-4 h-4" />
                                     Manual Entry
                                 </button>
                                 <button
                                     onClick={() => setShowUploadModal(true)}
-                                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg transition-colors text-sm font-medium shadow-md hover:shadow-lg"
+                                    className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors text-sm font-medium shadow-md hover:shadow-lg"
                                 >
                                     <Upload className="w-4 h-4" />
                                     Upload File
@@ -296,7 +296,7 @@ export const KnowledgeGaps: React.FC = () => {
                 {activeTab === 'actions' && (
                     <div className="space-y-6">
                         <div className="flex justify-between items-center">
-                            <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200">
+                            <h2 className="text-xl font-semibold text-foreground">
                                 Manually add to your collection
                             </h2>
                         </div>

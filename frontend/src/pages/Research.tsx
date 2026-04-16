@@ -123,7 +123,7 @@ export function Research() {
     return (
         <div className="min-h-screen bg-background relative overflow-hidden">
             {/* Radial gradient background */}
-            <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/10 to-transparent pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-b from-primary/10 to-transparent pointer-events-none" />
 
             <div className="relative z-10 max-w-7xl mx-auto px-6 py-10">
                 <motion.div
@@ -153,7 +153,7 @@ export function Research() {
 
                     <div className="mt-6 grid gap-3 md:grid-cols-[220px_1fr]">
                         <select
-                            className="h-12 rounded-2xl border border-border bg-muted/50 px-4 text-sm text-foreground outline-none focus:border-indigo-500/50"
+                            className="h-12 rounded-2xl border border-border bg-muted/50 px-4 text-sm text-foreground outline-none focus:border-ring/50"
                             value={projectFilter}
                             onChange={(e) => {
                                 setProjectFilter(e.target.value)
@@ -171,7 +171,7 @@ export function Research() {
                             <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                             <Input
                                 placeholder="Search titles, projects, categories..."
-                                className="h-12 pl-11 bg-muted/50 border-border text-foreground placeholder:text-muted-foreground rounded-2xl focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-indigo-500/50"
+                                className="h-12 pl-11 bg-muted/50 border-border text-foreground placeholder:text-muted-foreground rounded-2xl focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-ring/50"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
@@ -184,7 +184,7 @@ export function Research() {
                     <motion.div
                         initial={{ opacity: 0, y: -10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="mb-8 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 dark:text-red-400 text-center"
+                        className="mb-8 p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-center"
                     >
                         {error}
                     </motion.div>
@@ -226,7 +226,7 @@ export function Research() {
                                         animate={{ opacity: 1, y: 0 }}
                                         transition={{ duration: 0.4, delay: index * 0.05 }}
                                         onClick={() => navigate(`/research/${topic.id}`)}
-                                        className="group relative bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-8 cursor-pointer hover:-translate-y-1 hover:border-indigo-500/50 transition-all duration-300"
+                                        className="group relative bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-8 cursor-pointer hover:-translate-y-1 hover:border-ring/50 transition-all duration-300"
                                     >
                                         {/* Header with Status Badge */}
                                         <div className="flex items-start justify-between mb-4">
@@ -240,7 +240,7 @@ export function Research() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    className="h-8 w-8 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                                                     onClick={(e) => handleDeleteTopic(e, topic.id)}
                                                 >
                                                     <Trash2 className="h-4 w-4" />
@@ -267,7 +267,7 @@ export function Research() {
                                                     </span>
                                                 )}
                                                 {(topic.primary_category_name || topic.secondary_category_name) && (
-                                                    <span className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-3 py-1 text-[11px] text-indigo-500 dark:text-indigo-400">
+                                                    <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[11px] text-primary">
                                                         {[topic.primary_category_name, topic.secondary_category_name].filter(Boolean).join(' / ')}
                                                     </span>
                                                 )}
@@ -284,7 +284,7 @@ export function Research() {
                                         variant="outline"
                                         onClick={handleLoadMore}
                                         disabled={loading}
-                                        className="px-8 py-3 bg-muted/50 border-border text-foreground hover:bg-muted hover:border-indigo-500/30"
+                                        className="px-8 py-3 bg-muted/50 border-border text-foreground hover:bg-muted hover:border-ring/50"
                                     >
                                         {loading ? (
                                             <>

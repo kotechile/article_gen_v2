@@ -195,7 +195,7 @@ export const MyArticles: React.FC = () => {
                             placeholder="Search articles..."
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            className="h-10 w-full rounded-lg border border-border bg-muted/50 pl-10 pr-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-blue-400/30 hover:border-border"
+                            className="h-10 w-full rounded-lg border border-border bg-muted/50 pl-10 pr-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring/50 hover:border-border"
                         />
                         {search && (
                             <button
@@ -212,7 +212,7 @@ export const MyArticles: React.FC = () => {
                         {selectedIds.size > 0 && (
                             <button
                                 onClick={handleDeleteSelected}
-                                className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-red-400/20 bg-red-500/10 px-3.5 text-sm text-red-400 transition hover:bg-red-500/15 hover:text-red-300"
+                                className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-destructive/20 bg-destructive/10 px-3.5 text-sm text-destructive transition hover:bg-destructive/15"
                             >
                                 <Trash2 className="h-3.5 w-3.5" />
                                 <span>Delete ({selectedIds.size})</span>
@@ -257,7 +257,7 @@ export const MyArticles: React.FC = () => {
                                 <span className="flex justify-center">
                                     <input
                                         type="checkbox"
-                                        className="h-4 w-4 rounded border-border bg-transparent text-blue-400 focus:ring-blue-400 focus:ring-offset-0"
+                                        className="h-4 w-4 rounded border-border bg-transparent text-primary focus:ring-ring focus:ring-offset-0"
                                         checked={allSelected}
                                         onChange={(e) => {
                                             setSelectedIds(e.target.checked
@@ -306,24 +306,24 @@ export const MyArticles: React.FC = () => {
                                         <div
                                             key={article.id}
                                             className={`grid grid-cols-[2.5rem_1fr_5.5rem_4rem_6rem_auto] items-center gap-2 px-1 py-3 transition ${
-                                                selected ? 'bg-blue-500/[0.05]' : ''
+                                                selected ? 'bg-primary/[0.05]' : ''
                                             }`}
                                         >
                                             <span className="flex justify-center">
                                                 <input
                                                     type="checkbox"
-                                                    className="h-4 w-4 rounded border-white/15 bg-transparent text-blue-400 focus:ring-blue-400 focus:ring-offset-0"
+                                                    className="h-4 w-4 rounded border-border bg-transparent text-primary focus:ring-ring focus:ring-offset-0"
                                                     checked={selected}
                                                     onChange={() => handleToggleSelect(article.id)}
                                                 />
                                             </span>
 
                                             <div className="min-w-0">
-                                                <p className="truncate text-sm font-medium text-white">
+                                                <p className="truncate text-sm font-medium text-foreground">
                                                     {article.Title || 'Untitled'}
                                                 </p>
                                                 {article.userDescription && (
-                                                    <p className="mt-0.5 truncate text-xs text-slate-500">
+                                                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
                                                         {article.userDescription}
                                                     </p>
                                                 )}
@@ -337,28 +337,28 @@ export const MyArticles: React.FC = () => {
                                                 {article.seo_optimization_score != null ? article.seo_optimization_score : '—'}
                                             </span>
 
-                                            <span className="text-xs text-slate-500">
+                                            <span className="text-xs text-muted-foreground">
                                                 {new Date(article.dateCreatedOn).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                                             </span>
 
                                             <div className="flex items-center justify-end gap-1">
                                                 <button
                                                     onClick={() => navigate(`/content-studio?id=${article.id}`)}
-                                                    className="rounded-md p-1.5 text-slate-600 transition hover:bg-white/[0.06] hover:text-blue-400"
+                                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-primary"
                                                     title="Generate"
                                                 >
                                                     <Sparkles className="h-3.5 w-3.5" />
                                                 </button>
                                                 <button
                                                     onClick={() => navigate(`/article-editor/${article.id}`)}
-                                                    className="rounded-md p-1.5 text-slate-600 transition hover:bg-white/[0.06] hover:text-white"
+                                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
                                                     title="Edit"
                                                 >
                                                     <Edit className="h-3.5 w-3.5" />
                                                 </button>
                                                 <button
                                                     onClick={() => handleDelete(article.id)}
-                                                    className="rounded-md p-1.5 text-slate-600 transition hover:bg-white/[0.06] hover:text-red-400"
+                                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-destructive"
                                                     title="Delete"
                                                 >
                                                     <Trash2 className="h-3.5 w-3.5" />
@@ -373,8 +373,8 @@ export const MyArticles: React.FC = () => {
 
                     {/* Footer */}
                     {!loading && filteredArticles.length > 0 && (
-                        <div className="mt-4 border-t border-white/8 pt-4">
-                            <p className="text-xs text-slate-600">
+                        <div className="mt-4 border-t border-border pt-4">
+                            <p className="text-xs text-muted-foreground">
                                 Showing {filteredArticles.length} of {articles.length} articles
                             </p>
                         </div>

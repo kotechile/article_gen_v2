@@ -366,7 +366,7 @@ export const Settings: React.FC = () => {
 
     if (loading) return (
         <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-            <Loader2 className="h-10 w-10 animate-spin text-indigo-500 dark:text-indigo-400" />
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
             <p className="text-muted-foreground animate-pulse">Loading settings...</p>
         </div>
     );
@@ -376,7 +376,7 @@ export const Settings: React.FC = () => {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-6">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
-                        <SettingsIcon className="w-8 h-8 text-indigo-500 dark:text-indigo-400" />
+                        <SettingsIcon className="w-8 h-8 text-primary" />
                         Settings
                     </h1>
                     <p className="text-muted-foreground mt-1">Manage your analysis thresholds and integrations</p>
@@ -388,28 +388,28 @@ export const Settings: React.FC = () => {
                     </div>
                 )}
                 {error && (
-                    <div className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 dark:text-red-400 rounded-lg border border-red-500/20 animate-in fade-in slide-in-from-top-2">
+                    <div className="flex items-center gap-2 px-4 py-2 bg-destructive/10 text-destructive rounded-lg border border-destructive/20 animate-in fade-in slide-in-from-top-2">
                         <AlertCircle className="w-4 h-4" />
                         <span className="text-sm font-medium">{error}</span>
                     </div>
                 )}
             </div>
 
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-                <TabsList className="bg-muted/50 p-1 rounded-xl w-full md:w-auto h-auto grid grid-cols-2 md:grid-cols-4 gap-1">
-                    <TabsTrigger value="research" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-indigo-500 dark:data-[state=active]:text-indigo-400 data-[state=active]:shadow-sm py-2.5">
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+                    <TabsList className="bg-muted/50 p-1 rounded-xl w-full md:w-auto h-auto grid grid-cols-2 md:grid-cols-4 gap-1">
+                    <TabsTrigger value="research" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm py-2.5">
                         <Search className="w-4 h-4 mr-2" />
                         Topic Research
                     </TabsTrigger>
-                    <TabsTrigger value="content" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-indigo-500 dark:data-[state=active]:text-indigo-400 data-[state=active]:shadow-sm py-2.5">
+                    <TabsTrigger value="content" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm py-2.5">
                         <Wand2 className="w-4 h-4 mr-2" />
                         Content Generation
                     </TabsTrigger>
-                    <TabsTrigger value="niches" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-indigo-500 dark:data-[state=active]:text-indigo-400 data-[state=active]:shadow-sm py-2.5">
+                    <TabsTrigger value="niches" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm py-2.5">
                         <Layout className="w-4 h-4 mr-2" />
                         Projects: Niches/Websites
                     </TabsTrigger>
-                    <TabsTrigger value="posts" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-indigo-500 dark:data-[state=active]:text-indigo-400 data-[state=active]:shadow-sm py-2.5">
+                    <TabsTrigger value="posts" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm py-2.5">
                         <FileText className="w-4 h-4 mr-2" />
                         External Posts
                     </TabsTrigger>
@@ -469,7 +469,7 @@ export const Settings: React.FC = () => {
                                     </p>
                                 </div>
 
-                                <div className="flex items-center justify-between p-4 bg-indigo-500/10 dark:bg-indigo-900/20 rounded-2xl border border-indigo-500/20">
+                                <div className="flex items-center justify-between p-4 bg-primary/10 rounded-2xl border border-primary/20">
                                     <div className="space-y-1">
                                         <Label htmlFor="strict_mode" className="text-sm font-semibold">Strict Mode</Label>
                                         <p className="text-xs text-muted-foreground">Automatically delete keywords failing thresholds.</p>
@@ -483,7 +483,7 @@ export const Settings: React.FC = () => {
                             </div>
 
                             <div className="flex justify-end pt-4 border-t border-border">
-                                <Button onClick={handleSaveResearch} disabled={saving} className="h-11 px-8 rounded-xl bg-indigo-500 hover:bg-indigo-600 dark:hover:bg-indigo-500 shadow-lg shadow-indigo-500/20">
+                                <Button onClick={handleSaveResearch} disabled={saving} className="h-11 px-8 rounded-xl bg-primary hover:bg-primary/90 shadow-lg">
                                     {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
                                     Save Research Settings
                                 </Button>
@@ -506,7 +506,7 @@ export const Settings: React.FC = () => {
                                 {/* LLM Keys */}
                                 <div className="space-y-6">
                                     <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
+                                        <div className="w-1.5 h-1.5 rounded-full bg-primary"></div>
                                         Core LLM Providers
                                     </h3>
                                     <div className="space-y-4">
@@ -557,7 +557,7 @@ export const Settings: React.FC = () => {
                             </div>
 
                             <div className="flex justify-end pt-4 border-t border-border">
-                                <Button onClick={handleSaveAppSettings} disabled={saving} className="h-11 px-8 rounded-xl bg-indigo-500 hover:bg-indigo-600 dark:hover:bg-indigo-500 shadow-lg shadow-indigo-500/20">
+                                <Button onClick={handleSaveAppSettings} disabled={saving} className="h-11 px-8 rounded-xl bg-primary hover:bg-primary/90 shadow-lg">
                                     {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
                                     Update API Credentials
                                 </Button>
@@ -570,8 +570,8 @@ export const Settings: React.FC = () => {
                 <TabsContent value="niches" className="animate-in fade-in-50 duration-500">
                     <div className="space-y-6">
                         {/* Info Banner */}
-                        <div className="flex items-start gap-3 p-4 rounded-xl bg-indigo-500/10 dark:bg-indigo-900/20 border border-indigo-500/20">
-                            <Globe className="w-5 h-5 text-indigo-500 dark:text-indigo-400 flex-shrink-0 mt-0.5" />
+                        <div className="flex items-start gap-3 p-4 rounded-xl bg-primary/10 border border-primary/20">
+                            <Globe className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
                             <div>
                                 <p className="text-sm font-semibold text-foreground">Projects:Niches &amp; Websites</p>
                                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -582,8 +582,8 @@ export const Settings: React.FC = () => {
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {projects.map(project => (
-                                <Card key={project.id} className="relative group overflow-hidden border-border hover:border-indigo-500/50 transition-all">
-                                    <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500 group-hover:w-2 transition-all"></div>
+                                <Card key={project.id} className="relative group overflow-hidden border-border hover:border-ring/50 transition-all">
+                                    <div className="absolute top-0 left-0 w-1 h-full bg-primary group-hover:w-2 transition-all"></div>
                                     <CardHeader className="pb-2">
                                         <div className="flex justify-between items-start">
                                             <div>
@@ -593,12 +593,12 @@ export const Settings: React.FC = () => {
                                                 <CardDescription className="flex items-center gap-1.5 mt-1">
                                                     {project.domain
                                                         ? <><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> WordPress</>
-                                                        : <><span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span> Niche Only</>
+                                                        : <><span className="w-1.5 h-1.5 rounded-full bg-primary"></span> Niche Only</>
                                                     }
                                                 </CardDescription>
                                             </div>
                                             <div className="flex gap-1">
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-indigo-500 dark:hover:text-indigo-400" onClick={() => { setEditingId(project.id); setFormData(project); setShowWpFields(!!project.wordpress_key || !!project.wpUserName); }}>
+                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => { setEditingId(project.id); setFormData(project); setShowWpFields(!!project.wordpress_key || !!project.wpUserName); }}>
                                                     <Edit2 className="h-4 w-4" />
                                                 </Button>
                                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-500 dark:hover:text-red-400" onClick={() => handleDeleteProject(project.id)}>
@@ -617,7 +617,7 @@ export const Settings: React.FC = () => {
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                className="h-7 text-xs gap-1.5 border-indigo-500/20 text-indigo-500 dark:text-indigo-400 hover:bg-indigo-500/10"
+                                                className="h-7 text-xs gap-1.5 border-primary/20 text-primary hover:bg-primary/10"
                                                 onClick={() => setTrendProject(project)}
                                             >
                                                 <TrendingUp className="w-3 h-3" />
@@ -631,7 +631,7 @@ export const Settings: React.FC = () => {
 
                             <button
                                 onClick={() => { setEditingId('new'); setFormData({}); setShowWpFields(false); }}
-                                className="h-[160px] border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-indigo-500 hover:text-indigo-500 dark:hover:text-indigo-400 hover:bg-indigo-500/10 transition-all group"
+                                className="h-[160px] border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-ring hover:text-primary hover:bg-primary/10 transition-all group"
                             >
                                 <Plus className="w-8 h-8 group-hover:scale-110 transition-transform" />
                                 <span className="text-sm font-medium">Add Niche / Website</span>
@@ -640,8 +640,8 @@ export const Settings: React.FC = () => {
 
                         {/* Edit / Create Form */}
                         {editingId && (
-                            <Card className="border-indigo-500/20 bg-indigo-500/5 dark:bg-indigo-900/10 overflow-hidden ring-1 ring-indigo-500/20">
-                                <CardHeader className="border-b border-indigo-500/20">
+                            <Card className="border-primary/20 bg-primary/5 overflow-hidden ring-1 ring-primary/20">
+                                <CardHeader className="border-b border-primary/20">
                                     <CardTitle className="text-lg">
                                         {editingId === 'new' ? 'New Niche / Website' : 'Edit Project'}
                                     </CardTitle>
@@ -653,7 +653,7 @@ export const Settings: React.FC = () => {
                                     {/* Core fields — always shown */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div className="space-y-2">
-                                            <Label className="text-xs font-semibold">Project / Niche Name <span className="text-indigo-500 dark:text-indigo-400">*</span></Label>
+                                            <Label className="text-xs font-semibold">Project / Niche Name <span className="text-primary">*</span></Label>
                                             <Input
                                                 placeholder="e.g. Home & DIY Blog"
                                                 value={formData.app_name || ''}
@@ -671,13 +671,13 @@ export const Settings: React.FC = () => {
                                             />
                                         </div>
                                         <div className="space-y-2 md:col-span-2">
-                                            <Label className="text-xs font-semibold">Niche Description (used by AI) <span className="text-indigo-500 dark:text-indigo-400">*</span></Label>
+                                            <Label className="text-xs font-semibold">Niche Description (used by AI) <span className="text-primary">*</span></Label>
                                             <textarea
                                                 placeholder="E.g. A home improvement blog focusing on DIY renovations, sustainable materials, and budget-friendly interior design for first-time homeowners."
                                                 value={formData.site_description || ''}
                                                 onChange={e => setFormData({ ...formData, site_description: e.target.value })}
                                                 rows={6}
-                                                className="w-full px-3 py-2 text-sm rounded-lg border border-input bg-background resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                                                className="w-full px-3 py-2 text-sm rounded-lg border border-input bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring/40"
                                             />
                                         </div>
                                         <div className="space-y-2 md:col-span-2">
@@ -704,7 +704,7 @@ export const Settings: React.FC = () => {
                                     </div>
 
                                     {showWpFields && (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-indigo-500/20">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-primary/20">
                                             <div className="space-y-2">
                                                 <Label className="text-xs font-semibold">WP Username</Label>
                                                 <Input
@@ -729,11 +729,11 @@ export const Settings: React.FC = () => {
 
                                     {/* Categories Management - Only show when editing existing project */}
                                     {editingId && editingId !== 'new' && (
-                                        <div className="pt-6 border-t border-indigo-500/20">
+                                        <div className="pt-6 border-t border-primary/20">
                                             <div className="flex items-center justify-between mb-4">
                                                 <div>
                                                     <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                                                        <FolderTree className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
+                                                        <FolderTree className="w-4 h-4 text-primary" />
                                                         Categories
                                                     </h3>
                                                     <p className="text-xs text-muted-foreground mt-1">
@@ -746,7 +746,7 @@ export const Settings: React.FC = () => {
                                                         fetchCategories(editingId);
                                                     }}
                                                     size="sm"
-                                                    className="h-8 rounded-lg bg-indigo-500 hover:bg-indigo-600 dark:hover:bg-indigo-500"
+                                                    className="h-8 rounded-lg bg-primary hover:bg-primary/90"
                                                 >
                                                     <Plus className="w-3.5 h-3.5 mr-1" />
                                                     Add Category
@@ -772,8 +772,8 @@ export const Settings: React.FC = () => {
                                                             <div key={category.id} className="rounded-lg border border-border overflow-hidden">
                                                                 <div className="flex items-center justify-between p-3 bg-muted/30">
                                                                     <div className="flex items-center gap-2">
-                                                                        <div className="w-6 h-6 rounded bg-indigo-500/10 dark:bg-indigo-900/30 flex items-center justify-center">
-                                                                            <span className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400">L1</span>
+                                                                        <div className="w-6 h-6 rounded bg-primary/10 flex items-center justify-center">
+                                                                            <span className="text-[10px] font-bold text-primary">L1</span>
                                                                         </div>
                                                                         <div>
                                                                             <p className="text-sm font-medium text-foreground">{category.name}</p>
@@ -784,7 +784,7 @@ export const Settings: React.FC = () => {
                                                                         <Button
                                                                             variant="ghost"
                                                                             size="icon"
-                                                                            className="h-7 w-7 text-muted-foreground hover:text-indigo-500 dark:hover:text-indigo-400"
+                                                                            className="h-7 w-7 text-muted-foreground hover:text-primary"
                                                                             onClick={() => {
                                                                                 setEditingCategory({ id: category.id, name: category.name, level: 1 });
                                                                                 fetchCategories(editingId);
@@ -819,7 +819,7 @@ export const Settings: React.FC = () => {
                                                                                     <Button
                                                                                         variant="ghost"
                                                                                         size="icon"
-                                                                                        className="h-6 w-6 text-muted-foreground hover:text-indigo-500 dark:hover:text-indigo-400"
+                                                                                        className="h-6 w-6 text-muted-foreground hover:text-primary"
                                                                                         onClick={() => {
                                                                                             setEditingCategory({ id: child.id, name: child.name, level: 2, parent_category_id: category.id });
                                                                                             fetchCategories(editingId);
@@ -848,7 +848,7 @@ export const Settings: React.FC = () => {
 
                                             {/* Edit/Add Category Form */}
                                             {editingCategory && (
-                                                <div className="mt-4 p-4 rounded-lg border border-indigo-500/20 bg-indigo-500/5 dark:bg-indigo-900/10">
+                                                <div className="mt-4 p-4 rounded-lg border border-primary/20 bg-primary/5">
                                                     <div className="space-y-4">
                                                         <div>
                                                             <p className="text-sm font-medium text-foreground mb-3">
@@ -896,7 +896,7 @@ export const Settings: React.FC = () => {
                                                                 )}
                                                             </div>
                                                         </div>
-                                                        <div className="flex items-center gap-2 pt-2 border-t border-indigo-500/20">
+                                                        <div className="flex items-center gap-2 pt-2 border-t border-primary/20">
                                                             <Button
                                                                 size="sm"
                                                                 variant="ghost"
@@ -908,7 +908,7 @@ export const Settings: React.FC = () => {
                                                                 size="sm"
                                                                 onClick={handleSaveCategory}
                                                                 disabled={isSavingCategory}
-                                                                className="bg-indigo-500 hover:bg-indigo-600 dark:hover:bg-indigo-500 rounded-lg"
+                                                                className="bg-primary hover:bg-primary/90 rounded-lg"
                                                             >
                                                                 {isSavingCategory ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-2" /> : <Save className="w-3.5 h-3.5 mr-2" />}
                                                                 {editingCategory.id ? 'Update' : 'Add Category'}
@@ -920,9 +920,9 @@ export const Settings: React.FC = () => {
                                         </div>
                                     )}
 
-                                    <div className="flex justify-end gap-3 pt-2 border-t border-indigo-500/20">
+                                    <div className="flex justify-end gap-3 pt-2 border-t border-primary/20">
                                         <Button variant="ghost" onClick={() => { setEditingId(null); setFormData({}); setShowWpFields(false); setEditingCategory(null); }}>Cancel</Button>
-                                        <Button onClick={handleSaveProject} disabled={isSaving} className="bg-indigo-500 hover:bg-indigo-600 dark:hover:bg-indigo-500 rounded-xl px-8 h-10">
+                                        <Button onClick={handleSaveProject} disabled={isSaving} className="bg-primary hover:bg-primary/90 rounded-xl px-8 h-10">
                                             {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
                                             {editingId === 'new' ? 'Add Project' : 'Update Project'}
                                         </Button>
@@ -961,12 +961,12 @@ export const Settings: React.FC = () => {
                                     {importedPosts.map(post => (
                                         <div key={post.id} className="p-5 flex items-center justify-between hover:bg-muted/30 transition-colors group">
                                             <div className="space-y-1 pr-6 flex-1 overflow-hidden">
-                                                <h4 className="text-sm font-semibold text-foreground truncate group-hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">{post.title}</h4>
+                                                <h4 className="text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors">{post.title}</h4>
                                                 <div className="flex items-center gap-3">
                                                     <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-muted/50 rounded-md text-muted-foreground">
                                                         {post.source_site || 'WordPress'}
                                                     </span>
-                                                    <a href={post.link} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-500 dark:text-indigo-400 hover:underline truncate">
+                                                    <a href={post.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline truncate">
                                                         {post.link}
                                                     </a>
                                                 </div>

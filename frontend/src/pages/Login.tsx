@@ -50,15 +50,15 @@ export const Login: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center p-4">
-            <div className="bg-background/95 backdrop-blur-sm p-8 rounded-2xl shadow-xl w-full max-w-md border border-white/20 dark:border-white/10">
+        <div className="min-h-screen bg-gradient-to-br from-primary/20 via-background to-accent flex items-center justify-center p-4">
+            <div className="bg-background/95 backdrop-blur-sm p-8 rounded-2xl shadow-xl w-full max-w-md border border-border">
                 <div className="text-center mb-8">
-                    <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400">TheWriter</h1>
+                    <h1 className="text-3xl font-bold text-foreground">TheWriter</h1>
                     <p className="text-muted-foreground mt-2">Sign in to your account</p>
                 </div>
 
                 {error && (
-                    <div className="bg-red-500/10 text-red-500 dark:text-red-400 p-3 rounded-lg text-sm mb-6 border border-red-500/20">
+                    <div className="bg-destructive/10 text-destructive p-3 rounded-lg text-sm mb-6 border border-destructive/20">
                         {error}
                     </div>
                 )}
@@ -73,7 +73,7 @@ export const Login: React.FC = () => {
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
-                                className="w-full pl-10 pr-4 py-2 rounded-xl border border-border bg-muted/50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                                className="w-full pl-10 pr-4 py-2 rounded-xl border border-border bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring transition-all"
                                 placeholder="you@example.com"
                             />
                         </div>
@@ -88,7 +88,7 @@ export const Login: React.FC = () => {
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required
-                                className="w-full pl-10 pr-4 py-2 rounded-xl border border-border bg-muted/50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                                className="w-full pl-10 pr-4 py-2 rounded-xl border border-border bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring transition-all"
                                 placeholder="••••••••"
                             />
                         </div>
@@ -97,7 +97,7 @@ export const Login: React.FC = () => {
                     <button
                         type="submit"
                         disabled={loading}
-                        className="w-full bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-medium py-2.5 rounded-xl shadow-lg shadow-indigo-500/30 transition-all flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed"
+                        className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium py-2.5 rounded-xl shadow-lg transition-all flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed"
                     >
                         {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sign In'}
                     </button>
