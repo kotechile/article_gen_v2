@@ -343,8 +343,8 @@ export const ContentStudio: React.FC = () => {
         }
     };
 
-    if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-indigo-600" /></div>;
-    if (!article) return <div className="p-8">Article not found</div>;
+    if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-indigo-500 dark:text-indigo-400" /></div>;
+    if (!article) return <div className="p-8 text-muted-foreground">Article not found</div>;
 
     const getCompetitionColor = (score: number) => {
         if (score < 40) return 'text-green-500';
@@ -355,7 +355,7 @@ export const ContentStudio: React.FC = () => {
     return (
         <div className="max-w-5xl mx-auto space-y-6">
             {error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-2">
+                <div className="bg-red-500/10 border border-red-500/20 text-red-500 dark:text-red-400 px-4 py-3 rounded-xl flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                     </svg>
@@ -365,14 +365,14 @@ export const ContentStudio: React.FC = () => {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Content Studio</h1>
-                    <p className="text-gray-500 dark:text-gray-400">Configure and generate your article</p>
+                    <h1 className="text-2xl font-bold text-foreground">Content Studio</h1>
+                    <p className="text-muted-foreground">Configure and generate your article</p>
                 </div>
                 <div className="flex gap-3">
                     <button
                         onClick={handleSave}
                         disabled={saving}
-                        className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                        className="flex items-center gap-2 px-4 py-2 bg-background border border-border rounded-xl hover:bg-muted transition"
                     >
                         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                         Save
@@ -380,7 +380,7 @@ export const ContentStudio: React.FC = () => {
                     <button
                         onClick={handleGenerate}
                         disabled={generating}
-                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:opacity-90 transition shadow-lg shadow-indigo-500/25"
+                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl hover:opacity-90 transition shadow-lg shadow-indigo-500/25"
                     >
                         {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                         Generate Article
@@ -391,22 +391,22 @@ export const ContentStudio: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Left Column: Form */}
                 <div className="lg:col-span-2 space-y-6">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm space-y-4">
-                        <h3 className="font-semibold text-gray-900 dark:text-white">Article Details</h3>
+                    <div className="bg-background p-6 rounded-2xl border border-border shadow-sm space-y-4">
+                        <h3 className="font-semibold text-foreground">Article Details</h3>
 
                         <div>
-                            <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Article Title</label>
+                            <label className="block text-sm font-medium mb-1">Article Title</label>
                             <input
-                                className="w-full px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
                                 value={formData.title}
                                 onChange={(e) => handleChange('title', e.target.value)}
                             />
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Brief Description</label>
+                            <label className="block text-sm font-medium mb-1">Brief Description</label>
                             <textarea
-                                className="w-full px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none h-32"
+                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none h-32"
                                 value={formData.description}
                                 onChange={(e) => handleChange('description', e.target.value)}
                                 placeholder="Describe what you want to write about..."
@@ -414,9 +414,9 @@ export const ContentStudio: React.FC = () => {
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Keywords</label>
+                            <label className="block text-sm font-medium mb-1">Keywords</label>
                             <input
-                                className="w-full px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
                                 value={formData.keywords}
                                 onChange={(e) => handleChange('keywords', e.target.value)}
                                 placeholder="Comma separated keywords"
@@ -424,14 +424,14 @@ export const ContentStudio: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm space-y-4">
-                        <h3 className="font-semibold text-gray-900 dark:text-white">Configuration</h3>
+                    <div className="bg-background p-6 rounded-2xl border border-border shadow-sm space-y-4">
+                        <h3 className="font-semibold text-foreground">Configuration</h3>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Tone</label>
+                                <label className="block text-sm font-medium mb-1">Tone</label>
                                 <select
-                                    className="w-full px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
                                     value={formData.tone}
                                     onChange={(e) => handleChange('tone', e.target.value)}
                                 >
@@ -439,20 +439,20 @@ export const ContentStudio: React.FC = () => {
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Target Word Count</label>
+                                <label className="block text-sm font-medium mb-1">Target Word Count</label>
                                 <input
                                     type="number"
-                                    className="w-full px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
                                     value={formData.articleLength}
                                     onChange={(e) => handleChange('articleLength', e.target.value)}
                                 />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">LAI Model</label>
+                                <label className="block text-sm font-medium mb-1">LAI Model</label>
                                 <div className="relative">
-                                    <BrainCircuit className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                    <BrainCircuit className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                     <select
-                                        className="w-full pl-9 pr-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none appearance-none"
+                                        className="w-full pl-9 pr-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none appearance-none"
                                         value={formData.llmModel}
                                         onChange={(e) => handleChange('llmModel', e.target.value)}
                                     >
@@ -467,13 +467,13 @@ export const ContentStudio: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="pt-4 border-t border-gray-100 dark:border-gray-700">
-                            <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">RAG & Research</h4>
+                        <div className="pt-4 border-t border-border">
+                            <h4 className="text-sm font-medium text-foreground mb-3">RAG & Research</h4>
                             <div className="space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">RAG Collection</label>
+                                    <label className="block text-sm font-medium mb-1">RAG Collection</label>
                                     <select
-                                        className="w-full px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
                                         value={formData.ragCollection}
                                         onChange={(e) => handleChange('ragCollection', e.target.value)}
                                     >
@@ -485,9 +485,9 @@ export const ContentStudio: React.FC = () => {
                                 {formData.ragCollection && (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div>
-                                            <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Query Type</label>
+                                            <label className="block text-sm font-medium mb-1">Query Type</label>
                                             <select
-                                                className="w-full px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
                                                 value={formData.ragQueryType}
                                                 onChange={(e) => handleChange('ragQueryType', e.target.value)}
                                             >
@@ -495,9 +495,9 @@ export const ContentStudio: React.FC = () => {
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Emphasis</label>
+                                            <label className="block text-sm font-medium mb-1">Emphasis</label>
                                             <select
-                                                className="w-full px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-indigo-500 outline-none"
                                                 value={formData.emphasis}
                                                 onChange={(e) => handleChange('emphasis', e.target.value)}
                                             >
@@ -511,11 +511,11 @@ export const ContentStudio: React.FC = () => {
                                     <input
                                         type="checkbox"
                                         id="claims"
-                                        className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                        className="w-4 h-4 rounded border-border text-indigo-500 focus:ring-indigo-500"
                                         checked={formData.claimsValidation}
                                         onChange={(e) => handleChange('claimsValidation', e.target.checked)}
                                     />
-                                    <label htmlFor="claims" className="text-sm text-gray-700 dark:text-gray-300">Enable Claims Validation (Web Search)</label>
+                                    <label htmlFor="claims" className="text-sm">Enable Claims Validation (Web Search)</label>
                                 </div>
                             </div>
                         </div>
@@ -524,10 +524,10 @@ export const ContentStudio: React.FC = () => {
 
                 {/* Right Column: Metrics & Insights */}
                 <div className="space-y-6">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
+                    <div className="bg-background p-6 rounded-2xl border border-border shadow-sm">
                         <div className="flex items-center gap-2 mb-4">
-                            <BarChart3 className="w-5 h-5 text-indigo-500" />
-                            <h3 className="font-semibold text-gray-900 dark:text-white">Content Metrics</h3>
+                            <BarChart3 className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
+                            <h3 className="font-semibold text-foreground">Content Metrics</h3>
                         </div>
 
                         <div className="space-y-6">
@@ -552,62 +552,62 @@ export const ContentStudio: React.FC = () => {
                                 <Gauge value={article.readability_score || 0} label="Readability" color="text-green-500" />
                             </div>
 
-                            <div className="border-t border-gray-100 dark:border-gray-700 my-6"></div>
+                            <div className="border-t border-border my-6"></div>
 
                             {/* Secondary Scores Grid */}
                             <div className="grid grid-cols-2 gap-3">
-                                <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-center">
-                                    <div className="text-lg font-bold text-gray-900 dark:text-white">{article.overall_quality_score || 0}%</div>
-                                    <div className="text-[10px] text-gray-500 uppercase">Quality</div>
+                                <div className="p-2 bg-muted/50 rounded-lg text-center">
+                                    <div className="text-lg font-bold text-foreground">{article.overall_quality_score || 0}%</div>
+                                    <div className="text-[10px] text-muted-foreground uppercase">Quality</div>
                                 </div>
-                                <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-center relative group">
-                                    <div className="text-lg font-bold text-gray-900 dark:text-white">{article.traffic_potential_score || 0}%</div>
+                                <div className="p-2 bg-muted/50 rounded-lg text-center relative group">
+                                    <div className="text-lg font-bold text-foreground">{article.traffic_potential_score || 0}%</div>
                                     <div className="flex justify-center items-center gap-1">
-                                        <div className="text-[10px] text-gray-500 uppercase">Traffic</div>
+                                        <div className="text-[10px] text-muted-foreground uppercase">Traffic</div>
                                         <MetricTooltip explanation={METRIC_EXPLANATIONS.traffic_potential} />
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="border-t border-gray-100 dark:border-gray-700 my-6"></div>
+                            <div className="border-t border-border my-6"></div>
 
                             {/* Bottom Section: Text Metrics */}
                             <div className="space-y-3">
-                                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 rounded-xl">
-                                    <span className="text-sm text-gray-500">Difficulty Level</span>
-                                    <span className="font-medium text-gray-900 dark:text-white">{article.difficulty_level || '-'}</span>
+                                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-xl">
+                                    <span className="text-sm text-muted-foreground">Difficulty Level</span>
+                                    <span className="font-medium text-foreground">{article.difficulty_level || '-'}</span>
                                 </div>
-                                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 rounded-xl">
+                                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-xl">
                                     <div className="flex items-center gap-1">
-                                        <span className="text-sm text-gray-500">Est. Reading Time</span>
+                                        <span className="text-sm text-muted-foreground">Est. Reading Time</span>
                                         <MetricTooltip explanation={METRIC_EXPLANATIONS.reading_time} />
                                     </div>
-                                    <span className="font-medium text-gray-900 dark:text-white">{article.estimated_reading_time || '-'}</span>
+                                    <span className="font-medium text-foreground">{article.estimated_reading_time || '-'}</span>
                                 </div>
-                                <div className="p-3 bg-gray-50 dark:bg-gray-900/50 rounded-xl">
+                                <div className="p-3 bg-muted/50 rounded-xl">
                                     <div className="flex items-center gap-1 mb-1">
-                                        <span className="text-sm text-gray-500 block">Target Audience</span>
+                                        <span className="text-sm text-muted-foreground block">Target Audience</span>
                                         <MetricTooltip explanation={METRIC_EXPLANATIONS.audience_align} />
                                     </div>
-                                    <span className="font-medium text-gray-900 dark:text-white text-sm">{article.target_audience || '-'}</span>
+                                    <span className="font-medium text-foreground text-sm">{article.target_audience || '-'}</span>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
-                        <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Affiliate Opportunities</h3>
+                    <div className="bg-background p-6 rounded-2xl border border-border shadow-sm">
+                        <h3 className="font-semibold text-foreground mb-4">Affiliate Opportunities</h3>
                         {article.affiliate_opportunities?.programs?.length > 0 ? (
                             <div className="space-y-3">
                                 {article.affiliate_opportunities.programs.slice(0, 3).map((prog: any, i: number) => (
-                                    <div key={i} className="p-3 border border-gray-100 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                                    <div key={i} className="p-3 border border-border rounded-xl hover:bg-muted/30 transition">
                                         <div className="font-medium text-sm truncate">{prog.name}</div>
-                                        <div className="text-xs text-green-600 dark:text-green-400 mt-1">{prog.commission_rate}% Commission</div>
+                                        <div className="text-xs text-emerald-500 dark:text-emerald-400 mt-1">{prog.commission_rate}% Commission</div>
                                     </div>
                                 ))}
                             </div>
                         ) : (
-                            <div className="text-sm text-gray-500 text-center py-4">No opportunities found</div>
+                            <div className="text-sm text-muted-foreground text-center py-4">No opportunities found</div>
                         )}
                     </div>
                 </div>

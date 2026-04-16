@@ -51,44 +51,44 @@ export const Login: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center p-4">
-            <div className="bg-white/95 backdrop-blur-sm dark:bg-gray-900/95 p-8 rounded-2xl shadow-xl w-full max-w-md border border-white/20">
+            <div className="bg-background/95 backdrop-blur-sm p-8 rounded-2xl shadow-xl w-full max-w-md border border-white/20 dark:border-white/10">
                 <div className="text-center mb-8">
-                    <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">TheWriter</h1>
-                    <p className="text-gray-500 dark:text-gray-400 mt-2">Sign in to your account</p>
+                    <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400">TheWriter</h1>
+                    <p className="text-muted-foreground mt-2">Sign in to your account</p>
                 </div>
 
                 {error && (
-                    <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-6 border border-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/50">
+                    <div className="bg-red-500/10 text-red-500 dark:text-red-400 p-3 rounded-lg text-sm mb-6 border border-red-500/20">
                         {error}
                     </div>
                 )}
 
                 <form onSubmit={handleLogin} className="space-y-6">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email address</label>
+                        <label className="block text-sm font-medium mb-1">Email address</label>
                         <div className="relative">
-                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                             <input
                                 type="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
-                                className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-sans"
+                                className="w-full pl-10 pr-4 py-2 rounded-xl border border-border bg-muted/50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
                                 placeholder="you@example.com"
                             />
                         </div>
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
+                        <label className="block text-sm font-medium mb-1">Password</label>
                         <div className="relative">
-                            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                             <input
                                 type="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required
-                                className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-sans"
+                                className="w-full pl-10 pr-4 py-2 rounded-xl border border-border bg-muted/50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
                                 placeholder="••••••••"
                             />
                         </div>
@@ -97,7 +97,7 @@ export const Login: React.FC = () => {
                     <button
                         type="submit"
                         disabled={loading}
-                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-xl shadow-lg shadow-indigo-500/30 transition-all flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed"
+                        className="w-full bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-medium py-2.5 rounded-xl shadow-lg shadow-indigo-500/30 transition-all flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed"
                     >
                         {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sign In'}
                     </button>
@@ -105,17 +105,17 @@ export const Login: React.FC = () => {
 
                 <div className="relative my-6">
                     <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-gray-200 dark:border-gray-700"></div>
+                        <div className="w-full border-t border-border"></div>
                     </div>
                     <div className="relative flex justify-center text-sm">
-                        <span className="px-2 bg-white dark:bg-gray-900 text-gray-500">Or continue with</span>
+                        <span className="px-2 bg-background text-muted-foreground">Or continue with</span>
                     </div>
                 </div>
 
                 <button
                     onClick={handleGoogleLogin}
                     type="button"
-                    className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 font-medium py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-750 transition-all flex items-center justify-center gap-2"
+                    className="w-full bg-background border border-border text-foreground font-medium py-2.5 rounded-xl hover:bg-muted transition-all flex items-center justify-center gap-2"
                 >
                     <svg className="w-5 h-5" viewBox="0 0 24 24">
                         <path
