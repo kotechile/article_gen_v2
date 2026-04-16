@@ -233,8 +233,15 @@ export const Settings: React.FC = () => {
 
             if (error) throw error;
 
-            setEditingCategory(null);
             await fetchCategories(editingId);
+
+            // UX: keep the "Add New Category" panel open after adding,
+            // so the user can rapidly add multiple categories (especially Level 2).
+            if (editingCategory.id) {
+                setEditingCategory(null);
+            } else {
+                setEditingCategory(prev => prev ? { ...prev, name: '' } : prev);
+            }
         } catch (err: any) {
             alert(err.message || 'Failed to save category');
         } finally {
