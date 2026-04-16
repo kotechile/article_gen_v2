@@ -1,4 +1,3 @@
-
 from flask import Blueprint, jsonify, request
 from tasks import process_trend_task, get_task_status
 
@@ -10,16 +9,23 @@ def generate_trend_report_endpoint(site_id):
     Trigger trend report generation for a site.
     """
     try:
-        # Submit task
-        task = process_trend_task.delay(site_id)
-        
+        body = request.get_json(silent=True) or {}
+        primary_category_id = body.get('primary_category_id')
+        secondary_category_id = body.get('secondary_category_id')
+
+        task = process_trend_task.delay(
+            site_id,
+            primary_category_id=primary_category_id,
+            secondary_category_id=secondary_category_id,
+        )
+
         return jsonify({
             'message': 'Trend analysis started',
             'task_id': task.id,
             'status': 'pending',
             'site_id': site_id
         }), 202
-        
+
     except Exception as e:
         return jsonify({
             'error': str(e),

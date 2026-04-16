@@ -53,11 +53,13 @@ interface TrendReport {
 interface TrendReportModalProps {
     siteId: string;
     siteDomain?: string;
+    primaryCategoryId?: string;
+    secondaryCategoryId?: string;
     isOpen: boolean;
     onClose: () => void;
 }
 
-export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, siteDomain, isOpen, onClose }) => {
+export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, siteDomain, primaryCategoryId, secondaryCategoryId, isOpen, onClose }) => {
     const [loading, setLoading] = useState(true);
     const [report, setReport] = useState<TrendReport | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -86,7 +88,10 @@ export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, site
         // setPollCount(0);
 
         try {
-            const startRes = await apiClient.post<any>(`/v1/trends/${siteId}`);
+            const startRes = await apiClient.post<any>(`/v1/trends/${siteId}`, {
+                primary_category_id: primaryCategoryId || null,
+                secondary_category_id: secondaryCategoryId || null,
+            });
             if (startRes.task_id) {
                 pollTask(startRes.task_id);
             } else {

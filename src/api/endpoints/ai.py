@@ -87,6 +87,8 @@ def propose_topics():
 
     Request body:
         niche_description (str): Description of the niche/website context.
+        primary_category (str, optional): Selected primary category name.
+        secondary_category (str, optional): Selected sub-category name.
         count (int, optional): Number of topics to propose (default: 5).
 
     Response:
@@ -97,6 +99,8 @@ def propose_topics():
 
     data = request.get_json()
     niche_description = (data.get('niche_description') or '').strip()
+    primary_category = (data.get('primary_category') or '').strip() or None
+    secondary_category = (data.get('secondary_category') or '').strip() or None
     count = min(int(data.get('count', 5)), 10)  # cap at 10
 
     if not niche_description:
@@ -108,23 +112,28 @@ def propose_topics():
 
     # ── Build prompt ──────────────────────────────────────────────────────────
     system_prompt = (
-        "You are an expert SEO content strategist. "
-        "Your job is to propose broad, evergreen content topics that have high search demand "
-        "and are directly aligned with a specific niche. "
-        "Each topic should be broad enough to expand into multiple articles, "
-        "but specific enough to be relevant to the niche audience."
+        "You are an expert content strategist helping brainstorm BROAD SEED TOPICS for a research workflow. "
+        "Your job is to propose topical themes/content pillars that can be expanded into many specific articles later. "
+        "At this stage, do NOT optimize for competitive head terms or write clickbait titles."
     )
+
+    selected_category_line = None
+    if primary_category and secondary_category:
+        selected_category_line = f"Selected category: {primary_category} / {secondary_category}"
+    elif primary_category:
+        selected_category_line = f"Selected category: {primary_category}"
 
     user_prompt = f"""I run a content website with the following niche:
 
 NICHE DESCRIPTION:
 {niche_description}
+{selected_category_line or ""}
 
-Please propose exactly {count} broad SEO content topics for this niche.
+Please propose exactly {count} BROAD SEED TOPICS for this niche.
 
 For each topic, provide:
-1. A clear, SEO-friendly topic title (not a specific article title — think of it as a content pillar)
-2. A brief 1–2 sentence rationale explaining why this topic fits the niche and has search demand
+1. A short theme/title (NOT an article headline; avoid keyword stuffing)
+2. A brief 1–2 sentence rationale explaining why this theme fits the niche and can expand into multiple articles
 
 Respond ONLY with a valid JSON array in this exact format:
 [

@@ -139,7 +139,9 @@ class CommandCenterService {
   }): Promise<string[]> {
     const response = await apiClient.post<{ topics?: Array<{ title: string }> }>('/ai/propose-topics', {
       niche_description: this.buildContextDescription(params.project, params.primaryCategory, params.secondaryCategory),
-      count: 6,
+      primary_category: params.primaryCategory.name,
+      secondary_category: params.secondaryCategory?.name ?? null,
+      count: 20,
     })
 
     return (response.topics || [])
@@ -152,7 +154,10 @@ class CommandCenterService {
     primaryCategory: ProjectCategory
     secondaryCategory: ProjectCategory | null
   }): Promise<string[]> {
-    const start = await apiClient.post<TrendTaskResponse>(`/v1/trends/${params.project.id}`)
+    const start = await apiClient.post<TrendTaskResponse>(`/v1/trends/${params.project.id}`, {
+      primary_category_id: params.primaryCategory.id,
+      secondary_category_id: params.secondaryCategory?.id || null,
+    })
 
     if (!start.task_id) {
       throw new Error('Trend analysis could not be started')

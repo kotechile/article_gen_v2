@@ -2390,35 +2390,37 @@ def cancel_task(task_id: str) -> bool:
 # -----------------------------------------------------------------------------
 
 @celery.task(bind=True, name='content_generator_v2.tasks.trends.process_trend_task')
-def process_trend_task(self, site_id: str) -> Dict[str, Any]:
+def process_trend_task(self, site_id: str, primary_category_id: Optional[str] = None, secondary_category_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Process trend analysis for a specific site.
-    
+
     Args:
-        site_id: ID of the site in wordPress_details table
-        
+        site_id: ID of the site/project
+        primary_category_id: Optional ID of the selected primary category
+        secondary_category_id: Optional ID of the selected secondary category
+
     Returns:
         Dictionary containing the trend report
     """
-    logger.info(f"Starting trend analysis task for site_id: {site_id}")
-    
+    logger.info(f"Starting trend analysis task for site_id: {site_id}, primary_category_id: {primary_category_id}, secondary_category_id: {secondary_category_id}")
+
     try:
         _ensure_project_root_on_path()
 
         # Import here to avoid circular dependencies if any
         from src.services.trend_engine import TrendEngine
-        
+
         # Initialize engine
         engine = TrendEngine()
-        
+
         # Run async method in synchronous Celery task
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
+
         try:
             # Execute the async method
-            result = loop.run_until_complete(engine.get_whats_trending(site_id))
-            
+            result = loop.run_until_complete(engine.get_whats_trending(site_id, primary_category_id=primary_category_id, secondary_category_id=secondary_category_id))
+
             logger.info(f"Trend analysis completed successfully for site_id: {site_id}")
             return {
                 'status': 'SUCCESS',
@@ -2426,13 +2428,13 @@ def process_trend_task(self, site_id: str) -> Dict[str, Any]:
                 'result': result,
                 'completed_at': datetime.utcnow().isoformat()
             }
-            
+
         except Exception as async_error:
             logger.error(f"Async execution failed: {async_error}", exc_info=True)
             raise async_error
         finally:
             loop.close()
-            
+
     except Exception as e:
         logger.error(f"Trend task failed: {str(e)}", exc_info=True)
         return {
