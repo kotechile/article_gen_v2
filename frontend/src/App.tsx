@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/auth-context';
 import { ProjectProvider } from './context/project-context';
+import { ThemeProvider } from './components/theme-provider';
 import { AuthCallback } from './pages/AuthCallback';
 import { Login } from './pages/Login';
 import { Landing } from './pages/Landing';
@@ -16,28 +17,30 @@ import { Settings } from './pages/Settings';
 
 function App() {
   return (
-    <AuthProvider>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/auth/callback" element={<AuthCallback />} />
+    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
 
-        <Route element={<ProtectedRoute />}>
-          <Route element={<ProjectProvider><MainLayout /></ProjectProvider>}>
-            <Route path="/" element={<Landing />} />
-            <Route path="/my-articles" element={<MyArticles />} />
-            <Route path="/knowledge-gaps" element={<KnowledgeGaps />} />
-            <Route path="/content-studio" element={<ContentStudio />} />
-            <Route path="/article-editor/:id" element={<ArticleEditor />} />
-            <Route path="/research" element={<Research />} />
-            <Route path="/research/:id" element={<TopicDetail />} />
-            <Route path="/history" element={<div>History (Coming Soon)</div>} />
-            <Route path="/settings" element={<Settings />} />
+          <Route element={<ProtectedRoute />}>
+            <Route element={<ProjectProvider><MainLayout /></ProjectProvider>}>
+              <Route path="/" element={<Landing />} />
+              <Route path="/my-articles" element={<MyArticles />} />
+              <Route path="/knowledge-gaps" element={<KnowledgeGaps />} />
+              <Route path="/content-studio" element={<ContentStudio />} />
+              <Route path="/article-editor/:id" element={<ArticleEditor />} />
+              <Route path="/research" element={<Research />} />
+              <Route path="/research/:id" element={<TopicDetail />} />
+              <Route path="/history" element={<div>History (Coming Soon)</div>} />
+              <Route path="/settings" element={<Settings />} />
+            </Route>
           </Route>
-        </Route>
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AuthProvider>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

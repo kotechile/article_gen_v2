@@ -11,9 +11,9 @@ import type { ProjectCategory, TopicCandidate, TopicCandidateSource } from '@/ty
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 const inputSelectClasses =
-    "h-11 w-full rounded-xl border border-white/10 bg-white/[0.04] pl-10 pr-4 text-sm text-white outline-none transition focus:border-blue-400/30 hover:border-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+    "h-11 w-full rounded-xl border border-border bg-muted/50 pl-10 pr-4 text-sm text-foreground outline-none transition focus:border-blue-400/30 hover:border-border disabled:cursor-not-allowed disabled:opacity-50"
 const smallSelectClasses =
-    "h-10 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none transition focus:border-blue-400/30 hover:border-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+    "h-10 rounded-lg border border-border bg-muted/50 px-3 text-sm text-foreground outline-none transition focus:border-blue-400/30 hover:border-border disabled:cursor-not-allowed disabled:opacity-50"
 
 type TopicInputMode = 'ai' | 'news' | 'manual'
 
@@ -23,12 +23,12 @@ function getProjectDescription(project: Project | null) {
 
 function getSourceTag(source: TopicCandidateSource) {
     const map: Record<TopicCandidateSource, { label: string; color: string }> = {
-        ai: { label: 'AI', color: 'text-violet-400' },
-        news: { label: 'News', color: 'text-amber-400' },
-        seed: { label: 'Seed', color: 'text-slate-500' },
-        manual: { label: 'Manual', color: 'text-emerald-400' },
+        ai: { label: 'AI', color: 'text-violet-500 dark:text-violet-400' },
+        news: { label: 'News', color: 'text-amber-500 dark:text-amber-400' },
+        seed: { label: 'Seed', color: 'text-muted-foreground' },
+        manual: { label: 'Manual', color: 'text-emerald-500 dark:text-emerald-400' },
     }
-    return map[source] || { label: source, color: 'text-slate-500' }
+    return map[source] || { label: source, color: 'text-muted-foreground' }
 }
 
 export function Landing() {
@@ -365,7 +365,7 @@ export function Landing() {
     const addItemsLoading = aiLoading || newsLoading || manualLoading
 
     return (
-        <div className="min-h-screen bg-[#08101d]">
+        <div className="min-h-screen bg-background">
             <div className="mx-auto max-w-4xl px-6 py-10 lg:py-16">
 
                 {/* Page header */}
@@ -374,10 +374,10 @@ export function Landing() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.25 }}
                 >
-                    <h1 className="text-2xl font-semibold tracking-tight text-white">
+                    <h1 className="text-2xl font-semibold tracking-tight text-foreground">
                         New Research
                     </h1>
-                    <p className="mt-2 text-sm text-slate-500">
+                    <p className="mt-2 text-sm text-muted-foreground">
                         Select a website, narrow the category, add topics, and start.
                     </p>
                 </motion.div>
@@ -392,12 +392,12 @@ export function Landing() {
                     {/* Website */}
                     <div>
                         <label className="block">
-                            <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                                 Website
                             </span>
                             <div className="mt-2 flex items-center gap-2">
                                 <div className="relative flex-1">
-                                    <Globe2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                                    <Globe2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                     <select
                                         className={inputSelectClasses}
                                         value={activeProject?.id || ''}
@@ -419,7 +419,7 @@ export function Landing() {
                                     type="button"
                                     onClick={() => setShowSiteInfo(!showSiteInfo)}
                                     disabled={!activeProject}
-                                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-500 transition hover:border-white/15 hover:text-slate-300 disabled:cursor-not-allowed disabled:opacity-40"
+                                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border bg-muted/50 text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                                     aria-label={showSiteInfo ? 'Hide website details' : 'Show website details'}
                                 >
                                     {showSiteInfo ? <X className="h-4 w-4" /> : <Info className="h-4 w-4" />}
@@ -434,7 +434,7 @@ export function Landing() {
                                     animate={{ opacity: 1, height: 'auto' }}
                                     exit={{ opacity: 0, height: 0 }}
                                     transition={{ duration: 0.2 }}
-                                    className="mt-2 overflow-hidden text-sm leading-6 text-slate-400"
+                                    className="mt-2 overflow-hidden text-sm leading-6 text-muted-foreground"
                                 >
                                     {getProjectDescription(activeProject)}
                                 </motion.p>
@@ -445,11 +445,11 @@ export function Landing() {
                     {/* Categories */}
                     <div className="grid gap-4 sm:grid-cols-2">
                         <label className="block">
-                            <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                                 Category
                             </span>
                             <div className="mt-2 relative">
-                                <Layers3 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                                <Layers3 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                 <select
                                     className={inputSelectClasses}
                                     value={primaryCategoryId}
@@ -467,11 +467,11 @@ export function Landing() {
                         </label>
 
                         <label className="block">
-                            <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                                 Subcategory
                             </span>
                             <div className="mt-2 relative">
-                                <BookOpenText className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                                <BookOpenText className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                 <select
                                     className={inputSelectClasses}
                                     value={secondaryCategoryId}
@@ -499,10 +499,10 @@ export function Landing() {
                 >
                     <div className="flex items-start justify-between gap-4">
                         <div>
-                            <h2 className="text-lg font-medium text-white">
+                            <h2 className="text-lg font-medium text-foreground">
                                 Research Topics
                             </h2>
-                            <p className="mt-1 text-xs text-slate-500">
+                            <p className="mt-1 text-xs text-muted-foreground">
                                 {topicCandidates.length > 0
                                     ? `${selectedTopicIds.size} of ${topicCandidates.length} selected`
                                     : 'Add topics below to get started'}
@@ -525,7 +525,7 @@ export function Landing() {
                                 type="button"
                                 onClick={handleAddItemsToWorkspace}
                                 disabled={selectionLocked || !activePrimaryCategory || addItemsLoading}
-                                className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3.5 text-sm text-slate-300 transition hover:border-white/15 hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-3.5 text-sm text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 {addItemsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                                 <span>Add</span>
@@ -533,25 +533,25 @@ export function Landing() {
                         </div>
                     </div>
 
-                    <div className="mt-4 border-t border-white/8" />
+                    <div className="mt-4 border-t border-border" />
 
                     {/* Topic list */}
                     <div className="mt-4">
                         {topicsLoading ? (
                             <div className="space-y-2">
                                 {[1, 2, 3].map((item) => (
-                                    <div key={item} className="h-10 animate-pulse rounded-lg bg-white/[0.03]" />
+                                    <div key={item} className="h-10 animate-pulse rounded-lg bg-muted" />
                                 ))}
                             </div>
                         ) : topicCandidates.length === 0 ? (
                             <div className="py-14 text-center">
-                                <p className="text-sm text-slate-500">
+                                <p className="text-sm text-muted-foreground">
                                     No topics yet. Choose a source and add some above.
                                 </p>
                             </div>
                         ) : (
                             <ScrollArea className="max-h-[400px]">
-                                <div className="divide-y divide-white/5">
+                                <div className="divide-y divide-border">
                                     {topicCandidates.map((topic) => {
                                         const checked = selectedTopicIds.has(topic.id)
                                         const tag = getSourceTag(topic.topic_source)
@@ -566,9 +566,9 @@ export function Landing() {
                                                     type="checkbox"
                                                     checked={checked}
                                                     onChange={() => toggleTopic(topic.id)}
-                                                    className="h-4 w-4 shrink-0 rounded border-white/15 bg-transparent text-blue-400 focus:ring-blue-400 focus:ring-offset-0"
+                                                    className="h-4 w-4 shrink-0 rounded border-border bg-transparent text-blue-400 focus:ring-blue-400 focus:ring-offset-0"
                                                 />
-                                                <span className={`min-w-0 flex-1 truncate text-sm ${checked ? 'text-white' : 'text-slate-300'}`}>
+                                                <span className={`min-w-0 flex-1 truncate text-sm ${checked ? 'text-foreground' : 'text-muted-foreground'}`}>
                                                     {topic.title}
                                                 </span>
                                                 <span className={`shrink-0 text-xs font-medium ${tag.color}`}>
@@ -580,7 +580,7 @@ export function Landing() {
                                                         event.preventDefault()
                                                         void handleRemoveTopic(topic.id)
                                                     }}
-                                                    className="shrink-0 rounded-md p-1 text-slate-600 transition hover:bg-white/[0.05] hover:text-red-400"
+                                                    className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-red-400"
                                                     aria-label={`Remove ${topic.title}`}
                                                 >
                                                     <Trash2 className="h-3.5 w-3.5" />
@@ -594,12 +594,12 @@ export function Landing() {
                     </div>
 
                     {/* Actions */}
-                    <div className="mt-4 flex items-center justify-between border-t border-white/8 pt-4">
+                    <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
                         <button
                             type="button"
                             onClick={handleSelectAll}
                             disabled={topicCandidates.length === 0}
-                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-slate-500 transition hover:text-slate-300 disabled:cursor-not-allowed disabled:opacity-40"
+                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                         >
                             <CheckCircle2 className="h-3.5 w-3.5" />
                             {selectedTopicIds.size === topicCandidates.length && topicCandidates.length > 0 ? 'Deselect all' : 'Select all'}
@@ -623,14 +623,14 @@ export function Landing() {
 
             {/* Manual topic modal */}
             {manualModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm">
-                    <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0c1525] p-6">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 px-4 backdrop-blur-sm">
+                    <div className="w-full max-w-md rounded-2xl border border-border bg-background p-6">
                         <div className="flex items-center justify-between">
-                            <p className="text-base font-medium text-white">Add Manual Topic</p>
+                            <p className="text-base font-medium text-foreground">Add Manual Topic</p>
                             <button
                                 type="button"
                                 onClick={() => setManualModalOpen(false)}
-                                className="rounded-lg p-1.5 text-slate-500 transition hover:bg-white/[0.05] hover:text-white"
+                                className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
                             >
                                 <X className="h-4 w-4" />
                             </button>
@@ -647,14 +647,14 @@ export function Landing() {
                                     }
                                 }}
                                 placeholder="Enter a research topic"
-                                className="h-11 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-blue-400/30"
+                                className="h-11 w-full rounded-xl border border-border bg-muted/50 px-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-blue-400/30"
                             />
 
                             <div className="flex justify-end gap-2">
                                 <button
                                     type="button"
                                     onClick={() => setManualModalOpen(false)}
-                                    className="h-10 rounded-xl border border-white/10 px-4 text-sm text-slate-400 transition hover:bg-white/[0.05] hover:text-white"
+                                    className="h-10 rounded-xl border border-border px-4 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
                                 >
                                     Cancel
                                 </button>

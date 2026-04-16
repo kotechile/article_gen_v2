@@ -80,7 +80,7 @@ export function Sidebar({ className }: SidebarProps) {
             <button
                 type="button"
                 onClick={() => setMobileOpen(true)}
-                className="fixed left-4 top-4 z-50 inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/80 text-white shadow-lg backdrop-blur md:hidden"
+                className="fixed left-4 top-4 z-50 inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-border bg-background/80 text-foreground shadow-lg backdrop-blur md:hidden"
                 aria-label="Open navigation"
             >
                 <Menu className="h-5 w-5" />
@@ -89,7 +89,7 @@ export function Sidebar({ className }: SidebarProps) {
             {mobileOpen && (
                 <button
                     type="button"
-                    className="fixed inset-0 z-30 bg-slate-950/65 backdrop-blur-sm md:hidden"
+                    className="fixed inset-0 z-30 bg-background/80 backdrop-blur-sm md:hidden"
                     onClick={() => setMobileOpen(false)}
                     aria-label="Close navigation overlay"
                 />
@@ -97,7 +97,7 @@ export function Sidebar({ className }: SidebarProps) {
 
             <aside
                 className={cn(
-                    "fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-white/8 bg-[#0b1324]/95 backdrop-blur-xl transition-all duration-300 md:static md:translate-x-0",
+                    "fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-border bg-background/95 backdrop-blur-xl transition-all duration-300 md:static md:translate-x-0",
                     mobileOpen ? "translate-x-0" : "-translate-x-full",
                     isCollapsed ? "w-[92px]" : "w-[290px]",
                     className,
@@ -112,7 +112,7 @@ export function Sidebar({ className }: SidebarProps) {
                         )}
                     </div>
 
-                    <Separator className="bg-white/6" />
+                    <Separator className="bg-border" />
 
                     <ScrollArea className="flex-1 px-3 py-5">
                         <div className="space-y-2">
@@ -147,17 +147,17 @@ export function Sidebar({ className }: SidebarProps) {
                         </div>
 
                         {!isCollapsed && (
-                            <div className="mt-8 rounded-2xl border border-white/8 bg-white/4 px-3 py-3">
+                            <div className="mt-8 rounded-2xl border border-border bg-muted/50 px-3 py-3">
                                 <div className="mb-2 flex items-center justify-between">
-                                    <p className="text-xs font-medium text-slate-400">Recent Articles</p>
-                                    <Link to="/my-articles" className="text-[11px] text-slate-500 transition-colors hover:text-slate-300">
+                                    <p className="text-xs font-medium text-muted-foreground">Recent Articles</p>
+                                    <Link to="/my-articles" className="text-[11px] text-muted-foreground transition-colors hover:text-foreground">
                                         View all
                                     </Link>
                                 </div>
 
                                 <div className="space-y-0.5">
                                     {recentArticles.length === 0 && (
-                                        <p className="px-1 py-3 text-[11px] text-slate-600">
+                                        <p className="px-1 py-3 text-[11px] text-muted-foreground">
                                             No articles yet.
                                         </p>
                                     )}
@@ -166,7 +166,7 @@ export function Sidebar({ className }: SidebarProps) {
                                         <Link
                                             key={article.id}
                                             to="/my-articles"
-                                            className="block truncate rounded-lg px-2 py-1.5 text-sm text-slate-400 transition-colors hover:bg-white/[0.04] hover:text-white"
+                                            className="block truncate rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                                         >
                                             {article.Title || "Untitled Article"}
                                         </Link>
@@ -176,11 +176,11 @@ export function Sidebar({ className }: SidebarProps) {
                         )}
                     </ScrollArea>
 
-                    <div className="mt-auto space-y-3 border-t border-white/6 p-3">
+                    <div className="mt-auto space-y-3 border-t border-border p-3">
                         <UserProfile isCollapsed={isCollapsed} />
 
                         <div className={cn("flex items-center", isCollapsed ? "justify-center" : "justify-between px-2")}>
-                            {!isCollapsed && <span className="text-sm text-slate-500">Theme</span>}
+                            {!isCollapsed && <span className="text-sm text-muted-foreground">Theme</span>}
                             <ModeToggle />
                         </div>
 
@@ -188,7 +188,7 @@ export function Sidebar({ className }: SidebarProps) {
                             variant="ghost"
                             size="sm"
                             className={cn(
-                                "w-full rounded-2xl border border-white/6 bg-white/4 text-slate-300 hover:bg-white/8 hover:text-white",
+                                "w-full rounded-2xl border border-border bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground",
                                 isCollapsed ? "px-0" : "justify-start px-4",
                             )}
                             onClick={toggleCollapsed}
@@ -215,10 +215,10 @@ function NavItem({ icon, label, isCollapsed, active, href }: { icon: React.React
             asChild
             variant={active ? "secondary" : "ghost"}
             className={cn(
-                "w-full rounded-2xl border text-slate-300 transition-all",
+                "w-full rounded-2xl border text-muted-foreground transition-all",
                 active
-                    ? "border-blue-400/20 bg-blue-500/15 text-white hover:bg-blue-500/20"
-                    : "border-transparent bg-transparent hover:border-white/8 hover:bg-white/5 hover:text-white",
+                    ? "border-blue-400/20 bg-blue-500/15 text-foreground hover:bg-blue-500/20"
+                    : "border-transparent bg-transparent hover:border-border hover:bg-muted hover:text-foreground",
                 isCollapsed ? "justify-center px-0" : "justify-start px-4",
             )}
             title={isCollapsed ? label : undefined}
@@ -255,10 +255,10 @@ function UserProfile({ isCollapsed }: { isCollapsed: boolean }) {
     if (isCollapsed) {
         return (
             <div className="flex flex-col items-center space-y-2">
-                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full bg-blue-500/15 hover:bg-blue-500/20" title={user.email || 'User'}>
-                    <span className="text-xs font-bold text-blue-200">{initials}</span>
+                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full bg-primary/10 hover:bg-primary/20" title={user.email || 'User'}>
+                    <span className="text-xs font-bold text-primary">{initials}</span>
                 </Button>
-                <Button variant="ghost" size="icon" onClick={signOut} title="Sign Out" className="text-slate-400 hover:text-white">
+                <Button variant="ghost" size="icon" onClick={signOut} title="Sign Out" className="text-muted-foreground hover:text-foreground">
                     <LogOut className="h-4 w-4" />
                 </Button>
             </div>
@@ -268,15 +268,15 @@ function UserProfile({ isCollapsed }: { isCollapsed: boolean }) {
     return (
         <div className="space-y-2 px-2">
             <div className="flex items-center space-x-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-blue-400/15 bg-blue-500/15 shadow-sm">
-                    <span className="text-sm font-bold text-blue-200">{initials}</span>
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-primary/20 bg-primary/10 shadow-sm">
+                    <span className="text-sm font-bold text-primary">{initials}</span>
                 </div>
                 <div className="flex-1 overflow-hidden">
-                    <p className="truncate text-sm font-medium text-white">{user.email}</p>
-                    <p className="text-xs text-slate-500">Signed in</p>
+                    <p className="truncate text-sm font-medium text-foreground">{user.email}</p>
+                    <p className="text-xs text-muted-foreground">Signed in</p>
                 </div>
             </div>
-            <Button variant="outline" size="sm" className="mt-1 h-9 w-full justify-start border-white/10 bg-white/4 px-3 text-slate-300 hover:bg-white/8 hover:text-white" onClick={signOut}>
+            <Button variant="outline" size="sm" className="mt-1 h-9 w-full justify-start border-border bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={signOut}>
                 <LogOut className="h-3.5 w-3.5 mr-2" />
                 Sign Out
             </Button>
