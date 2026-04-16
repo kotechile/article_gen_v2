@@ -473,12 +473,19 @@ Instructions:
             content = response.content
             if "```json" in content:
                 content = content.replace("```json", "").replace("```", "")
-            
-            return json.loads(content)
+            parsed = json.loads(content)
+
+            topics = (parsed or {}).get("topics")
+            if not isinstance(topics, list) or not topics:
+                raise ValueError(f"LLM synthesis returned no topics (type={type(topics).__name__})")
+            if not any(isinstance(t, dict) and str(t.get("title") or "").strip() for t in topics):
+                raise ValueError("LLM synthesis topics missing required 'title' fields")
+
+            return parsed
             
         except Exception as e:
-            logger.error(f"Synthesis failed: {e}")
-            return {"error": "Failed to generate insights", "raw_content": str(e)}
+            logger.error(f"Synthesis failed: {e}", exc_info=True)
+            raise
 
     def _save_report(self, site: Dict[str, Any], report: Dict[str, Any]):
         try:

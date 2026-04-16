@@ -2439,6 +2439,31 @@ def process_trend_task(self, site_id: str, primary_category_id: Optional[str] = 
             except Exception:
                 logger.warning("trend_task: unable to extract topics for logging")
 
+            # Fail fast if we didn't actually produce usable topics.
+            report_content = (result or {}).get("report_content") or {}
+            topics = report_content.get("topics") if isinstance(report_content, dict) else None
+            has_titles = isinstance(topics, list) and any(
+                isinstance(t, dict) and str(t.get("title") or "").strip()
+                for t in topics
+            )
+            if not has_titles:
+                error_msg = "Trend synthesis produced no usable topics"
+                logger.error(
+                    "trend_task: %s site_id=%s primary_category_id=%s secondary_category_id=%s report_content_keys=%s",
+                    error_msg,
+                    site_id,
+                    primary_category_id,
+                    secondary_category_id,
+                    list(report_content.keys()) if isinstance(report_content, dict) else None,
+                )
+                return {
+                    'status': 'FAILURE',
+                    'site_id': site_id,
+                    'error': error_msg,
+                    'result': result,
+                    'failed_at': datetime.utcnow().isoformat(),
+                }
+
             logger.info(f"Trend analysis completed successfully for site_id: {site_id}")
             return {
                 'status': 'SUCCESS',
