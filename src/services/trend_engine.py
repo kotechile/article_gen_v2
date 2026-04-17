@@ -20,7 +20,12 @@ class TrendEngine:
         self.apify = ApifyClient()
         
         # Initialize LLM using DB preferences + application_settings keys.
-        provider, model, api_key, base_url = self._get_llm_runtime_config()
+        self._llm_candidates = self._get_llm_runtime_candidates()
+        if not self._llm_candidates:
+            raise RuntimeError(
+                "No LLM API key configured. Please add a key in Settings → Content Generation."
+            )
+        provider, model, api_key, base_url = self._llm_candidates[0]
         self.llm = LLMClient(
             default_provider=provider,
             default_model=model,
@@ -467,12 +472,46 @@ Instructions:
 """
 
         try:
-            # Use defaults from LLMClient initialization
-            response = await self.llm.generate(
-                prompt=prompt,
-                temperature=0.7,
-                # Dynamic response format handling
-            )
+            response = None
+            last_error: Optional[Exception] = None
+
+            # Try provider chain (Gemini -> OpenAI -> Anthropic -> Perplexity) and fall back on auth/key failures.
+            candidates = self._llm_candidates or self._get_llm_runtime_candidates()
+            for provider, model, api_key, base_url in candidates:
+                try:
+                    if base_url:
+                        # For OpenAI-compatible base URLs (e.g., Perplexity), create a one-off client.
+                        tmp = LLMClient(
+                            default_provider=provider,
+                            default_model=model,
+                            api_key=api_key,
+                            base_url=base_url,
+                        )
+                        response = await tmp.generate(prompt=prompt, temperature=0.7)
+                    else:
+                        response = await self.llm.generate(
+                            prompt=prompt,
+                            temperature=0.7,
+                            provider=provider,
+                            model=model,
+                            api_key=api_key,
+                        )
+                    last_error = None
+                    break
+                except Exception as e:
+                    last_error = e
+                    if self._is_llm_auth_error(e):
+                        logger.warning(
+                            "LLM auth/key error for provider=%s model=%s; trying next provider. err=%s",
+                            provider,
+                            model,
+                            str(e),
+                        )
+                        continue
+                    raise
+
+            if response is None:
+                raise last_error or RuntimeError("LLM synthesis failed (no providers succeeded)")
             
             # Parse JSON
             content = response.content
@@ -504,31 +543,47 @@ Instructions:
         except Exception as e:
             logger.error(f"Failed to save report to DB: {e}")
 
-    def _get_llm_runtime_config(self) -> tuple[str, str, str, Optional[str]]:
+    def _get_llm_runtime_candidates(self) -> list[tuple[str, str, str, Optional[str]]]:
         """
-        Resolve the LLM provider/model AND its API key.
+        Resolve a provider/model/API-key chain.
 
-        Notes:
-        - LLMClient/LLMModel require a non-null `api_key`. If missing, Pydantic throws a validation error.
-        - `llm_providers` stores the preferred provider/model, but keys live in `application_settings`.
+        Order:
+        - Preferred provider/model from `llm_providers` if it has a key
+        - Then fall back: Gemini -> OpenAI -> Anthropic -> Perplexity
         """
         provider_preference, model_preference = self._get_default_llm_preference()
-
-        # Normalize provider strings coming from older configs.
         provider_preference = self._normalize_provider(provider_preference)
-
         settings = self._get_application_settings()
 
-        resolved = self._resolve_llm_from_settings(
+        candidates: list[tuple[str, str, str, Optional[str]]] = []
+
+        preferred = self._resolve_llm_from_settings(
             settings=settings,
             preferred_provider=provider_preference,
             preferred_model=model_preference,
         )
-        if not resolved:
-            raise RuntimeError(
-                "No LLM API key configured. Please add a key in Settings → Content Generation."
+        if preferred:
+            candidates.append(preferred)
+
+        # Add fallback chain, skipping duplicates.
+        for provider, model in [
+            ("gemini", settings.get("geminiModel") or "gemini-1.5-flash"),
+            ("openai", settings.get("openAIModel") or "gpt-4o-mini"),
+            ("anthropic", "claude-3-haiku-20240307"),
+            ("perplexity", settings.get("perplexityModel") or "llama-3.1-sonar-small-128k-online"),
+        ]:
+            resolved = self._resolve_llm_from_settings(
+                settings=settings,
+                preferred_provider=provider,
+                preferred_model=model,
             )
-        return resolved
+            if not resolved:
+                continue
+            if any(resolved[0] == c[0] and resolved[1] == c[1] for c in candidates):
+                continue
+            candidates.append(resolved)
+
+        return candidates
 
     def _get_default_llm_preference(self) -> tuple[str, str]:
         """Fetch preferred LLM provider/model from `llm_providers` (no keys)."""
@@ -568,11 +623,11 @@ Instructions:
         """Map legacy/alias provider names to the internal provider id."""
         p = (provider or "").strip().lower()
         if p in ("gemini", "google"):
-            return "google"
+            return "gemini"
         if p in ("openai", "anthropic", "perplexity"):
             return p
-        # Default to google because it has broad availability in our settings table.
-        return "google"
+        # Default to gemini because it has broad availability in our settings table.
+        return "gemini"
 
     def _get_application_settings(self) -> Dict[str, Any]:
         """Load application_settings row (id=1)."""
@@ -606,12 +661,12 @@ Instructions:
         def resolve(provider: str, model: str) -> Optional[tuple[str, str, str, Optional[str]]]:
             provider = self._normalize_provider(provider)
 
-            if provider == "google":
+            if provider == "gemini":
                 api_key = settings.get("geminiKey")
                 if not api_key:
                     return None
                 model_name = model or settings.get("geminiModel") or "gemini-1.5-flash"
-                return ("google", model_name, api_key, None)
+                return ("gemini", model_name, api_key, None)
 
             if provider == "openai":
                 api_key = settings.get("openAIKey")
@@ -643,7 +698,7 @@ Instructions:
 
         # 2) Fallback order (match /api/ai/propose-topics behavior)
         for provider, model in [
-            ("google", settings.get("geminiModel") or "gemini-1.5-flash"),
+            ("gemini", settings.get("geminiModel") or "gemini-1.5-flash"),
             ("openai", settings.get("openAIModel") or "gpt-4o-mini"),
             ("anthropic", "claude-3-haiku-20240307"),
             ("perplexity", settings.get("perplexityModel") or "llama-3.1-sonar-small-128k-online"),
@@ -653,3 +708,15 @@ Instructions:
                 return resolved
 
         return None
+
+    def _is_llm_auth_error(self, exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return any(s in msg for s in [
+            "api key expired",
+            "api_key_invalid",
+            "apikey_invalid",
+            "invalid api key",
+            "authentication failed",
+            "unauthorized",
+            "forbidden",
+        ])

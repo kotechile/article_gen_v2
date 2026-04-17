@@ -77,4 +77,4 @@ def test_trend_engine_requires_llm_api_key(monkeypatch):
 
     engine = trend_engine.TrendEngine()
     assert engine.llm.api_key == "test-gemini-key"
-    assert engine.llm.default_provider == "google"
+    assert engine.llm.default_provider == "gemini"
