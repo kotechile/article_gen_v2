@@ -87,10 +87,8 @@ export function TopicDetail() {
     }
 
     const hasSeoResearchSignals = (sub: Subtopic) => {
-        const hasTrendSignal =
-            !!sub.trend_direction ||
-            (sub.trend_score ?? 0) > 0 ||
-            (sub.interest_over_time?.length ?? 0) > 0
+        // Treat only SEO + monetization as "researched" for this screen.
+        // Trend/decomposition metadata can exist before SEO enrichment and should not flip the UI state.
         const hasSeoSignal =
             (sub.search_volume ?? 0) > 0 ||
             (sub.seo_difficulty ?? 0) > 0 ||
@@ -99,7 +97,7 @@ export function TopicDetail() {
             (sub.affiliate_offer_count ?? 0) > 0 ||
             (sub.monetization_data?.offers?.length ?? 0) > 0
 
-        return hasTrendSignal || hasSeoSignal || hasMonetizationSignal
+        return hasSeoSignal || hasMonetizationSignal
     }
 
     // Calculate metrics from subtopics
