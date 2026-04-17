@@ -14,6 +14,7 @@ import { ArticleEditor } from './pages/ArticleEditor';
 import { Research } from './pages/Research';
 import { TopicDetail } from './pages/TopicDetail';
 import { Settings } from './pages/Settings';
+import { SoftwareIdeas } from './pages/SoftwareIdeas';
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
             <Route element={<ProjectProvider><MainLayout /></ProjectProvider>}>
               <Route path="/" element={<Landing />} />
               <Route path="/my-articles" element={<MyArticles />} />
+              <Route path="/software-ideas" element={<SoftwareIdeas />} />
               <Route path="/knowledge-gaps" element={<KnowledgeGaps />} />
               <Route path="/content-studio" element={<ContentStudio />} />
               <Route path="/article-editor/:id" element={<ArticleEditor />} />

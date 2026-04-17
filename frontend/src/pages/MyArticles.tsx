@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/auth-context'
 import type { Article } from '../types'
@@ -6,10 +6,29 @@ import { Plus, Search, Trash2, Sparkles, Edit, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 
+type LibraryArticle = Article & {
+    _source: 'titles' | 'content_ideas'
+}
+
+type ContentIdeaRow = {
+    id: string
+    user_id: string
+    title: string
+    description: string | null
+    content_type: string | null
+    status: string | null
+    published: boolean | null
+    published_to_titles: boolean | null
+    titles_record_id: string | null
+    seo_optimization_score: number | null
+    created_at: string
+}
+
 function getStatusStyle(status: string, published: boolean) {
     if (published || status === 'Published') return { label: 'Published', color: 'text-emerald-500 dark:text-emerald-400' }
     if (status === 'Scheduled') return { label: 'Scheduled', color: 'text-purple-500 dark:text-purple-400' }
     if (status === 'Generated') return { label: 'Generated', color: 'text-blue-500 dark:text-blue-400' }
+    if (status === 'Saved') return { label: 'Saved', color: 'text-cyan-500 dark:text-cyan-400' }
     if (status === 'Draft' || status === 'New') return { label: status || 'Draft', color: 'text-muted-foreground' }
     if (status === 'Error' || status === 'Failed') return { label: status, color: 'text-red-500 dark:text-red-400' }
     if (status === 'Review' || status === 'Editing') return { label: status, color: 'text-amber-500 dark:text-amber-400' }
@@ -26,7 +45,7 @@ function getScoreColor(score?: number) {
 export const MyArticles: React.FC = () => {
     const { user } = useAuth()
     const navigate = useNavigate()
-    const [articles, setArticles] = useState<Article[]>([])
+    const [articles, setArticles] = useState<LibraryArticle[]>([])
     const [loading, setLoading] = useState(true)
     const [sortKey, setSortKey] = useState<keyof Article>('dateCreatedOn')
     const [sortAsc, setSortAsc] = useState(false)
@@ -36,16 +55,65 @@ export const MyArticles: React.FC = () => {
     const fetchArticles = async () => {
         if (!user) return
         try {
-            const { data, error } = await supabase
-                .from('Titles')
-                .select('*')
-                .eq('user_id', user.id)
-                .order('dateCreatedOn', { ascending: false })
+            const [titlesResult, ideasResult] = await Promise.all([
+                supabase
+                    .from('Titles')
+                    .select('*')
+                    .eq('user_id', user.id)
+                    .order('dateCreatedOn', { ascending: false }),
+                supabase
+                    .from('content_ideas')
+                    .select('id,user_id,title,description,content_type,status,published,published_to_titles,titles_record_id,seo_optimization_score,created_at')
+                    .eq('user_id', user.id)
+                    .neq('content_type', 'software')
+                    .order('created_at', { ascending: false })
+            ])
 
-            if (error) throw error
-            setArticles(data || [])
+            if (titlesResult.error) throw titlesResult.error
+            if (ideasResult.error) throw ideasResult.error
+
+            const titleRows = ((titlesResult.data || []) as Article[]).map((row) => ({
+                ...row,
+                _source: 'titles' as const,
+            }))
+
+            const titleIdSet = new Set(titleRows.map((row) => row.id))
+            const titleBySourceIdeaId = new Set(
+                titleRows.map((row) => row.source_idea_id).filter(Boolean) as string[]
+            )
+
+            const ideaRows = (ideasResult.data || []) as ContentIdeaRow[]
+            const publishedIdeas = ideaRows.filter((idea) => {
+                const isPublished = Boolean(idea.published || idea.published_to_titles || idea.status?.toLowerCase() === 'published')
+                const hasTitleMirror = Boolean(idea.titles_record_id && titleIdSet.has(idea.titles_record_id))
+                const alreadyLinked = titleBySourceIdeaId.has(idea.id)
+                return isPublished && !hasTitleMirror && !alreadyLinked
+            })
+
+            const mappedIdeas: LibraryArticle[] = publishedIdeas.map((idea) => ({
+                id: idea.id,
+                user_id: idea.user_id,
+                Title: idea.title,
+                userDescription: idea.description || '',
+                Keywords: '',
+                status: idea.status || 'Published',
+                published: Boolean(idea.published || idea.published_to_titles || idea.status?.toLowerCase() === 'published'),
+                dateCreatedOn: idea.created_at,
+                articleLength: '0',
+                LLM: '',
+                tone: '',
+                seo_optimization_score: idea.seo_optimization_score ?? undefined,
+                content_type: idea.content_type || 'blog',
+                _source: 'content_ideas',
+            }))
+
+            const combined = [...titleRows, ...mappedIdeas].sort((a, b) =>
+                new Date(b.dateCreatedOn).getTime() - new Date(a.dateCreatedOn).getTime()
+            )
+
+            setArticles(combined)
         } catch (error) {
-            console.error('Error fetching articles:', error)
+            console.error('Error fetching library items:', error)
         } finally {
             setLoading(false)
         }
@@ -101,14 +169,25 @@ export const MyArticles: React.FC = () => {
     }
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this article?')) return
-        try {
-            const { error } = await supabase
-                .from('Titles')
-                .delete()
-                .eq('id', id)
+        const target = articles.find(a => a.id === id)
+        if (!target) return
+        if (!confirm('Are you sure you want to delete this item?')) return
 
-            if (error) throw error
+        try {
+            if (target._source === 'content_ideas') {
+                const { error } = await supabase
+                    .from('content_ideas')
+                    .delete()
+                    .eq('id', id)
+                if (error) throw error
+            } else {
+                const { error } = await supabase
+                    .from('Titles')
+                    .delete()
+                    .eq('id', id)
+                if (error) throw error
+            }
+
             setArticles(articles.filter(a => a.id !== id))
             setSelectedIds(prev => {
                 const next = new Set(prev)
@@ -116,7 +195,7 @@ export const MyArticles: React.FC = () => {
                 return next
             })
         } catch (error) {
-            console.error('Error deleting article:', error)
+            console.error('Error deleting item:', error)
         }
     }
 
@@ -131,20 +210,29 @@ export const MyArticles: React.FC = () => {
 
     const handleDeleteSelected = async () => {
         if (selectedIds.size === 0) return
-        if (!confirm(`Are you sure you want to delete ${selectedIds.size} articles? This cannot be undone.`)) return
+        if (!confirm(`Are you sure you want to delete ${selectedIds.size} items? This cannot be undone.`)) return
 
         try {
-            const idsToDelete = Array.from(selectedIds)
-            const { error } = await supabase
-                .from('Titles')
-                .delete()
-                .in('id', idsToDelete)
+            const titleIds = articles
+                .filter(a => selectedIds.has(a.id) && a._source === 'titles')
+                .map(a => a.id)
+            const ideaIds = articles
+                .filter(a => selectedIds.has(a.id) && a._source === 'content_ideas')
+                .map(a => a.id)
 
-            if (error) throw error
+            if (titleIds.length > 0) {
+                const { error } = await supabase.from('Titles').delete().in('id', titleIds)
+                if (error) throw error
+            }
+            if (ideaIds.length > 0) {
+                const { error } = await supabase.from('content_ideas').delete().in('id', ideaIds)
+                if (error) throw error
+            }
+
             setArticles(articles.filter(a => !selectedIds.has(a.id)))
             setSelectedIds(new Set())
         } catch (error) {
-            console.error('Error deleting selected articles:', error)
+            console.error('Error deleting selected items:', error)
         }
     }
 
@@ -164,8 +252,6 @@ export const MyArticles: React.FC = () => {
     return (
         <div className="min-h-screen bg-background">
             <div className="mx-auto max-w-5xl px-8 py-10 lg:py-14">
-
-                {/* Page header */}
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -175,13 +261,12 @@ export const MyArticles: React.FC = () => {
                         Content Library
                     </h1>
                     <p className="mt-1 text-sm text-muted-foreground">
-                        {articles.length} articles
+                        {articles.length} items
                         {publishedCount > 0 && ` · ${publishedCount} published`}
                         {totalWords !== '0' && ` · ${totalWords} words`}
                     </p>
                 </motion.div>
 
-                {/* Toolbar */}
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -228,10 +313,8 @@ export const MyArticles: React.FC = () => {
                     </div>
                 </motion.div>
 
-                {/* Divider */}
                 <div className="mt-6 border-t border-border" />
 
-                {/* Article list */}
                 <motion.div
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -247,12 +330,11 @@ export const MyArticles: React.FC = () => {
                     ) : filteredArticles.length === 0 ? (
                         <div className="py-20 text-center">
                             <p className="text-sm text-muted-foreground">
-                                {search ? 'No articles match your search.' : 'No articles yet. Create one to get started.'}
+                                {search ? 'No items match your search.' : 'No content items yet. Create one to get started.'}
                             </p>
                         </div>
                     ) : (
                         <>
-                            {/* Table header */}
                             <div className="grid grid-cols-[2.5rem_1fr_5.5rem_4rem_6rem_auto] items-center gap-2 border-b border-border px-1 pb-3 text-[11px] uppercase tracking-wider text-muted-foreground">
                                 <span className="flex justify-center">
                                     <input
@@ -297,7 +379,6 @@ export const MyArticles: React.FC = () => {
                                 <span className="text-right">Actions</span>
                             </div>
 
-                            {/* Table rows */}
                             <div className="divide-y divide-border">
                                 {filteredArticles.map(article => {
                                     const selected = selectedIds.has(article.id)
@@ -350,9 +431,9 @@ export const MyArticles: React.FC = () => {
                                                     <Sparkles className="h-3.5 w-3.5" />
                                                 </button>
                                                 <button
-                                                    onClick={() => navigate(`/article-editor/${article.id}`)}
+                                                    onClick={() => navigate(article._source === 'content_ideas' ? `/content-studio?id=${article.id}` : `/article-editor/${article.id}`)}
                                                     className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                                                    title="Edit"
+                                                    title={article._source === 'content_ideas' ? 'Open in Studio' : 'Edit'}
                                                 >
                                                     <Edit className="h-3.5 w-3.5" />
                                                 </button>
@@ -371,11 +452,10 @@ export const MyArticles: React.FC = () => {
                         </>
                     )}
 
-                    {/* Footer */}
                     {!loading && filteredArticles.length > 0 && (
                         <div className="mt-4 border-t border-border pt-4">
                             <p className="text-xs text-muted-foreground">
-                                Showing {filteredArticles.length} of {articles.length} articles
+                                Showing {filteredArticles.length} of {articles.length} items
                             </p>
                         </div>
                     )}

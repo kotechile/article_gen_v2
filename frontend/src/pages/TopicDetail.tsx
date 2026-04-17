@@ -4,6 +4,7 @@ import { useParams, useNavigate } from "react-router-dom"
 import { useAuth } from "@/context/auth-context"
 import { researchTopicsService } from "@/services/research-topics.service"
 import { subtopicsService } from "@/services/subtopics.service"
+import { contentIdeasService } from "@/services/content-ideas.service"
 import type { ResearchTopic, Subtopic } from "@/types/research"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -25,6 +26,7 @@ export function TopicDetail() {
     const [error, setError] = React.useState<string | null>(null)
     const [selectedSubtopic, setSelectedSubtopic] = React.useState<Subtopic | null>(null)
     const [showIdeaModal, setShowIdeaModal] = React.useState(false)
+    const [hasStoredIdeas, setHasStoredIdeas] = React.useState(false)
 
     React.useEffect(() => {
         if (!authLoading && user && id) {
@@ -43,6 +45,12 @@ export function TopicDetail() {
 
             setTopic(topicData)
             setSubtopics(subtopicsData || [])
+            if (user?.id) {
+                const storedIdeas = await contentIdeasService.getContentIdeas(topicId, user.id)
+                setHasStoredIdeas(Array.isArray(storedIdeas) && storedIdeas.length > 0)
+            } else {
+                setHasStoredIdeas(false)
+            }
             setError(null)
         } catch (err) {
             console.error('Failed to load topic data:', err)
@@ -153,7 +161,8 @@ export function TopicDetail() {
                 totalOpportunities: 0,
                 avgDifficulty: 0,
                 potential: 'Low',
-                hasSeoResearchData: false
+                hasSeoResearchData: false,
+                hasResearchProgress: hasStoredIdeas
             }
         }
 
@@ -178,8 +187,15 @@ export function TopicDetail() {
         if (avgViability >= 70) potential = 'High'
         else if (avgViability >= 40) potential = 'Medium'
 
-        return { totalVolume, totalOpportunities, avgDifficulty, potential, hasSeoResearchData }
-    }, [subtopics])
+        return {
+            totalVolume,
+            totalOpportunities,
+            avgDifficulty,
+            potential,
+            hasSeoResearchData,
+            hasResearchProgress: hasSeoResearchData || hasStoredIdeas,
+        }
+    }, [subtopics, hasStoredIdeas])
 
     if (authLoading || loading) {
         return (
@@ -267,7 +283,7 @@ export function TopicDetail() {
                                 {metrics.hasSeoResearchData ? metrics.totalVolume.toLocaleString() : '—'}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData ? 'Monthly Searches' : 'SEO/Offer data pending'}
+                                {metrics.hasSeoResearchData ? 'Monthly Searches' : metrics.hasResearchProgress ? 'Idea candidates generated' : 'SEO/Offer data pending'}
                             </div>
                         </motion.div>
 
@@ -286,7 +302,7 @@ export function TopicDetail() {
                                 {metrics.hasSeoResearchData ? metrics.totalOpportunities : '—'}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData ? 'Affiliate Offers' : 'SEO/Offer data pending'}
+                                {metrics.hasSeoResearchData ? 'Affiliate Offers' : metrics.hasResearchProgress ? 'Awaiting SEO/offer enrichment' : 'SEO/Offer data pending'}
                             </div>
                         </motion.div>
 
@@ -305,7 +321,7 @@ export function TopicDetail() {
                                 {metrics.hasSeoResearchData ? metrics.avgDifficulty : '—'}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData ? 'Keyword Difficulty' : 'SEO/Offer data pending'}
+                                {metrics.hasSeoResearchData ? 'Keyword Difficulty' : metrics.hasResearchProgress ? 'Awaiting SEO difficulty data' : 'SEO/Offer data pending'}
                             </div>
                         </motion.div>
 
@@ -327,7 +343,7 @@ export function TopicDetail() {
                                 {metrics.potential}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData ? 'Overall Viability' : 'Estimated (pre-SEO)'}
+                                {metrics.hasSeoResearchData ? 'Overall Viability' : metrics.hasResearchProgress ? 'Pre-SEO candidate quality' : 'Estimated (pre-SEO)'}
                             </div>
                         </motion.div>
                     </div>

@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Settings, TrendingUp, ChevronLeft, ChevronRight, LogOut, Home, BookOpen, Menu } from "lucide-react"
+import { Settings, TrendingUp, ChevronLeft, ChevronRight, LogOut, Home, BookOpen, Menu, Wrench } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -67,6 +67,7 @@ export function Sidebar({ className }: SidebarProps) {
     const getSubtitle = (): string => {
         if (pathname === "/") return "COMMAND CENTER"
         if (pathname === "/my-articles") return "MY ARTICLES"
+        if (pathname === "/software-ideas") return "SOFTWARE IDEAS"
         if (pathname === "/research" || pathname?.startsWith("/research/")) return "RESEARCH"
         if (pathname === "/settings") return "SETTINGS"
         if (pathname === "/knowledge-gaps") return "KNOWLEDGE GAPS"
@@ -136,6 +137,13 @@ export function Sidebar({ className }: SidebarProps) {
                                 label="Content Library"
                                 isCollapsed={isCollapsed}
                                 active={pathname?.startsWith("/my-articles")}
+                            />
+                            <NavItem
+                                href="/software-ideas"
+                                icon={<Wrench className="h-5 w-5" />}
+                                label="Software Ideas"
+                                isCollapsed={isCollapsed}
+                                active={pathname?.startsWith("/software-ideas")}
                             />
                             <NavItem
                                 href="/settings"
