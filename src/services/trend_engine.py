@@ -19,11 +19,11 @@ class TrendEngine:
         self.dfs = DataForSEOAPI()
         self.apify = ApifyClient()
         
-        # Initialize LLM using DB preferences + application_settings keys.
+        # Initialize LLM using the default config from llm_providers/api_keys.
         self._llm_candidates = self._get_llm_runtime_candidates()
         if not self._llm_candidates:
             raise RuntimeError(
-                "No LLM API key configured. Please add a key in Settings → Content Generation."
+                "No default LLM API key configured. Set llm_providers.is_default=true and attach api_keys.key_value via llm_providers.api_keys_id."
             )
         provider, model, api_key, base_url = self._llm_candidates[0]
         self.llm = LLMClient(
@@ -559,7 +559,7 @@ Instructions:
         candidates: list[tuple[str, str, str, Optional[str]]] = []
 
         # Default provider must have an api_keys_id.
-        api_keys_id = preference.get("api_keys_id") or preference.get("api_key_id")
+        api_keys_id = preference.get("api_keys_id")
         if not api_keys_id:
             logger.warning("Default llm_providers row has no api_keys_id (provider=%s model=%s)", provider_preference, model_preference)
             return []
@@ -582,7 +582,7 @@ Instructions:
         try:
             resp = (
                 self.supabase.table("llm_providers")
-                .select("provider, model_name, api_keys_id, api_key_id")
+                .select("provider, model_name, api_keys_id")
                 .eq("is_default", True)
                 .limit(1)
                 .execute()
