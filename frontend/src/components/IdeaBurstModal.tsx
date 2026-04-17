@@ -18,6 +18,13 @@ interface IdeaBurstModalProps {
     categoryPath?: string | null;
 }
 
+interface KeywordMetricRow {
+    keyword: string;
+    search_volume: number | null;
+    keyword_difficulty: number | null;
+    cpc: number | null;
+}
+
 function intentChipClass(intent?: string) {
     const value = (intent || "").toLowerCase();
     if (value.includes("transactional")) return "bg-emerald-500/20 text-emerald-300 border-emerald-500/30";
@@ -79,17 +86,49 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
     const [published, setPublished] = React.useState(false);
     const [saved, setSaved] = React.useState(false);
     const [expandedMetrics, setExpandedMetrics] = React.useState<string | null>(null);
+    const lastGeneratedKeyRef = React.useRef<string | null>(null);
 
     React.useEffect(() => {
-        if (isOpen && subtopic && user) {
-            generateIdeas();
+        if (!isOpen || !subtopic || !user) return;
+        const generationKey = `${topicId}:${subtopic.id}:${user.id}`;
+        if (lastGeneratedKeyRef.current === generationKey) return;
+        lastGeneratedKeyRef.current = generationKey;
+        generateIdeas();
+    }, [isOpen, topicId, subtopic?.id, user?.id]);
+
+    React.useEffect(() => {
+        if (!isOpen) {
+            lastGeneratedKeyRef.current = null;
         }
-    }, [isOpen, subtopic, user]);
+    }, [isOpen]);
 
     const safeValueLayerTags = React.useMemo(() => {
         if (!subtopic) return [] as string[];
         const raw = (subtopic as any).value_layer_tags;
         return Array.isArray(raw) ? raw.filter(Boolean) : [];
+    }, [subtopic]);
+
+    const subtopicKeywordMetrics = React.useMemo(() => {
+        const map = new Map<string, KeywordMetricRow>();
+        if (!subtopic) return map;
+        const rawKeywords = (subtopic as any).keywords;
+        if (!Array.isArray(rawKeywords)) return map;
+
+        rawKeywords.forEach((entry: any) => {
+            if (!entry || typeof entry === "string") return;
+            const keyword = String(entry.keyword || entry.term || "").trim();
+            if (!keyword) return;
+            map.set(keyword, {
+                keyword,
+                search_volume: typeof entry.search_volume === "number" ? entry.search_volume : null,
+                keyword_difficulty:
+                    typeof entry.keyword_difficulty === "number"
+                        ? entry.keyword_difficulty
+                        : (typeof entry.difficulty === "number" ? entry.difficulty : null),
+                cpc: typeof entry.cpc === "number" ? entry.cpc : null,
+            });
+        });
+        return map;
     }, [subtopic]);
 
     const generateIdeas = async () => {
@@ -394,6 +433,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                                     clusterName: subtopic.name || undefined,
                                                     topicTitle: topicTitle || undefined,
                                                 }}
+                                                keywordMetricsMap={subtopicKeywordMetrics}
                                             />
                                         ))}
                                     </div>
@@ -471,6 +511,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                                     clusterName: subtopic.name || undefined,
                                                     topicTitle: topicTitle || undefined,
                                                 }}
+                                                keywordMetricsMap={subtopicKeywordMetrics}
                                             />
                                         ))}
                                     </div>
@@ -555,15 +596,17 @@ interface BlogIdeaCardProps {
         angleQuestion?: string;
         clusterName?: string;
     };
+    keywordMetricsMap: Map<string, KeywordMetricRow>;
 }
 
-function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics, mapContext }: BlogIdeaCardProps) {
+function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics, mapContext, keywordMetricsMap }: BlogIdeaCardProps) {
     const keywords = idea.primary_keywords || idea.keywords || [];
     const rankFactors = getRankFactors(idea);
 
     // Calculate per-keyword metrics (distribute aggregate values)
     const keywordCount = keywords.length || 1;
     const volumePerKeyword = idea.total_search_volume > 0 ? Math.round(idea.total_search_volume / keywordCount) : 0;
+    const hasAnyRealKeywordMetrics = keywords.some((kw: string) => keywordMetricsMap.has(kw));
 
     return (
         <motion.div
@@ -769,26 +812,36 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
                                             </thead>
                                             <tbody>
                                                 {keywords.map((kw, idx) => (
+                                                    (() => {
+                                                        const row = keywordMetricsMap.get(kw);
+                                                        const rowVolume = row?.search_volume ?? (volumePerKeyword > 0 ? volumePerKeyword : null);
+                                                        const rowKD = row?.keyword_difficulty ?? (idea.average_difficulty > 0 ? Math.round(idea.average_difficulty) : null);
+                                                        const rowCPC = row?.cpc ?? (idea.average_cpc > 0 ? Number(idea.average_cpc.toFixed(2)) : null);
+                                                        return (
                                                     <tr key={idx} className="border-b border-white/5 last:border-0">
                                                         <td className="px-3 py-2 text-slate-300 truncate max-w-[120px]">{kw}</td>
                                                         <td className="px-3 py-2 text-right text-slate-300">
-                                                            {volumePerKeyword > 0 ? volumePerKeyword.toLocaleString() : '-'}
+                                                            {rowVolume !== null ? rowVolume.toLocaleString() : '-'}
                                                         </td>
                                                         <td className="px-3 py-2 text-right">
-                                                            <span className={idea.average_difficulty > 60 ? 'text-red-400' : idea.average_difficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
-                                                                {idea.average_difficulty > 0 ? Math.round(idea.average_difficulty) : '-'}
+                                                            <span className={(rowKD || 0) > 60 ? 'text-red-400' : (rowKD || 0) > 30 ? 'text-yellow-400' : 'text-green-400'}>
+                                                                {rowKD !== null ? rowKD : '-'}
                                                             </span>
                                                         </td>
                                                         <td className="px-3 py-2 text-right text-slate-300">
-                                                            {idea.average_cpc > 0 ? `$${idea.average_cpc.toFixed(2)}` : '-'}
+                                                            {rowCPC !== null ? `$${rowCPC.toFixed(2)}` : '-'}
                                                         </td>
                                                     </tr>
+                                                        );
+                                                    })()
                                                 ))}
                                             </tbody>
                                         </table>
                                     </div>
                                     <p className="text-[10px] text-slate-500 mt-2 text-center">
-                                        Note: Individual keyword metrics are estimated based on aggregate data
+                                        {hasAnyRealKeywordMetrics
+                                            ? "Note: Keyword metrics use available keyword-level data, with estimated fallback where missing"
+                                            : "Note: Individual keyword metrics are estimated based on aggregate data"}
                                     </p>
                                 </div>
                             </motion.div>
@@ -814,15 +867,17 @@ interface SoftwareIdeaCardProps {
         angleQuestion?: string;
         clusterName?: string;
     };
+    keywordMetricsMap: Map<string, KeywordMetricRow>;
 }
 
-function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics, mapContext }: SoftwareIdeaCardProps) {
+function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics, mapContext, keywordMetricsMap }: SoftwareIdeaCardProps) {
     const keywords = idea.primary_keywords || idea.keywords || [];
     const rankFactors = getRankFactors(idea);
 
     // Calculate per-keyword metrics (distribute aggregate values)
     const keywordCount = keywords.length || 1;
     const volumePerKeyword = idea.total_search_volume > 0 ? Math.round(idea.total_search_volume / keywordCount) : 0;
+    const hasAnyRealKeywordMetrics = keywords.some((kw: string) => keywordMetricsMap.has(kw));
 
     return (
         <motion.div
@@ -1033,26 +1088,36 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                                             </thead>
                                             <tbody>
                                                 {keywords.map((kw, idx) => (
+                                                    (() => {
+                                                        const row = keywordMetricsMap.get(kw);
+                                                        const rowVolume = row?.search_volume ?? (volumePerKeyword > 0 ? volumePerKeyword : null);
+                                                        const rowKD = row?.keyword_difficulty ?? (idea.average_difficulty > 0 ? Math.round(idea.average_difficulty) : null);
+                                                        const rowCPC = row?.cpc ?? (idea.average_cpc > 0 ? Number(idea.average_cpc.toFixed(2)) : null);
+                                                        return (
                                                     <tr key={idx} className="border-b border-white/5 last:border-0">
                                                         <td className="px-3 py-2 text-slate-300 truncate max-w-[120px]">{kw}</td>
                                                         <td className="px-3 py-2 text-right text-slate-300">
-                                                            {volumePerKeyword > 0 ? volumePerKeyword.toLocaleString() : '-'}
+                                                            {rowVolume !== null ? rowVolume.toLocaleString() : '-'}
                                                         </td>
                                                         <td className="px-3 py-2 text-right">
-                                                            <span className={idea.average_difficulty > 60 ? 'text-red-400' : idea.average_difficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
-                                                                {idea.average_difficulty > 0 ? Math.round(idea.average_difficulty) : '-'}
+                                                            <span className={(rowKD || 0) > 60 ? 'text-red-400' : (rowKD || 0) > 30 ? 'text-yellow-400' : 'text-green-400'}>
+                                                                {rowKD !== null ? rowKD : '-'}
                                                             </span>
                                                         </td>
                                                         <td className="px-3 py-2 text-right text-slate-300">
-                                                            {idea.average_cpc > 0 ? `$${idea.average_cpc.toFixed(2)}` : '-'}
+                                                            {rowCPC !== null ? `$${rowCPC.toFixed(2)}` : '-'}
                                                         </td>
                                                     </tr>
+                                                        );
+                                                    })()
                                                 ))}
                                             </tbody>
                                         </table>
                                     </div>
                                     <p className="text-[10px] text-slate-500 mt-2 text-center">
-                                        Note: Individual keyword metrics are estimated based on aggregate data
+                                        {hasAnyRealKeywordMetrics
+                                            ? "Note: Keyword metrics use available keyword-level data, with estimated fallback where missing"
+                                            : "Note: Individual keyword metrics are estimated based on aggregate data"}
                                     </p>
                                 </div>
                             </motion.div>
