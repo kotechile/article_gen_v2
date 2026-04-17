@@ -67,7 +67,7 @@ def main():
 
     projects = (
         supabase.table("projects")
-        .select("id,description,domain,app_name")
+        .select("id,domain,app_name,site_description,websitedescription,targetaudiencedescription")
         .in_("id", project_ids)
         .execute()
         .data
@@ -92,12 +92,17 @@ def main():
         primary_name = categories_by_id.get(topic.get("primary_category_id"))
         secondary_name = categories_by_id.get(topic.get("secondary_category_id"))
         project = projects_by_id.get(topic.get("project_id")) or {}
+        project_description = (
+            project.get("site_description")
+            or project.get("websitedescription")
+            or project.get("targetaudiencedescription")
+        )
         derived = _derive_angle_metadata(
             title=topic.get("title") or "",
             description=topic.get("description"),
             primary_category_name=primary_name,
             secondary_category_name=secondary_name,
-            project_description=project.get("description"),
+            project_description=project_description,
         )
         rows.append((topic, derived, project, primary_name, secondary_name))
 
