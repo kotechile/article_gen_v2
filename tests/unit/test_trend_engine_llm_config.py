@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 import importlib
+import pytest
 
 # Ensure repo root is on sys.path when running tests without an installed package.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -75,6 +76,5 @@ def test_trend_engine_requires_llm_api_key(monkeypatch):
     import src.services.trend_engine as trend_engine
     importlib.reload(trend_engine)
 
-    engine = trend_engine.TrendEngine()
-    assert engine.llm.api_key == "test-gemini-key"
-    assert engine.llm.default_provider == "gemini"
+    with pytest.raises(RuntimeError, match="No default LLM API key configured"):
+        trend_engine.TrendEngine()

@@ -1382,10 +1382,103 @@ Generate 3 software tools/features to BUILD following this format.
             context_serp_intent_match=effective_serp_intent_match,
         )
 
+        # Persist burst ideas so they appear in Content Library and Software Ideas screens.
+        all_ideas = (blog_ideas or []) + (software_ideas or [])
+        if all_ideas:
+            # Keep published ideas, replace only draft rows for this subtopic/topic/user.
+            try:
+                supabase.table("content_ideas") \
+                    .delete() \
+                    .eq("user_id", user_id) \
+                    .eq("topic_id", topic_id) \
+                    .eq("subtopic", subtopic_name) \
+                    .eq("status", "draft") \
+                    .execute()
+            except Exception:
+                # Some schemas may not include status; skip cleanup in that case.
+                logger.warning("Skipping draft cleanup before idea burst save", exc_info=True)
+
+            persisted_rows = []
+            for idea in all_ideas:
+                keywords = idea.get("primary_keywords") or []
+                if not isinstance(keywords, list):
+                    keywords = []
+
+                content_type = (idea.get("content_type") or "blog").strip().lower()
+                category = "software_tool" if content_type == "software" else "seo_optimized"
+
+                row = {
+                    "id": idea.get("id"),
+                    "title": idea.get("title") or "Untitled Idea",
+                    "description": idea.get("description") or "",
+                    "content_type": content_type,
+                    "category": category,
+                    "subtopic": subtopic_name,
+                    "topic_id": topic_id,
+                    "user_id": user_id,
+                    "keywords": keywords,
+                    "primary_keywords": keywords,
+                    "secondary_keywords": idea.get("secondary_keywords") or [],
+                    "seo_optimization_score": int(idea.get("seo_optimization_score") or 0),
+                    "traffic_potential_score": int(idea.get("traffic_potential_score") or 0),
+                    "total_search_volume": int(idea.get("total_search_volume") or 0),
+                    "average_difficulty": int(idea.get("average_difficulty") or 0),
+                    "average_cpc": float(idea.get("average_cpc") or 0),
+                    "viability_score": int(idea.get("viability_score") or 0),
+                    "opportunity_score": int(idea.get("opportunity_score") or 0),
+                    "monetization_hook": idea.get("monetization_hook") or "",
+                    "target_intent": idea.get("target_intent") or "",
+                    "article_format": idea.get("article_format") or "",
+                    "user_decision_helped": idea.get("user_decision_helped") or "",
+                    "internal_link_hook": idea.get("internal_link_hook") or "",
+                    "product_type": idea.get("product_type") or "",
+                    "user_job_to_be_done": idea.get("user_job_to_be_done") or "",
+                    "key_inputs": idea.get("key_inputs") or [],
+                    "output_result": idea.get("output_result") or "",
+                    "build_complexity": idea.get("build_complexity") or "",
+                    "distribution_angle": idea.get("distribution_angle") or "",
+                    "ranking_breakdown": idea.get("ranking_breakdown") or {},
+                    "status": "draft",
+                    "published": False,
+                    "published_to_titles": False,
+                }
+                persisted_rows.append(row)
+
+            try:
+                supabase.table("content_ideas").upsert(persisted_rows).execute()
+            except Exception:
+                # Fallback for stricter/older schemas.
+                minimal_rows = [
+                    {
+                        "id": row["id"],
+                        "title": row["title"],
+                        "description": row["description"],
+                        "content_type": row["content_type"],
+                        "category": row["category"],
+                        "subtopic": row["subtopic"],
+                        "topic_id": row["topic_id"],
+                        "user_id": row["user_id"],
+                        "keywords": row["keywords"],
+                        "status": "draft",
+                        "published": False,
+                    }
+                    for row in persisted_rows
+                ]
+                supabase.table("content_ideas").upsert(minimal_rows).execute()
+
+            # Touch the parent topic to mark progress recency.
+            try:
+                supabase.table("research_topics").update({
+                    "updated_at": datetime.utcnow().isoformat()
+                }).eq("id", topic_id).eq("user_id", user_id).execute()
+            except Exception:
+                logger.warning("Could not update research topic timestamp after idea burst", exc_info=True)
+
         return jsonify({
             "success": True,
             "blog_ideas": [idea.to_dict() if hasattr(idea, 'to_dict') else idea for idea in blog_ideas],
-            "software_ideas": [idea.to_dict() if hasattr(idea, 'to_dict') else idea for idea in software_ideas]
+            "software_ideas": [idea.to_dict() if hasattr(idea, 'to_dict') else idea for idea in software_ideas],
+            "persisted_count": len(all_ideas),
         }), 200
 
     except Exception as e:

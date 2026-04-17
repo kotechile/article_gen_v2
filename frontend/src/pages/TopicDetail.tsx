@@ -27,6 +27,7 @@ export function TopicDetail() {
     const [selectedSubtopic, setSelectedSubtopic] = React.useState<Subtopic | null>(null)
     const [showIdeaModal, setShowIdeaModal] = React.useState(false)
     const [hasStoredIdeas, setHasStoredIdeas] = React.useState(false)
+    const [subtopicsWithSavedIdeas, setSubtopicsWithSavedIdeas] = React.useState<Set<string>>(new Set())
 
     React.useEffect(() => {
         if (!authLoading && user && id) {
@@ -54,8 +55,15 @@ export function TopicDetail() {
                     software: storedIdeas.filter((idea) => idea.content_type === 'software').length,
                 })
                 setHasStoredIdeas(Array.isArray(storedIdeas) && storedIdeas.length > 0)
+                const savedSubtopicNames = new Set(
+                    (storedIdeas || [])
+                        .map((idea) => (idea.subtopic || '').trim().toLowerCase())
+                        .filter(Boolean)
+                )
+                setSubtopicsWithSavedIdeas(savedSubtopicNames)
             } else {
                 setHasStoredIdeas(false)
+                setSubtopicsWithSavedIdeas(new Set())
             }
             setError(null)
         } catch (err) {
@@ -492,7 +500,7 @@ export function TopicDetail() {
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {subtopics.map((sub, i) => {
-                                    const isResearched = hasSeoResearchSignals(sub)
+                                    const hasSavedIdeas = subtopicsWithSavedIdeas.has((sub.name || '').trim().toLowerCase())
                                     const hasCachedIdeas = cachedIdeasBySubtopic.has(sub.id)
                                     return (
                                     <motion.div
@@ -520,7 +528,9 @@ export function TopicDetail() {
                                                             ? 'text-red-500 dark:text-red-400 border-red-500/20 bg-red-500/10'
                                                             : 'text-muted-foreground border-border bg-muted/50'
                                                     }`}>
-                                                    {isResearched ? (sub.trend_direction?.toUpperCase() || 'N/A') : 'Pending SEO'}
+                                                    {hasSeoResearchSignals(sub)
+                                                        ? (sub.trend_direction?.toUpperCase() || 'N/A')
+                                                        : (hasSavedIdeas ? 'IDEAS READY' : 'Pending SEO')}
                                                 </span>
                                             </div>
                                         </div>
@@ -529,13 +539,13 @@ export function TopicDetail() {
                                             <div>
                                                 <div className="text-muted-foreground mb-1">Volume</div>
                                                 <div className="text-foreground font-semibold">
-                                                    {isResearched ? (sub.search_volume?.toLocaleString() || '0') : '—'}
+                                                    {hasSeoResearchSignals(sub) ? (sub.search_volume?.toLocaleString() || '0') : (hasSavedIdeas ? 'Ideas saved' : '—')}
                                                 </div>
                                             </div>
                                             <div>
                                                 <div className="text-muted-foreground mb-1">CPC</div>
                                                 <div className="text-foreground font-semibold">
-                                                    {isResearched ? `$${sub.cpc?.toFixed(2) || '0.00'}` : 'Pending SEO/Offers'}
+                                                    {hasSeoResearchSignals(sub) ? `$${sub.cpc?.toFixed(2) || '0.00'}` : (hasSavedIdeas ? 'Ideas saved' : 'Pending SEO/Offers')}
                                                 </div>
                                             </div>
                                             <div>
@@ -544,13 +554,13 @@ export function TopicDetail() {
                                                         (sub.seo_difficulty || 0) > 30 ? 'text-amber-500 dark:text-amber-400' :
                                                             'text-emerald-500 dark:text-emerald-400'
                                                     }`}>
-                                                    {isResearched ? (sub.seo_difficulty || '0') : 'Pending SEO/Offers'}
+                                                    {hasSeoResearchSignals(sub) ? (sub.seo_difficulty || '0') : (hasSavedIdeas ? 'Ideas saved' : 'Pending SEO/Offers')}
                                                 </div>
                                             </div>
                                             <div>
                                                 <div className="text-muted-foreground mb-1">Offers</div>
                                                 <div className="text-foreground font-semibold">
-                                                    {isResearched ? (sub.affiliate_offer_count || 0) : 'Pending SEO/Offers'}
+                                                    {hasSeoResearchSignals(sub) ? (sub.affiliate_offer_count || 0) : (hasSavedIdeas ? 'Ideas saved' : 'Pending SEO/Offers')}
                                                 </div>
                                             </div>
                                         </div>
