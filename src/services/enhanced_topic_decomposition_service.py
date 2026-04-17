@@ -50,7 +50,8 @@ class EnhancedTopicDecompositionService:
                                      user_id: str,
                                      max_subtopics: int = 6,
                                      use_autocomplete: bool = True,
-                                     use_llm: bool = True) -> Dict[str, Any]:
+                                     use_llm: bool = True,
+                                     decomposition_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Decompose topic using enhanced approach (autocomplete + LLM)
         
@@ -84,7 +85,11 @@ class EnhancedTopicDecompositionService:
             from .semantic_expansion_service import semantic_expansion_service
             
             logger.info("Calling SemanticExpansionService.expand_and_verify...")
-            verified_clusters = await semantic_expansion_service.expand_and_verify(query, user_id)
+            verified_clusters = await semantic_expansion_service.expand_and_verify(
+                query,
+                user_id,
+                decomposition_context=decomposition_context,
+            )
             
             if not verified_clusters:
                  # Fallback/Error handling (strict policy says we should fail if no good data)
@@ -139,6 +144,7 @@ class EnhancedTopicDecompositionService:
                 "success": True,
                 "message": message,
                 "original_query": query,
+                "decomposition_context": decomposition_context or {},
                 "subtopics": [subtopic.to_dict() for subtopic in enhanced_subtopics],
                 "autocomplete_data": None, # Deprecated in this view
                 "processing_time": processing_time,

@@ -24,14 +24,19 @@ class SemanticExpansionService:
     def __init__(self):
         pass
 
-    async def expand_and_verify(self, topic: str, user_id: str) -> List[Dict[str, Any]]:
+    async def expand_and_verify(
+        self,
+        topic: str,
+        user_id: str,
+        decomposition_context: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Main entry point: Expands a central topic into verified, profitable clusters.
         """
         logger.info(f"Starting semantic expansion for topic: {topic}")
 
         # Step 1: Semantic Explosion (LLM)
-        seeds = await self.generate_seeds(topic)
+        seeds = await self.generate_seeds(topic, decomposition_context=decomposition_context)
         if not seeds:
             logger.warning("No seeds generated. Aborting.")
             return []
@@ -65,7 +70,10 @@ class SemanticExpansionService:
             logger.info(f"Enrichment complete. Proceeding with {len(filtered_keywords)} validated keywords.")
 
         # Step 4: Semantic Clustering (LLM)
-        clusters = await self.cluster_keywords(filtered_keywords)
+        clusters = await self.cluster_keywords(
+            filtered_keywords,
+            decomposition_context=decomposition_context,
+        )
         if not clusters:
              logger.warning("No clusters generated. Aborting.")
              return []
@@ -75,13 +83,71 @@ class SemanticExpansionService:
         
         return verified_clusters
 
-    async def generate_seeds(self, topic: str) -> List[str]:
+    def _format_decomposition_context(self, topic: str, decomposition_context: Optional[Dict[str, Any]]) -> str:
+        """Render a compact context packet for prompts."""
+        if not decomposition_context:
+            return ""
+
+        context_lines: List[str] = []
+
+        project_name = decomposition_context.get("project_name")
+        if project_name:
+            context_lines.append(f"Website/Project: {project_name}")
+
+        project_description = decomposition_context.get("project_description")
+        if project_description:
+            context_lines.append(f"Website Description: {project_description}")
+
+        topic_description = decomposition_context.get("topic_description")
+        if topic_description:
+            context_lines.append(f"Topic Description: {topic_description}")
+
+        category_path = decomposition_context.get("category_path")
+        if category_path:
+            context_lines.append(f"Selected Category Lens: {category_path}")
+
+        decision_focus = decomposition_context.get("decision_focus")
+        if decision_focus:
+            context_lines.append(f"Decision Focus: {decision_focus}")
+
+        audience = decomposition_context.get("target_audience")
+        if audience:
+            context_lines.append(f"Target Audience: {audience}")
+
+        signal_terms = decomposition_context.get("signal_terms") or []
+        if signal_terms:
+            context_lines.append(f"Relevant Signal Terms: {', '.join(signal_terms[:10])}")
+
+        trend_titles = decomposition_context.get("trend_titles") or []
+        if trend_titles:
+            context_lines.append(f"Recent Trend Themes: {', '.join(trend_titles[:6])}")
+
+        constraints = decomposition_context.get("decomposition_constraints") or []
+        if constraints:
+            context_lines.append("Subtopic Constraints:")
+            for item in constraints[:8]:
+                context_lines.append(f"- {item}")
+
+        if not context_lines:
+            return ""
+
+        return f"""
+        ADDITIONAL DECOMPOSITION CONTEXT:
+        {'\n'.join(context_lines)}
+
+        Use this context to interpret the seed topic "{topic}".
+        Prefer subtopics that help the user make a concrete decision, compare options, quantify tradeoffs, or surface hidden costs.
+        """
+
+    async def generate_seeds(self, topic: str, decomposition_context: Optional[Dict[str, Any]] = None) -> List[str]:
         """
         Step 1: Ask LLM for 10 distinct sub-niches and 3-5 search terms for each.
         """
+        context_block = self._format_decomposition_context(topic, decomposition_context)
         prompt = f"""
         You are a Keyword Research Expert.
         I have a central topic: "{topic}".
+        {context_block}
 
         Task:
         1. Identify 10 distinct sub-niches related to this topic.
@@ -91,6 +157,8 @@ class SemanticExpansionService:
         - DO NOT generate generic terms like "Best [Topic]" (e.g., "Best Gardening" is bad).
         - Focus on specific problems, questions, or product comparison queries.
         - Keywords must be 3-5 words long.
+        - The seeds should reflect the selected category lens and website niche, not the broad internet interpretation of the phrase.
+        - If the topic is broad or abstract, translate it into concrete decision angles, frameworks, audits, scorecards, comparisons, calculators, or scenario-based research paths.
 
         Output Format:
         Return ONLY a flat list of these search terms, one per line. No other text.
@@ -365,7 +433,11 @@ class SemanticExpansionService:
             logger.error(f"Failed to enrich KD: {e}")
 
 
-    async def cluster_keywords(self, keywords: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def cluster_keywords(
+        self,
+        keywords: List[Dict[str, Any]],
+        decomposition_context: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Step 4: Group keywords into concepts.
         Uses delimited text format instead of JSON for better reliability.
@@ -377,9 +449,12 @@ class SemanticExpansionService:
         kw_count = len(keywords)
         target_clusters = min(max(kw_count // 8, 3), 12)  # Aim for 3-12 clusters, roughly 8 keywords per cluster
 
+        context_block = self._format_decomposition_context("keyword clustering", decomposition_context)
+
         prompt = f"""
         I have a list of {kw_count} high-potential keywords:
         {kw_list_str}
+        {context_block}
 
         Task:
         Group these keywords into {target_clusters} distinct "Subtopics" or "Clusters".
@@ -390,6 +465,9 @@ class SemanticExpansionService:
         - Each cluster should be distinct and non-overlapping
         - Distribute keywords across all clusters (don't put everything in one cluster)
         - Focus on specific micro-niches, not broad categories
+        - Name each cluster so it is obviously useful for downstream article ideation
+        - Prefer cluster names that imply a user problem, decision, comparison, framework, checklist, audit, or scenario
+        - Keep the website/category lens in mind when naming and grouping
 
         Output Format (use EXACTLY this format):
 

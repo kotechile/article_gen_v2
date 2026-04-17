@@ -124,6 +124,84 @@ def _enrich_research_topics(supabase, topics):
 
     return topics
 
+
+def _safe_string(value):
+    """Normalize optional values into compact strings."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        cleaned = " ".join(value.split()).strip()
+        return cleaned or None
+    return str(value)
+
+
+def _extract_trend_titles(last_trend_report):
+    """Extract recent trend theme titles from the saved trend report."""
+    if not isinstance(last_trend_report, dict):
+        return []
+
+    report_content = last_trend_report.get('report_content') or {}
+    topics = report_content.get('topics') or []
+    titles = []
+    for item in topics:
+        if not isinstance(item, dict):
+            continue
+        title = _safe_string(item.get('title'))
+        if title:
+            titles.append(title)
+    return titles[:8]
+
+
+def _build_decision_focus(topic, primary_category_name, secondary_category_name):
+    """Create a compact statement describing what choice this topic should help users make."""
+    title = _safe_string(topic.get('title')) or "this topic"
+    topic_description = _safe_string(topic.get('description'))
+    category_path = " / ".join([p for p in [primary_category_name, secondary_category_name] if p])
+
+    if topic_description:
+        return topic_description
+    if category_path:
+        return f"Use {title} to help the user make a better decision within {category_path}."
+    return f"Use {title} to help the user evaluate options, compare tradeoffs, and choose an action."
+
+
+def _build_decomposition_context(topic, project, primary_category_name=None, secondary_category_name=None):
+    """Build a richer topic packet for downstream decomposition prompts."""
+    project_description = _safe_string(
+        (project or {}).get('site_description') or (project or {}).get('websiteDescription')
+    )
+    topic_description = _safe_string(topic.get('description'))
+    category_path = " / ".join([name for name in [primary_category_name, secondary_category_name] if name]) or None
+    trend_titles = _extract_trend_titles((project or {}).get('last_trend_report'))
+
+    signal_terms = []
+    report_content = ((project or {}).get('last_trend_report') or {}).get('report_content') or {}
+    for item in (report_content.get('topics') or [])[:6]:
+        if isinstance(item, dict):
+            for term in item.get('related_terms') or []:
+                term_clean = _safe_string(term)
+                if term_clean and term_clean not in signal_terms:
+                    signal_terms.append(term_clean)
+
+    constraints = [
+        "Generate subtopics that can become meaningful article clusters, not just adjacent keywords.",
+        "Prefer concrete decision angles, comparison paths, scorecards, frameworks, audits, calculators, or scenario-based topics.",
+        "Stay tightly aligned to the website niche and selected category lens.",
+        "Avoid generic interpretations of the topic if the site context points to a narrower intent.",
+    ]
+
+    return {
+        "project_name": _safe_string((project or {}).get('domain') or (project or {}).get('app_name')),
+        "project_description": project_description,
+        "topic_description": topic_description,
+        "category_path": category_path,
+        "decision_focus": _build_decision_focus(topic, primary_category_name, secondary_category_name),
+        "target_audience": _safe_string(topic.get('target_audience')),
+        "trend_titles": trend_titles,
+        "signal_terms": signal_terms,
+        "decomposition_constraints": constraints,
+    }
+
 @research_topics_bp.route('/', methods=['GET'])
 @require_api_key
 def list_research_topics():
@@ -636,7 +714,14 @@ def generate_subtopics(topic_id):
             ).dict()), 401
 
         # 1. Fetch topic metadata
-        topic_res = supabase.table('research_topics').select('title, user_id').eq('id', topic_id).single().execute()
+        topic_res = (
+            supabase
+            .table('research_topics')
+            .select('id, title, description, user_id, project_id, primary_category_id, secondary_category_id')
+            .eq('id', topic_id)
+            .single()
+            .execute()
+        )
 
         if not topic_res.data:
             return jsonify(ErrorResponse(
@@ -646,8 +731,9 @@ def generate_subtopics(topic_id):
                 status=404
             ).dict()), 404
 
-        topic_title = topic_res.data['title']
-        user_id     = topic_res.data['user_id']
+        topic = topic_res.data
+        topic_title = topic['title']
+        user_id     = topic['user_id']
         if user_id != request_user_id:
             return jsonify(ErrorResponse(
                 error="forbidden",
@@ -656,12 +742,57 @@ def generate_subtopics(topic_id):
                 status=403
             ).dict()), 403
 
+        project = {}
+        project_id = topic.get('project_id')
+        if project_id:
+            try:
+                project_res = (
+                    supabase
+                    .table('projects')
+                    .select('id, domain, app_name, site_description, websiteDescription, last_trend_report')
+                    .eq('id', project_id)
+                    .limit(1)
+                    .execute()
+                )
+                if project_res.data:
+                    project = project_res.data[0] or {}
+            except Exception as project_err:
+                logger.warning(f"Failed to load project context for decomposition: {project_err}")
+
+        category_names = {}
+        category_ids = [
+            cid for cid in [topic.get('primary_category_id'), topic.get('secondary_category_id')] if cid
+        ]
+        if category_ids:
+            try:
+                category_res = (
+                    supabase
+                    .table('project_categories')
+                    .select('id, name')
+                    .in_('id', category_ids)
+                    .execute()
+                )
+                category_names = {
+                    item['id']: item.get('name')
+                    for item in (category_res.data or [])
+                }
+            except Exception as category_err:
+                logger.warning(f"Failed to load category names for decomposition: {category_err}")
+
+        decomposition_context = _build_decomposition_context(
+            topic,
+            project,
+            primary_category_name=category_names.get(topic.get('primary_category_id')),
+            secondary_category_name=category_names.get(topic.get('secondary_category_id')),
+        )
+
         # 2. Run the async decomposition pipeline synchronously
         async def _run():
             result = await enhanced_decomposition_service.decompose_topic_enhanced(
                 query=topic_title,
                 user_id=user_id,
-                max_subtopics=12
+                max_subtopics=12,
+                decomposition_context=decomposition_context,
             )
 
             if not result.get("success"):
