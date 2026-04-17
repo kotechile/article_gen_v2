@@ -551,11 +551,24 @@ Instructions:
         - Preferred provider/model from `llm_providers` if it has a key
         - Then fall back: Gemini -> OpenAI -> Anthropic -> Perplexity
         """
-        provider_preference, model_preference = self._get_default_llm_preference()
-        provider_preference = self._normalize_provider(provider_preference)
+        preference = self._get_default_llm_preference_row()
+        provider_preference = self._normalize_provider(preference.get("provider"))
+        model_preference = preference.get("model_name") or ""
         settings = self._get_application_settings()
 
         candidates: list[tuple[str, str, str, Optional[str]]] = []
+
+        # 0) If llm_providers has an api_keys_id, prefer that explicit key first.
+        api_keys_id = preference.get("api_keys_id") or preference.get("api_key_id")
+        if api_keys_id:
+            key_value = self._get_api_key_value(api_keys_id)
+            if key_value:
+                # For Gemini keys stored in api_keys, treat provider as gemini.
+                p = provider_preference
+                if p == "perplexity":
+                    candidates.append(("openai", model_preference or (settings.get("perplexityModel") or "llama-3.1-sonar-small-128k-online"), key_value, "https://api.perplexity.ai"))
+                else:
+                    candidates.append((p, model_preference or "", key_value, None))
 
         preferred = self._resolve_llm_from_settings(
             settings=settings,
@@ -585,15 +598,15 @@ Instructions:
 
         return candidates
 
-    def _get_default_llm_preference(self) -> tuple[str, str]:
-        """Fetch preferred LLM provider/model from `llm_providers` (no keys)."""
-        default_provider = "google"
+    def _get_default_llm_preference_row(self) -> Dict[str, Any]:
+        """Fetch preferred LLM provider/model from `llm_providers` (may include api_keys_id)."""
+        default_provider = "gemini"
         default_model = "gemini-1.5-flash"
 
         try:
             resp = (
                 self.supabase.table("llm_providers")
-                .select("provider, model_name")
+                .select("provider, model_name, api_keys_id, api_key_id")
                 .eq("is_default", True)
                 .limit(1)
                 .execute()
@@ -601,11 +614,11 @@ Instructions:
             if resp.data:
                 row = resp.data[0] or {}
                 if row.get("provider") and row.get("model_name"):
-                    return row["provider"], row["model_name"]
+                    return row
 
             resp = (
                 self.supabase.table("llm_providers")
-                .select("provider, model_name")
+                .select("provider, model_name, api_keys_id, api_key_id")
                 .eq("is_active", True)
                 .limit(1)
                 .execute()
@@ -613,11 +626,27 @@ Instructions:
             if resp.data:
                 row = resp.data[0] or {}
                 if row.get("provider") and row.get("model_name"):
-                    return row["provider"], row["model_name"]
+                    return row
         except Exception as e:
             logger.warning("Failed to fetch LLM preference from DB, using defaults: %s", e)
 
-        return default_provider, default_model
+        return {"provider": default_provider, "model_name": default_model}
+
+    def _get_api_key_value(self, api_keys_id: Any) -> Optional[str]:
+        """Fetch key_value from api_keys table by id."""
+        try:
+            res = (
+                self.supabase.table("api_keys")
+                .select("key_value")
+                .eq("id", api_keys_id)
+                .limit(1)
+                .execute()
+            )
+            if res.data:
+                return (res.data[0] or {}).get("key_value")
+        except Exception as e:
+            logger.warning("Failed to load api_keys id=%s: %s", api_keys_id, e)
+        return None
 
     def _normalize_provider(self, provider: Optional[str]) -> str:
         """Map legacy/alias provider names to the internal provider id."""
