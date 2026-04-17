@@ -86,6 +86,12 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         }
     }, [isOpen, subtopic, user]);
 
+    const safeValueLayerTags = React.useMemo(() => {
+        if (!subtopic) return [] as string[];
+        const raw = (subtopic as any).value_layer_tags;
+        return Array.isArray(raw) ? raw.filter(Boolean) : [];
+    }, [subtopic]);
+
     const generateIdeas = async () => {
         if (!subtopic || !user) return;
 
@@ -116,7 +122,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                 intentBucket: subtopic.intent_bucket,
                 decisionFocus: subtopic.decision_focus,
                 angleQuestion: subtopic.angle_question,
-                valueLayerTags: subtopic.value_layer_tags,
+                valueLayerTags: safeValueLayerTags,
                 clusterType: subtopic.cluster_type,
                 primaryUserOutcome: subtopic.primary_user_outcome,
                 serpIntentMatch: subtopic.serp_intent_match,
@@ -258,7 +264,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
 
                 {/* Content */}
                 <div className="flex-1 overflow-auto p-6">
-                    {(subtopic.intent_bucket || subtopic.decision_focus || subtopic.angle_question || (subtopic.value_layer_tags && subtopic.value_layer_tags.length > 0)) && (
+                    {(subtopic.intent_bucket || subtopic.decision_focus || subtopic.angle_question || safeValueLayerTags.length > 0) && (
                         <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-3">
                             <div className="flex flex-wrap items-center gap-2 mb-2">
                                 {subtopic.intent_bucket && (
@@ -266,7 +272,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                         Intent: {subtopic.intent_bucket}
                                     </span>
                                 )}
-                                {subtopic.value_layer_tags?.map((tag, idx) => (
+                                {safeValueLayerTags.map((tag, idx) => (
                                     <span key={`${tag}-${idx}`} className="text-[10px] px-2 py-0.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-300">
                                         {tag}
                                     </span>
