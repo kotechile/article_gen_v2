@@ -94,7 +94,12 @@ class LiteLLMClient:
             })
             
             # Prepare model string
-            model_string = f"{config.model.provider}/{config.model.model_name}"
+            #
+            # LiteLLM provider naming differs slightly from our internal enum values.
+            # In particular, LiteLLM expects `gemini/<model>` (not `google/<model>`).
+            provider = str(config.model.provider)
+            litellm_provider = "gemini" if provider == "google" else provider
+            model_string = f"{litellm_provider}/{config.model.model_name}"
             
             # Prepare parameters
             params = {
