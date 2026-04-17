@@ -5,6 +5,7 @@ This module provides endpoints for managing research topics.
 """
 
 import logging
+import re
 from datetime import datetime
 from uuid import uuid4
 from flask import Blueprint, request, jsonify
@@ -264,7 +265,7 @@ def _hydrate_angle_metadata_for_payloads(
         project_response = (
             supabase
             .table("projects")
-            .select("id, site_description, websiteDescription")
+            .select("id, site_description, websitedescription, targetaudiencedescription")
             .in_("id", project_ids)
             .execute()
         )
@@ -295,7 +296,11 @@ def _hydrate_angle_metadata_for_payloads(
             description=item.get("description") or "",
             primary_category_name=categories_by_id.get(item.get("primary_category_id")) or "",
             secondary_category_name=categories_by_id.get(item.get("secondary_category_id")) or "",
-            project_description=_safe_string(project.get("site_description") or project.get("websiteDescription")) or "",
+            project_description=_safe_string(
+                project.get("site_description")
+                or project.get("websitedescription")
+                or project.get("targetaudiencedescription")
+            ) or "",
         )
         for field in missing:
             if field in generated and generated[field] is not None:
@@ -337,7 +342,9 @@ def _build_decision_focus(topic, primary_category_name, secondary_category_name)
 def _build_decomposition_context(topic, project, primary_category_name=None, secondary_category_name=None):
     """Build a richer topic packet for downstream decomposition prompts."""
     project_description = _safe_string(
-        (project or {}).get('site_description') or (project or {}).get('websiteDescription')
+        (project or {}).get('site_description')
+        or (project or {}).get('websitedescription')
+        or (project or {}).get('targetaudiencedescription')
     )
     topic_description = _safe_string(topic.get('description'))
     category_path = " / ".join([name for name in [primary_category_name, secondary_category_name] if name]) or None
@@ -941,7 +948,7 @@ def generate_subtopics(topic_id):
                 project_res = (
                     supabase
                     .table('projects')
-                    .select('id, domain, app_name, site_description, websiteDescription, last_trend_report')
+                    .select('id, domain, app_name, site_description, websitedescription, targetaudiencedescription, last_trend_report')
                     .eq('id', project_id)
                     .limit(1)
                     .execute()
