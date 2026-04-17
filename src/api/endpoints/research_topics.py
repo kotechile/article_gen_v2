@@ -995,7 +995,19 @@ def generate_subtopics(topic_id):
             )
 
             if not result.get("success"):
-                raise Exception(result.get("message", "Decomposition failed"))
+                warning_message = result.get("message", "Decomposition failed")
+                logger.warning(
+                    "Decomposition returned unsuccessful result for topic %s. "
+                    "Returning empty subtopic set instead of raising 500. Message=%s",
+                    topic_id,
+                    warning_message
+                )
+                return [], {
+                    "success": False,
+                    "message": warning_message,
+                    "processing_time": result.get("processing_time"),
+                    "enhancement_methods": result.get("enhancement_methods", []),
+                }
 
             enhanced_subtopics_data = result.get("subtopics", [])
             saved_subtopics = []
@@ -1035,7 +1047,12 @@ def generate_subtopics(topic_id):
                     logger.info(f"DEBUG saved subtopic: {saved.get('name')}, vol={saved.get('search_volume')}, cpc={saved.get('cpc')}")
                     saved_subtopics.append(saved)
 
-            return saved_subtopics, result
+            return saved_subtopics, {
+                "success": True,
+                "message": result.get("message", "Subtopics generated"),
+                "processing_time": result.get("processing_time"),
+                "enhancement_methods": result.get("enhancement_methods", []),
+            }
 
         saved_subtopics, result = asyncio.run(_run())
 
@@ -1043,6 +1060,8 @@ def generate_subtopics(topic_id):
             "items": saved_subtopics,
             "total": len(saved_subtopics),
             "meta": {
+                "success":            result.get("success", True),
+                "message":            result.get("message"),
                 "processing_time":    result.get("processing_time"),
                 "enhancement_methods": result.get("enhancement_methods"),
             }
