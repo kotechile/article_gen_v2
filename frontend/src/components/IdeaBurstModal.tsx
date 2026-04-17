@@ -227,11 +227,12 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         setExpandedMetrics(prev => prev === ideaId ? null : ideaId);
     };
 
+    const internalLinkGroups = React.useMemo(() => buildInternalLinkGroups(blogIdeas), [blogIdeas]);
+
     if (!isOpen || !subtopic) return null;
 
     const totalBlogIdeas = blogIdeas.length;
     const totalSoftwareIdeas = softwareIdeas.length;
-    const internalLinkGroups = React.useMemo(() => buildInternalLinkGroups(blogIdeas), [blogIdeas]);
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
