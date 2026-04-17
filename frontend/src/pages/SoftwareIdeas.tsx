@@ -35,6 +35,7 @@ export function SoftwareIdeas() {
                 .order('created_at', { ascending: false })
 
             if (error) throw error
+            console.info('[SoftwareIdeas] data loaded', { count: (data || []).length })
             setIdeas((data as SoftwareIdea[]) || [])
         } catch (err) {
             console.error('Failed to load software ideas:', err)

@@ -47,6 +47,12 @@ export function TopicDetail() {
             setSubtopics(subtopicsData || [])
             if (user?.id) {
                 const storedIdeas = await contentIdeasService.getContentIdeas(topicId, user.id)
+                console.info('[TopicDetail] loaded stored ideas', {
+                    topicId,
+                    total: storedIdeas.length,
+                    blog: storedIdeas.filter((idea) => idea.content_type === 'blog').length,
+                    software: storedIdeas.filter((idea) => idea.content_type === 'software').length,
+                })
                 setHasStoredIdeas(Array.isArray(storedIdeas) && storedIdeas.length > 0)
             } else {
                 setHasStoredIdeas(false)
@@ -196,6 +202,20 @@ export function TopicDetail() {
             hasResearchProgress: hasSeoResearchData || hasStoredIdeas,
         }
     }, [subtopics, hasStoredIdeas])
+
+    React.useEffect(() => {
+        if (!id) return
+        console.info('[TopicDetail] status snapshot', {
+            topicId: id,
+            subtopics: subtopics.length,
+            hasStoredIdeas,
+            hasSeoResearchData: metrics.hasSeoResearchData,
+            hasResearchProgress: metrics.hasResearchProgress,
+            totalVolume: metrics.totalVolume,
+            totalOpportunities: metrics.totalOpportunities,
+            avgDifficulty: metrics.avgDifficulty,
+        })
+    }, [id, subtopics.length, hasStoredIdeas, metrics.hasSeoResearchData, metrics.hasResearchProgress, metrics.totalVolume, metrics.totalOpportunities, metrics.avgDifficulty])
 
     if (authLoading || loading) {
         return (

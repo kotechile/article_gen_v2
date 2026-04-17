@@ -111,6 +111,11 @@ export const MyArticles: React.FC = () => {
                 new Date(b.dateCreatedOn).getTime() - new Date(a.dateCreatedOn).getTime()
             )
 
+            console.info('[ContentLibrary] data loaded', {
+                titles: titleRows.length,
+                publishedIdeasOnly: mappedIdeas.length,
+                combined: combined.length,
+            })
             setArticles(combined)
         } catch (error) {
             console.error('Error fetching library items:', error)

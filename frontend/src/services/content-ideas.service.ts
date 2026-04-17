@@ -11,7 +11,12 @@ class ContentIdeasService {
      * Generate content ideas based on subtopics and keywords
      */
     async generateContentIdeas(request: ContentIdeaGenerationRequest): Promise<ContentIdeaGenerationResponse> {
-        return await apiClient.post<ContentIdeaGenerationResponse>('/api/content-ideas/generate', request);
+        console.info('[ContentIdeas] generateContentIdeas request', {
+            topic_id: request.topic_id,
+            user_id: request.user_id,
+            subtopics: request.subtopics?.length || 0,
+        });
+        return await apiClient.post<ContentIdeaGenerationResponse>('/content-ideas/generate', request);
     }
 
     /**
@@ -58,7 +63,8 @@ class ContentIdeasService {
         contentType?: string
     ): Promise<ContentIdea[]> {
         try {
-            const data = await apiClient.post<ContentIdea[]>('/api/content-ideas/list', {
+            console.info('[ContentIdeas] list request', { topicId, userId, contentType: contentType || 'all' });
+            const data = await apiClient.post<ContentIdea[]>('/content-ideas/list', {
                 topic_id: topicId,
                 user_id: userId,
                 content_type: contentType,
@@ -68,6 +74,12 @@ class ContentIdeasService {
                 console.error('Content ideas API returned non-array:', data);
                 return [];
             }
+            console.info('[ContentIdeas] list response', {
+                topicId,
+                total: data.length,
+                blog: data.filter((idea) => idea.content_type === 'blog').length,
+                software: data.filter((idea) => idea.content_type === 'software').length,
+            });
             return data || [];
         } catch (error) {
             console.error('Failed to get content ideas:', error);
@@ -114,7 +126,9 @@ class ContentIdeasService {
      */
     async deleteContentIdea(ideaId: string, userId: string): Promise<boolean> {
         try {
-            await apiClient.delete(`/api/content-ideas/${ideaId}?user_id=${userId}`);
+            console.info('[ContentIdeas] delete request', { ideaId, userId });
+            await apiClient.delete(`/content-ideas/${ideaId}?user_id=${userId}`);
+            console.info('[ContentIdeas] delete success', { ideaId });
             return true;
         } catch (error) {
             console.error('Failed to delete content idea:', error);
@@ -142,10 +156,16 @@ class ContentIdeasService {
      */
     async publishContentIdeas(ideaIds: string[], userId: string): Promise<boolean> {
         try {
-            await apiClient.post('/api/content-ideas/publish', {
+            console.info('[ContentIdeas] publish request', {
+                userId,
+                ideaCount: ideaIds.length,
+                ideaIds,
+            });
+            await apiClient.post('/content-ideas/publish', {
                 idea_ids: ideaIds,
                 user_id: userId
             });
+            console.info('[ContentIdeas] publish success', { userId, ideaCount: ideaIds.length });
             return true;
         } catch (error) {
             console.error('Failed to publish content ideas:', error);
