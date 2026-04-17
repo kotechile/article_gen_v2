@@ -48,6 +48,14 @@ class EnhancedSubtopic(BaseModel):
     keyword_difficulty: Optional[int] = Field(None, description="SEO Difficulty")
     trend_analysis: Optional[Dict[str, Any]] = Field(None, description="Structured trend analysis data")
     monetization_data: Optional[Dict[str, Any]] = Field(None, description="Structured monetization/offers data")
+    intent_bucket: Optional[str] = Field(None, description="Intent bucket inherited from topic angle")
+    decision_focus: Optional[str] = Field(None, description="Decision focus statement")
+    angle_question: Optional[str] = Field(None, description="Angle-defining question")
+    value_layer_tags: List[str] = Field(default_factory=list, description="Value layer tags")
+    cluster_type: Optional[str] = Field(None, description="Cluster archetype (decision/comparison/etc)")
+    primary_user_outcome: Optional[str] = Field(None, description="Primary outcome users seek")
+    serp_intent_match: Optional[str] = Field(None, description="How well cluster matches SERP intent")
+    tool_potential_score: Optional[int] = Field(None, description="0-100 software/tool potential score")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
     
@@ -149,6 +157,14 @@ class EnhancedSubtopic(BaseModel):
             'keyword_difficulty': self.keyword_difficulty,
             'trend_analysis': self.trend_analysis,
             'monetization_data': self.monetization_data,
+            'intent_bucket': self.intent_bucket,
+            'decision_focus': self.decision_focus,
+            'angle_question': self.angle_question,
+            'value_layer_tags': self.value_layer_tags,
+            'cluster_type': self.cluster_type,
+            'primary_user_outcome': self.primary_user_outcome,
+            'serp_intent_match': self.serp_intent_match,
+            'tool_potential_score': self.tool_potential_score,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
         }
@@ -171,6 +187,14 @@ class EnhancedSubtopic(BaseModel):
             keyword_difficulty=data.get('keyword_difficulty'),
             trend_analysis=data.get('trend_analysis'),
             monetization_data=data.get('monetization_data'),
+            intent_bucket=data.get('intent_bucket'),
+            decision_focus=data.get('decision_focus'),
+            angle_question=data.get('angle_question'),
+            value_layer_tags=data.get('value_layer_tags', []),
+            cluster_type=data.get('cluster_type'),
+            primary_user_outcome=data.get('primary_user_outcome'),
+            serp_intent_match=data.get('serp_intent_match'),
+            tool_potential_score=data.get('tool_potential_score'),
             created_at=datetime.fromisoformat(data['created_at']),
             updated_at=datetime.fromisoformat(data['updated_at'])
         )
@@ -213,4 +237,3 @@ class EnhancedSubtopicResponse(BaseModel):
         json_encoders = {
             datetime: lambda v: v.isoformat()
         }
-

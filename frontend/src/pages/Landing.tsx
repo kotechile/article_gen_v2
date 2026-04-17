@@ -7,7 +7,7 @@ import { useProject } from '@/context/project-context'
 import { useAuth } from '@/context/auth-context'
 import { commandCenterService } from '@/services/command-center.service'
 import type { Project } from '@/types'
-import type { ProjectCategory, TopicCandidate, TopicCandidateSource } from '@/types/command-center'
+import type { ProjectCategory, TopicCandidate, TopicCandidateSource, TopicDraft } from '@/types/command-center'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 const inputSelectClasses =
@@ -164,16 +164,19 @@ export function Landing() {
         })
     }, [topicCandidates])
 
-    const addTopicsToWorkspace = async (titles: string[], source: 'ai' | 'news') => {
+    const addTopicsToWorkspace = async (drafts: TopicDraft[], source: 'ai' | 'news') => {
         if (!activeProject || !user || !activePrimaryCategory || !activeSecondaryCategory) {
             return
         }
 
         const existingTitles = new Set(topicCandidates.map((topic) => topic.title.trim().toLowerCase()))
-        const cleaned = titles
-            .map((title) => title.trim())
-            .filter((title, index, all) => title.length > 0 && all.findIndex((item) => item.toLowerCase() === title.toLowerCase()) === index)
-            .filter((title) => !existingTitles.has(title.toLowerCase()))
+        const cleaned = drafts
+            .map((draft) => ({
+                ...draft,
+                title: draft.title.trim(),
+            }))
+            .filter((draft, index, all) => draft.title.length > 0 && all.findIndex((item) => item.title.toLowerCase() === draft.title.toLowerCase()) === index)
+            .filter((draft) => !existingTitles.has(draft.title.toLowerCase()))
 
         if (!cleaned.length) {
             toast.message('Those topics are already in the workspace.')
@@ -181,12 +184,19 @@ export function Landing() {
         }
 
         const inserted = await commandCenterService.createTopicCandidates(
-            cleaned.map((title) => ({
+            cleaned.map((draft) => ({
                 project_id: activeProject.id,
                 user_id: user.id,
                 primary_category_id: activePrimaryCategory.id,
                 secondary_category_id: activeSecondaryCategory.id,
-                title,
+                title: draft.title,
+                rationale: draft.rationale ?? null,
+                intent_bucket: draft.intent_bucket ?? null,
+                decision_focus: draft.decision_focus ?? null,
+                angle_question: draft.angle_question ?? null,
+                value_layer_tags: draft.value_layer_tags ?? null,
+                related_terms: draft.related_terms ?? null,
+                source_signals: draft.source_signals ?? null,
                 topic_source: source,
                 source_label: commandCenterService.getSourceLabel(source),
             })),

@@ -74,6 +74,33 @@ class SubtopicsService:
                 if "target_audience" in trend_data:
                     data["target_audience"] = trend_data["target_audience"]
 
+                if "intent_bucket" in trend_data:
+                    data["intent_bucket"] = trend_data["intent_bucket"]
+
+                if "decision_focus" in trend_data:
+                    data["decision_focus"] = trend_data["decision_focus"]
+
+                if "angle_question" in trend_data:
+                    data["angle_question"] = trend_data["angle_question"]
+
+                if "value_layer_tags" in trend_data:
+                    data["value_layer_tags"] = trend_data.get("value_layer_tags") or []
+
+                if "cluster_type" in trend_data:
+                    data["cluster_type"] = trend_data["cluster_type"]
+
+                if "primary_user_outcome" in trend_data:
+                    data["primary_user_outcome"] = trend_data["primary_user_outcome"]
+
+                if "serp_intent_match" in trend_data:
+                    data["serp_intent_match"] = trend_data["serp_intent_match"]
+
+                if "tool_potential_score" in trend_data:
+                    try:
+                        data["tool_potential_score"] = int(trend_data["tool_potential_score"])
+                    except (TypeError, ValueError):
+                        data["tool_potential_score"] = 0
+
                 # NEW: Rich Data Persistence
                 if "trend_analysis" in trend_data:
                     data["trend_analysis"] = trend_data["trend_analysis"]

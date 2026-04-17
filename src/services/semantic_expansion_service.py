@@ -36,13 +36,15 @@ class SemanticExpansionService:
         logger.info(f"Starting semantic expansion for topic: {topic}")
 
         # Step 1: Semantic Explosion (LLM)
-        seeds = await self.generate_seeds(topic, decomposition_context=decomposition_context)
+        seed_bundle = await self.generate_seeds(topic, decomposition_context=decomposition_context)
+        seeds = seed_bundle.get("seeds", [])
+        seed_intent_map = seed_bundle.get("seed_intent_map", {})
         if not seeds:
             logger.warning("No seeds generated. Aborting.")
             return []
         
         # Step 2: Bulk Data Retrieval (DataForSEO)
-        raw_keywords = await self.fetch_bulk_keyword_data(seeds)
+        raw_keywords = await self.fetch_bulk_keyword_data(seeds, seed_intent_map=seed_intent_map)
         if not raw_keywords:
              logger.warning("No keyword data found. Aborting.")
              return []
@@ -110,9 +112,25 @@ class SemanticExpansionService:
         if decision_focus:
             context_lines.append(f"Decision Focus: {decision_focus}")
 
+        intent_bucket = decomposition_context.get("intent_bucket")
+        if intent_bucket:
+            context_lines.append(f"Intent Bucket: {intent_bucket}")
+
+        angle_question = decomposition_context.get("angle_question")
+        if angle_question:
+            context_lines.append(f"Angle Question: {angle_question}")
+
+        value_layer_tags = decomposition_context.get("value_layer_tags") or []
+        if value_layer_tags:
+            context_lines.append(f"Value Layer Tags: {', '.join(value_layer_tags[:8])}")
+
         audience = decomposition_context.get("target_audience")
         if audience:
             context_lines.append(f"Target Audience: {audience}")
+
+        evidence_sources = decomposition_context.get("evidence_sources") or []
+        if evidence_sources:
+            context_lines.append(f"Evidence Sources: {', '.join(evidence_sources[:8])}")
 
         signal_terms = decomposition_context.get("signal_terms") or []
         if signal_terms:
@@ -139,29 +157,39 @@ class SemanticExpansionService:
         Prefer subtopics that help the user make a concrete decision, compare options, quantify tradeoffs, or surface hidden costs.
         """
 
-    async def generate_seeds(self, topic: str, decomposition_context: Optional[Dict[str, Any]] = None) -> List[str]:
+    async def generate_seeds(self, topic: str, decomposition_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Step 1: Ask LLM for 10 distinct sub-niches and 3-5 search terms for each.
+        Step 1: Ask LLM for intent-aware seed keywords anchored to the topic angle.
         """
+        preferred_intent = (decomposition_context or {}).get("intent_bucket") or "informational_decision"
         context_block = self._format_decomposition_context(topic, decomposition_context)
         prompt = f"""
         You are a Keyword Research Expert.
         I have a central topic: "{topic}".
         {context_block}
+        Preferred Intent Bucket: {preferred_intent}
 
         Task:
-        1. Identify 10 distinct sub-niches related to this topic.
-        2. For EACH sub-niche, generate 3-5 specific, long-tail search terms (seeds).
+        Generate exactly 20 specific long-tail seed keywords grouped by intent profile:
+        - QUESTION_INTENT (5)
+        - COMPARISON_INTENT (5)
+        - ROI_INTENT (5)
+        - TOOL_INTENT (5)
 
         Constraints:
-        - DO NOT generate generic terms like "Best [Topic]" (e.g., "Best Gardening" is bad).
-        - Focus on specific problems, questions, or product comparison queries.
+        - DO NOT generate generic terms like "Best [Topic]" with no qualifier.
         - Keywords must be 3-5 words long.
-        - The seeds should reflect the selected category lens and website niche, not the broad internet interpretation of the phrase.
+        - Each keyword must be tightly tied to the angle question and decision focus.
+        - The seeds should reflect the selected category lens and website niche, not the broad internet interpretation.
         - If the topic is broad or abstract, translate it into concrete decision angles, frameworks, audits, scorecards, comparisons, calculators, or scenario-based research paths.
+        - Favor the preferred intent bucket where possible, while still returning all 4 groups.
 
         Output Format:
-        Return ONLY a flat list of these search terms, one per line. No other text.
+        Return ONLY lines in this exact format:
+        QUESTION_INTENT | keyword text
+        COMPARISON_INTENT | keyword text
+        ROI_INTENT | keyword text
+        TOOL_INTENT | keyword text
         """
         try:
             response = await asyncio.wait_for(
@@ -169,22 +197,54 @@ class SemanticExpansionService:
                 timeout=30.0  # 30 second timeout for seed generation
             )
             text = response.content.strip()
-            # Split by newlines and clean
-            seeds = [line.strip().lstrip('- ').strip() for line in text.split('\n') if line.strip()]
-            # Deduplicate
-            seeds = list(set(seeds))
+            seeds = []
+            seed_intent_map: Dict[str, str] = {}
+            for line in text.split('\n'):
+                clean_line = line.strip().lstrip('- ').strip()
+                if not clean_line:
+                    continue
+                if '|' in clean_line:
+                    intent_label, keyword_text = clean_line.split('|', 1)
+                    intent_label = intent_label.strip().upper()
+                    keyword_text = keyword_text.strip()
+                else:
+                    intent_label = "GENERAL_INTENT"
+                    keyword_text = clean_line
+                if keyword_text:
+                    seeds.append(keyword_text)
+                    seed_intent_map[keyword_text.lower()] = intent_label
+
+            # Deduplicate while preserving order
+            deduped_seeds = []
+            seen = set()
+            for seed in seeds:
+                normalized = seed.lower()
+                if normalized in seen:
+                    continue
+                seen.add(normalized)
+                deduped_seeds.append(seed)
+            seeds = deduped_seeds
+
             logger.info(f"Generated {len(seeds)} unique seeds for topic '{topic}'")
-            return seeds
+            return {
+                "seeds": seeds,
+                "seed_intent_map": {seed.lower(): seed_intent_map.get(seed.lower(), "GENERAL_INTENT") for seed in seeds}
+            }
         except Exception as e:
             logger.error(f"Error generating seeds: {e}")
-            return [topic] if topic else []
+            fallback_seed = [topic] if topic else []
+            return {
+                "seeds": fallback_seed,
+                "seed_intent_map": {topic.lower(): "GENERAL_INTENT"} if topic else {}
+            }
 
-    async def fetch_bulk_keyword_data(self, seeds: List[str]) -> List[Dict[str, Any]]:
+    async def fetch_bulk_keyword_data(self, seeds: List[str], seed_intent_map: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
         """
         Step 2: Fetch related keywords for all seeds from DataForSEO.
         NOTE: This mimics bulk retrieval by making parallel calls for batches of seeds.
         """
         all_keywords = []
+        seed_intent_map = seed_intent_map or {}
         
         # Limit seeds to avoid excessive API usage if LLM returns too many
         seeds_to_process = seeds[:50] 
@@ -205,6 +265,8 @@ class SemanticExpansionService:
         unique_keywords = {}
         for kw in all_keywords:
             if kw['keyword'] not in unique_keywords:
+                normalized_kw = kw['keyword'].lower()
+                kw['seed_intent_group'] = seed_intent_map.get(normalized_kw, "")
                 unique_keywords[kw['keyword']] = kw
         
         # 2. Start with what we have (Expanded or Empty)
@@ -222,7 +284,8 @@ class SemanticExpansionService:
                     'search_volume': 0, # Will enrich below
                     'cpc': 0,
                     'keyword_difficulty': 0,
-                    'is_fallback': True
+                    'is_fallback': True,
+                    'seed_intent_group': seed_intent_map.get(s_clean.lower(), "GENERAL_INTENT"),
                 })
                 seeds_added += 1
         
@@ -257,6 +320,8 @@ class SemanticExpansionService:
                     m = metrics_map[k_norm]
                     k['search_volume'] = m.get('search_volume', 0)
                     k['cpc'] = m.get('cpc', 0)
+                    if not k.get('seed_intent_group'):
+                        k['seed_intent_group'] = seed_intent_map.get(k_norm, "")
                     if not k.get('competition') or k.get('competition') == 'UNKNOWN':
                         k['competition'] = m.get('competition')
                     updated_vol_count += 1
@@ -472,14 +537,23 @@ class SemanticExpansionService:
         Output Format (use EXACTLY this format):
 
         CLUSTER: Subtopic Name Here
+        OUTCOME: One clear user outcome this cluster helps achieve
+        TYPE: one of [problem, decision, comparison, checklist, framework, audit, calculator, scenario]
+        INTENT_MATCH: one of [high, medium, low]
+        TOOL_POTENTIAL: integer 0-100
         KEYWORDS: keyword1, keyword2, keyword3
 
         CLUSTER: Another Subtopic Name
+        OUTCOME: ...
+        TYPE: ...
+        INTENT_MATCH: ...
+        TOOL_POTENTIAL: ...
         KEYWORDS: keyword4, keyword5, keyword6
 
         Rules:
         - Start each cluster with "CLUSTER: " followed by the name
-        - List keywords on the next line starting with "KEYWORDS: "
+        - Include OUTCOME/TYPE/INTENT_MATCH/TOOL_POTENTIAL fields before KEYWORDS
+        - List keywords on the final line starting with "KEYWORDS: "
         - Separate keywords with commas
         - Do not use markdown code blocks
         - Return ONLY the cluster definitions, no other text
@@ -547,7 +621,8 @@ class SemanticExpansionService:
                             "keyword_difficulty": kd,
                             "competition": kw_data.get('competition'),
                             "main_intent": kw_data.get('main_intent') or kw_data.get('intent', 'commercial'),
-                            "profitability_score": kw_data.get('profitability_score')
+                            "profitability_score": kw_data.get('profitability_score'),
+                            "seed_intent_group": kw_data.get('seed_intent_group', ''),
                         })
                 # Fallback: If strict matching failed (LLM hallucinated new words), 
                 # try to find ANY keywords from our Golden List that contain the cluster title words.
@@ -571,7 +646,8 @@ class SemanticExpansionService:
                                     "keyword_difficulty": kw_obj.get('keyword_difficulty') or 0,
                                     "competition": kw_obj.get('competition'),
                                     "main_intent": kw_obj.get('main_intent') or kw_obj.get('intent', 'commercial'),
-                                    "profitability_score": kw_obj.get('profitability_score')
+                                    "profitability_score": kw_obj.get('profitability_score'),
+                                    "seed_intent_group": kw_obj.get('seed_intent_group', ''),
                                  })
                                  
                                  total_vol += kw_obj.get('search_volume') or 0
@@ -593,7 +669,8 @@ class SemanticExpansionService:
                             "search_volume": kw_obj.get('search_volume') or 0,
                             "cpc": kw_obj.get('cpc') or 0,
                             "keyword_difficulty": kw_obj.get('keyword_difficulty') or 0,
-                            "profitability_score": kw_obj.get('profitability_score')
+                            "profitability_score": kw_obj.get('profitability_score'),
+                            "seed_intent_group": kw_obj.get('seed_intent_group', ''),
                          })
                          total_vol += kw_obj.get('search_volume') or 0
                          count += 1
@@ -610,6 +687,44 @@ class SemanticExpansionService:
                 cluster['search_volume'] = total_vol
                 cluster['cpc'] = round(avg_cpc, 2)
                 cluster['keyword_difficulty'] = max_kd
+                cluster['cluster_type'] = cluster.get('cluster_type') or "decision"
+                cluster['primary_user_outcome'] = cluster.get('primary_user_outcome') or f"Evaluate {title} and choose a practical next step"
+                cluster['serp_intent_match'] = (cluster.get('serp_intent_match') or "medium").lower()
+                cluster['tool_potential_score'] = int(cluster.get('tool_potential_score') or 50)
+                cluster['intent_bucket'] = (
+                    cluster.get('intent_bucket')
+                    or (decomposition_context or {}).get('intent_bucket')
+                    or "informational_decision"
+                )
+                cluster['decision_focus'] = (
+                    cluster.get('decision_focus')
+                    or (decomposition_context or {}).get('decision_focus')
+                    or f"Help users make a better decision about {title}"
+                )
+                cluster['angle_question'] = (
+                    cluster.get('angle_question')
+                    or (decomposition_context or {}).get('angle_question')
+                    or f"How should users evaluate options in {title}?"
+                )
+                cluster['value_layer_tags'] = (
+                    cluster.get('value_layer_tags')
+                    or (decomposition_context or {}).get('value_layer_tags')
+                    or ["decision-support"]
+                )
+                intent_coverage: Dict[str, int] = {}
+                for kw in matched_kw_objects:
+                    intent_group = (kw.get('seed_intent_group') or "GENERAL_INTENT").strip().upper()
+                    intent_coverage[intent_group] = intent_coverage.get(intent_group, 0) + 1
+                cluster['intent_coverage'] = intent_coverage
+                if intent_coverage:
+                    ordered_groups = sorted(intent_coverage.items(), key=lambda item: item[1], reverse=True)
+                    cluster['cluster_rationale'] = (
+                        f"Primary intent coverage: {', '.join([f'{group}:{count}' for group, count in ordered_groups])}."
+                    )
+                if cluster['tool_potential_score'] < 0:
+                    cluster['tool_potential_score'] = 0
+                if cluster['tool_potential_score'] > 100:
+                    cluster['tool_potential_score'] = 100
                 
                 # Ensure primary keyword is set validly
                 if not cluster.get('primary_keyword'):
@@ -627,7 +742,11 @@ class SemanticExpansionService:
                          "keywords": [k['keyword'] for k in keywords[:15]],
                          "search_volume": sum(k.get('search_volume', 0) for k in keywords[:15]),
                          "cpc": 0.5,
-                         "keyword_difficulty": 50
+                         "keyword_difficulty": 50,
+                         "cluster_type": "decision",
+                         "primary_user_outcome": "Evaluate broad options and choose next steps",
+                         "serp_intent_match": "medium",
+                         "tool_potential_score": 50,
                      }]
                 return []
 
@@ -644,7 +763,11 @@ class SemanticExpansionService:
                      "keywords": [k['keyword'] for k in keywords[:15]],
                      "search_volume": sum(k.get('search_volume', 0) for k in keywords[:15]),
                      "cpc": 0.0,
-                     "keyword_difficulty": 50
+                     "keyword_difficulty": 50,
+                     "cluster_type": "decision",
+                     "primary_user_outcome": "Evaluate broad options and choose next steps",
+                     "serp_intent_match": "medium",
+                     "tool_potential_score": 50,
                 }]
             return []
 
@@ -819,23 +942,43 @@ class SemanticExpansionService:
 
         # Split by CLUSTER: marker
         # Pattern matches "CLUSTER:" followed by name, then "KEYWORDS:" followed by comma-separated list
-        pattern = r'CLUSTER:\s*(.+?)\nKEYWORDS:\s*(.+?)(?=\nCLUSTER:|\Z)'
+        pattern = (
+            r'CLUSTER:\s*(.+?)\n'
+            r'OUTCOME:\s*(.+?)\n'
+            r'TYPE:\s*(.+?)\n'
+            r'INTENT_MATCH:\s*(.+?)\n'
+            r'TOOL_POTENTIAL:\s*(.+?)\n'
+            r'KEYWORDS:\s*(.+?)(?=\nCLUSTER:|\Z)'
+        )
         matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
 
         if matches:
-            for name, keywords_str in matches:
+            for name, outcome, cluster_type, intent_match, tool_potential, keywords_str in matches:
                 # Clean up the keywords
                 keywords = [k.strip().strip('- ') for k in keywords_str.split(',') if k.strip()]
                 if keywords:  # Only add if we have keywords
+                    tool_score = 50
+                    try:
+                        tool_score = int(re.findall(r"-?\d+", str(tool_potential))[0])
+                    except Exception:
+                        tool_score = 50
                     clusters.append({
                         'subtopic_name': name.strip(),
-                        'seed_keywords': keywords
+                        'seed_keywords': keywords,
+                        'primary_user_outcome': outcome.strip(),
+                        'cluster_type': cluster_type.strip().lower(),
+                        'serp_intent_match': intent_match.strip().lower(),
+                        'tool_potential_score': max(0, min(100, tool_score)),
                     })
         else:
             # Fallback: try simpler parsing if regex fails
             lines = text.split('\n')
             current_cluster = None
             current_keywords = []
+            current_outcome = ""
+            current_type = "decision"
+            current_intent_match = "medium"
+            current_tool_score = 50
 
             for line in lines:
                 line = line.strip()
@@ -848,7 +991,11 @@ class SemanticExpansionService:
                     if current_cluster and current_keywords:
                         clusters.append({
                             'subtopic_name': current_cluster,
-                            'seed_keywords': current_keywords
+                            'seed_keywords': current_keywords,
+                            'primary_user_outcome': current_outcome or f"Evaluate {current_cluster} and choose next steps",
+                            'cluster_type': current_type,
+                            'serp_intent_match': current_intent_match,
+                            'tool_potential_score': current_tool_score,
                         })
 
                     # Extract new cluster name
@@ -857,6 +1004,24 @@ class SemanticExpansionService:
                     else:
                         current_cluster = line.strip('* ')
                     current_keywords = []
+                    current_outcome = ""
+                    current_type = "decision"
+                    current_intent_match = "medium"
+                    current_tool_score = 50
+
+                elif line.upper().startswith('OUTCOME:'):
+                    current_outcome = line.split(':', 1)[1].strip()
+                elif line.upper().startswith('TYPE:'):
+                    current_type = line.split(':', 1)[1].strip().lower() or "decision"
+                elif line.upper().startswith('INTENT_MATCH:'):
+                    current_intent_match = line.split(':', 1)[1].strip().lower() or "medium"
+                elif line.upper().startswith('TOOL_POTENTIAL:'):
+                    potential = line.split(':', 1)[1].strip()
+                    try:
+                        current_tool_score = int(re.findall(r"-?\d+", potential)[0])
+                    except Exception:
+                        current_tool_score = 50
+                    current_tool_score = max(0, min(100, current_tool_score))
 
                 # Check for keywords line
                 elif line.upper().startswith('KEYWORDS:') or line.startswith('-'):
@@ -873,7 +1038,11 @@ class SemanticExpansionService:
             if current_cluster and current_keywords:
                 clusters.append({
                     'subtopic_name': current_cluster,
-                    'seed_keywords': current_keywords
+                    'seed_keywords': current_keywords,
+                    'primary_user_outcome': current_outcome or f"Evaluate {current_cluster} and choose next steps",
+                    'cluster_type': current_type,
+                    'serp_intent_match': current_intent_match,
+                    'tool_potential_score': current_tool_score,
                 })
 
         return clusters

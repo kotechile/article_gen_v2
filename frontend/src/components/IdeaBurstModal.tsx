@@ -14,9 +14,58 @@ interface IdeaBurstModalProps {
     subtopic: Subtopic | null;
     topicId: string;
     topicTitle: string;
+    projectName?: string | null;
+    categoryPath?: string | null;
 }
 
-export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle: _topicTitle }: IdeaBurstModalProps) {
+function intentChipClass(intent?: string) {
+    const value = (intent || "").toLowerCase();
+    if (value.includes("transactional")) return "bg-emerald-500/20 text-emerald-300 border-emerald-500/30";
+    if (value.includes("commercial")) return "bg-amber-500/20 text-amber-300 border-amber-500/30";
+    return "bg-blue-500/20 text-blue-300 border-blue-500/30";
+}
+
+function complexityChipClass(level?: string) {
+    const value = (level || "").toLowerCase();
+    if (value.includes("high")) return "bg-red-500/20 text-red-300 border-red-500/30";
+    if (value.includes("medium")) return "bg-yellow-500/20 text-yellow-300 border-yellow-500/30";
+    return "bg-emerald-500/20 text-emerald-300 border-emerald-500/30";
+}
+
+function getRankFactors(idea: ContentIdea): Array<{ label: string; value: number }> {
+    const breakdown = idea.ranking_breakdown;
+    if (!breakdown) return [];
+    const entries: Array<{ key: keyof NonNullable<ContentIdea["ranking_breakdown"]>; label: string }> = [
+        { key: "search_opportunity", label: "Search" },
+        { key: "intent_match", label: "Intent" },
+        { key: "serp_intent_match", label: "SERP Fit" },
+        { key: "viability", label: "Viability" },
+        { key: "seo_ease", label: "SEO Ease" },
+        { key: "tool_potential", label: "Tool Potential" },
+        { key: "build_complexity_score", label: "Build Ease" },
+    ];
+
+    return entries
+        .map(({ key, label }) => ({
+            label,
+            value: Number(breakdown[key] || 0),
+        }))
+        .filter((item) => item.value > 0);
+}
+
+function buildInternalLinkGroups(ideas: ContentIdea[]): Array<{ hook: string; count: number }> {
+    const groups = new Map<string, number>();
+    ideas.forEach((idea) => {
+        const hook = (idea.internal_link_hook || "").trim();
+        if (!hook) return;
+        groups.set(hook, (groups.get(hook) || 0) + 1);
+    });
+    return Array.from(groups.entries())
+        .map(([hook, count]) => ({ hook, count }))
+        .sort((a, b) => b.count - a.count);
+}
+
+export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle, projectName, categoryPath }: IdeaBurstModalProps) {
     const navigate = useNavigate();
     const { user } = useAuth();
     const [loading, setLoading] = React.useState(false);
@@ -63,7 +112,15 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
                 subtopicName: subtopic.name,
                 keywords: keywordStrings,
                 affiliateOffers,
-                userId: user.id
+                userId: user.id,
+                intentBucket: subtopic.intent_bucket,
+                decisionFocus: subtopic.decision_focus,
+                angleQuestion: subtopic.angle_question,
+                valueLayerTags: subtopic.value_layer_tags,
+                clusterType: subtopic.cluster_type,
+                primaryUserOutcome: subtopic.primary_user_outcome,
+                serpIntentMatch: subtopic.serp_intent_match,
+                toolPotentialScore: subtopic.tool_potential_score,
             });
 
             setBlogIdeas(result.blog_ideas || []);
@@ -168,6 +225,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
 
     const totalBlogIdeas = blogIdeas.length;
     const totalSoftwareIdeas = softwareIdeas.length;
+    const internalLinkGroups = React.useMemo(() => buildInternalLinkGroups(blogIdeas), [blogIdeas]);
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -200,6 +258,54 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
 
                 {/* Content */}
                 <div className="flex-1 overflow-auto p-6">
+                    {(subtopic.intent_bucket || subtopic.decision_focus || subtopic.angle_question || (subtopic.value_layer_tags && subtopic.value_layer_tags.length > 0)) && (
+                        <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-3">
+                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                                {subtopic.intent_bucket && (
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${intentChipClass(subtopic.intent_bucket)}`}>
+                                        Intent: {subtopic.intent_bucket}
+                                    </span>
+                                )}
+                                {subtopic.value_layer_tags?.map((tag, idx) => (
+                                    <span key={`${tag}-${idx}`} className="text-[10px] px-2 py-0.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-300">
+                                        {tag}
+                                    </span>
+                                ))}
+                            </div>
+                            {subtopic.decision_focus && (
+                                <p className="text-[11px] text-slate-300 mb-1">
+                                    <span className="text-indigo-400 font-medium">Decision Focus:</span> {subtopic.decision_focus}
+                                </p>
+                            )}
+                            {subtopic.angle_question && (
+                                <p className="text-[11px] text-slate-300">
+                                    <span className="text-indigo-400 font-medium">Angle Question:</span> {subtopic.angle_question}
+                                </p>
+                            )}
+                        </div>
+                    )}
+
+                    {internalLinkGroups.length > 0 && (
+                        <div className="mb-4 rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3">
+                            <p className="text-[11px] text-indigo-300 font-medium mb-2">Internal Link Groups</p>
+                            <div className="space-y-1">
+                                {internalLinkGroups.slice(0, 4).map((group) => (
+                                    <div key={group.hook} className="flex items-start justify-between gap-3 text-[11px]">
+                                        <span className="text-slate-300 leading-snug">{group.hook}</span>
+                                        <span className="text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 rounded px-1.5 py-0.5 flex-shrink-0">
+                                            {group.count}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                            {subtopic.decision_focus && (
+                                <p className="mt-2 text-[10px] text-slate-400">
+                                    Linked by decision focus: <span className="text-slate-300">{subtopic.decision_focus}</span>
+                                </p>
+                            )}
+                        </div>
+                    )}
+
                     {loading && (
                         <div className="py-16 flex flex-col items-center gap-4">
                             <Loader2 className="w-12 h-12 text-indigo-400 animate-spin" />
@@ -274,6 +380,13 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
                                                 onToggle={() => toggleBlogSelection(idea.id)}
                                                 isExpanded={expandedMetrics === idea.id}
                                                 onToggleMetrics={() => toggleMetricsExpansion(idea.id)}
+                                                mapContext={{
+                                                    projectName: projectName || undefined,
+                                                    categoryPath: categoryPath || undefined,
+                                                    angleQuestion: subtopic.angle_question || undefined,
+                                                    clusterName: subtopic.name || undefined,
+                                                    topicTitle: topicTitle || undefined,
+                                                }}
                                             />
                                         ))}
                                     </div>
@@ -344,6 +457,13 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle:
                                                 onToggle={() => toggleSoftwareSelection(idea.id)}
                                                 isExpanded={expandedMetrics === idea.id}
                                                 onToggleMetrics={() => toggleMetricsExpansion(idea.id)}
+                                                mapContext={{
+                                                    projectName: projectName || undefined,
+                                                    categoryPath: categoryPath || undefined,
+                                                    angleQuestion: subtopic.angle_question || undefined,
+                                                    clusterName: subtopic.name || undefined,
+                                                    topicTitle: topicTitle || undefined,
+                                                }}
                                             />
                                         ))}
                                     </div>
@@ -421,10 +541,18 @@ interface BlogIdeaCardProps {
     onToggle: () => void;
     isExpanded: boolean;
     onToggleMetrics: () => void;
+    mapContext: {
+        projectName?: string;
+        categoryPath?: string;
+        topicTitle?: string;
+        angleQuestion?: string;
+        clusterName?: string;
+    };
 }
 
-function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics }: BlogIdeaCardProps) {
+function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics, mapContext }: BlogIdeaCardProps) {
     const keywords = idea.primary_keywords || idea.keywords || [];
+    const rankFactors = getRankFactors(idea);
 
     // Calculate per-keyword metrics (distribute aggregate values)
     const keywordCount = keywords.length || 1;
@@ -507,6 +635,12 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics 
                                     <span className="text-slate-300">{Math.round(idea.viability_score || 0)}%</span>
                                 </span>
                             )}
+                            {(idea.opportunity_score || 0) > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="text-violet-400">Opportunity:</span>
+                                    <span className="text-slate-300">{Math.round(idea.opportunity_score || 0)}%</span>
+                                </span>
+                            )}
                         </div>
 
                         {/* Affiliate Hook - Full width */}
@@ -517,6 +651,76 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics 
                                 </p>
                             </div>
                         )}
+
+                        {/* Strategy Context */}
+                        {(idea.article_format || idea.user_decision_helped || idea.internal_link_hook || idea.target_intent) && (
+                            <div className="mt-2 space-y-1">
+                                {idea.article_format && (
+                                    <div className="text-[11px] text-slate-300 flex items-center gap-2">
+                                        <span className="text-indigo-400 font-medium">Format:</span>
+                                        <span className="px-1.5 py-0.5 rounded border bg-indigo-500/15 border-indigo-500/30 text-indigo-300 text-[10px]">
+                                            {idea.article_format}
+                                        </span>
+                                    </div>
+                                )}
+                                {idea.target_intent && (
+                                    <div className="text-[11px] text-slate-300 flex items-center gap-2">
+                                        <span className="text-indigo-400 font-medium">Intent:</span>
+                                        <span className={`px-1.5 py-0.5 rounded border text-[10px] ${intentChipClass(idea.target_intent)}`}>
+                                            {idea.target_intent}
+                                        </span>
+                                    </div>
+                                )}
+                                {idea.user_decision_helped && (
+                                    <p className="text-[11px] text-slate-300">
+                                        <span className="text-indigo-400 font-medium">Decision Helped:</span> {idea.user_decision_helped}
+                                    </p>
+                                )}
+                                {idea.internal_link_hook && (
+                                    <p className="text-[11px] text-slate-300">
+                                        <span className="text-indigo-400 font-medium">Internal Link Hook:</span> {idea.internal_link_hook}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        {rankFactors.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                                {rankFactors.slice(0, 4).map((factor) => (
+                                    <span key={factor.label} className="text-[10px] px-1.5 py-0.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-300">
+                                        {factor.label}: {Math.round(factor.value)}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+
+                        <div className="mt-2 pt-2 border-t border-white/5 flex flex-wrap gap-1">
+                            {mapContext.projectName && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-500/30 bg-slate-500/10 text-slate-300">
+                                    Project: {mapContext.projectName}
+                                </span>
+                            )}
+                            {mapContext.categoryPath && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-500/30 bg-slate-500/10 text-slate-300">
+                                    Category: {mapContext.categoryPath}
+                                </span>
+                            )}
+                            {mapContext.topicTitle && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-500/30 bg-slate-500/10 text-slate-300">
+                                    Topic: {mapContext.topicTitle}
+                                </span>
+                            )}
+                            {mapContext.angleQuestion && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-500/30 bg-slate-500/10 text-slate-300">
+                                    Angle
+                                </span>
+                            )}
+                            {mapContext.clusterName && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-500/30 bg-slate-500/10 text-slate-300">
+                                    Cluster: {mapContext.clusterName}
+                                </span>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -596,10 +800,18 @@ interface SoftwareIdeaCardProps {
     onToggle: () => void;
     isExpanded: boolean;
     onToggleMetrics: () => void;
+    mapContext: {
+        projectName?: string;
+        categoryPath?: string;
+        topicTitle?: string;
+        angleQuestion?: string;
+        clusterName?: string;
+    };
 }
 
-function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics }: SoftwareIdeaCardProps) {
+function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics, mapContext }: SoftwareIdeaCardProps) {
     const keywords = idea.primary_keywords || idea.keywords || [];
+    const rankFactors = getRankFactors(idea);
 
     // Calculate per-keyword metrics (distribute aggregate values)
     const keywordCount = keywords.length || 1;
@@ -682,6 +894,12 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                                     <span className="text-slate-300">{Math.round(idea.viability_score || 0)}%</span>
                                 </span>
                             )}
+                            {(idea.opportunity_score || 0) > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="text-violet-400">Rank:</span>
+                                    <span className="text-slate-300">{Math.round(idea.opportunity_score || 0)}%</span>
+                                </span>
+                            )}
                         </div>
 
                         {/* Monetization Strategy */}
@@ -692,6 +910,81 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                                 </p>
                             </div>
                         )}
+
+                        {/* Product Strategy Context */}
+                        {(idea.product_type || idea.user_job_to_be_done || idea.build_complexity || idea.distribution_angle || idea.output_result) && (
+                            <div className="mt-2 space-y-1">
+                                {idea.product_type && (
+                                    <div className="text-[11px] text-slate-300 flex items-center gap-2">
+                                        <span className="text-amber-400 font-medium">Product Type:</span>
+                                        <span className="px-1.5 py-0.5 rounded border bg-amber-500/15 border-amber-500/30 text-amber-300 text-[10px]">
+                                            {idea.product_type}
+                                        </span>
+                                    </div>
+                                )}
+                                {idea.user_job_to_be_done && (
+                                    <p className="text-[11px] text-slate-300">
+                                        <span className="text-amber-400 font-medium">User Job:</span> {idea.user_job_to_be_done}
+                                    </p>
+                                )}
+                                {idea.build_complexity && (
+                                    <div className="text-[11px] text-slate-300 flex items-center gap-2">
+                                        <span className="text-amber-400 font-medium">Build Complexity:</span>
+                                        <span className={`px-1.5 py-0.5 rounded border text-[10px] ${complexityChipClass(idea.build_complexity)}`}>
+                                            {idea.build_complexity}
+                                        </span>
+                                    </div>
+                                )}
+                                {idea.output_result && (
+                                    <p className="text-[11px] text-slate-300">
+                                        <span className="text-amber-400 font-medium">Output:</span> {idea.output_result}
+                                    </p>
+                                )}
+                                {idea.distribution_angle && (
+                                    <p className="text-[11px] text-slate-300">
+                                        <span className="text-amber-400 font-medium">Distribution:</span> {idea.distribution_angle}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        {rankFactors.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                                {rankFactors.slice(0, 4).map((factor) => (
+                                    <span key={factor.label} className="text-[10px] px-1.5 py-0.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-300">
+                                        {factor.label}: {Math.round(factor.value)}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+
+                        <div className="mt-2 pt-2 border-t border-white/5 flex flex-wrap gap-1">
+                            {mapContext.projectName && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-500/30 bg-slate-500/10 text-slate-300">
+                                    Project: {mapContext.projectName}
+                                </span>
+                            )}
+                            {mapContext.categoryPath && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-500/30 bg-slate-500/10 text-slate-300">
+                                    Category: {mapContext.categoryPath}
+                                </span>
+                            )}
+                            {mapContext.topicTitle && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-500/30 bg-slate-500/10 text-slate-300">
+                                    Topic: {mapContext.topicTitle}
+                                </span>
+                            )}
+                            {mapContext.angleQuestion && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-500/30 bg-slate-500/10 text-slate-300">
+                                    Angle
+                                </span>
+                            )}
+                            {mapContext.clusterName && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-slate-500/30 bg-slate-500/10 text-slate-300">
+                                    Cluster: {mapContext.clusterName}
+                                </span>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>

@@ -125,6 +125,30 @@ def _enrich_research_topics(supabase, topics):
     return topics
 
 
+ANGLE_METADATA_FIELDS = [
+    "intent_bucket",
+    "decision_focus",
+    "angle_question",
+    "value_layer_tags",
+    "target_audience",
+    "evidence_sources",
+    "related_terms",
+]
+
+
+def _extract_angle_metadata(payload):
+    """Extract optional angle metadata fields when explicitly provided."""
+    metadata = {}
+    for key in ANGLE_METADATA_FIELDS:
+        if key not in payload:
+            continue
+        value = payload.get(key)
+        if value is None:
+            continue
+        metadata[key] = value
+    return metadata
+
+
 def _safe_string(value):
     """Normalize optional values into compact strings."""
     if value is None:
@@ -133,6 +157,151 @@ def _safe_string(value):
         cleaned = " ".join(value.split()).strip()
         return cleaned or None
     return str(value)
+
+
+def _derive_intent_bucket(title: str, category_path: str) -> str:
+    """Infer a default intent bucket from topic/category phrasing."""
+    text = f"{title} {category_path}".lower()
+    if any(term in text for term in ["vs", "compare", "comparison", "best", "top", "alternative"]):
+        return "commercial_evaluation"
+    if any(term in text for term in ["calculator", "tool", "template", "checklist", "framework"]):
+        return "solution_enablement"
+    if any(term in text for term in ["cost", "roi", "value", "profit", "returns", "pricing"]):
+        return "decision_financial"
+    return "informational_decision"
+
+
+def _derive_value_layer_tags(title: str, category_path: str) -> list[str]:
+    """Infer high-level value tags used later for decomposition and idea scoring."""
+    text = f"{title} {category_path}".lower()
+    tags: list[str] = []
+    if any(term in text for term in ["roi", "return", "profit", "resale", "yield"]):
+        tags.append("roi-focused")
+    if any(term in text for term in ["cost", "price", "expense", "budget", "hidden cost"]):
+        tags.append("cost-vs-value")
+    if any(term in text for term in ["timing", "when to", "cycle", "market timing"]):
+        tags.append("timing-decision")
+    if any(term in text for term in ["location", "city", "state", "geo", "geographic"]):
+        tags.append("location-decision")
+    if any(term in text for term in ["audit", "scorecard", "framework", "evaluation"]):
+        tags.append("hidden-cost-audit")
+    if any(term in text for term in ["tool", "calculator", "dashboard", "app", "automation"]):
+        tags.append("tool-builder")
+    if not tags:
+        tags.append("decision-support")
+    return tags[:4]
+
+
+def _derive_angle_metadata(
+    title: str,
+    description: str,
+    primary_category_name: str,
+    secondary_category_name: str,
+    project_description: str,
+) -> dict:
+    """Build fallback angle metadata when the client did not provide structured fields."""
+    title_clean = _safe_string(title) or "Untitled topic"
+    description_clean = _safe_string(description)
+    category_parts = [p for p in [primary_category_name, secondary_category_name] if p]
+    category_path = " / ".join(category_parts)
+
+    intent_bucket = _derive_intent_bucket(title_clean, category_path)
+    decision_focus = (
+        description_clean
+        or f"Help users evaluate options and make a better decision about {title_clean}."
+    )
+    angle_question = f"How should someone evaluate {title_clean} and decide the best next action?"
+    target_audience = None
+    if project_description:
+        lowered = project_description.lower()
+        if any(term in lowered for term in ["investor", "investing", "portfolio", "capital"]):
+            target_audience = "investors and operators"
+        elif any(term in lowered for term in ["homeowner", "home", "property owner"]):
+            target_audience = "homeowners and property buyers"
+
+    related_terms = []
+    for token in re.split(r"[^a-zA-Z0-9]+", title_clean.lower()):
+        if token and len(token) > 3 and token not in related_terms:
+            related_terms.append(token)
+    if secondary_category_name:
+        related_terms.append(secondary_category_name.lower())
+
+    metadata = {
+        "intent_bucket": intent_bucket,
+        "decision_focus": decision_focus,
+        "angle_question": angle_question,
+        "value_layer_tags": _derive_value_layer_tags(title_clean, category_path),
+        "target_audience": target_audience,
+        "related_terms": related_terms[:8],
+    }
+
+    if category_path:
+        metadata["evidence_sources"] = [f"category:{category_path}"]
+
+    return {key: value for key, value in metadata.items() if value not in [None, "", []]}
+
+
+def _hydrate_angle_metadata_for_payloads(
+    supabase,
+    payloads: list[dict],
+):
+    """Fill missing angle metadata fields using project/category context."""
+    if not payloads:
+        return payloads
+
+    project_ids = sorted({item.get("project_id") for item in payloads if item.get("project_id")})
+    category_ids = sorted({
+        category_id
+        for item in payloads
+        for category_id in [item.get("primary_category_id"), item.get("secondary_category_id")]
+        if category_id
+    })
+
+    projects_by_id = {}
+    categories_by_id = {}
+
+    if project_ids:
+        project_response = (
+            supabase
+            .table("projects")
+            .select("id, site_description, websiteDescription")
+            .in_("id", project_ids)
+            .execute()
+        )
+        projects_by_id = {row["id"]: row for row in (project_response.data or [])}
+
+    if category_ids:
+        category_response = (
+            supabase
+            .table("project_categories")
+            .select("id, name")
+            .in_("id", category_ids)
+            .execute()
+        )
+        categories_by_id = {
+            row["id"]: (row.get("name") or "")
+            for row in (category_response.data or [])
+        }
+
+    for item in payloads:
+        existing = _extract_angle_metadata(item)
+        missing = [field for field in ANGLE_METADATA_FIELDS if field not in existing]
+        if not missing:
+            continue
+
+        project = projects_by_id.get(item.get("project_id")) or {}
+        generated = _derive_angle_metadata(
+            title=item.get("title") or "",
+            description=item.get("description") or "",
+            primary_category_name=categories_by_id.get(item.get("primary_category_id")) or "",
+            secondary_category_name=categories_by_id.get(item.get("secondary_category_id")) or "",
+            project_description=_safe_string(project.get("site_description") or project.get("websiteDescription")) or "",
+        )
+        for field in missing:
+            if field in generated and generated[field] is not None:
+                item[field] = generated[field]
+
+    return payloads
 
 
 def _extract_trend_titles(last_trend_report):
@@ -195,10 +364,14 @@ def _build_decomposition_context(topic, project, primary_category_name=None, sec
         "project_description": project_description,
         "topic_description": topic_description,
         "category_path": category_path,
+        "intent_bucket": _safe_string(topic.get('intent_bucket')),
         "decision_focus": _build_decision_focus(topic, primary_category_name, secondary_category_name),
+        "angle_question": _safe_string(topic.get('angle_question')),
+        "value_layer_tags": topic.get('value_layer_tags') or [],
         "target_audience": _safe_string(topic.get('target_audience')),
+        "evidence_sources": topic.get('evidence_sources') or [],
         "trend_titles": trend_titles,
-        "signal_terms": signal_terms,
+        "signal_terms": (topic.get('related_terms') or []) + signal_terms,
         "decomposition_constraints": constraints,
     }
 
@@ -345,6 +518,9 @@ def create_research_topic():
             "topic_source": data.get('topic_source'),
             "source_topic_id": data.get('source_topic_id'),
         }
+        insert_data.update(_extract_angle_metadata(data))
+        hydrated = _hydrate_angle_metadata_for_payloads(supabase, [insert_data])
+        insert_data = hydrated[0] if hydrated else insert_data
 
         supabase_admin = _get_admin_supabase_client(supabase)
         response = supabase_admin.table('research_topics').insert(insert_data).execute()
@@ -442,7 +618,19 @@ def update_research_topic(topic_id):
                 status=401
             ).dict()), 401
         
-        update_data = {k: v for k, v in data.items() if k in ['title', 'description', 'status', 'project_id', 'primary_category_id', 'secondary_category_id', 'topic_source', 'source_topic_id']}
+        update_data = {
+            k: v for k, v in data.items() if k in [
+                'title',
+                'description',
+                'status',
+                'project_id',
+                'primary_category_id',
+                'secondary_category_id',
+                'topic_source',
+                'source_topic_id',
+                *ANGLE_METADATA_FIELDS,
+            ]
+        }
         update_data['updated_at'] = datetime.utcnow().isoformat()
         
         response = (
@@ -539,7 +727,7 @@ def bulk_create_research_topics():
                     status=400
                 ).dict()), 400
 
-            insert_payload.append({
+            item_payload = {
                 "title": title,
                 "description": item.get('description', ''),
                 "status": item.get('status', 'active'),
@@ -550,7 +738,11 @@ def bulk_create_research_topics():
                 "secondary_category_id": item.get('secondary_category_id'),
                 "topic_source": item.get('topic_source'),
                 "source_topic_id": item.get('source_topic_id'),
-            })
+            }
+            item_payload.update(_extract_angle_metadata(item))
+            insert_payload.append(item_payload)
+
+        insert_payload = _hydrate_angle_metadata_for_payloads(supabase, insert_payload)
 
         supabase_admin = _get_admin_supabase_client(supabase)
         response = supabase_admin.table('research_topics').insert(insert_payload).execute()
@@ -717,7 +909,7 @@ def generate_subtopics(topic_id):
         topic_res = (
             supabase
             .table('research_topics')
-            .select('id, title, description, user_id, project_id, primary_category_id, secondary_category_id')
+            .select('id, title, description, user_id, project_id, primary_category_id, secondary_category_id, intent_bucket, decision_focus, angle_question, value_layer_tags, target_audience, evidence_sources, related_terms')
             .eq('id', topic_id)
             .single()
             .execute()
@@ -815,6 +1007,14 @@ def generate_subtopics(topic_id):
                     "target_audience": sub_data.get("target_audience"),
                     "trend_analysis": sub_data.get("trend_analysis"),
                     "monetization":   sub_data.get("monetization_data"),
+                    "intent_bucket": sub_data.get("intent_bucket"),
+                    "decision_focus": sub_data.get("decision_focus"),
+                    "angle_question": sub_data.get("angle_question"),
+                    "value_layer_tags": sub_data.get("value_layer_tags", []),
+                    "cluster_type": sub_data.get("cluster_type"),
+                    "primary_user_outcome": sub_data.get("primary_user_outcome"),
+                    "serp_intent_match": sub_data.get("serp_intent_match"),
+                    "tool_potential_score": sub_data.get("tool_potential_score"),
                 }
                 logger.info(f"DEBUG trend_data: {trend_data}")
 
@@ -883,6 +1083,14 @@ def idea_burst():
         subtopic_name = data.get('subtopic')
         keywords = data.get('keywords', [])
         affiliate_offers = data.get('affiliate_offers', [])
+        context_intent_bucket = data.get('intent_bucket')
+        context_decision_focus = data.get('decision_focus')
+        context_angle_question = data.get('angle_question')
+        context_value_layer_tags = data.get('value_layer_tags') or []
+        context_cluster_type = data.get('cluster_type')
+        context_primary_user_outcome = data.get('primary_user_outcome')
+        context_serp_intent_match = data.get('serp_intent_match')
+        context_tool_potential_score = data.get('tool_potential_score')
 
         if user_id != request_user_id:
             return jsonify(ErrorResponse(
@@ -909,6 +1117,50 @@ def idea_burst():
                 status=403
             ).dict()), 403
 
+        topic_context_res = (
+            supabase
+            .table('research_topics')
+            .select('title, description, primary_category_id, secondary_category_id, intent_bucket, decision_focus, angle_question, value_layer_tags, target_audience')
+            .eq('id', topic_id)
+            .single()
+            .execute()
+        )
+        topic_context = topic_context_res.data or {}
+
+        category_path = "N/A"
+        category_ids = [
+            category_id
+            for category_id in [topic_context.get('primary_category_id'), topic_context.get('secondary_category_id')]
+            if category_id
+        ]
+        if category_ids:
+            try:
+                category_response = (
+                    supabase
+                    .table('project_categories')
+                    .select('id, name')
+                    .in_('id', category_ids)
+                    .execute()
+                )
+                category_map = {item['id']: item.get('name') for item in (category_response.data or [])}
+                primary_name = category_map.get(topic_context.get('primary_category_id'))
+                secondary_name = category_map.get(topic_context.get('secondary_category_id'))
+                category_path = " / ".join([part for part in [primary_name, secondary_name] if part]) or category_path
+            except Exception:
+                logger.warning("Could not load category names for Idea Burst context", exc_info=True)
+
+        effective_intent_bucket = context_intent_bucket or topic_context.get('intent_bucket') or "informational_decision"
+        effective_decision_focus = context_decision_focus or topic_context.get('decision_focus') or f"Help users make a decision about {subtopic_name}"
+        effective_angle_question = context_angle_question or topic_context.get('angle_question') or f"What is the best way to approach {subtopic_name}?"
+        effective_value_layer_tags = context_value_layer_tags or topic_context.get('value_layer_tags') or ["decision-support"]
+        effective_cluster_type = context_cluster_type or "decision"
+        effective_primary_user_outcome = context_primary_user_outcome or f"Choose a practical next action for {subtopic_name}"
+        effective_serp_intent_match = context_serp_intent_match or "medium"
+        try:
+            effective_tool_potential_score = int(context_tool_potential_score) if context_tool_potential_score is not None else 50
+        except Exception:
+            effective_tool_potential_score = 50
+
         logger.info(f"Generating idea burst for subtopic: {subtopic_name}")
 
         # Generate ideas using LLM
@@ -918,31 +1170,51 @@ def idea_burst():
         async def generate_ideas():
             # Generate blog ideas
             blog_prompt = f"""
-You are a content strategist specializing in SEO-optimized blog content.
+You are a senior content strategist creating highly actionable article ideas from an angle-cluster.
 
 Current Year: 2026
+Topic: {topic_context.get('title') or 'N/A'}
+Topic Description: {topic_context.get('description') or 'N/A'}
+Category Path: {category_path}
 Subtopic: {subtopic_name}
 Keywords: {', '.join(keywords[:10])}
 Affiliate Categories: {', '.join(affiliate_offers[:5]) if affiliate_offers else 'General'}
+Intent Bucket: {effective_intent_bucket}
+Decision Focus: {effective_decision_focus}
+Angle Question: {effective_angle_question}
+Value Layer Tags: {', '.join(effective_value_layer_tags[:6])}
+Cluster Type: {effective_cluster_type}
+Primary User Outcome: {effective_primary_user_outcome}
+SERP Intent Match: {effective_serp_intent_match}
+Tool Potential Score: {effective_tool_potential_score}/100
 
 Generate 5 blog article ideas that:
-1. Target specific long-tail keywords
-2. Have clear search intent (informational, commercial, or transactional)
-3. Include monetization opportunities
-4. Are specific and actionable (not generic)
+1. Stay tightly aligned to category path + angle question (no topic drift)
+2. Target specific long-tail keywords from this cluster
+3. Are decision-relevant and outcome-oriented, not generic listicles
+4. Include monetization opportunities tied to the audience decision
+5. Provide internal linking hooks to related angle clusters/value layers
 
 For each idea, provide:
-- Title: A compelling, SEO-optimized title
-- Description: 1-2 sentences describing the angle
-- Primary Keywords: 2-3 main keywords to target
-- Monetization Hook: How to monetize (affiliate product, service, etc.)
-- Estimated Metrics: Search volume (low/medium/high), Difficulty (1-100), Viability (1-100)
+- Title: Specific, SEO-conscious title
+- Description: 1-2 sentence angle summary
+- Primary Keywords: 2-3 keywords
+- Intent: informational/commercial/transactional
+- Format: comparison/checklist/framework/case-study/how-to/calculator-guide
+- User Decision Helped: What choice this article helps make
+- Internal Link Hook: Where this links in the topical graph
+- Monetization Hook: How to monetize
+- Estimated Metrics: search volume (number), difficulty (1-100), viability (1-100)
 
 Output format (use exactly this format):
 BLOG_IDEA: [number]
 TITLE: [title]
 DESCRIPTION: [description]
 KEYWORDS: [keyword1, keyword2, keyword3]
+INTENT: [informational/commercial/transactional]
+FORMAT: [comparison/checklist/framework/case-study/how-to/calculator-guide]
+USER_DECISION_HELPED: [decision]
+INTERNAL_LINK_HOOK: [internal link strategy]
 MONETIZATION: [monetization approach]
 VOLUME: [estimated monthly searches as number]
 DIFFICULTY: [SEO difficulty 1-100]
@@ -954,12 +1226,22 @@ Generate 5 blog ideas following this format.
 
             # Generate software/commercial ideas
             software_prompt = f"""
-You are a product strategist specializing in identifying software tools and features to BUILD (not review).
+You are a product strategist generating software/application ideas from a validated angle-cluster.
 
 Current Year: 2026
+Topic: {topic_context.get('title') or 'N/A'}
+Category Path: {category_path}
 Subtopic: {subtopic_name}
 Keywords: {', '.join(keywords[:10])}
 Affiliate Categories: {', '.join(affiliate_offers[:5]) if affiliate_offers else 'General'}
+Intent Bucket: {effective_intent_bucket}
+Decision Focus: {effective_decision_focus}
+Angle Question: {effective_angle_question}
+Value Layer Tags: {', '.join(effective_value_layer_tags[:6])}
+Cluster Type: {effective_cluster_type}
+Primary User Outcome: {effective_primary_user_outcome}
+SERP Intent Match: {effective_serp_intent_match}
+Tool Potential Score: {effective_tool_potential_score}/100
 
 Generate 3 ACTUAL SOFTWARE TOOLS or FEATURES to BUILD for a website/app.
 
@@ -981,7 +1263,13 @@ For each tool idea, provide:
 - Title: Name of the tool/feature to build (e.g., "RSU Tax Calculator", "Portfolio Rebalancing Tool")
 - Description: What the tool does and how users interact with it
 - Primary Keywords: Keywords people would search to find this tool
+- Product Type: calculator/planner/evaluator/comparison-tool/dashboard/workflow-helper
+- User Job To Be Done: the repeated decision/action this solves
+- Key Inputs: data users provide
+- Output Result: what users get back
 - Monetization Hook: How to monetize the tool (lead gen, freemium, affiliate integration, etc.)
+- Build Complexity: low/medium/high
+- Distribution Angle: how this gets discovered (SEO/interactive tool pages/etc.)
 - Estimated Metrics: Search volume, Difficulty, Viability
 
 Output format (use exactly this format):
@@ -989,7 +1277,13 @@ SOFTWARE_IDEA: [number]
 TITLE: [tool name - NOT a review article title]
 DESCRIPTION: [what the tool does and user interaction]
 KEYWORDS: [keyword1, keyword2, keyword3]
+PRODUCT_TYPE: [calculator/planner/evaluator/comparison-tool/dashboard/workflow-helper]
+USER_JOB: [job to be done]
+KEY_INPUTS: [input1, input2, input3]
+OUTPUT_RESULT: [result]
 MONETIZATION: [how to monetize the tool]
+BUILD_COMPLEXITY: [low/medium/high]
+DISTRIBUTION_ANGLE: [distribution strategy]
 VOLUME: [estimated monthly searches as number]
 DIFFICULTY: [SEO difficulty 1-100]
 VIABILITY: [overall viability score 1-100]
@@ -1009,6 +1303,20 @@ Generate 3 software tools/features to BUILD following this format.
         # Parse the responses
         blog_ideas = parse_idea_response(blog_text, 'blog', topic_id, user_id, subtopic_name)
         software_ideas = parse_idea_response(software_text, 'software', topic_id, user_id, subtopic_name)
+        blog_ideas = _rank_ideas(
+            ideas=blog_ideas,
+            content_type="blog",
+            context_target_intent=effective_intent_bucket,
+            context_tool_potential_score=effective_tool_potential_score,
+            context_serp_intent_match=effective_serp_intent_match,
+        )
+        software_ideas = _rank_ideas(
+            ideas=software_ideas,
+            content_type="software",
+            context_target_intent=effective_intent_bucket,
+            context_tool_potential_score=effective_tool_potential_score,
+            context_serp_intent_match=effective_serp_intent_match,
+        )
 
         return jsonify({
             "success": True,
@@ -1056,6 +1364,27 @@ def parse_idea_response(text: str, content_type: str, topic_id: str, user_id: st
             current_idea['keywords'] = [k.strip() for k in kw_text.split(',') if k.strip()]
         elif line.upper().startswith('MONETIZATION:'):
             current_idea['monetization_hook'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('INTENT:'):
+            current_idea['target_intent'] = line.split(':', 1)[1].strip().lower()
+        elif line.upper().startswith('FORMAT:'):
+            current_idea['article_format'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('USER_DECISION_HELPED:'):
+            current_idea['user_decision_helped'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('INTERNAL_LINK_HOOK:'):
+            current_idea['internal_link_hook'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('PRODUCT_TYPE:'):
+            current_idea['product_type'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('USER_JOB:'):
+            current_idea['user_job_to_be_done'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('KEY_INPUTS:'):
+            inputs_text = line.split(':', 1)[1].strip()
+            current_idea['key_inputs'] = [item.strip() for item in inputs_text.split(',') if item.strip()]
+        elif line.upper().startswith('OUTPUT_RESULT:'):
+            current_idea['output_result'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('BUILD_COMPLEXITY:'):
+            current_idea['build_complexity'] = line.split(':', 1)[1].strip().lower()
+        elif line.upper().startswith('DISTRIBUTION_ANGLE:'):
+            current_idea['distribution_angle'] = line.split(':', 1)[1].strip()
         elif line.upper().startswith('VOLUME:'):
             try:
                 vol_text = line.split(':', 1)[1].strip().replace(',', '')
@@ -1112,9 +1441,183 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
         "topic_id": topic_id,
         "subtopic": subtopic_name,
         "monetization_hook": idea_data.get('monetization_hook', ''),
+        "target_intent": idea_data.get('target_intent', ''),
+        "article_format": idea_data.get('article_format', ''),
+        "user_decision_helped": idea_data.get('user_decision_helped', ''),
+        "internal_link_hook": idea_data.get('internal_link_hook', ''),
+        "product_type": idea_data.get('product_type', ''),
+        "user_job_to_be_done": idea_data.get('user_job_to_be_done', ''),
+        "key_inputs": idea_data.get('key_inputs', []),
+        "output_result": idea_data.get('output_result', ''),
+        "build_complexity": idea_data.get('build_complexity', ''),
+        "distribution_angle": idea_data.get('distribution_angle', ''),
+        "idea_metadata": {
+            "target_intent": idea_data.get('target_intent', ''),
+            "article_format": idea_data.get('article_format', ''),
+            "user_decision_helped": idea_data.get('user_decision_helped', ''),
+            "internal_link_hook": idea_data.get('internal_link_hook', ''),
+            "product_type": idea_data.get('product_type', ''),
+            "user_job_to_be_done": idea_data.get('user_job_to_be_done', ''),
+            "key_inputs": idea_data.get('key_inputs', []),
+            "output_result": idea_data.get('output_result', ''),
+            "build_complexity": idea_data.get('build_complexity', ''),
+            "distribution_angle": idea_data.get('distribution_angle', ''),
+        },
         "viability_score": idea_data.get('viability_score', 50),
         "trend_score": 0,
         "monetization_score": 0,
         "seo_ease_score": 0,
         "status": "draft"
     }
+
+
+def _normalize_intent_value(value: str) -> str:
+    if not value:
+        return "informational"
+    normalized = value.strip().lower()
+    if "transactional" in normalized:
+        return "transactional"
+    if "commercial" in normalized:
+        return "commercial"
+    return "informational"
+
+
+def _intent_match_score(target_intent: str, idea_intent: str) -> int:
+    target = _normalize_intent_value(target_intent)
+    actual = _normalize_intent_value(idea_intent)
+    if target == actual:
+        return 100
+    if {"commercial", "transactional"} == {target, actual}:
+        return 75
+    return 50
+
+
+def _normalize_build_complexity(value: str) -> str:
+    normalized = (value or "").strip().lower()
+    if "high" in normalized:
+        return "high"
+    if "medium" in normalized:
+        return "medium"
+    return "low"
+
+
+def _build_complexity_score(value: str) -> int:
+    level = _normalize_build_complexity(value)
+    if level == "low":
+        return 90
+    if level == "medium":
+        return 70
+    return 45
+
+
+def _compute_opportunity_score(
+    idea: dict,
+    content_type: str,
+    context_target_intent: str,
+    context_tool_potential_score: int,
+    context_serp_intent_match: str,
+) -> tuple[int, dict]:
+    viability = int(idea.get("viability_score") or 0)
+    search_opportunity = max(0, min(100, int((idea.get("total_search_volume") or 0) / 100)))
+    difficulty = max(0, min(100, int(idea.get("average_difficulty") or 0)))
+    seo_ease = 100 - difficulty
+    intent_match = _intent_match_score(context_target_intent, idea.get("target_intent", ""))
+    serp_intent_match_score = {"high": 95, "medium": 75, "low": 55}.get((context_serp_intent_match or "medium").lower(), 75)
+    tool_potential = max(0, min(100, int(context_tool_potential_score or 0)))
+
+    if content_type == "software":
+        complexity_score = _build_complexity_score(idea.get("build_complexity", ""))
+        score = (
+            viability * 0.30
+            + tool_potential * 0.25
+            + intent_match * 0.15
+            + search_opportunity * 0.10
+            + serp_intent_match_score * 0.10
+            + complexity_score * 0.10
+        )
+        breakdown = {
+            "viability": viability,
+            "tool_potential": tool_potential,
+            "intent_match": intent_match,
+            "search_opportunity": search_opportunity,
+            "serp_intent_match": serp_intent_match_score,
+            "build_complexity_score": complexity_score,
+        }
+    else:
+        score = (
+            viability * 0.30
+            + intent_match * 0.20
+            + search_opportunity * 0.20
+            + seo_ease * 0.15
+            + serp_intent_match_score * 0.15
+        )
+        breakdown = {
+            "viability": viability,
+            "intent_match": intent_match,
+            "search_opportunity": search_opportunity,
+            "seo_ease": seo_ease,
+            "serp_intent_match": serp_intent_match_score,
+        }
+
+    final_score = int(round(max(0, min(100, score))))
+    return final_score, breakdown
+
+
+def _rank_ideas(
+    ideas: list[dict],
+    content_type: str,
+    context_target_intent: str,
+    context_tool_potential_score: int,
+    context_serp_intent_match: str,
+) -> list[dict]:
+    ranked = []
+    for idea in ideas:
+        score, breakdown = _compute_opportunity_score(
+            idea=idea,
+            content_type=content_type,
+            context_target_intent=context_target_intent,
+            context_tool_potential_score=context_tool_potential_score,
+            context_serp_intent_match=context_serp_intent_match,
+        )
+        enriched = dict(idea)
+        enriched["opportunity_score"] = score
+        enriched["ranking_breakdown"] = breakdown
+        ranked.append(enriched)
+        logger.info(
+            "idea_ranking_detail type=%s title=%r score=%s breakdown=%s",
+            content_type,
+            enriched.get("title", "")[:120],
+            score,
+            breakdown,
+        )
+
+    ranked.sort(
+        key=lambda idea: (
+            idea.get("opportunity_score", 0),
+            idea.get("viability_score", 0),
+            idea.get("total_search_volume", 0),
+        ),
+        reverse=True,
+    )
+
+    top_ranked = [
+        {
+            "rank": idx + 1,
+            "title": (idea.get("title") or "")[:120],
+            "score": idea.get("opportunity_score", 0),
+            "viability": idea.get("viability_score", 0),
+            "volume": idea.get("total_search_volume", 0),
+            "breakdown": idea.get("ranking_breakdown", {}),
+        }
+        for idx, idea in enumerate(ranked[:3])
+    ]
+    logger.info(
+        "idea_ranking_summary type=%s count=%s target_intent=%s serp_intent=%s tool_potential=%s top=%s",
+        content_type,
+        len(ranked),
+        _normalize_intent_value(context_target_intent),
+        (context_serp_intent_match or "medium").lower(),
+        int(context_tool_potential_score or 0),
+        top_ranked,
+    )
+    return ranked

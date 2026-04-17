@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import { apiClient } from '@/api-client'
 import type { Project } from '@/types'
-import type { ProjectCategory, TopicCandidate, TopicCandidateSource } from '@/types/command-center'
+import type { ProjectCategory, TopicCandidate, TopicCandidateSource, TopicDraft } from '@/types/command-center'
 import { researchTopicsService } from './research-topics.service'
 
 interface TopicInsert {
@@ -10,6 +10,13 @@ interface TopicInsert {
   primary_category_id: string
   secondary_category_id: string | null
   title: string
+  rationale?: string | null
+  intent_bucket?: string | null
+  decision_focus?: string | null
+  angle_question?: string | null
+  value_layer_tags?: string[] | null
+  related_terms?: string[] | null
+  source_signals?: string[] | null
   topic_source: TopicCandidateSource
   source_label?: string | null
 }
@@ -22,10 +29,7 @@ interface StartResearchInput {
   topics: TopicCandidate[]
 }
 
-interface TrendReportTopic {
-  title: string
-  rationale?: string
-}
+type TrendReportTopic = TopicDraft
 
 interface TrendTaskResponse {
   task_id?: string
@@ -136,8 +140,8 @@ class CommandCenterService {
     project: Project
     primaryCategory: ProjectCategory
     secondaryCategory: ProjectCategory | null
-  }): Promise<string[]> {
-    const response = await apiClient.post<{ topics?: Array<{ title: string }> }>('/ai/propose-topics', {
+  }): Promise<TopicDraft[]> {
+    const response = await apiClient.post<{ topics?: TopicDraft[] }>('/ai/propose-topics', {
       niche_description: this.buildContextDescription(params.project, params.primaryCategory, params.secondaryCategory),
       primary_category: params.primaryCategory.name,
       secondary_category: params.secondaryCategory?.name ?? null,
@@ -145,15 +149,18 @@ class CommandCenterService {
     })
 
     return (response.topics || [])
-      .map((topic) => topic.title?.trim())
-      .filter((title): title is string => Boolean(title))
+      .map((topic) => ({
+        ...topic,
+        title: topic.title?.trim() || '',
+      }))
+      .filter((topic) => Boolean(topic.title))
   }
 
   async generateNewsTopics(params: {
     project: Project
     primaryCategory: ProjectCategory
     secondaryCategory: ProjectCategory | null
-  }): Promise<string[]> {
+  }): Promise<TopicDraft[]> {
     const start = await apiClient.post<TrendTaskResponse>(`/v1/trends/${params.project.id}`, {
       primary_category_id: params.primaryCategory.id,
       secondary_category_id: params.secondaryCategory?.id || null,
@@ -186,8 +193,11 @@ class CommandCenterService {
           rawResultKeys: Object.keys(status.result?.result || {}),
         })
         return topics
-          .map((topic) => topic.title?.trim())
-          .filter((title): title is string => Boolean(title))
+          .map((topic) => ({
+            ...topic,
+            title: topic.title?.trim() || '',
+          }))
+          .filter((topic) => Boolean(topic.title))
       }
     }
 
@@ -201,13 +211,20 @@ class CommandCenterService {
         input.project,
         input.primaryCategory,
         input.secondaryCategory,
-        topic.title,
+        topic,
       ),
       project_id: input.project.id,
       primary_category_id: input.primaryCategory.id,
       secondary_category_id: input.secondaryCategory?.id ?? null,
       topic_source: topic.topic_source,
       source_topic_id: topic.id,
+      intent_bucket: topic.intent_bucket || null,
+      decision_focus: topic.decision_focus || null,
+      angle_question: topic.angle_question || null,
+      value_layer_tags: topic.value_layer_tags || null,
+      target_audience: null,
+      evidence_sources: topic.source_signals || null,
+      related_terms: topic.related_terms || null,
     }))
 
     const created = await researchTopicsService.bulkCreateResearchTopics(payload)
@@ -250,11 +267,14 @@ class CommandCenterService {
     project: Project,
     primaryCategory: ProjectCategory,
     secondaryCategory: ProjectCategory | null,
-    title: string,
+    topic: TopicCandidate,
   ): string {
     const label = project.domain || project.app_name || 'selected website'
     const categoryPath = [primaryCategory.name, secondaryCategory?.name].filter(Boolean).join(' / ')
-    return `Research workflow for ${label} in ${categoryPath}: ${title}`
+    if (topic.rationale?.trim()) {
+      return topic.rationale.trim()
+    }
+    return `Research workflow for ${label} in ${categoryPath}: ${topic.title}`
   }
 }
 

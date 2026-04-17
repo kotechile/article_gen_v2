@@ -465,7 +465,11 @@ Instructions:
       "title": "Seed theme label",
       "rationale": "1-2 sentences tying it to the niche and why now",
       "source_signals": ["News", "Reddit"],
-      "related_terms": ["optional", "2-5 short terms"]
+      "related_terms": ["optional", "2-5 short terms"],
+      "intent_bucket": "informational_decision|commercial_evaluation|decision_financial|solution_enablement",
+      "decision_focus": "One sentence describing the user decision this theme supports",
+      "angle_question": "A concrete question to answer in decomposition",
+      "value_layer_tags": ["roi-focused", "cost-vs-value"]
     }}
   ]
 }}

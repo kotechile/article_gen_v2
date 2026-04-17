@@ -54,6 +54,38 @@ export interface ContentIdea {
     content_outline?: string[];
     keywords?: string[];
     monetization_hook?: string;
+    target_intent?: string;
+    article_format?: string;
+    user_decision_helped?: string;
+    internal_link_hook?: string;
+    product_type?: string;
+    user_job_to_be_done?: string;
+    key_inputs?: string[];
+    output_result?: string;
+    build_complexity?: string;
+    distribution_angle?: string;
+    idea_metadata?: {
+        target_intent?: string;
+        article_format?: string;
+        user_decision_helped?: string;
+        internal_link_hook?: string;
+        product_type?: string;
+        user_job_to_be_done?: string;
+        key_inputs?: string[];
+        output_result?: string;
+        build_complexity?: string;
+        distribution_angle?: string;
+    };
+    opportunity_score?: number;
+    ranking_breakdown?: {
+        viability?: number;
+        tool_potential?: number;
+        intent_match?: number;
+        search_opportunity?: number;
+        serp_intent_match?: number;
+        seo_ease?: number;
+        build_complexity_score?: number;
+    };
 }
 
 export interface KeywordData {

@@ -14,6 +14,13 @@ export interface ResearchTopic {
     secondary_category_id?: string | null
     topic_source?: string | null
     source_topic_id?: string | null
+    intent_bucket?: string | null
+    decision_focus?: string | null
+    angle_question?: string | null
+    value_layer_tags?: string[] | null
+    target_audience?: string | null
+    evidence_sources?: string[] | null
+    related_terms?: string[] | null
     project_name?: string | null
     primary_category_name?: string | null
     secondary_category_name?: string | null
@@ -34,6 +41,13 @@ export interface ResearchTopicCreate {
     secondary_category_id?: string | null
     topic_source?: string | null
     source_topic_id?: string | null
+    intent_bucket?: string | null
+    decision_focus?: string | null
+    angle_question?: string | null
+    value_layer_tags?: string[] | null
+    target_audience?: string | null
+    evidence_sources?: string[] | null
+    related_terms?: string[] | null
 }
 
 export interface ResearchTopicBulkCreateItem extends ResearchTopicCreate {}
@@ -42,6 +56,18 @@ export interface ResearchTopicUpdate {
     title?: string
     description?: string
     status?: ResearchTopicStatus
+    project_id?: string | null
+    primary_category_id?: string | null
+    secondary_category_id?: string | null
+    topic_source?: string | null
+    source_topic_id?: string | null
+    intent_bucket?: string | null
+    decision_focus?: string | null
+    angle_question?: string | null
+    value_layer_tags?: string[] | null
+    target_audience?: string | null
+    evidence_sources?: string[] | null
+    related_terms?: string[] | null
 }
 
 export interface ResearchTopicListResponse {
@@ -144,4 +170,12 @@ export interface Subtopic {
     target_audience?: string
     trend_analysis?: any
     monetization_data?: any
+    intent_bucket?: string | null
+    decision_focus?: string | null
+    angle_question?: string | null
+    value_layer_tags?: string[] | null
+    cluster_type?: string | null
+    primary_user_outcome?: string | null
+    serp_intent_match?: string | null
+    tool_potential_score?: number | null
 }

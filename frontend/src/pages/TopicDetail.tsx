@@ -71,6 +71,21 @@ export function TopicDetail() {
         setShowIdeaModal(true)
     }
 
+    const intentChipClass = (intent?: string | null) => {
+        const value = (intent || '').toLowerCase()
+        if (value.includes('transactional')) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+        if (value.includes('commercial')) return 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+        return 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+    }
+
+    const clusterChipClass = (clusterType?: string | null) => {
+        const value = (clusterType || '').toLowerCase()
+        if (value.includes('calculator') || value.includes('tool')) return 'bg-violet-500/10 text-violet-400 border-violet-500/20'
+        if (value.includes('comparison')) return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+        if (value.includes('checklist') || value.includes('audit')) return 'bg-orange-500/10 text-orange-400 border-orange-500/20'
+        return 'bg-slate-500/10 text-slate-300 border-slate-500/20'
+    }
+
     // Calculate metrics from subtopics
     const metrics = React.useMemo(() => {
         if (subtopics.length === 0) {
@@ -241,6 +256,43 @@ export function TopicDetail() {
                     </div>
                 </div>
 
+                {/* Topic Context */}
+                <div className="max-w-7xl mx-auto mb-8">
+                    <div className="bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-6">
+                        <h2 className="text-lg font-semibold text-foreground mb-4">Topic Context</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                            <div className="rounded-xl border border-border bg-muted/20 p-4">
+                                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Intent Bucket</div>
+                                <div className="text-sm font-medium text-foreground">{topic?.intent_bucket || 'Not set'}</div>
+                            </div>
+                            <div className="rounded-xl border border-border bg-muted/20 p-4">
+                                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Decision Focus</div>
+                                <div className="text-sm font-medium text-foreground">{topic?.decision_focus || 'Not set'}</div>
+                            </div>
+                            <div className="rounded-xl border border-border bg-muted/20 p-4">
+                                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Value Tags</div>
+                                <div className="flex flex-wrap gap-1">
+                                    {(topic?.value_layer_tags && topic.value_layer_tags.length > 0) ? (
+                                        topic.value_layer_tags.map((tag, idx) => (
+                                            <span key={`${tag}-${idx}`} className="text-[11px] px-2 py-0.5 rounded-full border border-primary/20 bg-primary/10 text-primary">
+                                                {tag}
+                                            </span>
+                                        ))
+                                    ) : (
+                                        <span className="text-sm text-muted-foreground">Not set</span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        {topic?.angle_question && (
+                            <div className="rounded-xl border border-border bg-muted/20 p-4">
+                                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Angle Question</div>
+                                <div className="text-sm text-foreground">{topic.angle_question}</div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
                 {/* Content Opportunities Section */}
                 <div className="max-w-7xl mx-auto">
                     <div className="bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-6">
@@ -358,6 +410,33 @@ export function TopicDetail() {
                                                 </div>
                                             </div>
                                         </div>
+
+                                        {(sub.intent_bucket || sub.cluster_type || sub.primary_user_outcome || sub.decision_focus) && (
+                                            <div className="mt-3 pt-3 border-t border-white/5 space-y-2">
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {sub.intent_bucket && (
+                                                        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${intentChipClass(sub.intent_bucket)}`}>
+                                                            Intent: {sub.intent_bucket}
+                                                        </span>
+                                                    )}
+                                                    {sub.cluster_type && (
+                                                        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${clusterChipClass(sub.cluster_type)}`}>
+                                                            Cluster: {sub.cluster_type}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {sub.decision_focus && (
+                                                    <p className="text-[11px] text-slate-300 line-clamp-2">
+                                                        <span className="text-indigo-400 font-medium">Decision:</span> {sub.decision_focus}
+                                                    </p>
+                                                )}
+                                                {sub.primary_user_outcome && (
+                                                    <p className="text-[11px] text-slate-300 line-clamp-2">
+                                                        <span className="text-indigo-400 font-medium">Outcome:</span> {sub.primary_user_outcome}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
                                     </motion.div>
                                 ))}
                             </div>
@@ -384,6 +463,8 @@ export function TopicDetail() {
                     subtopic={selectedSubtopic}
                     topicId={id || ''}
                     topicTitle={topic?.title || ''}
+                    projectName={topic?.project_name || null}
+                    categoryPath={[topic?.primary_category_name, topic?.secondary_category_name].filter(Boolean).join(' / ') || null}
                 />
             </div>
         </div>

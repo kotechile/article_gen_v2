@@ -123,14 +123,22 @@ class EnhancedTopicDecompositionService:
                     autocomplete_suggestions=cluster.get('keywords', []),
                     relevance_score=0.95, # High confidence if it passed verification
                     source=SubtopicSource.HYBRID,
-                    rationale=f"Primary Keyword: {cluster.get('primary_keyword')}. {monetization.get('status')} Check.",
+                    rationale=cluster.get('cluster_rationale') or f"Primary Keyword: {cluster.get('primary_keyword')}. {monetization.get('status')} Check.",
                     seed_keywords=cluster.get('keywords', []),
                     target_audience="Niche Audience", # Placeholder or extract from LLM,
                     search_volume=cluster.get('search_volume'),
                     cpc=cluster.get('cpc'),
                     keyword_difficulty=cluster.get('keyword_difficulty'),
                     trend_analysis=cluster.get('trend_analysis'),
-                    monetization_data=cluster.get('monetization')
+                    monetization_data=cluster.get('monetization'),
+                    intent_bucket=cluster.get('intent_bucket'),
+                    decision_focus=cluster.get('decision_focus'),
+                    angle_question=cluster.get('angle_question'),
+                    value_layer_tags=cluster.get('value_layer_tags') or [],
+                    cluster_type=cluster.get('cluster_type'),
+                    primary_user_outcome=cluster.get('primary_user_outcome'),
+                    serp_intent_match=cluster.get('serp_intent_match'),
+                    tool_potential_score=cluster.get('tool_potential_score'),
                 )
                 enhanced_subtopics.append(subtopic)
             

@@ -95,14 +95,26 @@ NICHE DESCRIPTION:
 Please propose exactly {count} BROAD SEED TOPICS for this niche.
 
 For each topic, provide:
-1. A short theme/title (NOT an article headline; avoid keyword stuffing)
-2. A brief 1–2 sentence rationale explaining why this theme fits the niche and can expand into multiple articles
+1. title: A short theme/title (NOT an article headline; avoid keyword stuffing)
+2. rationale: 1–2 sentence rationale explaining why this theme fits the niche and can expand into multiple articles
+3. intent_bucket: one of ["informational_decision","commercial_evaluation","decision_financial","solution_enablement"]
+4. decision_focus: one sentence describing the user decision this topic helps with
+5. angle_question: one concrete question this topic should answer
+6. value_layer_tags: 1-3 items from ["roi-focused","cost-vs-value","timing-decision","location-decision","hidden-cost-audit","tool-builder","decision-support"]
+7. related_terms: 3-6 short terms
+8. source_signals: include ["AI"]
 
 Respond ONLY with a valid JSON array in this exact format:
 [
   {{
     "title": "Topic Title Here",
-    "rationale": "Brief rationale here."
+    "rationale": "Brief rationale here.",
+    "intent_bucket": "informational_decision",
+    "decision_focus": "What decision this helps with",
+    "angle_question": "Concrete question",
+    "value_layer_tags": ["decision-support"],
+    "related_terms": ["term a", "term b"],
+    "source_signals": ["AI"]
   }}
 ]
 
@@ -191,9 +203,18 @@ Do not include any text before or after the JSON array."""
         validated = []
         for t in topics:
             if isinstance(t, dict) and t.get('title'):
+                value_layer_tags = t.get('value_layer_tags') if isinstance(t.get('value_layer_tags'), list) else []
+                related_terms = t.get('related_terms') if isinstance(t.get('related_terms'), list) else []
+                source_signals = t.get('source_signals') if isinstance(t.get('source_signals'), list) else ["AI"]
                 validated.append({
                     "title": str(t.get('title', '')).strip(),
-                    "rationale": str(t.get('rationale', '')).strip()
+                    "rationale": str(t.get('rationale', '')).strip(),
+                    "intent_bucket": str(t.get('intent_bucket', '')).strip() or "informational_decision",
+                    "decision_focus": str(t.get('decision_focus', '')).strip() or "",
+                    "angle_question": str(t.get('angle_question', '')).strip() or "",
+                    "value_layer_tags": [str(v).strip() for v in value_layer_tags if str(v).strip()][:3] or ["decision-support"],
+                    "related_terms": [str(v).strip() for v in related_terms if str(v).strip()][:6],
+                    "source_signals": [str(v).strip() for v in source_signals if str(v).strip()] or ["AI"],
                 })
 
         if not validated:
@@ -211,7 +232,13 @@ Do not include any text before or after the JSON array."""
             for i, title in enumerate(fallback_titles[:count]):
                 fallback.append({
                     "title": title,
-                    "rationale": fallback_rationales[i] if i < len(fallback_rationales) else ""
+                    "rationale": fallback_rationales[i] if i < len(fallback_rationales) else "",
+                    "intent_bucket": "informational_decision",
+                    "decision_focus": "",
+                    "angle_question": "",
+                    "value_layer_tags": ["decision-support"],
+                    "related_terms": [],
+                    "source_signals": ["AI"],
                 })
             return jsonify({"topics": fallback}), 200
 

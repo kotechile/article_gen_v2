@@ -23,13 +23,29 @@ class ContentIdeasService {
         keywords: string[];
         affiliateOffers: string[];
         userId: string;
+        intentBucket?: string | null;
+        decisionFocus?: string | null;
+        angleQuestion?: string | null;
+        valueLayerTags?: string[] | null;
+        clusterType?: string | null;
+        primaryUserOutcome?: string | null;
+        serpIntentMatch?: string | null;
+        toolPotentialScore?: number | null;
     }): Promise<{ success: boolean, blog_ideas: ContentIdea[], software_ideas: ContentIdea[] }> {
         return await apiClient.post('/research-topics/idea-burst', {
             user_id: request.userId,
             topic_id: request.topicId,
             subtopic: request.subtopicName,
             keywords: request.keywords,
-            affiliate_offers: request.affiliateOffers
+            affiliate_offers: request.affiliateOffers,
+            intent_bucket: request.intentBucket,
+            decision_focus: request.decisionFocus,
+            angle_question: request.angleQuestion,
+            value_layer_tags: request.valueLayerTags,
+            cluster_type: request.clusterType,
+            primary_user_outcome: request.primaryUserOutcome,
+            serp_intent_match: request.serpIntentMatch,
+            tool_potential_score: request.toolPotentialScore,
         });
     }
 
