@@ -21,7 +21,8 @@ from litellm.exceptions import (
     ServiceUnavailableError
 )
 
-from ...core.models.llm import LLMConfig, LLMResponse, LLMError, LLMProvider, LLMModel
+from ...core.models.llm import LLMConfig, LLMResponse, LLMProvider, LLMModel
+from ...core.models.errors import LLMError
 
 
 logger = logging.getLogger(__name__)

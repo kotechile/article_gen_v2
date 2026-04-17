@@ -8,7 +8,7 @@ requests, and responses.
 from datetime import datetime
 from enum import Enum
 from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, model_validator
 
 
 class LLMProvider(str, Enum):
@@ -118,29 +118,58 @@ class LLMResponse(BaseModel):
 
 
 class LLMError(BaseModel):
-    """LLM error model."""
-    
-    error_type: str = Field(..., description="Error type")
-    error_message: str = Field(..., description="Error message")
+    """
+    LLM error model (serializable).
+
+    Historical note: older code constructs this with `message`/`retryable`;
+    newer code expects `error_type`/`error_message`/`is_retryable`. This class
+    accepts both to avoid runtime validation errors.
+    """
+
+    # New-style fields (preferred)
+    error_type: Optional[str] = Field(None, description="Error type")
+    error_message: Optional[str] = Field(None, description="Error message")
     error_code: Optional[str] = Field(None, description="Error code")
-    
+
+    # Back-compat fields (accepted as input)
+    message: Optional[str] = Field(None, description="Back-compat: error message")
+    retryable: Optional[bool] = Field(None, description="Back-compat: whether error is retryable")
+
     # Request Information
     request_id: Optional[str] = Field(None, description="Request ID")
     model: Optional[str] = Field(None, description="Model that failed")
     provider: Optional[LLMProvider] = Field(None, description="Provider that failed")
-    
+
     # Error Details
     retry_count: int = Field(default=0, description="Number of retries attempted")
     is_retryable: bool = Field(default=True, description="Whether error is retryable")
-    
+
     # Timestamp
     occurred_at: datetime = Field(default_factory=datetime.utcnow, description="Error timestamp")
-    
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_fields(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+
+        # Populate error_message from legacy `message` if needed.
+        if not data.get("error_message") and data.get("message"):
+            data["error_message"] = data.get("message")
+
+        # Populate error_type if missing.
+        if not data.get("error_type"):
+            data["error_type"] = "LLMError"
+
+        # Populate is_retryable from legacy `retryable` if provided.
+        if data.get("retryable") is not None and data.get("is_retryable") is None:
+            data["is_retryable"] = bool(data.get("retryable"))
+
+        return data
+
     class Config:
         use_enum_values = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class LLMBatchRequest(BaseModel):

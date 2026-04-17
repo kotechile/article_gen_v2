@@ -11,7 +11,15 @@ from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 import time
 
-from ...core.models.llm import LLMConfig, LLMResponse, LLMError, LLMBatchRequest, LLMBatchResponse, LLMModel
+from ...core.models.llm import (
+    LLMConfig,
+    LLMResponse,
+    LLMBatchRequest,
+    LLMBatchResponse,
+    LLMModel,
+    LLMError as LLMErrorModel,
+)
+from ...core.models.errors import LLMError
 from .litellm_client import LiteLLMClient
 from .retry_handler import RetryHandler
 from .rate_limiter import RateLimiter
@@ -171,7 +179,7 @@ class LLMClient:
                 message=f"LLM generation failed: {str(e)}",
                 provider=provider,
                 model=model,
-                retryable=True
+                retryable=True,
             )
     
     async def generate_batch(
@@ -195,7 +203,7 @@ class LLMClient:
         # Create semaphore for concurrency control
         semaphore = asyncio.Semaphore(max_concurrent)
         
-        async def process_request(config: LLMConfig) -> Union[LLMResponse, LLMError]:
+        async def process_request(config: LLMConfig) -> Union[LLMResponse, LLMErrorModel]:
             async with semaphore:
                 try:
                     return await self.generate(
@@ -208,10 +216,12 @@ class LLMClient:
                         max_tokens=config.max_tokens
                     )
                 except Exception as e:
-                    return LLMError(
-                        message=str(e),
+                    return LLMErrorModel(
+                        error_type=type(e).__name__,
+                        error_message=str(e),
                         provider=config.model.provider,
-                        model=config.model.model_name
+                        model=config.model.model_name,
+                        is_retryable=True,
                     )
         
         # Process all requests concurrently
@@ -227,12 +237,16 @@ class LLMClient:
         for result in results:
             if isinstance(result, LLMResponse):
                 responses.append(result)
-            elif isinstance(result, LLMError):
+            elif isinstance(result, LLMErrorModel):
                 errors.append(result)
             else:
-                errors.append(LLMError(
-                    message=f"Unexpected error: {str(result)}"
-                ))
+                errors.append(
+                    LLMErrorModel(
+                        error_type="UnexpectedError",
+                        error_message=f"Unexpected error: {str(result)}",
+                        is_retryable=True,
+                    )
+                )
         
         # Calculate statistics
         total_time = time.time() - start_time
