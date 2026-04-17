@@ -224,12 +224,15 @@ def publish_content_ideas():
                 if result.data:
                     updated_count += 1
 
+        success = (updated_count > 0) or (published_to_titles_count > 0)
+        status_code = 200 if success else 400
         return jsonify({
-            "success": True,
+            "success": success,
             "published_count": updated_count,
             "published_to_titles_count": published_to_titles_count,
             "requested_count": len(idea_ids),
-        }), 200
+            "message": None if success else "No ideas were published. Verify idea IDs and schema.",
+        }), status_code
 
     except Exception as e:
         logger.error(f"Error publishing content ideas: {e}", exc_info=True)

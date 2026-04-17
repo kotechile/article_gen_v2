@@ -256,7 +256,11 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         setPublishing(true);
         try {
             const ideaIds = Array.from(selectedBlogIdeas);
-            await contentIdeasService.publishContentIdeas(ideaIds, user.id);
+            const result = await contentIdeasService.publishContentIdeas(ideaIds, user.id);
+            if (!result.success || (result.publishedToTitlesCount <= 0 && result.publishedCount <= 0)) {
+                setError("Publish did not create any content items. Please refresh and try again.");
+                return;
+            }
             setPublished(true);
             setTimeout(() => {
                 onClose();
@@ -279,7 +283,11 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         try {
             // Mark software ideas as saved (different status)
             const ideaIds = Array.from(selectedSoftwareIdeas);
-            await contentIdeasService.publishContentIdeas(ideaIds, user.id);
+            const result = await contentIdeasService.publishContentIdeas(ideaIds, user.id);
+            if (!result.success || result.publishedCount <= 0) {
+                setError("Save did not persist software ideas. Please refresh and try again.");
+                return;
+            }
             setSaved(true);
             setTimeout(() => {
                 setSaved(false);

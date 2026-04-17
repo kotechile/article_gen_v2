@@ -154,22 +154,41 @@ class ContentIdeasService {
     /**
      * Publish content ideas to Titles
      */
-    async publishContentIdeas(ideaIds: string[], userId: string): Promise<boolean> {
+    async publishContentIdeas(ideaIds: string[], userId: string): Promise<{
+        success: boolean;
+        publishedCount: number;
+        publishedToTitlesCount: number;
+        requestedCount: number;
+        message?: string;
+    }> {
         try {
             console.info('[ContentIdeas] publish request', {
                 userId,
                 ideaCount: ideaIds.length,
                 ideaIds,
             });
-            await apiClient.post('/content-ideas/publish', {
+            const result = await apiClient.post<any>('/content-ideas/publish', {
                 idea_ids: ideaIds,
                 user_id: userId
             });
-            console.info('[ContentIdeas] publish success', { userId, ideaCount: ideaIds.length });
-            return true;
+            const normalized = {
+                success: Boolean(result?.success),
+                publishedCount: Number(result?.published_count || 0),
+                publishedToTitlesCount: Number(result?.published_to_titles_count || 0),
+                requestedCount: Number(result?.requested_count || ideaIds.length),
+                message: result?.message,
+            };
+            console.info('[ContentIdeas] publish success', { userId, ...normalized });
+            return normalized;
         } catch (error) {
             console.error('Failed to publish content ideas:', error);
-            return false;
+            return {
+                success: false,
+                publishedCount: 0,
+                publishedToTitlesCount: 0,
+                requestedCount: ideaIds.length,
+                message: 'Request failed',
+            };
         }
     }
 }
