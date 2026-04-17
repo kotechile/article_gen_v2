@@ -20,13 +20,51 @@ class SubtopicsService:
     def __init__(self):
         self.supabase = get_supabase_service()
         self.table_name = "subtopics"
+
+    async def _get_by_topic_with_fallback(self, research_topic_id: UUID, user_id: UUID) -> List[Dict[str, Any]]:
+        """Fetch subtopics using either research_topic_id or project_id, depending on deployed schema."""
+        primary_error = None
+        try:
+            subtopics = await self.supabase.get_by_filters(
+                table=self.table_name,
+                filters={"research_topic_id": str(research_topic_id)},
+                user_id=user_id,
+                order_by={"viability_score": "desc"}
+            )
+            logger.info(
+                f"Subtopics lookup used research_topic_id path for topic={research_topic_id}, "
+                f"user_id={user_id}, count={len(subtopics or [])}"
+            )
+            return subtopics
+        except Exception as e:
+            primary_error = e
+            logger.warning(f"Subtopics lookup by research_topic_id failed, trying project_id fallback: {e}")
+
+        try:
+            subtopics = await self.supabase.get_by_filters(
+                table=self.table_name,
+                filters={"project_id": str(research_topic_id)},
+                user_id=user_id,
+                order_by={"viability_score": "desc"}
+            )
+            logger.info(
+                f"Subtopics lookup used project_id fallback path for topic={research_topic_id}, "
+                f"user_id={user_id}, count={len(subtopics or [])}"
+            )
+            return subtopics
+        except Exception as fallback_error:
+            logger.error(
+                f"Subtopics lookup failed for both research_topic_id and project_id. "
+                f"primary={primary_error}, fallback={fallback_error}"
+            )
+            raise
     
     async def create(self, research_topic_id: UUID, name: str, user_id: UUID, 
                      trend_data: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """Create a new subtopic"""
         try:
             data = {
-                "project_id": str(research_topic_id), # Mapped to project_id
+                "research_topic_id": str(research_topic_id),
                 "user_id": str(user_id),
                 "name": name,
                 "created_at": datetime.utcnow().isoformat(),
@@ -81,6 +119,21 @@ class SubtopicsService:
                 operation="insert",
                 data=data
             )
+
+            if result.get("error"):
+                # Backward-compat fallback for deployments where the column is project_id.
+                fallback_data = dict(data)
+                fallback_data.pop("research_topic_id", None)
+                fallback_data["project_id"] = str(research_topic_id)
+                logger.warning(
+                    f"Insert with research_topic_id failed for '{name}', retrying with project_id. "
+                    f"error={result.get('error')}"
+                )
+                result = await self.supabase.execute_query(
+                    table=self.table_name,
+                    operation="insert",
+                    data=fallback_data
+                )
             
             # Extract data if successful
             return_value = result["data"][0] if result.get("data") else None
@@ -104,14 +157,7 @@ class SubtopicsService:
     async def get_by_research_topic(self, research_topic_id: UUID, user_id: UUID) -> List[Dict[str, Any]]:
         """Get all subtopics for a research topic"""
         try:
-            subtopics = await self.supabase.get_by_filters(
-                table=self.table_name,
-                filters={"project_id": str(research_topic_id)}, # Mapped to project_id
-                user_id=user_id,
-                order_by={"viability_score": "desc"}
-            )
-            
-            return subtopics
+            return await self._get_by_topic_with_fallback(research_topic_id, user_id)
             
         except Exception as e:
             logger.error(f"Error getting subtopics for topic {research_topic_id}: {e}")

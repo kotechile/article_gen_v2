@@ -7,6 +7,7 @@ import logging
 import asyncio
 from typing import Optional, List, Dict, Any
 from uuid import UUID
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Query, Path, Request, Body
 from fastapi.responses import JSONResponse
 
@@ -218,32 +219,23 @@ async def get_topic_subtopics(
 ):
     """Get enriched subtopics from the new normalized table, with fallback to legacy JSON storage"""
     try:
-        # Try retrieving from new normalized table first
-        try:
-            subtopics = await subtopics_service.get_by_research_topic(topic_id, user_id)
-            if subtopics:
-                # Map project_id to research_topic_id for Pydantic model compatibility
-                # And ensure other required fields (user_id, updated_at) are present
-                for sub in subtopics:
-                    if "project_id" in sub and "research_topic_id" not in sub:
-                         sub["research_topic_id"] = sub["project_id"]
-                    
-                    if "user_id" not in sub:
-                         sub["user_id"] = str(user_id)
-                         
-                    if "updated_at" not in sub:
-                        sub["updated_at"] = sub.get("created_at", datetime.utcnow().isoformat())
-            
-            return {
-                "items": subtopics or [],
-                "total": len(subtopics) if subtopics else 0
-            }
-        except Exception as e:
-            logger.error(f"Failed to get subtopics: {e}")
-            return {
-                "items": [],
-                "total": 0
-            }
+        subtopics = await subtopics_service.get_by_research_topic(topic_id, user_id)
+        if subtopics:
+            # Normalize compatibility fields for mixed schema deployments
+            for sub in subtopics:
+                if "project_id" in sub and "research_topic_id" not in sub:
+                    sub["research_topic_id"] = sub["project_id"]
+
+                if "user_id" not in sub:
+                    sub["user_id"] = str(user_id)
+
+                if "updated_at" not in sub:
+                    sub["updated_at"] = sub.get("created_at", datetime.utcnow().isoformat())
+
+        return {
+            "items": subtopics or [],
+            "total": len(subtopics) if subtopics else 0
+        }
         
     except Exception as e:
         logger.error(f"Error getting topic subtopics (all methods failed): {e}")

@@ -860,19 +860,57 @@ def get_subtopics(topic_id):
                 status=401
             ).dict()), 401
 
-        # Fetch directly from DB if possible
-        response = (
-            supabase
-            .table('subtopics')
-            .select('*')
-            .eq('research_topic_id', topic_id)
-            .eq('user_id', user_id)
-            .execute()
-        )
-        
+        # Try primary lookup by research_topic_id (new schema).
+        # If that fails or returns no rows, fallback to project_id (legacy/mixed schema).
+        items = []
+        primary_error = None
+
+        try:
+            response = (
+                supabase
+                .table('subtopics')
+                .select('*')
+                .eq('research_topic_id', topic_id)
+                .eq('user_id', user_id)
+                .execute()
+            )
+            items = response.data or []
+            logger.info(
+                "Subtopics GET used research_topic_id path topic_id=%s user_id=%s count=%s",
+                topic_id, user_id, len(items)
+            )
+        except Exception as e:
+            primary_error = e
+            logger.warning(
+                "Subtopics GET research_topic_id path failed topic_id=%s user_id=%s error=%s",
+                topic_id, user_id, e
+            )
+
+        if not items:
+            try:
+                fallback_response = (
+                    supabase
+                    .table('subtopics')
+                    .select('*')
+                    .eq('project_id', topic_id)
+                    .eq('user_id', user_id)
+                    .execute()
+                )
+                items = fallback_response.data or []
+                logger.info(
+                    "Subtopics GET used project_id fallback path topic_id=%s user_id=%s count=%s primary_error=%s",
+                    topic_id, user_id, len(items), primary_error
+                )
+            except Exception as fallback_error:
+                logger.error(
+                    "Subtopics GET failed for both paths topic_id=%s user_id=%s primary_error=%s fallback_error=%s",
+                    topic_id, user_id, primary_error, fallback_error
+                )
+                raise
+
         return jsonify({
-            "items": response.data,
-            "total": len(response.data)
+            "items": items,
+            "total": len(items)
         }), 200
 
     except Exception as e:

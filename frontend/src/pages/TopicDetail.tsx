@@ -86,6 +86,22 @@ export function TopicDetail() {
         return 'bg-slate-500/10 text-slate-300 border-slate-500/20'
     }
 
+    const hasSeoResearchSignals = (sub: Subtopic) => {
+        const hasTrendSignal =
+            !!sub.trend_direction ||
+            (sub.trend_score ?? 0) > 0 ||
+            (sub.interest_over_time?.length ?? 0) > 0
+        const hasSeoSignal =
+            (sub.search_volume ?? 0) > 0 ||
+            (sub.seo_difficulty ?? 0) > 0 ||
+            (sub.cpc ?? 0) > 0
+        const hasMonetizationSignal =
+            (sub.affiliate_offer_count ?? 0) > 0 ||
+            (sub.monetization_data?.offers?.length ?? 0) > 0
+
+        return hasTrendSignal || hasSeoSignal || hasMonetizationSignal
+    }
+
     // Calculate metrics from subtopics
     const metrics = React.useMemo(() => {
         if (subtopics.length === 0) {
@@ -93,15 +109,25 @@ export function TopicDetail() {
                 totalVolume: 0,
                 totalOpportunities: 0,
                 avgDifficulty: 0,
-                potential: 'Low'
+                potential: 'Low',
+                hasSeoResearchData: false
             }
         }
 
-        const totalVolume = subtopics.reduce((sum, sub) => sum + (sub.search_volume || 0), 0)
-        const totalOpportunities = subtopics.reduce((sum, sub) => sum + (sub.affiliate_offer_count || 0), 0)
-        const avgDifficulty = Math.round(
-            subtopics.reduce((sum, sub) => sum + (sub.seo_difficulty || 0), 0) / subtopics.length
-        )
+        const researchedSubtopics = subtopics.filter(hasSeoResearchSignals)
+        const hasSeoResearchData = researchedSubtopics.length > 0
+
+        const totalVolume = hasSeoResearchData
+            ? researchedSubtopics.reduce((sum, sub) => sum + (sub.search_volume || 0), 0)
+            : 0
+        const totalOpportunities = hasSeoResearchData
+            ? researchedSubtopics.reduce((sum, sub) => sum + (sub.affiliate_offer_count || 0), 0)
+            : 0
+        const avgDifficulty = hasSeoResearchData
+            ? Math.round(
+                researchedSubtopics.reduce((sum, sub) => sum + (sub.seo_difficulty || 0), 0) / researchedSubtopics.length
+            )
+            : 0
 
         // Calculate potential based on viability scores
         const avgViability = subtopics.reduce((sum, sub) => sum + (sub.viability_score || 0), 0) / subtopics.length
@@ -109,7 +135,7 @@ export function TopicDetail() {
         if (avgViability >= 70) potential = 'High'
         else if (avgViability >= 40) potential = 'Medium'
 
-        return { totalVolume, totalOpportunities, avgDifficulty, potential }
+        return { totalVolume, totalOpportunities, avgDifficulty, potential, hasSeoResearchData }
     }, [subtopics])
 
     if (authLoading || loading) {
@@ -195,9 +221,11 @@ export function TopicDetail() {
                                 <FileText className="h-4 w-4 text-muted-foreground" />
                             </div>
                             <div className="text-2xl font-bold text-foreground">
-                                {metrics.totalVolume.toLocaleString()}
+                                {metrics.hasSeoResearchData ? metrics.totalVolume.toLocaleString() : '—'}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1">Monthly Searches</div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                                {metrics.hasSeoResearchData ? 'Monthly Searches' : 'Not researched'}
+                            </div>
                         </motion.div>
 
                         {/* Total Opportunities */}
@@ -212,9 +240,11 @@ export function TopicDetail() {
                                 <TrendingUp className="h-4 w-4 text-blue-500 dark:text-blue-400" />
                             </div>
                             <div className="text-2xl font-bold text-foreground">
-                                {metrics.totalOpportunities}
+                                {metrics.hasSeoResearchData ? metrics.totalOpportunities : '—'}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1">Affiliate Offers</div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                                {metrics.hasSeoResearchData ? 'Affiliate Offers' : 'Not researched'}
+                            </div>
                         </motion.div>
 
                         {/* Avg. Difficulty */}
@@ -229,9 +259,11 @@ export function TopicDetail() {
                                 <DollarSign className="h-4 w-4 text-amber-500 dark:text-amber-400" />
                             </div>
                             <div className="text-2xl font-bold text-foreground">
-                                {metrics.avgDifficulty}
+                                {metrics.hasSeoResearchData ? metrics.avgDifficulty : '—'}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1">Keyword Difficulty</div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                                {metrics.hasSeoResearchData ? 'Keyword Difficulty' : 'Not researched'}
+                            </div>
                         </motion.div>
 
                         {/* Potential */}
@@ -251,7 +283,9 @@ export function TopicDetail() {
                                 }`}>
                                 {metrics.potential}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1">Overall Viability</div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                                {metrics.hasSeoResearchData ? 'Overall Viability' : 'Estimated (pre-SEO)'}
+                            </div>
                         </motion.div>
                     </div>
                 </div>
@@ -357,7 +391,9 @@ export function TopicDetail() {
                             </motion.div>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {subtopics.map((sub, i) => (
+                                {subtopics.map((sub, i) => {
+                                    const isResearched = hasSeoResearchSignals(sub)
+                                    return (
                                     <motion.div
                                         key={sub.id || i}
                                         initial={{ opacity: 0, y: 20 }}
@@ -377,7 +413,7 @@ export function TopicDetail() {
                                                         ? 'text-red-500 dark:text-red-400 border-red-500/20 bg-red-500/10'
                                                         : 'text-muted-foreground border-border bg-muted/50'
                                                 }`}>
-                                                {sub.trend_direction?.toUpperCase() || 'N/A'}
+                                                {isResearched ? (sub.trend_direction?.toUpperCase() || 'N/A') : 'Pending SEO'}
                                             </span>
                                         </div>
 
@@ -385,13 +421,13 @@ export function TopicDetail() {
                                             <div>
                                                 <div className="text-muted-foreground mb-1">Volume</div>
                                                 <div className="text-foreground font-semibold">
-                                                    {sub.search_volume?.toLocaleString() || '0'}
+                                                    {isResearched ? (sub.search_volume?.toLocaleString() || '0') : '—'}
                                                 </div>
                                             </div>
                                             <div>
                                                 <div className="text-muted-foreground mb-1">CPC</div>
                                                 <div className="text-foreground font-semibold">
-                                                    ${sub.cpc?.toFixed(2) || '0.00'}
+                                                    {isResearched ? `$${sub.cpc?.toFixed(2) || '0.00'}` : 'Not researched'}
                                                 </div>
                                             </div>
                                             <div>
@@ -400,13 +436,13 @@ export function TopicDetail() {
                                                         (sub.seo_difficulty || 0) > 30 ? 'text-amber-500 dark:text-amber-400' :
                                                             'text-emerald-500 dark:text-emerald-400'
                                                     }`}>
-                                                    {sub.seo_difficulty || '0'}
+                                                    {isResearched ? (sub.seo_difficulty || '0') : 'Not researched'}
                                                 </div>
                                             </div>
                                             <div>
                                                 <div className="text-muted-foreground mb-1">Offers</div>
                                                 <div className="text-foreground font-semibold">
-                                                    {sub.affiliate_offer_count || 0}
+                                                    {isResearched ? (sub.affiliate_offer_count || 0) : 'Not researched'}
                                                 </div>
                                             </div>
                                         </div>
@@ -438,7 +474,7 @@ export function TopicDetail() {
                                             </div>
                                         )}
                                     </motion.div>
-                                ))}
+                                )})}
                             </div>
                         )}
                     </div>
