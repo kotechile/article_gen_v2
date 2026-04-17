@@ -15,6 +15,8 @@ class LLMProvider(str, Enum):
     """LLM provider types."""
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    # Alias for compatibility with configs that refer to Gemini directly.
+    GEMINI = "gemini"
     GOOGLE = "google"
     DEEPSEEK = "deepseek"
     MOONSHOT = "moonshot"
