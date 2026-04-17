@@ -16,6 +16,29 @@ class LLMService:
         self.supabase = get_supabase_client()
         self.provider_cache = {}
 
+    def _query_llm_providers(self, filters: list[tuple[str, Any]], require_active: bool = True):
+        """
+        Query llm_providers with backward-compatible handling when `is_active` does not exist.
+        """
+        query = self.supabase.table("llm_providers").select("*")
+        for field, value in filters:
+            query = query.eq(field, value)
+
+        if require_active:
+            query = query.eq("is_active", True)
+
+        try:
+            return query.execute()
+        except Exception as exc:
+            message = str(exc)
+            if require_active and "llm_providers.is_active" in message and "does not exist" in message:
+                logger.warning("llm_providers.is_active column missing; retrying provider query without active filter")
+                fallback_query = self.supabase.table("llm_providers").select("*")
+                for field, value in filters:
+                    fallback_query = fallback_query.eq(field, value)
+                return fallback_query.execute()
+            raise
+
     async def get_provider(self, provider_name: Optional[str] = None):
         """
         Get an initialized LLM provider instance.
@@ -33,18 +56,21 @@ class LLMService:
             return self.provider_cache[cache_key]
 
         try:
-            # 1. Query for the provider configuration
-            # Fetch provider first (no join to avoid relationship errors)
-            query = self.supabase.table("llm_providers").select("*")
-            
+            # 1. Query for provider configuration (schema-compatible)
             if provider_name:
-                # Case-insensitive search on 'provider' or 'name'
-                result = query.eq("provider", provider_name).eq("is_active", True).execute()
+                # Primary lookup by provider type
+                result = self._query_llm_providers([("provider", provider_name)], require_active=True)
                 
                 # If no match on provider type, try specific model name
                 if not result.data:
-                     # Create fresh query as the builder is stateful
-                     result = self.supabase.table("llm_providers").select("*").eq("name", provider_name).eq("is_active", True).execute()
+                    try:
+                        result = self._query_llm_providers([("name", provider_name)], require_active=True)
+                    except Exception as name_lookup_error:
+                        if "llm_providers.name" in str(name_lookup_error) and "does not exist" in str(name_lookup_error):
+                            logger.warning("llm_providers.name column missing; skipping name-based provider lookup")
+                            result = type("Obj", (), {"data": []})()
+                        else:
+                            raise
 
                 if not result.data:
                     raise ValueError(f"LLM Provider '{provider_name}' not found or not active.")
@@ -52,11 +78,17 @@ class LLMService:
                 provider_config = result.data[0]
             else:
                 # Fetch default provider
-                result = query.eq("is_default", True).eq("is_active", True).execute()
+                result = self._query_llm_providers([("is_default", True)], require_active=True)
                 
                 if not result.data:
                     # Fallback: get the first active provider if no default is set
-                    result = query.eq("is_active", True).limit(1).execute()
+                    try:
+                        result = self.supabase.table("llm_providers").select("*").eq("is_active", True).limit(1).execute()
+                    except Exception as active_lookup_error:
+                        if "llm_providers.is_active" in str(active_lookup_error) and "does not exist" in str(active_lookup_error):
+                            result = self.supabase.table("llm_providers").select("*").limit(1).execute()
+                        else:
+                            raise
                     
                     if not result.data:
                         raise ValueError("No active LLM providers configured in the database.")
@@ -82,7 +114,7 @@ class LLMService:
             
             if not api_key_value:
                 # Could log warning, but for now we error if no key is found
-                 raise ValueError(f"No API key found for provider {provider_config.get('name')} (ID: {api_key_id})")
+                 raise ValueError(f"No API key found for provider {provider_config.get('provider')} (ID: {api_key_id})")
 
             model_name = provider_config.get("model_name")
             
