@@ -16,43 +16,6 @@ logger = logging.getLogger(__name__)
 
 ai_bp = Blueprint('ai', __name__, url_prefix='/api/ai')
 
-# ─── Helper: resolve LLM config from Supabase application_settings ───────────
-
-def _get_llm_config():
-    """
-    Fetch the best available LLM config from the application_settings table.
-    Priority: Gemini → OpenAI → Anthropic → Perplexity
-    Returns (provider, model, api_key) or raises RuntimeError.
-    """
-    try:
-        from supabase_client import get_supabase_client
-    except ImportError:
-        import sys
-        sys.path.append(os.getcwd())
-        from supabase_client import get_supabase_client
-
-    supabase = get_supabase_client()
-    res = supabase.table('application_settings').select(
-        'geminiKey, geminiModel, openAIKey, openAIModel, perplexityAI_key, perplexityModel, claudeKey'
-    ).eq('id', 1).single().execute()
-
-    s = res.data or {}
-
-    if s.get('geminiKey'):
-        return ('gemini', s.get('geminiModel') or 'gemini-1.5-flash', s['geminiKey'])
-    if s.get('openAIKey'):
-        return ('openai', s.get('openAIModel') or 'gpt-4o-mini', s['openAIKey'])
-    if s.get('claudeKey'):
-        return ('anthropic', 'claude-3-haiku-20240307', s['claudeKey'])
-    if s.get('perplexityAI_key'):
-        # Perplexity is OpenAI-compatible
-        return ('perplexity', s.get('perplexityModel') or 'llama-3.1-sonar-small-128k-online', s['perplexityAI_key'])
-
-    raise RuntimeError(
-        "No LLM API key configured. Please add a key in Settings → Content Generation."
-    )
-
-
 def _get_user_id_from_request():
     """Extract and validate user_id from Bearer token."""
     try:
@@ -145,27 +108,22 @@ Respond ONLY with a valid JSON array in this exact format:
 
 Do not include any text before or after the JSON array."""
 
-    # ── Call LLM — try providers in priority order, skip on auth errors ──────
-    PROVIDER_PRIORITY = [
-        lambda s: ('gemini',     s.get('geminiModel') or 'gemini-1.5-flash',  s['geminiKey'])      if s.get('geminiKey')         else None,
-        lambda s: ('openai',     s.get('openAIModel') or 'gpt-4o-mini',       s['openAIKey'])      if s.get('openAIKey')         else None,
-        lambda s: ('anthropic',  'claude-3-haiku-20240307',                   s['claudeKey'])      if s.get('claudeKey')         else None,
-        lambda s: ('perplexity', s.get('perplexityModel') or 'llama-3.1-sonar-small-128k-online', s['perplexityAI_key']) if s.get('perplexityAI_key') else None,
-    ]
-
-    # Fetch settings once
+    # ── Call LLM — ALWAYS use default provider/model/key from DB ─────────────
+    # Requirement:
+    # 1) llm_providers where is_default=true → provider, model_name, api_keys_id
+    # 2) api_keys where id=api_keys_id → key_value
     try:
-        from supabase_client import get_supabase_client as _gsb
+        from supabase_client import get_default_llm_provider as _get_default_llm_provider
     except ImportError:
         import sys as _sys
         _sys.path.append(os.getcwd())
-        from supabase_client import get_supabase_client as _gsb
+        from supabase_client import get_default_llm_provider as _get_default_llm_provider
 
-    _sb = _gsb()
-    _res = _sb.table('application_settings').select(
-        'geminiKey, geminiModel, openAIKey, openAIModel, perplexityAI_key, perplexityModel, claudeKey'
-    ).eq('id', 1).single().execute()
-    _s = _res.data or {}
+    provider, model, api_key = _get_default_llm_provider()
+    if not provider or not model or not api_key:
+        return jsonify({
+            "error": "No default LLM configured. Set llm_providers.is_default=true and attach api_keys.key_value via llm_providers.api_keys_id."
+        }), 503
 
     import sys as _sys2
     _sys2.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
@@ -173,74 +131,48 @@ Do not include any text before or after the JSON array."""
     ))))
     from llm_client_direct import create_llm_client
 
-    raw_content = None
-    last_error = None
-
-    for provider_fn in PROVIDER_PRIORITY:
-        creds = provider_fn(_s)
-        if not creds:
-            continue
-        provider, model, api_key = creds
-
-        try:
-            if provider == 'perplexity':
-                import openai as _oai
-                _client = _oai.OpenAI(api_key=api_key, base_url="https://api.perplexity.ai")
-                _resp = _client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user",   "content": user_prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=1500
-                )
-                raw_content = _resp.choices[0].message.content
-            else:
-                # Single attempt — no retries for auth-type errors
-                llm = create_llm_client(
-                    provider=provider,
-                    model=model,
-                    api_key=api_key,
-                    temperature=0.7,
-                    max_tokens=1500,
-                    timeout=60,
-                    max_retries=0   # Don't retry on first provider; move to next on failure
-                )
-                raw_content = llm.generate([
+    try:
+        if provider == 'perplexity':
+            import openai as _oai
+            _client = _oai.OpenAI(api_key=api_key, base_url="https://api.perplexity.ai")
+            _resp = _client.chat.completions.create(
+                model=model,
+                messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user",   "content": user_prompt}
-                ]).content
+                ],
+                temperature=0.7,
+                max_tokens=1500
+            )
+            raw_content = _resp.choices[0].message.content
+        else:
+            llm = create_llm_client(
+                provider=provider,
+                model=model,
+                api_key=api_key,
+                temperature=0.7,
+                max_tokens=1500,
+                timeout=60,
+                max_retries=0
+            )
+            raw_content = llm.generate([
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt}
+            ]).content
 
-            logger.info(f"propose-topics: succeeded with provider={provider} model={model}")
-            break  # success — stop trying other providers
-
-        except Exception as e:
-            err_str = str(e).lower()
-            is_auth_err = any(kw in err_str for kw in [
-                'api key', 'api_key', 'invalid_argument', 'expired',
-                'authentication', 'unauthorized', 'permission', 'quota'
-            ])
-            last_error = e
-            if is_auth_err:
-                logger.warning(f"propose-topics: auth/key error for provider={provider} ({e.__class__.__name__}), trying next provider")
-            else:
-                logger.error(f"propose-topics: non-auth error for provider={provider}: {e}", exc_info=True)
-            continue
-
-    if raw_content is None:
-        # All providers failed
-        err_msg = str(last_error) if last_error else "Unknown error"
-        is_key_issue = last_error and any(kw in str(last_error).lower() for kw in [
-            'api key', 'expired', 'invalid_argument', 'unauthorized', 'quota'
+        logger.info(f"propose-topics: succeeded with provider={provider} model={model}")
+    except Exception as e:
+        err_str = str(e)
+        is_key_issue = any(kw in err_str.lower() for kw in [
+            'api key', 'api_key', 'invalid_argument', 'expired',
+            'authentication', 'unauthorized', 'permission', 'quota'
         ])
+        logger.error(f"propose-topics: failed with provider={provider} model={model}: {e}", exc_info=True)
         if is_key_issue:
             return jsonify({
-                "error": "Your LLM API key is expired or invalid. Please update it in Settings → Content Generation and try again."
+                "error": "Default LLM API key is invalid/expired. Update api_keys.key_value for the default llm_providers row and retry."
             }), 503
-
-        logger.error(f"propose-topics: all providers failed. Last error: {err_msg}", exc_info=True)
-        return jsonify({"error": f"LLM generation failed: {err_msg}"}), 500
+        return jsonify({"error": f"LLM generation failed: {err_str}"}), 500
 
     # ── Parse LLM response ────────────────────────────────────────────────────
     try:

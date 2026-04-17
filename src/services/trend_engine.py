@@ -547,62 +547,38 @@ Instructions:
         """
         Resolve a provider/model/API-key chain.
 
-        Order:
-        - Preferred provider/model from `llm_providers` if it has a key
-        - Then fall back: Gemini -> OpenAI -> Anthropic -> Perplexity
+        Requirement (for every LLM API call):
+        1) From `llm_providers` get the row where `is_default = true`
+           and read `provider`, `model_name`, and `api_keys_id`
+        2) From `api_keys` read `key_value` for that `api_keys_id`
         """
         preference = self._get_default_llm_preference_row()
         provider_preference = self._normalize_provider(preference.get("provider"))
         model_preference = preference.get("model_name") or ""
-        settings = self._get_application_settings()
 
         candidates: list[tuple[str, str, str, Optional[str]]] = []
 
-        # 0) If llm_providers has an api_keys_id, prefer that explicit key first.
+        # Default provider must have an api_keys_id.
         api_keys_id = preference.get("api_keys_id") or preference.get("api_key_id")
-        if api_keys_id:
-            key_value = self._get_api_key_value(api_keys_id)
-            if key_value:
-                # For Gemini keys stored in api_keys, treat provider as gemini.
-                p = provider_preference
-                if p == "perplexity":
-                    candidates.append(("openai", model_preference or (settings.get("perplexityModel") or "llama-3.1-sonar-small-128k-online"), key_value, "https://api.perplexity.ai"))
-                else:
-                    candidates.append((p, model_preference or "", key_value, None))
+        if not api_keys_id:
+            logger.warning("Default llm_providers row has no api_keys_id (provider=%s model=%s)", provider_preference, model_preference)
+            return []
 
-        preferred = self._resolve_llm_from_settings(
-            settings=settings,
-            preferred_provider=provider_preference,
-            preferred_model=model_preference,
-        )
-        if preferred:
-            candidates.append(preferred)
+        key_value = self._get_api_key_value(api_keys_id)
+        if not key_value:
+            logger.warning("api_keys.key_value not found for default llm_providers.api_keys_id=%s", api_keys_id)
+            return []
 
-        # Add fallback chain, skipping duplicates.
-        for provider, model in [
-            ("gemini", settings.get("geminiModel") or "gemini-1.5-flash"),
-            ("openai", settings.get("openAIModel") or "gpt-4o-mini"),
-            ("anthropic", "claude-3-haiku-20240307"),
-            ("perplexity", settings.get("perplexityModel") or "llama-3.1-sonar-small-128k-online"),
-        ]:
-            resolved = self._resolve_llm_from_settings(
-                settings=settings,
-                preferred_provider=provider,
-                preferred_model=model,
-            )
-            if not resolved:
-                continue
-            if any(resolved[0] == c[0] and resolved[1] == c[1] for c in candidates):
-                continue
-            candidates.append(resolved)
+        if provider_preference == "perplexity":
+            # Perplexity is OpenAI-compatible (OpenAI ChatCompletions) via a different base_url.
+            candidates.append(("openai", model_preference or "llama-3.1-sonar-small-128k-online", key_value, "https://api.perplexity.ai"))
+        else:
+            candidates.append((provider_preference, model_preference, key_value, None))
 
         return candidates
 
     def _get_default_llm_preference_row(self) -> Dict[str, Any]:
         """Fetch preferred LLM provider/model from `llm_providers` (may include api_keys_id)."""
-        default_provider = "gemini"
-        default_model = "gemini-1.5-flash"
-
         try:
             resp = (
                 self.supabase.table("llm_providers")
@@ -615,22 +591,10 @@ Instructions:
                 row = resp.data[0] or {}
                 if row.get("provider") and row.get("model_name"):
                     return row
-
-            resp = (
-                self.supabase.table("llm_providers")
-                .select("provider, model_name, api_keys_id, api_key_id")
-                .eq("is_active", True)
-                .limit(1)
-                .execute()
-            )
-            if resp.data:
-                row = resp.data[0] or {}
-                if row.get("provider") and row.get("model_name"):
-                    return row
         except Exception as e:
-            logger.warning("Failed to fetch LLM preference from DB, using defaults: %s", e)
+            logger.warning("Failed to fetch default LLM preference from DB: %s", e)
 
-        return {"provider": default_provider, "model_name": default_model}
+        return {}
 
     def _get_api_key_value(self, api_keys_id: Any) -> Optional[str]:
         """Fetch key_value from api_keys table by id."""
@@ -643,7 +607,10 @@ Instructions:
                 .execute()
             )
             if res.data:
-                return (res.data[0] or {}).get("key_value")
+                key_value = (res.data[0] or {}).get("key_value")
+                if isinstance(key_value, str):
+                    key_value = key_value.strip().strip('"').strip("'")
+                return key_value
         except Exception as e:
             logger.warning("Failed to load api_keys id=%s: %s", api_keys_id, e)
         return None

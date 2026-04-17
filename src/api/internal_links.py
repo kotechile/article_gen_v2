@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from supabase_client import get_supabase_client, get_api_key
+from supabase_client import get_supabase_client, get_default_llm_provider
 from llm_client import create_llm_client
 import logging
 import json
@@ -41,48 +41,11 @@ def suggest_internal_links():
         candidates_str = json.dumps([{"title": c["title"], "link": c["link"]} for c in candidates], indent=2)
 
         # 2. Initialize LLM Client
-        # Fetch default provider from DB as per user request
-        api_key = None
-        provider = 'openai'
-        model = 'gpt-4o-mini'
-        
-        try:
-            # Check for default provider
-            # Note: is_default might be boolean or string depending on DB, assume boolean first
-            provider_res = supabase.table("llm_providers").select("provider, model_name, api_keys_id").eq("is_default", True).execute()
-            if provider_res.data and len(provider_res.data) > 0:
-                default_config = provider_res.data[0]
-                db_provider = default_config.get('provider')
-                db_model = default_config.get('model_name')
-                api_keys_id = default_config.get('api_keys_id')
-                
-                if db_provider and db_model and api_keys_id:
-                    # Fetch key using api_keys_id
-                    # We query by 'id' assuming api_keys table has an id column or api_keys_id refers to the PK
-                    key_res = supabase.table("api_keys").select("key_value").eq("id", api_keys_id).execute()
-                    if key_res.data and len(key_res.data) > 0:
-                        api_key = key_res.data[0].get('key_value')
-                        provider = db_provider
-                        model = db_model
-                        logger.info(f"Using default LLM provider from DB: {provider}/{model}")
-
-        except Exception as db_err:
-            logger.warning(f"Failed to fetch default LLM provider from DB: {db_err}")
-
-        # Fallback if DB lookup failed
-        if not api_key:
-             logger.info("Falling back to hardcoded API key check")
-             api_key = get_api_key('openai')
-             provider = 'openai'
-             model = 'gpt-4o-mini' 
-             
-             if not api_key:
-                 api_key = get_api_key('gemini')
-                 provider = 'gemini'
-                 model = 'gemini-1.5-flash'
-        
-        if not api_key:
-             return jsonify({'error': 'No configured LLM API key found'}), 500
+        provider, model, api_key = get_default_llm_provider()
+        if not provider or not model or not api_key:
+            return jsonify({
+                'error': 'No default LLM configured. Set llm_providers.is_default=true and attach api_keys.key_value via llm_providers.api_keys_id.'
+            }), 503
 
         llm = create_llm_client(provider=provider, model=model, api_key=api_key)
 

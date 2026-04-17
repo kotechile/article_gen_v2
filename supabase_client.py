@@ -197,6 +197,8 @@ def get_llm_api_key(provider: str, model: str) -> Optional[str]:
         
         if key_resp.data and len(key_resp.data) > 0:
             key_value = key_resp.data[0].get('key_value')
+            if isinstance(key_value, str):
+                key_value = key_value.strip().strip('"').strip("'")
             if key_value:
                 return key_value
                 
@@ -248,8 +250,17 @@ def get_default_llm_provider() -> tuple[Optional[str], Optional[str], Optional[s
         
         if key_resp.data and len(key_resp.data) > 0:
             api_key = key_resp.data[0].get('key_value')
+            if isinstance(api_key, str):
+                api_key = api_key.strip().strip('"').strip("'")
             if api_key:
-                logger.info(f"Successfully fetched default LLM: {provider}/{model}")
+                logger.info(
+                    "Successfully fetched default LLM: %s/%s (api_keys_id=%s, key_len=%s, key_prefix=%s)",
+                    provider,
+                    model,
+                    api_keys_id,
+                    len(api_key),
+                    api_key[:10],
+                )
                 return provider, model, api_key
         
         logger.warning(f"API Key for default LLM {provider}/{model} (ID: {api_keys_id}) not found or empty")
