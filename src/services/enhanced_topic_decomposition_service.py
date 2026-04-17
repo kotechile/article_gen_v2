@@ -166,9 +166,62 @@ class EnhancedTopicDecompositionService:
             return result
             
         except ValueError as e:
-            # Strict quality errors should propagate to the API layer for 503/422 handling
-            logger.warning(f"Strict quality policy triggering error propagation: {e}")
-            raise
+            # Graceful fallback: avoid hard 500s when strict semantic pipeline yields no clusters.
+            logger.warning(f"Strict semantic pipeline failed, switching to fallback decomposition: {e}")
+            try:
+                fallback = await self._run_hybrid_method(query, max_subtopics)
+                fallback_titles = fallback.subtopics or []
+                if not fallback_titles:
+                    llm_fallback = await self._run_llm_only_method(query, max_subtopics)
+                    fallback_titles = llm_fallback.subtopics or []
+
+                fallback_subtopics = []
+                for title in fallback_titles[:max_subtopics]:
+                    title_text = (title or "").strip()
+                    if not title_text:
+                        continue
+                    seed_tokens = [token for token in re.split(r"[^a-zA-Z0-9]+", title_text.lower()) if len(token) > 2][:4]
+                    fallback_subtopics.append({
+                        "id": str(uuid4()),
+                        "title": title_text,
+                        "search_volume_indicators": ["Fallback decomposition"],
+                        "autocomplete_suggestions": [],
+                        "relevance_score": 0.7,
+                        "source": "llm",
+                        "rationale": "Generated via fallback decomposition path.",
+                        "seed_keywords": seed_tokens or [title_text.lower()],
+                        "target_audience": "General Audience",
+                        "search_volume": 0,
+                        "cpc": 0.0,
+                        "keyword_difficulty": 0,
+                        "trend_analysis": None,
+                        "monetization_data": None,
+                        "intent_bucket": (decomposition_context or {}).get("intent_bucket"),
+                        "decision_focus": (decomposition_context or {}).get("decision_focus"),
+                        "angle_question": (decomposition_context or {}).get("angle_question"),
+                        "value_layer_tags": (decomposition_context or {}).get("value_layer_tags") or [],
+                        "cluster_type": "fallback",
+                        "primary_user_outcome": "Explore adjacent content opportunities",
+                        "serp_intent_match": "medium",
+                        "tool_potential_score": 0,
+                    })
+
+                if fallback_subtopics:
+                    return {
+                        "success": True,
+                        "message": f"Fallback decomposition produced {len(fallback_subtopics)} subtopics.",
+                        "original_query": query,
+                        "decomposition_context": decomposition_context or {},
+                        "subtopics": fallback_subtopics,
+                        "autocomplete_data": None,
+                        "processing_time": time.time() - start_time,
+                        "enhancement_methods": ["fallback_hybrid_or_llm"],
+                        "warnings": [str(e)],
+                    }
+
+                raise
+            except Exception:
+                raise
             
         except Exception as e:
             logger.error(f"Error in enhanced topic decomposition: {str(e)}")
