@@ -42,6 +42,15 @@ class ApiClient {
                     config.headers['X-API-Key'] = API_KEY;
                 }
 
+                // Defensive URL normalization:
+                // baseURL on client is already '/api', so service calls should be '/foo', not '/api/foo'.
+                // If a caller still sends '/api/foo', normalize to '/foo' to avoid '/api/api/foo'.
+                if (typeof config.url === 'string' && config.baseURL?.endsWith('/api') && config.url.startsWith('/api/')) {
+                    const originalUrl = config.url;
+                    config.url = config.url.replace(/^\/api\//, '/');
+                    console.warn(`API Client: normalized URL '${originalUrl}' -> '${config.url}'`);
+                }
+
                 // 2. Add User ID if session exists (User Identity)
                 try {
                     console.log("API Client: Retrieving session...");

@@ -260,10 +260,9 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             setPublished(true);
             setTimeout(() => {
                 onClose();
-                const firstIdea = blogIdeas.find(i => selectedBlogIdeas.has(i.id));
-                if (firstIdea) {
-                    navigate(`/content-studio?id=${firstIdea.id}`);
-                }
+                // Avoid opening Content Studio with a content_ideas id (can cause blank screen).
+                // Published items are now discoverable from Content Library.
+                navigate('/my-articles');
             }, 1500);
         } catch (err) {
             console.error("Failed to publish ideas:", err);
