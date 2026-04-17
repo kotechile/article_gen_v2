@@ -25,6 +25,12 @@ interface KeywordMetricRow {
     cpc: number | null;
 }
 
+interface CachedIdeaBurst {
+    blogIdeas: ContentIdea[];
+    softwareIdeas: ContentIdea[];
+    cachedAt: string;
+}
+
 function intentChipClass(intent?: string) {
     const value = (intent || "").toLowerCase();
     if (value.includes("transactional")) return "bg-emerald-500/20 text-emerald-300 border-emerald-500/30";
@@ -88,10 +94,34 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
     const [expandedMetrics, setExpandedMetrics] = React.useState<string | null>(null);
     const lastGeneratedKeyRef = React.useRef<string | null>(null);
 
+    const cacheKey = React.useMemo(() => {
+        if (!subtopic || !user) return null;
+        return `ideaBurstCache:${topicId}:${subtopic.id}:${user.id}`;
+    }, [topicId, subtopic?.id, user?.id]);
+
     React.useEffect(() => {
         if (!isOpen || !subtopic || !user) return;
         const generationKey = `${topicId}:${subtopic.id}:${user.id}`;
         if (lastGeneratedKeyRef.current === generationKey) return;
+
+        if (cacheKey) {
+            try {
+                const raw = localStorage.getItem(cacheKey);
+                if (raw) {
+                    const parsed = JSON.parse(raw) as CachedIdeaBurst;
+                    if (Array.isArray(parsed.blogIdeas) || Array.isArray(parsed.softwareIdeas)) {
+                        setBlogIdeas(Array.isArray(parsed.blogIdeas) ? parsed.blogIdeas : []);
+                        setSoftwareIdeas(Array.isArray(parsed.softwareIdeas) ? parsed.softwareIdeas : []);
+                        setError(null);
+                        lastGeneratedKeyRef.current = generationKey;
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.warn("Failed to read idea burst cache:", e);
+            }
+        }
+
         lastGeneratedKeyRef.current = generationKey;
         generateIdeas();
     }, [isOpen, topicId, subtopic?.id, user?.id]);
@@ -168,8 +198,23 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                 toolPotentialScore: subtopic.tool_potential_score,
             });
 
-            setBlogIdeas(result.blog_ideas || []);
-            setSoftwareIdeas(result.software_ideas || []);
+            const nextBlogIdeas = result.blog_ideas || [];
+            const nextSoftwareIdeas = result.software_ideas || [];
+            setBlogIdeas(nextBlogIdeas);
+            setSoftwareIdeas(nextSoftwareIdeas);
+
+            if (cacheKey) {
+                try {
+                    const payload: CachedIdeaBurst = {
+                        blogIdeas: nextBlogIdeas,
+                        softwareIdeas: nextSoftwareIdeas,
+                        cachedAt: new Date().toISOString(),
+                    };
+                    localStorage.setItem(cacheKey, JSON.stringify(payload));
+                } catch (e) {
+                    console.warn("Failed to persist idea burst cache:", e);
+                }
+            }
         } catch (err: any) {
             console.error("Failed to generate ideas:", err);
             setError(err.message || "Failed to generate content ideas. Please try again.");
