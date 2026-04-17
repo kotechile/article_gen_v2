@@ -21,6 +21,7 @@ export function TopicDetail() {
     const [subtopics, setSubtopics] = React.useState<Subtopic[]>([])
     const [loading, setLoading] = React.useState(true)
     const [decomposing, setDecomposing] = React.useState(false)
+    const [enriching, setEnriching] = React.useState(false)
     const [error, setError] = React.useState<string | null>(null)
     const [selectedSubtopic, setSelectedSubtopic] = React.useState<Subtopic | null>(null)
     const [showIdeaModal, setShowIdeaModal] = React.useState(false)
@@ -58,11 +59,33 @@ export function TopicDetail() {
             // Call the generation endpoint
             const newSubtopics = await subtopicsService.generateSubtopics(id)
             setSubtopics(newSubtopics)
+
+            // Auto-enrich immediately after decomposition so SEO/offer metrics are populated without extra clicks.
+            if (newSubtopics.length > 0) {
+                setEnriching(true)
+                const enrichedSubtopics = await subtopicsService.enrichSubtopics(id)
+                setSubtopics(enrichedSubtopics)
+            }
         } catch (err) {
             console.error('Failed to decompose topic:', err)
             setError('Failed to decompose topic. Please try again.')
         } finally {
             setDecomposing(false)
+            setEnriching(false)
+        }
+    }
+
+    const handleEnrich = async () => {
+        if (!id) return
+        try {
+            setEnriching(true)
+            const enrichedSubtopics = await subtopicsService.enrichSubtopics(id)
+            setSubtopics(enrichedSubtopics)
+        } catch (err) {
+            console.error('Failed to enrich subtopics:', err)
+            setError('Failed to enrich SEO/offer data. Please try again.')
+        } finally {
+            setEnriching(false)
         }
     }
 
@@ -244,7 +267,7 @@ export function TopicDetail() {
                                 {metrics.hasSeoResearchData ? metrics.totalVolume.toLocaleString() : '—'}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData ? 'Monthly Searches' : 'Not researched'}
+                                {metrics.hasSeoResearchData ? 'Monthly Searches' : 'SEO/Offer data pending'}
                             </div>
                         </motion.div>
 
@@ -263,7 +286,7 @@ export function TopicDetail() {
                                 {metrics.hasSeoResearchData ? metrics.totalOpportunities : '—'}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData ? 'Affiliate Offers' : 'Not researched'}
+                                {metrics.hasSeoResearchData ? 'Affiliate Offers' : 'SEO/Offer data pending'}
                             </div>
                         </motion.div>
 
@@ -282,7 +305,7 @@ export function TopicDetail() {
                                 {metrics.hasSeoResearchData ? metrics.avgDifficulty : '—'}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData ? 'Keyword Difficulty' : 'Not researched'}
+                                {metrics.hasSeoResearchData ? 'Keyword Difficulty' : 'SEO/Offer data pending'}
                             </div>
                         </motion.div>
 
@@ -353,25 +376,46 @@ export function TopicDetail() {
                         <div className="flex items-center justify-between mb-6">
                             <h2 className="text-xl font-semibold text-foreground">Content Opportunities</h2>
                             {subtopics.length > 0 && (
-                                <Button
-                                    onClick={handleDecompose}
-                                    disabled={decomposing}
-                                    variant="outline"
-                                    size="sm"
-                                    className="border-border hover:bg-muted"
-                                >
-                                    {decomposing ? (
-                                        <>
-                                            <RefreshCw className="mr-2 h-3 w-3 animate-spin" />
-                                            Refreshing...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <RefreshCw className="mr-2 h-3 w-3" />
-                                            Refresh
-                                        </>
-                                    )}
-                                </Button>
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        onClick={handleEnrich}
+                                        disabled={enriching || decomposing}
+                                        variant="outline"
+                                        size="sm"
+                                        className="border-border hover:bg-muted"
+                                    >
+                                        {enriching ? (
+                                            <>
+                                                <RefreshCw className="mr-2 h-3 w-3 animate-spin" />
+                                                Enriching SEO/Offers...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Sparkles className="mr-2 h-3 w-3" />
+                                                Run SEO/Offers
+                                            </>
+                                        )}
+                                    </Button>
+                                    <Button
+                                        onClick={handleDecompose}
+                                        disabled={decomposing || enriching}
+                                        variant="outline"
+                                        size="sm"
+                                        className="border-border hover:bg-muted"
+                                    >
+                                        {decomposing ? (
+                                            <>
+                                                <RefreshCw className="mr-2 h-3 w-3 animate-spin" />
+                                                Refreshing...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <RefreshCw className="mr-2 h-3 w-3" />
+                                                Refresh
+                                            </>
+                                        )}
+                                    </Button>
+                                </div>
                             )}
                         </div>
 
@@ -455,7 +499,7 @@ export function TopicDetail() {
                                             <div>
                                                 <div className="text-muted-foreground mb-1">CPC</div>
                                                 <div className="text-foreground font-semibold">
-                                                    {isResearched ? `$${sub.cpc?.toFixed(2) || '0.00'}` : 'Not researched'}
+                                                    {isResearched ? `$${sub.cpc?.toFixed(2) || '0.00'}` : 'Pending SEO/Offers'}
                                                 </div>
                                             </div>
                                             <div>
@@ -464,13 +508,13 @@ export function TopicDetail() {
                                                         (sub.seo_difficulty || 0) > 30 ? 'text-amber-500 dark:text-amber-400' :
                                                             'text-emerald-500 dark:text-emerald-400'
                                                     }`}>
-                                                    {isResearched ? (sub.seo_difficulty || '0') : 'Not researched'}
+                                                    {isResearched ? (sub.seo_difficulty || '0') : 'Pending SEO/Offers'}
                                                 </div>
                                             </div>
                                             <div>
                                                 <div className="text-muted-foreground mb-1">Offers</div>
                                                 <div className="text-foreground font-semibold">
-                                                    {isResearched ? (sub.affiliate_offer_count || 0) : 'Not researched'}
+                                                    {isResearched ? (sub.affiliate_offer_count || 0) : 'Pending SEO/Offers'}
                                                 </div>
                                             </div>
                                         </div>
