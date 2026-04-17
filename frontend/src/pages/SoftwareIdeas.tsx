@@ -29,14 +29,23 @@ export function SoftwareIdeas() {
             setLoading(true)
             const { data, error } = await supabase
                 .from('content_ideas')
-                .select('id,title,description,status,published,created_at,topic_id')
+                .select('*')
                 .eq('user_id', user.id)
                 .eq('content_type', 'software')
                 .order('created_at', { ascending: false })
 
             if (error) throw error
             console.info('[SoftwareIdeas] data loaded', { count: (data || []).length })
-            setIdeas((data as SoftwareIdea[]) || [])
+            const normalized = ((data || []) as any[]).map((row) => ({
+                id: row.id,
+                title: row.title,
+                description: row.description ?? null,
+                status: row.status ?? null,
+                published: row.published ?? null,
+                created_at: row.created_at,
+                topic_id: row.topic_id ?? null,
+            })) as SoftwareIdea[]
+            setIdeas(normalized)
         } catch (err) {
             console.error('Failed to load software ideas:', err)
         } finally {

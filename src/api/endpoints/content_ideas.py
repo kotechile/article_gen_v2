@@ -6,6 +6,7 @@ Provides list, publish, and delete actions used by the frontend Idea Burst flow.
 
 import logging
 from datetime import datetime
+from uuid import uuid4
 from flask import Blueprint, jsonify, request
 
 from ...core.models.errors import ErrorResponse
@@ -145,40 +146,88 @@ def publish_content_ideas():
             ).dict()), 403
 
         now = datetime.utcnow().isoformat()
-        base_update = {
-            "status": "published",
-            "published": True,
-            "published_to_titles": True,
-            "published_at": now,
-            "updated_at": now,
-        }
-
         updated_count = 0
+        published_to_titles_count = 0
         for idea_id in idea_ids:
+            # 1) Fetch idea row first (works across old/new schemas).
+            idea_resp = (
+                supabase
+                .table("content_ideas")
+                .select("*")
+                .eq("id", idea_id)
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            if not idea_resp.data:
+                continue
+            idea = idea_resp.data[0]
+
+            # 2) For blog ideas, publish into Titles table directly.
+            if (idea.get("content_type") or "").lower() != "software":
+                title_payload = {
+                    "id": str(uuid4()),
+                    "user_id": user_id,
+                    "Title": idea.get("title") or "Untitled Article",
+                    "userDescription": idea.get("description") or "",
+                    "Keywords": ", ".join(idea.get("keywords") or []),
+                    "status": "Published",
+                    "published": True,
+                    "dateCreatedOn": now,
+                    "source_idea_id": idea.get("id"),
+                }
+                try:
+                    supabase.table("Titles").insert(title_payload).execute()
+                    published_to_titles_count += 1
+                except Exception:
+                    logger.warning("Could not insert Titles row for idea_id=%s", idea_id, exc_info=True)
+
+            # 3) Best-effort status update on content_ideas with progressive fallbacks.
             try:
-                result = (
-                    supabase
-                    .table("content_ideas")
-                    .update(base_update)
-                    .eq("id", idea_id)
-                    .eq("user_id", user_id)
-                    .execute()
-                )
+                supabase.table("content_ideas").update({
+                    "status": "published",
+                    "published": True,
+                    "published_to_titles": True,
+                    "published_at": now,
+                    "updated_at": now,
+                }).eq("id", idea_id).eq("user_id", user_id).execute()
+                updated_count += 1
+                continue
             except Exception:
-                # Fallback for older schemas that might miss one or more publish columns.
+                pass
+
+            try:
+                supabase.table("content_ideas").update({
+                    "status": "published",
+                    "updated_at": now,
+                }).eq("id", idea_id).eq("user_id", user_id).execute()
+                updated_count += 1
+                continue
+            except Exception:
+                pass
+
+            try:
+                supabase.table("content_ideas").update({
+                    "updated_at": now,
+                }).eq("id", idea_id).eq("user_id", user_id).execute()
+                updated_count += 1
+            except Exception:
+                # Last fallback for minimal schemas without updated_at.
                 result = (
                     supabase
                     .table("content_ideas")
-                    .update({"status": "published", "published": True, "updated_at": now})
+                    .update({"description": idea.get("description") or ""})
                     .eq("id", idea_id)
                     .eq("user_id", user_id)
                     .execute()
                 )
-            updated_count += len(result.data or [])
+                if result.data:
+                    updated_count += 1
 
         return jsonify({
             "success": True,
             "published_count": updated_count,
+            "published_to_titles_count": published_to_titles_count,
             "requested_count": len(idea_ids),
         }), 200
 

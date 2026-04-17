@@ -63,14 +63,16 @@ export const MyArticles: React.FC = () => {
                     .order('dateCreatedOn', { ascending: false }),
                 supabase
                     .from('content_ideas')
-                    .select('id,user_id,title,description,content_type,status,published,published_to_titles,titles_record_id,seo_optimization_score,created_at')
+                    .select('*')
                     .eq('user_id', user.id)
                     .neq('content_type', 'software')
                     .order('created_at', { ascending: false })
             ])
 
             if (titlesResult.error) throw titlesResult.error
-            if (ideasResult.error) throw ideasResult.error
+            if (ideasResult.error) {
+                console.warn('[ContentLibrary] content_ideas query failed; continuing with Titles only', ideasResult.error)
+            }
 
             const titleRows = ((titlesResult.data || []) as Article[]).map((row) => ({
                 ...row,
@@ -82,7 +84,19 @@ export const MyArticles: React.FC = () => {
                 titleRows.map((row) => row.source_idea_id).filter(Boolean) as string[]
             )
 
-            const ideaRows = (ideasResult.data || []) as ContentIdeaRow[]
+            const ideaRows = ((ideasResult.data || []) as any[]).map((row) => ({
+                id: row.id,
+                user_id: row.user_id,
+                title: row.title,
+                description: row.description ?? null,
+                content_type: row.content_type ?? null,
+                status: row.status ?? null,
+                published: row.published ?? null,
+                published_to_titles: row.published_to_titles ?? null,
+                titles_record_id: row.titles_record_id ?? null,
+                seo_optimization_score: row.seo_optimization_score ?? null,
+                created_at: row.created_at,
+            })) as ContentIdeaRow[]
             const publishedIdeas = ideaRows.filter((idea) => {
                 const isPublished = Boolean(idea.published || idea.published_to_titles || idea.status?.toLowerCase() === 'published')
                 const hasTitleMirror = Boolean(idea.titles_record_id && titleIdSet.has(idea.titles_record_id))

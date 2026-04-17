@@ -1417,54 +1417,11 @@ Generate 3 software tools/features to BUILD following this format.
                     "topic_id": topic_id,
                     "user_id": user_id,
                     "keywords": keywords,
-                    "primary_keywords": keywords,
-                    "secondary_keywords": idea.get("secondary_keywords") or [],
-                    "seo_optimization_score": int(idea.get("seo_optimization_score") or 0),
-                    "traffic_potential_score": int(idea.get("traffic_potential_score") or 0),
-                    "total_search_volume": int(idea.get("total_search_volume") or 0),
-                    "average_difficulty": int(idea.get("average_difficulty") or 0),
-                    "average_cpc": float(idea.get("average_cpc") or 0),
-                    "viability_score": int(idea.get("viability_score") or 0),
-                    "opportunity_score": int(idea.get("opportunity_score") or 0),
-                    "monetization_hook": idea.get("monetization_hook") or "",
-                    "target_intent": idea.get("target_intent") or "",
-                    "article_format": idea.get("article_format") or "",
-                    "user_decision_helped": idea.get("user_decision_helped") or "",
-                    "internal_link_hook": idea.get("internal_link_hook") or "",
-                    "product_type": idea.get("product_type") or "",
-                    "user_job_to_be_done": idea.get("user_job_to_be_done") or "",
-                    "key_inputs": idea.get("key_inputs") or [],
-                    "output_result": idea.get("output_result") or "",
-                    "build_complexity": idea.get("build_complexity") or "",
-                    "distribution_angle": idea.get("distribution_angle") or "",
-                    "ranking_breakdown": idea.get("ranking_breakdown") or {},
-                    "status": "draft",
-                    "published": False,
-                    "published_to_titles": False,
                 }
                 persisted_rows.append(row)
 
-            try:
-                supabase.table("content_ideas").upsert(persisted_rows).execute()
-            except Exception:
-                # Fallback for stricter/older schemas.
-                minimal_rows = [
-                    {
-                        "id": row["id"],
-                        "title": row["title"],
-                        "description": row["description"],
-                        "content_type": row["content_type"],
-                        "category": row["category"],
-                        "subtopic": row["subtopic"],
-                        "topic_id": row["topic_id"],
-                        "user_id": row["user_id"],
-                        "keywords": row["keywords"],
-                        "status": "draft",
-                        "published": False,
-                    }
-                    for row in persisted_rows
-                ]
-                supabase.table("content_ideas").upsert(minimal_rows).execute()
+            # Use insert with guaranteed baseline columns for maximum schema compatibility.
+            supabase.table("content_ideas").insert(persisted_rows).execute()
 
             # Touch the parent topic to mark progress recency.
             try:
