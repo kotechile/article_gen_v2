@@ -100,6 +100,28 @@ export function TopicDetail() {
         return hasSeoSignal || hasMonetizationSignal
     }
 
+    const cachedIdeasBySubtopic = React.useMemo(() => {
+        if (!id || !user || typeof window === 'undefined') return new Set<string>()
+        const cachedIds = new Set<string>()
+        for (const sub of subtopics) {
+            if (!sub?.id) continue
+            const key = `ideaBurstCache:${id}:${sub.id}:${user.id}`
+            try {
+                const raw = localStorage.getItem(key)
+                if (!raw) continue
+                const parsed = JSON.parse(raw) as { blogIdeas?: unknown[]; softwareIdeas?: unknown[] }
+                const blogCount = Array.isArray(parsed.blogIdeas) ? parsed.blogIdeas.length : 0
+                const softwareCount = Array.isArray(parsed.softwareIdeas) ? parsed.softwareIdeas.length : 0
+                if (blogCount + softwareCount > 0) {
+                    cachedIds.add(sub.id)
+                }
+            } catch {
+                // ignore malformed cache entries
+            }
+        }
+        return cachedIds
+    }, [id, user?.id, subtopics])
+
     // Calculate metrics from subtopics
     const metrics = React.useMemo(() => {
         if (subtopics.length === 0) {
@@ -391,6 +413,7 @@ export function TopicDetail() {
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {subtopics.map((sub, i) => {
                                     const isResearched = hasSeoResearchSignals(sub)
+                                    const hasCachedIdeas = cachedIdeasBySubtopic.has(sub.id)
                                     return (
                                     <motion.div
                                         key={sub.id || i}
@@ -405,14 +428,21 @@ export function TopicDetail() {
                                                 <Lightbulb className="w-4 h-4 text-primary flex-shrink-0" />
                                                 {sub.name}
                                             </h3>
-                                            <span className={`text-xs px-2 py-1 rounded-full border flex-shrink-0 ${sub.trend_direction === 'up'
-                                                    ? 'text-emerald-500 dark:text-emerald-400 border-emerald-500/20 bg-emerald-500/10'
-                                                    : sub.trend_direction === 'down'
-                                                        ? 'text-red-500 dark:text-red-400 border-red-500/20 bg-red-500/10'
-                                                        : 'text-muted-foreground border-border bg-muted/50'
-                                                }`}>
-                                                {isResearched ? (sub.trend_direction?.toUpperCase() || 'N/A') : 'Pending SEO'}
-                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                {hasCachedIdeas && (
+                                                    <span className="text-xs px-2 py-1 rounded-full border flex-shrink-0 text-indigo-300 border-indigo-500/30 bg-indigo-500/10">
+                                                        Saved candidates
+                                                    </span>
+                                                )}
+                                                <span className={`text-xs px-2 py-1 rounded-full border flex-shrink-0 ${sub.trend_direction === 'up'
+                                                        ? 'text-emerald-500 dark:text-emerald-400 border-emerald-500/20 bg-emerald-500/10'
+                                                        : sub.trend_direction === 'down'
+                                                            ? 'text-red-500 dark:text-red-400 border-red-500/20 bg-red-500/10'
+                                                            : 'text-muted-foreground border-border bg-muted/50'
+                                                    }`}>
+                                                    {isResearched ? (sub.trend_direction?.toUpperCase() || 'N/A') : 'Pending SEO'}
+                                                </span>
+                                            </div>
                                         </div>
 
                                         <div className="grid grid-cols-2 gap-3 text-xs">

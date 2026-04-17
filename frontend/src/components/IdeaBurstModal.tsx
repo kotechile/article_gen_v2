@@ -92,6 +92,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
     const [published, setPublished] = React.useState(false);
     const [saved, setSaved] = React.useState(false);
     const [expandedMetrics, setExpandedMetrics] = React.useState<string | null>(null);
+    const [loadedFromCache, setLoadedFromCache] = React.useState(false);
     const lastGeneratedKeyRef = React.useRef<string | null>(null);
 
     const cacheKey = React.useMemo(() => {
@@ -113,6 +114,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                         setBlogIdeas(Array.isArray(parsed.blogIdeas) ? parsed.blogIdeas : []);
                         setSoftwareIdeas(Array.isArray(parsed.softwareIdeas) ? parsed.softwareIdeas : []);
                         setError(null);
+                        setLoadedFromCache(true);
                         lastGeneratedKeyRef.current = generationKey;
                         return;
                     }
@@ -166,6 +168,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
 
         setLoading(true);
         setError(null);
+        setLoadedFromCache(false);
         setBlogIdeas([]);
         setSoftwareIdeas([]);
         setSelectedBlogIdeas(new Set());
@@ -291,6 +294,28 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         }
     };
 
+    const handleClearCachedIdeas = () => {
+        if (!cacheKey) return;
+        try {
+            localStorage.removeItem(cacheKey);
+        } catch (e) {
+            console.warn("Failed to clear cached idea burst:", e);
+        }
+        setLoadedFromCache(false);
+        setBlogIdeas([]);
+        setSoftwareIdeas([]);
+        setSelectedBlogIdeas(new Set());
+        setSelectedSoftwareIdeas(new Set());
+        setExpandedMetrics(null);
+        setError(null);
+        lastGeneratedKeyRef.current = null;
+    };
+
+    const handleRegenerateIdeas = async () => {
+        handleClearCachedIdeas();
+        await generateIdeas();
+    };
+
     const selectAllBlogs = () => {
         setSelectedBlogIdeas(new Set(blogIdeas.map(i => i.id)));
     };
@@ -345,6 +370,39 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     >
                         <X className="w-6 h-6" />
                     </button>
+                </div>
+                <div className="px-6 py-3 border-b border-white/10 bg-white/5 flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs text-slate-400">
+                        {loadedFromCache ? "Loaded previously generated candidates" : "Candidates are generated for this subtopic"}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {cacheKey && (
+                            <Button
+                                onClick={handleClearCachedIdeas}
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs text-slate-300 hover:text-white"
+                            >
+                                Clear cached ideas
+                            </Button>
+                        )}
+                        <Button
+                            onClick={handleRegenerateIdeas}
+                            variant="outline"
+                            size="sm"
+                            disabled={loading}
+                            className="h-7 px-2 text-xs border-white/15"
+                        >
+                            {loading ? (
+                                <>
+                                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                    Regenerating...
+                                </>
+                            ) : (
+                                "Regenerate"
+                            )}
+                        </Button>
+                    </div>
                 </div>
 
                 {/* Content */}
