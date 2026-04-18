@@ -228,12 +228,12 @@ export function Research() {
                                         onClick={() => navigate(`/research/${topic.id}`)}
                                         className="group relative bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-8 cursor-pointer hover:-translate-y-1 hover:border-ring/50 transition-all duration-300"
                                     >
-                                        {/* Header with Status Badge */}
-                                        <div className="flex items-start justify-between mb-4">
-                                            <h3 className="text-lg font-bold text-foreground line-clamp-2 pr-4 flex-1">
+                                        {/* Header with Progress Chips */}
+                                        <div className="mb-4">
+                                            <h3 className="text-lg font-bold text-foreground line-clamp-2 pr-32">
                                                 {topic.title}
                                             </h3>
-                                            <div className="flex items-center gap-2 flex-shrink-0">
+                                            <div className="absolute right-6 top-6 flex flex-col items-end gap-2">
                                                 {(() => {
                                                     const subtopicsCount = Number(topic.subtopics_count || 0)
                                                     const ideasCount = Number(topic.content_ideas_count || 0)
@@ -244,7 +244,7 @@ export function Research() {
                                                         "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-medium leading-none"
 
                                                     return (
-                                                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                                        <div className="flex flex-col items-end gap-1">
                                                             {!hasAny && (
                                                                 <span className={`${chipBase} border-border bg-muted/60 text-muted-foreground`}>
                                                                     Empty
