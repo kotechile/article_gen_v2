@@ -659,8 +659,14 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
         
     except Exception as e:
         logger.error(f"Research task {task_id} failed: {str(e)}", exc_info=True)
-        
-        # Update task status to FAILURE
+
+        # Preserve explicit failure metadata for polling clients.
+        result.update({
+            'status': TASK_STATUS['FAILURE'],
+            'error': str(e),
+            'failed_at': datetime.utcnow().isoformat(),
+            'message': f'Article generation failed: {str(e)}'
+        })
         self.update_state(
             state=TASK_STATUS['FAILURE'],
             meta={
@@ -670,27 +676,19 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                 'message': f'Task failed: {str(e)}'
             }
         )
-        
+
         # Ensure Supabase status is updated to Failed
         try:
-             article_id = result.get('article_id') or result.get('article', {}).get('id')
-             if article_id:
-                  supabase = get_supabase_client()
-                  if supabase:
-                       supabase.table('Titles').update({'status': 'Failed'}).eq('id', article_id).execute()
-        except:
-             pass
+            article_id = (result.get('research_data') or {}).get('article_id')
+            if article_id:
+                supabase = get_supabase_client()
+                if supabase:
+                    supabase.table('Titles').update({'status': 'Failed'}).eq('id', article_id).execute()
+        except Exception:
+            pass
 
-        return result
-        
-        result.update({
-            'status': TASK_STATUS['FAILURE'],
-            'error': str(e),
-            'failed_at': datetime.utcnow().isoformat(),
-            'message': f'Article generation failed: {str(e)}'
-        })
-        
-        return result
+        # Re-raise so Celery result state is terminal FAILURE (not SUCCESS/PROGRESS hang).
+        raise
 
 def _process_stage(self, result: Dict[str, Any], stage: str, progress: int, 
                   message: str, stage_function) -> Dict[str, Any]:
