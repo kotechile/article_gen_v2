@@ -30,7 +30,7 @@ interface ArticleData {
     viral_potential_score?: number;
     // New Metrics
     difficulty_level?: string;
-    estimated_reading_time?: string;
+    estimated_reading_time?: number | string;
     target_audience?: string;
     overall_quality_score?: number;
     audience_alignment_score?: number;
@@ -196,6 +196,16 @@ export const ContentStudio: React.FC = () => {
         setFormData(prev => ({ ...prev, [field]: value }));
     };
 
+    const formatReadingTime = (value?: number | string | null) => {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            return `${value} min`;
+        }
+        if (typeof value === 'string' && value.trim()) {
+            return value.includes('min') ? value : `${value} min`;
+        }
+        return '-';
+    };
+
     // Save Changes
     const handleSave = async (): Promise<boolean> => {
         if (!articleId) return false;
@@ -205,7 +215,7 @@ export const ContentStudio: React.FC = () => {
             const wpm = 250;
             const words = parseInt(formData.articleLength, 10) || 0;
             const minutes = Math.ceil(words / wpm);
-            const readingTime = `${minutes} min`;
+            const readingTime = Math.max(1, minutes);
 
             const updates = {
                 Title: formData.title,
@@ -590,7 +600,7 @@ export const ContentStudio: React.FC = () => {
                                         <span className="text-sm text-muted-foreground">Est. Reading Time</span>
                                         <MetricTooltip explanation={METRIC_EXPLANATIONS.reading_time} />
                                     </div>
-                                    <span className="font-medium text-foreground">{article.estimated_reading_time || '-'}</span>
+                                    <span className="font-medium text-foreground">{formatReadingTime(article.estimated_reading_time)}</span>
                                 </div>
                                 <div className="p-3 bg-muted/50 rounded-xl">
                                     <div className="flex items-center gap-1 mb-1">
