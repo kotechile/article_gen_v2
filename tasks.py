@@ -39,6 +39,18 @@ TASK_STATUS = {
     'FAILURE': 'FAILURE',
     'CANCELLED': 'CANCELLED'
 }
+PIPELINE_STAGES = [
+    'INITIALIZED',
+    'CLAIM_EXTRACTION',
+    'EVIDENCE_COLLECTION',
+    'EVIDENCE_RANKING',
+    'STRUCTURE_GENERATION',
+    'CONTENT_GENERATION',
+    'CITATION_GENERATION',
+    'REFINEMENT',
+    'FINALIZATION',
+    'COMPLETED',
+]
 
 # Minimum dossier validation thresholds (Phase 1 gates)
 DOSSIER_MIN_QUALITY_SCORE = 30
@@ -339,6 +351,17 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
     """
     task_id = self.request.id
     logger.info(f"Starting research task {task_id} with data: {research_data}")
+    result: Dict[str, Any] = {
+        'task_id': task_id,
+        'status': TASK_STATUS['PENDING'],
+        'created_at': datetime.utcnow().isoformat(),
+        'research_data': research_data,
+        'pipeline_stages': PIPELINE_STAGES,
+        'current_stage': 'INITIALIZED',
+        'progress': 0,
+        'article': None,
+        'error': None,
+    }
     
     # Update DB status to 'Generating' immediately so frontend persists state
     article_id = research_data.get('article_id')
@@ -353,12 +376,29 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                 
                 # Fetch content_outline and research dossier if available
                 logger.info(f"Fetching content_outline for article {article_id}")
-                response = (
-                    supabase.table('Titles')
-                    .select('content_outline,research_dossier,dossier_status,dossier_quality_score')
-                    .eq('id', article_id)
-                    .execute()
-                )
+                try:
+                    response = (
+                        supabase.table('Titles')
+                        .select('content_outline,research_dossier,dossier_status,dossier_quality_score')
+                        .eq('id', article_id)
+                        .execute()
+                    )
+                except Exception as select_error:
+                    # Backward compatibility: if dossier columns are not migrated yet,
+                    # fall back to content_outline only.
+                    if "research_dossier" in str(select_error):
+                        logger.warning(
+                            "research_dossier column missing; falling back to content_outline only: %s",
+                            str(select_error),
+                        )
+                        response = (
+                            supabase.table('Titles')
+                            .select('content_outline')
+                            .eq('id', article_id)
+                            .execute()
+                        )
+                    else:
+                        raise
                 if response.data and len(response.data) > 0:
                     content_outline = response.data[0].get('content_outline')
                     research_dossier = response.data[0].get('research_dossier')
