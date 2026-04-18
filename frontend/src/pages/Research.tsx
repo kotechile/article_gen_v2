@@ -241,7 +241,7 @@ export function Research() {
                                                     const hasAny = subtopicsCount > 0 || ideasCount > 0 || inLibraryCount > 0
 
                                                     const chipBase =
-                                                        "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-medium leading-none"
+                                                        "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-1 text-xs font-medium leading-none"
 
                                                     return (
                                                         <div className="flex flex-col items-end gap-1">
@@ -252,17 +252,17 @@ export function Research() {
                                                             )}
                                                             {subtopicsCount > 0 && (
                                                                 <span className={`${chipBase} border-indigo-500/20 bg-indigo-500/10 text-indigo-300`}>
-                                                                    Subtopics {subtopicsCount}
+                                                                    {subtopicsCount} Sub-Topics
                                                                 </span>
                                                             )}
                                                             {ideasCount > 0 && (
                                                                 <span className={`${chipBase} border-sky-500/20 bg-sky-500/10 text-sky-300`}>
-                                                                    Content Ideas {ideasCount}
+                                                                    {ideasCount} Ideas
                                                                 </span>
                                                             )}
                                                             {inLibraryCount > 0 && (
                                                                 <span className={`${chipBase} border-emerald-500/30 bg-emerald-500/10 text-emerald-300`}>
-                                                                    In Library {inLibraryCount}
+                                                                    {inLibraryCount} In Library
                                                                 </span>
                                                             )}
                                                         </div>
