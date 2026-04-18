@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-04-18T20:39:50.168023+00:00",
+  "baseline": {
+    "name": "Titles.status=Created",
+    "aggregates": {
+      "evaluated_count": 0,
+      "skipped_count": 0,
+      "avg_overall_score": 0.0,
+      "avg_humanization_score": 0.0,
+      "avg_grounding_score": 0.0,
+      "avg_geo_score": 0.0,
+      "below_60_overall_count": 0
+    },
+    "samples": []
+  },
+  "candidate": {
+    "name": "Titles.status=Needs Review",
+    "aggregates": {
+      "evaluated_count": 0,
+      "skipped_count": 0,
+      "avg_overall_score": 0.0,
+      "avg_humanization_score": 0.0,
+      "avg_grounding_score": 0.0,
+      "avg_geo_score": 0.0,
+      "below_60_overall_count": 0
+    },
+    "samples": []
+  },
+  "delta": {
+    "overall_score_delta": 0.0,
+    "humanization_score_delta": 0.0,
+    "grounding_score_delta": 0.0,
+    "geo_score_delta": 0.0,
+    "below_60_overall_delta": 0
+  }
+}

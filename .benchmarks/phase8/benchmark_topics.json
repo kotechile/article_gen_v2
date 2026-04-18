@@ -1,0 +1,47 @@
+{
+  "version": "phase8_v1",
+  "topics": [
+    {
+      "id": "evergreen_001",
+      "bucket": "evergreen_informational",
+      "title": "How to build a weekly planning system that actually sticks",
+      "brief": "Explain a practical weekly planning system for busy professionals with examples and tradeoffs.",
+      "expected_intent": "informational"
+    },
+    {
+      "id": "technical_001",
+      "bucket": "technical",
+      "title": "RAG vs fine-tuning for enterprise knowledge assistants",
+      "brief": "Compare RAG and fine-tuning with architecture, cost, and risk tradeoffs.",
+      "expected_intent": "comparative"
+    },
+    {
+      "id": "comparison_001",
+      "bucket": "product_comparison",
+      "title": "Best project management tools for remote teams in 2026",
+      "brief": "Compare top project management platforms with transparent tradeoffs and decision criteria.",
+      "expected_intent": "commercial"
+    },
+    {
+      "id": "b2b_001",
+      "bucket": "b2b",
+      "title": "How B2B SaaS teams should prioritize PLG vs sales-led motion",
+      "brief": "Provide a strategic decision framework for B2B go-to-market prioritization.",
+      "expected_intent": "strategic"
+    },
+    {
+      "id": "timely_001",
+      "bucket": "timely_topic",
+      "title": "What changed in AI search ranking signals this year",
+      "brief": "Summarize current directional changes in AI search ranking and what to do next.",
+      "expected_intent": "informational"
+    },
+    {
+      "id": "sensitive_001",
+      "bucket": "sensitive_high_stakes",
+      "title": "How to evaluate online medical advice safely",
+      "brief": "Explain safety checks, source quality, and risk caveats for health content online.",
+      "expected_intent": "informational"
+    }
+  ]
+}

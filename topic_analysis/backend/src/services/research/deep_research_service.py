@@ -4,6 +4,7 @@ import logging
 import asyncio
 from datetime import datetime
 from uuid import uuid4
+import re
 
 # LlamaIndex & Tavily Imports
 try:
@@ -127,6 +128,12 @@ class DeepResearchService:
             
             response = await agent.achat(prompt)
             report_content = str(response)
+            research_dossier = self._build_research_dossier(
+                title_id=title_id,
+                outline=outline,
+                report_content=report_content,
+                citations=collected_citations,
+            )
 
             # 3. Upload to RAG with Citations
             doc_id = f"deep_research_{title_id}_{uuid4().hex[:8]}"
@@ -156,7 +163,8 @@ class DeepResearchService:
                 "doc_id": doc_id,
                 "report_preview": report_content[:200] + "...",
                 "upload_status": upload_success,
-                "citations_count": len(collected_citations)
+                "citations_count": len(collected_citations),
+                "research_dossier": research_dossier,
             }
 
         except Exception as e:
@@ -164,6 +172,74 @@ class DeepResearchService:
             return {"success": False, "error": str(e)}
 
     # Removed _tavily_search method as it is now an inner wrapper
+
+    def _build_research_dossier(
+        self,
+        title_id: str,
+        outline: str,
+        report_content: str,
+        citations: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Create a structured dossier artifact for downstream article generation."""
+        now_iso = datetime.utcnow().isoformat()
+        citation_urls = [c.get("url") for c in citations if c.get("url")]
+        unique_urls = sorted(set(citation_urls))
+
+        # Heuristic claim extraction from markdown bullets and headings.
+        claim_candidates: List[str] = []
+        for line in (report_content or "").splitlines():
+            cleaned = line.strip()
+            if not cleaned:
+                continue
+            if cleaned.startswith(("- ", "* ", "1.", "2.", "3.", "4.", "5.")):
+                claim_text = re.sub(r"^[-*]\s+|^\d+\.\s+", "", cleaned).strip()
+                if len(claim_text) > 30:
+                    claim_candidates.append(claim_text)
+
+        # Keep top unique claims to avoid noisy payloads.
+        seen = set()
+        claims = []
+        for claim in claim_candidates:
+            key = claim.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            claims.append({"claim": claim, "importance": "medium"})
+            if len(claims) >= 12:
+                break
+
+        source_count = len(unique_urls)
+        quality_score = min(100, (source_count * 10) + (10 if claims else 0))
+
+        return {
+            "version": "phase1_v1",
+            "title_id": title_id,
+            "generated_at": now_iso,
+            "outline_snapshot": outline,
+            "summary": (report_content or "")[:1200],
+            "primary_claims": claims,
+            "source_map": [
+                {
+                    "title": c.get("title", "Unknown Source"),
+                    "url": c.get("url", ""),
+                    "source": c.get("source", ""),
+                }
+                for c in citations
+            ],
+            "key_entities": [],
+            "important_statistics": [],
+            "counterpoints": [],
+            "unresolved_questions": [],
+            "freshness_summary": {
+                "generated_at": now_iso,
+                "source_count": source_count,
+            },
+            "source_quality_summary": {
+                "source_count": source_count,
+                "unique_domains": len({(u.split("/")[2] if "://" in u and len(u.split("/")) > 2 else u) for u in unique_urls}),
+            },
+            "dossier_quality_score": quality_score,
+        }
 
     async def _upload_to_rag(self, content: str, doc_id: str, collection_name: str, user_id: str, filename: str, metadata: Dict[str, Any] = None) -> bool:
         """Uploads the synthesized report to the external RAG system"""

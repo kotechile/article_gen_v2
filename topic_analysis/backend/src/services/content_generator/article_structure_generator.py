@@ -83,7 +83,13 @@ class ArticleStructureGenerator:
         self.verbalized_client = None
         self.logger.info("Verbalized sampling disabled, using standard generation")
     
-    def generate_structure(self, research_data: Dict[str, Any], claims: List[Dict], evidence: List[Dict]) -> ArticleStructure:
+    def generate_structure(
+        self,
+        research_data: Dict[str, Any],
+        claims: List[Dict],
+        evidence: List[Dict],
+        claim_bundles: Optional[List[Dict]] = None
+    ) -> ArticleStructure:
         """
         Generate complete article structure.
         
@@ -100,6 +106,9 @@ class ArticleStructureGenerator:
             keywords = research_data.get('keywords', '')
             tone = research_data.get('tone', 'journalistic')
             target_word_count = research_data.get('target_word_count', 2000)
+            claim_bundles = claim_bundles or []
+            search_intent = self._determine_search_intent(brief, research_data)
+            geo_blocks_enabled = bool(research_data.get('geo_blocks_enabled', True))
             
             # Determine article type based on brief content
             article_type = self._determine_article_type(brief)
@@ -118,7 +127,18 @@ class ArticleStructureGenerator:
                 self.logger.info(f"Using provided content_outline from database ({len(content_outline)} items)")
                 sections = self._generate_sections_from_outline(content_outline, target_word_count, tone)
             else:
-                sections = self._generate_sections(brief, claims, evidence, target_word_count, tone, article_type)
+                sections = self._generate_sections(
+                    brief,
+                    claims,
+                    evidence,
+                    target_word_count,
+                    tone,
+                    article_type,
+                    claim_bundles=claim_bundles,
+                    search_intent=search_intent,
+                )
+            if geo_blocks_enabled:
+                sections = self._apply_geo_blocks(sections, target_word_count, search_intent)
             
             # Log section titles for debugging
             section_titles = [s.title for s in sections]
@@ -176,6 +196,116 @@ class ArticleStructureGenerator:
             return ArticleType.REVIEW.value
         else:
             return ArticleType.ANALYSIS.value  # Default
+
+    def _apply_geo_blocks(
+        self,
+        sections: List[SectionOutline],
+        target_word_count: int,
+        search_intent: str,
+    ) -> List[SectionOutline]:
+        """Deterministically inject GEO-friendly sections when missing."""
+        if not sections:
+            return sections
+        titles_lower = [s.title.lower() for s in sections if s.title]
+        has_short_answer = any("short answer" in t or "quick answer" in t for t in titles_lower)
+        has_key_takeaways = any("key takeaway" in t or "takeaways" in t for t in titles_lower)
+        has_faq = any(t == "faq" or "frequently asked" in t for t in titles_lower)
+        has_tradeoffs = any("tradeoff" in t or "trade-off" in t for t in titles_lower)
+
+        geo_sections: List[SectionOutline] = []
+        if not has_short_answer:
+            geo_sections.append(
+                SectionOutline(
+                    title="Short Answer",
+                    subtitle="The direct answer in under one minute",
+                    key_points=["Direct answer", "Primary recommendation", "One caveat"],
+                    word_count_target=max(90, target_word_count // 18),
+                    content_type="paragraph",
+                    importance="high",
+                )
+            )
+        if not has_key_takeaways:
+            geo_sections.append(
+                SectionOutline(
+                    title="Key Takeaways",
+                    subtitle="What matters most before going deeper",
+                    key_points=["Top insights", "Most impactful actions", "What to avoid"],
+                    word_count_target=max(120, target_word_count // 15),
+                    content_type="list",
+                    importance="high",
+                )
+            )
+        if search_intent in {"commercial", "comparative"} and not has_tradeoffs:
+            geo_sections.append(
+                SectionOutline(
+                    title="Tradeoffs and Decision Criteria",
+                    subtitle="Where each option wins or loses",
+                    key_points=["Pros", "Cons", "Best-fit scenarios"],
+                    word_count_target=max(160, target_word_count // 12),
+                    content_type="comparison",
+                    importance="high",
+                )
+            )
+        if target_word_count >= 1200 and not has_faq:
+            geo_sections.append(
+                SectionOutline(
+                    title="FAQ",
+                    subtitle="Fast answers to common edge cases",
+                    key_points=["Common misconception", "Implementation detail", "Risk question"],
+                    word_count_target=max(180, target_word_count // 10),
+                    content_type="list",
+                    importance="medium",
+                )
+            )
+
+        # Place quick-answer GEO blocks at the beginning, keep original flow afterwards.
+        merged = geo_sections + sections
+        for idx, sec in enumerate(merged, start=1):
+            sec.order = idx
+        return merged
+
+    def _determine_search_intent(self, brief: str, research_data: Dict[str, Any]) -> str:
+        """Infer primary search intent for GEO-aware structure planning."""
+        explicit_intent = str(
+            research_data.get('search_intent')
+            or research_data.get('intent')
+            or ''
+        ).strip().lower()
+        if explicit_intent in {'informational', 'commercial', 'transactional', 'navigational', 'comparative'}:
+            return explicit_intent
+
+        brief_lower = brief.lower()
+        if any(k in brief_lower for k in ['buy', 'price', 'pricing', 'best', 'top', 'review', 'vs', 'versus', 'compare']):
+            return 'commercial'
+        if any(k in brief_lower for k in ['how to', 'what is', 'guide', 'learn', 'explained', 'tips', 'tutorial']):
+            return 'informational'
+        if any(k in brief_lower for k in ['sign up', 'download', 'register', 'book', 'start now']):
+            return 'transactional'
+        return 'informational'
+
+    def _summarize_claim_bundles(self, claim_bundles: List[Dict]) -> str:
+        """Build compact claim bundle guidance for section planning."""
+        if not claim_bundles:
+            return "No claim bundle context available."
+        weak_claims = [b for b in claim_bundles if float(b.get("confidence_score", 0) or 0) < 0.45]
+        mixed_claims = [b for b in claim_bundles if b.get("mixed_signal")]
+        strongest = sorted(
+            claim_bundles,
+            key=lambda b: float(b.get("confidence_score", 0) or 0),
+            reverse=True
+        )[:3]
+        lines = [
+            f"Claim bundles: {len(claim_bundles)}",
+            f"Weak claims (<0.45 confidence): {len(weak_claims)}",
+            f"Mixed-signal claims: {len(mixed_claims)}",
+        ]
+        if strongest:
+            lines.append("Top supported claims:")
+            for item in strongest:
+                lines.append(
+                    f"- {item.get('claim', '')[:120]} | conf={item.get('confidence_score', 0)} | support={item.get('support_count', 0)} | contradiction={item.get('contradiction_count', 0)}"
+                )
+        return "\n".join(lines)
     
     def _generate_title(self, brief: str, keywords: str, article_type: str, tone: str, draft_title: str = '') -> str:
         """Generate compelling article title with strict length enforcement."""
@@ -507,8 +637,17 @@ class ArticleStructureGenerator:
         
         return analysis
     
-    def _generate_sections(self, brief: str, claims: List[Dict], evidence: List[Dict], 
-                          target_word_count: int, tone: str, article_type: str) -> List[SectionOutline]:
+    def _generate_sections(
+        self,
+        brief: str,
+        claims: List[Dict],
+        evidence: List[Dict],
+        target_word_count: int,
+        tone: str,
+        article_type: str,
+        claim_bundles: Optional[List[Dict]] = None,
+        search_intent: str = "informational",
+    ) -> List[SectionOutline]:
         """Generate detailed section outlines with balanced word distribution."""
         try:
             # Calculate section count based on target word count with better distribution
@@ -522,6 +661,7 @@ class ArticleStructureGenerator:
             # Prepare context
             claims_text = "\n".join([f"- {claim.get('claim', '')}" for claim in claims[:5]])
             evidence_text = f"Evidence from {len(evidence)} sources" if evidence else "Research-based insights"
+            claim_bundle_text = self._summarize_claim_bundles(claim_bundles or [])
             
             # Analyze evidence distribution for better section planning
             evidence_types = self._analyze_evidence_distribution(evidence)
@@ -540,6 +680,8 @@ class ArticleStructureGenerator:
                     - Order sections logically with smooth transitions
                     - Include practical, actionable content
                     - Distribute evidence and claims evenly across sections
+                    - Align sections to search intent: {search_intent}
+                    - Prioritize high-confidence claims while explicitly handling mixed-signal claims with nuance
                     
                     ⚠️ CRITICAL: AVOID GENERIC SECTION TITLES ⚠️
                     - DO NOT use generic titles like: "Getting Started", "Step-by-Step Process", "Key Concepts", "Practical Applications", "Understanding the Fundamentals", "Real-World Implementation"
@@ -551,6 +693,9 @@ class ArticleStructureGenerator:
                     
                     EVIDENCE DISTRIBUTION ANALYSIS:
                     {evidence_types}
+                    
+                    CLAIM BUNDLE ANALYSIS:
+                    {claim_bundle_text}
                     
                     SECTION BALANCING RULES:
                     - Introduction: 150-250 words (keep it concise, single paragraph style)
@@ -597,6 +742,7 @@ Key Claims to Address:
 {claims_text}
 
 Evidence Available: {evidence_text}
+Search Intent: {search_intent}
 Target Word Count: {target_word_count}
 Tone: {tone}
 

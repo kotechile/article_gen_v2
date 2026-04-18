@@ -100,16 +100,18 @@ class ArticleStructureGenerator:
             keywords = research_data.get('keywords', '')
             tone = research_data.get('tone', 'journalistic')
             target_word_count = research_data.get('target_word_count', 2000)
+            dossier_context = self._build_dossier_context_text(research_data)
+            brief_with_dossier = f"{brief}\n\nDeep Research Context:\n{dossier_context}" if dossier_context else brief
             
             # Determine article type based on brief content
             article_type = self._determine_article_type(brief)
             
             # Generate core elements
             draft_title = research_data.get('draft_title', '')
-            title = self._generate_title(brief, keywords, article_type, tone, draft_title)
-            hook = self._generate_hook(brief, claims, tone)
-            excerpt = self._generate_excerpt(brief, claims, target_word_count, tone)
-            thesis = self._generate_thesis(brief, claims, evidence, tone)
+            title = self._generate_title(brief_with_dossier, keywords, article_type, tone, draft_title)
+            hook = self._generate_hook(brief_with_dossier, claims, tone)
+            excerpt = self._generate_excerpt(brief_with_dossier, claims, target_word_count, tone)
+            thesis = self._generate_thesis(brief_with_dossier, claims, evidence, tone)
             meta_description = self._generate_meta_description(title, excerpt, keywords)
             
             # Generate section outlines
@@ -118,7 +120,7 @@ class ArticleStructureGenerator:
                 self.logger.info(f"Using provided content_outline from database ({len(content_outline)} items)")
                 sections = self._generate_sections_from_outline(content_outline, target_word_count, tone)
             else:
-                sections = self._generate_sections(brief, claims, evidence, target_word_count, tone, article_type)
+                sections = self._generate_sections(brief_with_dossier, claims, evidence, target_word_count, tone, article_type)
             
             # Log section titles for debugging
             section_titles = [s.title for s in sections]
@@ -157,6 +159,37 @@ class ArticleStructureGenerator:
             self.logger.error(f"Error generating article structure: {str(e)}")
             # Return fallback structure
             return self._create_fallback_structure(research_data)
+
+    def _build_dossier_context_text(self, research_data: Dict[str, Any]) -> str:
+        """Build compact deep-research context string for structure planning prompts."""
+        dossier = research_data.get('research_dossier') or {}
+        if not isinstance(dossier, dict):
+            return ""
+
+        summary = str(dossier.get('summary', '') or '').strip()
+        claims = dossier.get('primary_claims') or []
+        unresolved = dossier.get('unresolved_questions') or []
+        stats = dossier.get('important_statistics') or []
+
+        claim_lines = []
+        if isinstance(claims, list):
+            claim_lines = [
+                c.get('claim', '').strip() for c in claims[:4]
+                if isinstance(c, dict) and c.get('claim')
+            ]
+        unresolved_lines = [str(q).strip() for q in unresolved[:3]] if isinstance(unresolved, list) else []
+        stat_lines = [str(s).strip() for s in stats[:3]] if isinstance(stats, list) else []
+
+        parts = []
+        if summary:
+            parts.append(f"Summary: {summary[:500]}")
+        if claim_lines:
+            parts.append("Primary Claims: " + " | ".join(claim_lines))
+        if unresolved_lines:
+            parts.append("Unresolved Questions: " + " | ".join(unresolved_lines))
+        if stat_lines:
+            parts.append("Important Statistics: " + " | ".join(stat_lines))
+        return "\n".join(parts)
     
     def _determine_article_type(self, brief: str) -> str:
         """Determine article type based on brief content."""

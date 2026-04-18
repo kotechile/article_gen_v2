@@ -64,12 +64,26 @@ async def trigger_deep_gap_fill(
                 )
                 
                 if result['success']:
-                    # Update Title Status to 'Research Complete' or similar?
-                    # Or maybe just log it. The Noodl/Frontend script usually handles status updates 
-                    # based on "gap closed" endpoints.
-                    # We should probably call the RAG's /mark_gaps_closed or similar logic?
-                    # The proposal said "Updates Titles status to Research Complete".
-                    supabase.table('Titles').update({'status': 'Research Complete'}).eq('id', title_id).execute()
+                    dossier = result.get("research_dossier") or {}
+                    dossier_quality_score = int(dossier.get("dossier_quality_score", 0) or 0)
+                    dossier_status = "ready" if dossier_quality_score >= 30 else "needs_review"
+                    update_payload = {
+                        'status': 'Research Complete',
+                        'research_dossier': dossier,
+                        'dossier_status': dossier_status,
+                        'dossier_last_updated_at': result.get('research_dossier', {}).get('generated_at'),
+                        'dossier_quality_score': dossier_quality_score,
+                    }
+                    try:
+                        supabase.table('Titles').update(update_payload).eq('id', title_id).execute()
+                    except Exception as update_error:
+                        # Backward-compatible fallback before dossier migration is applied.
+                        if 'research_dossier' in str(update_error) or 'dossier_' in str(update_error):
+                            supabase.table('Titles').update({'status': 'Research Complete'}).eq('id', title_id).execute()
+                        else:
+                            raise
+                else:
+                    supabase.table('Titles').update({'dossier_status': 'failed'}).eq('id', title_id).execute()
                     
             except Exception as e:
                 logger.error(f"Error processing title {title_id}: {e}")

@@ -15,6 +15,22 @@ load_dotenv()
 
 
 @dataclass
+class LinkupOptimizationConfig:
+    """Optimization settings used by evidence collection."""
+
+    rag_coverage_min_sources: int = int(os.environ.get('LINKUP_OPT_RAG_MIN_SOURCES', '3'))
+    rag_coverage_min_relevance: float = float(os.environ.get('LINKUP_OPT_RAG_MIN_RELEVANCE', '0.6'))
+    cache_enabled: bool = os.environ.get('LINKUP_OPT_CACHE_ENABLED', 'true').lower() == 'true'
+    cache_ttl_standard_seconds: int = int(os.environ.get('LINKUP_OPT_CACHE_TTL_STANDARD', '21600'))
+    cache_ttl_deep_seconds: int = int(os.environ.get('LINKUP_OPT_CACHE_TTL_DEEP', '86400'))
+    auto_depth_downgrade: bool = os.environ.get('LINKUP_OPT_AUTO_DOWNGRADE', 'true').lower() == 'true'
+    deep_trigger_min_sources: int = int(os.environ.get('LINKUP_OPT_DEEP_TRIG_MIN_SOURCES', '2'))
+    deep_trigger_min_avg_relevance: float = float(os.environ.get('LINKUP_OPT_DEEP_TRIG_MIN_AVG_REL', '0.45'))
+    deep_trigger_min_keyword_coverage: float = float(os.environ.get('LINKUP_OPT_DEEP_TRIG_MIN_KW_COV', '0.3'))
+    deep_min_standard_results_threshold: int = int(os.environ.get('LINKUP_OPT_DEEP_MIN_STD_RESULTS', '3'))
+
+
+@dataclass
 class Config:
     """Base configuration class."""
     
@@ -50,9 +66,15 @@ class Config:
     # API Keys (Loaded from Supabase via APIKeyManager, optionally env vars for dev)
     LINKUP_API_URL: Optional[str] = os.environ.get('LINKUP_API_URL')
     LINKUP_API_KEY: Optional[str] = os.environ.get('LINKUP_API_KEY')
+    TAVILY_API_KEY: Optional[str] = os.environ.get('TAVILY_API_KEY')
     LITELLM_API_URL: Optional[str] = os.environ.get('LITELLM_API_URL')
     LITELLM_API_KEY: Optional[str] = os.environ.get('LITELLM_API_KEY')
     RENDER_SERVICE_URL: str = os.environ.get('RENDER_SERVICE_URL', 'http://localhost:8082/generate-image')
+
+    # Research provider routing
+    RESEARCH_PROVIDER_STRATEGY: str = os.environ.get('RESEARCH_PROVIDER_STRATEGY', 'hybrid')
+    DEEP_RESEARCH_PROVIDER: str = os.environ.get('DEEP_RESEARCH_PROVIDER', 'tavily')
+    RESEARCH_PROVIDER_EXPERIMENT_ENABLED: bool = os.environ.get('RESEARCH_PROVIDER_EXPERIMENT_ENABLED', 'false').lower() == 'true'
     
     # Celery configuration
     CELERY_BROKER_URL: str = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
@@ -77,6 +99,7 @@ class Config:
     
     # CORS settings
     CORS_ORIGINS: List[str] = field(default_factory=lambda: os.environ.get('CORS_ORIGINS', '*').split(','))
+    linkup_optimization: LinkupOptimizationConfig = field(default_factory=LinkupOptimizationConfig)
 
 
 @dataclass

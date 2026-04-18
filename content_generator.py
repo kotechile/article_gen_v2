@@ -560,6 +560,21 @@ class ContentGenerator:
             ])
         
         tone = research_data.get('tone', 'journalistic')
+        research_dossier = research_data.get('research_dossier') or {}
+        dossier_summary = ""
+        dossier_claims: List[str] = []
+        dossier_questions: List[str] = []
+        if isinstance(research_dossier, dict):
+            dossier_summary = str(research_dossier.get('summary', '') or '')[:600]
+            primary_claims = research_dossier.get('primary_claims') or []
+            if isinstance(primary_claims, list):
+                dossier_claims = [
+                    c.get('claim', '').strip() for c in primary_claims[:4]
+                    if isinstance(c, dict) and c.get('claim')
+                ]
+            unresolved = research_dossier.get('unresolved_questions') or []
+            if isinstance(unresolved, list):
+                dossier_questions = [str(q).strip() for q in unresolved[:3] if str(q).strip()]
         # Log tone for debugging
         self.logger.info(f"Preparing content context for section '{title}' with tone: {tone}")
         
@@ -575,7 +590,10 @@ class ContentGenerator:
             "relevant_evidence": relevant_evidence,
             "previous_sections": previous_context,
             "include_in_text_citations": research_data.get('include_in_text_citations', True),
-            "keywords": research_data.get('keywords', '')
+            "keywords": research_data.get('keywords', ''),
+            "dossier_summary": dossier_summary,
+            "dossier_claims": dossier_claims,
+            "dossier_unresolved_questions": dossier_questions,
         }
     
     def _build_user_message(self, context: Dict[str, Any]) -> str:
@@ -615,6 +633,11 @@ Relevant Claims:
 
 Supporting Evidence:
 {self._format_evidence_for_citations(context['relevant_evidence'][:10])}
+
+Deep Research Dossier Context:
+Summary: {context.get('dossier_summary', '')}
+Primary Claims: {', '.join(context.get('dossier_claims', []))}
+Unresolved Questions: {', '.join(context.get('dossier_unresolved_questions', []))}
 
 CRITICAL: If the evidence above contains specific examples (especially those marked with instruction_topic), you MUST include those exact examples in your content. Do not create generic examples - use the researched examples provided in the evidence.
 {self._get_citation_instructions(context)}

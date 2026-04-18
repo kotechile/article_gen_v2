@@ -574,6 +574,7 @@ class ContentGenerator:
             "relevant_claims": relevant_claims,
             "relevant_evidence": relevant_evidence,
             "previous_sections": previous_context,
+            "section_memory_context": research_data.get('section_memory_context', ''),
             "include_in_text_citations": research_data.get('include_in_text_citations', True),
             "keywords": research_data.get('keywords', '')
         }
@@ -620,7 +621,10 @@ CRITICAL: If the evidence above contains specific examples (especially those mar
 {self._get_citation_instructions(context)}
 
 Previous Context:
-{context['previous_sections'] if context['previous_sections'] else 'This is the first section.'}"""
+{context['previous_sections'] if context['previous_sections'] else 'This is the first section.'}
+
+Section Memory:
+{context.get('section_memory_context') or 'No additional memory context.'}"""
     
     def _generate_paragraph_content(self, context: Dict[str, Any], word_count_target: int) -> List[ContentBlock]:
         """Generate paragraph-based content using verbalized sampling for improved quality."""

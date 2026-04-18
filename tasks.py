@@ -40,6 +40,290 @@ TASK_STATUS = {
     'CANCELLED': 'CANCELLED'
 }
 
+# Minimum dossier validation thresholds (Phase 1 gates)
+DOSSIER_MIN_QUALITY_SCORE = 30
+DOSSIER_MIN_SOURCE_COUNT = 2
+DOSSIER_MIN_CLAIM_COUNT = 2
+DOSSIER_MIN_SUMMARY_CHARS = 200
+ARTICLE_MIN_QUALITY_SCORE = 55
+ARTICLE_MIN_GROUNDING_SCORE = 45
+ARTICLE_MIN_GEO_SCORE = 45
+ARTICLE_MIN_AVG_CLAIM_CONFIDENCE = 0.40
+ARTICLE_MAX_WEAK_CLAIMS = 3
+
+_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how",
+    "in", "is", "it", "of", "on", "or", "that", "the", "this", "to", "was",
+    "were", "what", "when", "where", "which", "who", "why", "with", "will",
+}
+_CONTRADICTION_MARKERS = (
+    "however", "but", "although", "despite", "in contrast", "on the other hand",
+    "contrary", "disputed", "mixed", "unclear", "inconclusive", "no consensus",
+)
+_SOURCE_TYPES = ("expert", "primary", "secondary", "commercial", "community")
+
+
+def _normalize_claim_text(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(text or "").strip())
+    cleaned = re.sub(r"\.+$", "", cleaned)
+    return cleaned
+
+
+def _make_claim_id(text: str, idx: int) -> str:
+    normalized = _normalize_claim_text(text).lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
+    slug = slug[:42] if slug else "claim"
+    return f"clm_{idx + 1:02d}_{slug}"
+
+
+def _claim_keywords(claim_text: str) -> List[str]:
+    tokens = re.findall(r"\b[a-z0-9]{3,}\b", str(claim_text or "").lower())
+    return [t for t in tokens if t not in _STOPWORDS]
+
+
+def _evidence_text(evidence_item: Dict[str, Any]) -> str:
+    parts = [
+        evidence_item.get("title", ""),
+        evidence_item.get("content", ""),
+        evidence_item.get("snippet", ""),
+        evidence_item.get("summary", ""),
+    ]
+    return " ".join([str(p) for p in parts if p]).strip().lower()
+
+
+def _evidence_source_host(evidence_item: Dict[str, Any]) -> str:
+    source = str(evidence_item.get("source", "") or "")
+    url = str(evidence_item.get("url", "") or "")
+    host_candidate = url if url else source
+    if not host_candidate:
+        return "unknown"
+    host_candidate = host_candidate.replace("https://", "").replace("http://", "")
+    return host_candidate.split("/")[0].lower() or "unknown"
+
+
+def _compute_claim_alignment(
+    claim_keywords: List[str], evidence_item: Dict[str, Any]
+) -> Dict[str, Any]:
+    text = _evidence_text(evidence_item)
+    if not claim_keywords:
+        return {"matched_terms": [], "match_ratio": 0.0}
+    matched_terms = [k for k in claim_keywords if k in text]
+    match_ratio = len(set(matched_terms)) / max(len(set(claim_keywords)), 1)
+    return {"matched_terms": sorted(set(matched_terms)), "match_ratio": match_ratio}
+
+
+def _detect_contradiction_signal(evidence_item: Dict[str, Any], claim_text: str) -> bool:
+    text = _evidence_text(evidence_item)
+    if not text:
+        return False
+    if any(marker in text for marker in _CONTRADICTION_MARKERS):
+        return True
+    return bool(re.search(r"\b(not|no|unlikely|fails to)\b", text)) and bool(
+        _claim_keywords(claim_text)
+    )
+
+
+def _classify_source_type(evidence_item: Dict[str, Any]) -> str:
+    text = " ".join([
+        str(evidence_item.get("source", "") or ""),
+        str(evidence_item.get("url", "") or ""),
+        str((evidence_item.get("metadata") or {}).get("publisher", "") if isinstance(evidence_item.get("metadata"), dict) else ""),
+        str((evidence_item.get("metadata") or {}).get("title", "") if isinstance(evidence_item.get("metadata"), dict) else ""),
+    ]).lower()
+    if any(k in text for k in ("reddit", "quora", "stackexchange", "forum", "community")):
+        return "community"
+    if any(k in text for k in (".gov", ".edu", "whitepaper", "dataset", "arxiv", "who.int", "cdc.gov")):
+        return "primary"
+    if any(k in text for k in ("journal", "research", "study", "expert", "analyst", "institute")):
+        return "expert"
+    if any(k in text for k in ("wikipedia", "encyclopedia", "news", "report", "guide", "explainer")):
+        return "secondary"
+    if any(k in text for k in ("pricing", "product", "shop", "affiliate", "sponsored", "agency")):
+        return "commercial"
+    return "secondary"
+
+
+def _validate_research_dossier(
+    dossier: Dict[str, Any],
+    dossier_status: Optional[str],
+    dossier_quality_score: Optional[int],
+) -> Dict[str, Any]:
+    """Validate dossier readiness and return structured gate result."""
+    if not isinstance(dossier, dict) or not dossier:
+        return {
+            "valid": False,
+            "reason": "missing_dossier",
+            "quality_score": 0,
+            "source_count": 0,
+            "claim_count": 0,
+        }
+
+    source_count = int((dossier.get("source_quality_summary") or {}).get("source_count", 0) or 0)
+    claim_count = len(dossier.get("primary_claims") or [])
+    summary_len = len(str(dossier.get("summary", "") or ""))
+    quality_score = int(dossier_quality_score or dossier.get("dossier_quality_score") or 0)
+    status_ok = str(dossier_status or "").lower() == "ready"
+
+    reasons: List[str] = []
+    if not status_ok:
+        reasons.append("status_not_ready")
+    if quality_score < DOSSIER_MIN_QUALITY_SCORE:
+        reasons.append("quality_below_threshold")
+    if source_count < DOSSIER_MIN_SOURCE_COUNT:
+        reasons.append("insufficient_sources")
+    if claim_count < DOSSIER_MIN_CLAIM_COUNT:
+        reasons.append("insufficient_claims")
+    if summary_len < DOSSIER_MIN_SUMMARY_CHARS:
+        reasons.append("summary_too_short")
+
+    return {
+        "valid": len(reasons) == 0,
+        "reason": ",".join(reasons) if reasons else "ok",
+        "quality_score": quality_score,
+        "source_count": source_count,
+        "claim_count": claim_count,
+    }
+
+
+def _build_confidence_map(claim_bundles: List[Dict[str, Any]], html_content: str) -> Dict[str, Any]:
+    """Build claim/paragraph confidence map for review and gating."""
+    high_conf = []
+    mixed_conf = []
+    low_conf = []
+    for bundle in claim_bundles or []:
+        entry = {
+            "claim_id": bundle.get("claim_id"),
+            "claim": bundle.get("claim"),
+            "confidence_score": float(bundle.get("confidence_score", 0) or 0),
+            "support_count": int(bundle.get("support_count", 0) or 0),
+            "contradiction_count": int(bundle.get("contradiction_count", 0) or 0),
+            "mixed_signal": bool(bundle.get("mixed_signal")),
+        }
+        if entry["mixed_signal"] or entry["contradiction_count"] > 0:
+            mixed_conf.append(entry)
+        elif entry["confidence_score"] >= 0.70:
+            high_conf.append(entry)
+        elif entry["confidence_score"] < 0.45:
+            low_conf.append(entry)
+        else:
+            mixed_conf.append(entry)
+
+    uncited_paragraphs: List[Dict[str, Any]] = []
+    paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", html_content or "", flags=re.IGNORECASE | re.DOTALL)
+    for idx, p in enumerate(paragraphs, start=1):
+        clean = re.sub(r"<[^>]+>", " ", p)
+        clean = re.sub(r"\s+", " ", clean).strip()
+        if len(clean.split()) < 25:
+            continue
+        has_citation = bool(re.search(r"\[\^?\d+\]", clean))
+        if not has_citation:
+            uncited_paragraphs.append({
+                "paragraph_index": idx,
+                "excerpt": clean[:220],
+            })
+
+    avg_confidence = round(
+        (
+            sum(float(b.get("confidence_score", 0) or 0) for b in (claim_bundles or [])) /
+            max(len(claim_bundles or []), 1)
+        ),
+        3,
+    ) if claim_bundles else 0.0
+
+    return {
+        "high_confidence_claims": high_conf[:20],
+        "mixed_evidence_claims": mixed_conf[:20],
+        "low_confidence_claims": low_conf[:20],
+        "uncited_paragraphs": uncited_paragraphs[:30],
+        "summary": {
+            "high_count": len(high_conf),
+            "mixed_count": len(mixed_conf),
+            "low_count": len(low_conf),
+            "uncited_paragraph_count": len(uncited_paragraphs),
+            "avg_claim_confidence": avg_confidence,
+        },
+    }
+
+
+def _is_sensitive_topic(research_data: Dict[str, Any], title: str) -> bool:
+    corpus = " ".join([
+        str(research_data.get("brief", "") or ""),
+        str(research_data.get("keywords", "") or ""),
+        str(title or ""),
+    ]).lower()
+    sensitive_markers = [
+        "medical", "health", "clinical", "treatment",
+        "legal", "law", "attorney", "regulation",
+        "finance", "investment", "tax", "insurance",
+        "security", "cybersecurity", "privacy", "compliance",
+    ]
+    return any(m in corpus for m in sensitive_markers)
+
+
+def _evaluate_article_quality_gates(
+    research_data: Dict[str, Any],
+    quality_report: Dict[str, Any],
+    claim_bundles: List[Dict[str, Any]],
+    confidence_map: Dict[str, Any],
+    citations_count: int,
+) -> Dict[str, Any]:
+    """Evaluate completion gates and return Created vs Needs Review decision."""
+    overall = float(quality_report.get("overall_score", 0) or 0)
+    grounding = float(quality_report.get("grounding_score", 0) or 0)
+    geo = float(quality_report.get("geo_score", 0) or 0)
+    avg_claim_conf = float((confidence_map.get("summary") or {}).get("avg_claim_confidence", 0) or 0)
+    weak_claims = int((confidence_map.get("summary") or {}).get("low_count", 0) or 0)
+    uncited_paragraphs = int((confidence_map.get("summary") or {}).get("uncited_paragraph_count", 0) or 0)
+
+    sensitive = _is_sensitive_topic(research_data, research_data.get("draft_title", ""))
+    min_quality = ARTICLE_MIN_QUALITY_SCORE + (8 if sensitive else 0)
+    min_grounding = ARTICLE_MIN_GROUNDING_SCORE + (10 if sensitive else 0)
+    min_geo = ARTICLE_MIN_GEO_SCORE
+    max_uncited = 4 if sensitive else 8
+    min_citations = 3 if sensitive else 1
+
+    failures: List[str] = []
+    if overall < min_quality:
+        failures.append("overall_quality_below_threshold")
+    if grounding < min_grounding:
+        failures.append("grounding_below_threshold")
+    if geo < min_geo:
+        failures.append("geo_below_threshold")
+    if avg_claim_conf < ARTICLE_MIN_AVG_CLAIM_CONFIDENCE:
+        failures.append("avg_claim_confidence_below_threshold")
+    if weak_claims > ARTICLE_MAX_WEAK_CLAIMS:
+        failures.append("too_many_low_confidence_claims")
+    if uncited_paragraphs > max_uncited:
+        failures.append("too_many_uncited_paragraphs")
+    if citations_count < min_citations:
+        failures.append("insufficient_citations")
+
+    decision = "Created" if not failures else "Needs Review"
+    return {
+        "decision": decision,
+        "pass": len(failures) == 0,
+        "sensitive_topic": sensitive,
+        "thresholds": {
+            "min_quality": min_quality,
+            "min_grounding": min_grounding,
+            "min_geo": min_geo,
+            "min_avg_claim_confidence": ARTICLE_MIN_AVG_CLAIM_CONFIDENCE,
+            "max_low_confidence_claims": ARTICLE_MAX_WEAK_CLAIMS,
+            "max_uncited_paragraphs": max_uncited,
+            "min_citations": min_citations,
+        },
+        "observed": {
+            "overall_score": overall,
+            "grounding_score": grounding,
+            "geo_score": geo,
+            "avg_claim_confidence": avg_claim_conf,
+            "low_confidence_claim_count": weak_claims,
+            "uncited_paragraph_count": uncited_paragraphs,
+            "citations_count": citations_count,
+        },
+        "failures": failures,
+    }
+
 # ...
 
 @celery.task(bind=True, name='content_generator_v2.tasks.research.process_research_task')
@@ -67,16 +351,47 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                 supabase.table('Titles').update({'status': 'Generating'}).eq('id', article_id).execute()
                 logger.info(f"Successfully set initial status to 'Generating' for article {article_id}")
                 
-                # Fetch content_outline if available
+                # Fetch content_outline and research dossier if available
                 logger.info(f"Fetching content_outline for article {article_id}")
-                response = supabase.table('Titles').select('content_outline').eq('id', article_id).execute()
+                response = (
+                    supabase.table('Titles')
+                    .select('content_outline,research_dossier,dossier_status,dossier_quality_score')
+                    .eq('id', article_id)
+                    .execute()
+                )
                 if response.data and len(response.data) > 0:
                     content_outline = response.data[0].get('content_outline')
+                    research_dossier = response.data[0].get('research_dossier')
+                    dossier_status = response.data[0].get('dossier_status')
+                    dossier_quality_score = response.data[0].get('dossier_quality_score')
                     if content_outline:
                         logger.info(f"Found content_outline for article {article_id}: {str(content_outline)[:100]}...")
                         research_data['content_outline'] = content_outline
                     else:
                         logger.info(f"No content_outline found in DB for article {article_id}")
+                    if research_dossier:
+                        gate = _validate_research_dossier(
+                            dossier=research_dossier,
+                            dossier_status=dossier_status,
+                            dossier_quality_score=dossier_quality_score,
+                        )
+                        research_data['dossier_status'] = dossier_status
+                        research_data['dossier_quality_score'] = dossier_quality_score
+                        research_data['dossier_gate'] = gate
+                        research_data['dossier_validated'] = gate.get("valid", False)
+                        if gate.get("valid"):
+                            research_data['research_dossier'] = research_dossier
+                        else:
+                            # Keep raw dossier for observability, but do not use as trusted context.
+                            research_data['research_dossier_raw'] = research_dossier
+                        logger.info(
+                            "Loaded research dossier for article %s (status=%s, quality_score=%s, valid=%s, reason=%s)",
+                            article_id,
+                            dossier_status,
+                            dossier_quality_score,
+                            gate.get("valid"),
+                            gate.get("reason"),
+                        )
                 else:
                     logger.warning(f"Failed to fetch article row for {article_id}")
             else:
@@ -237,13 +552,18 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     
                     # Serialize citations for storage
                     citations_json = json.dumps(final_content.get('citations', []))
+                    final_decision = final_content.get('generation_status', 'Created')
                     
                     updates = {
-                        'status': 'Created',
+                        'status': final_decision,
                         'articleText': article_text,
                         'htmlArticle': html_article,
                         'seo_optimization_score': int(float(final_content.get('seo_optimization_score', 0))),
                         'readability_score': int(float(final_content.get('readability_score', 0))),
+                        'overall_quality_score': int(float(final_content.get('overall_quality_score', 0))),
+                        'quality_report': final_content.get('quality_report', {}),
+                        'confidence_map': final_content.get('confidence_map', {}),
+                        'quality_gate': final_content.get('quality_gate', {}),
                         'citations': citations_json,  # Store citations as JSON for Reference Selector
                         'include_in_text_citations': True,  # Default to showing in-text citations
                         'deck': final_content.get('deck', ''),
@@ -252,8 +572,29 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         'excerpt': final_content.get('excerpt', ''),
                         # Add other fields as needed
                     }
-                    
-                    response = supabase.table('Titles').update(updates).eq('id', article_id).execute()
+
+                    try:
+                        response = supabase.table('Titles').update(updates).eq('id', article_id).execute()
+                    except Exception as update_error:
+                        # Backward-compatible fallback for environments that have not
+                        # applied latest metadata migrations yet.
+                        err = str(update_error)
+                        removable_fields = ['quality_report', 'confidence_map', 'quality_gate']
+                        retried = False
+                        for field in removable_fields:
+                            if field in err and field in updates:
+                                logger.warning(
+                                    "%s column missing, retrying Titles update without %s: %s",
+                                    field,
+                                    field,
+                                    err,
+                                )
+                                updates = {k: v for k, v in updates.items() if k != field}
+                                retried = True
+                        if retried:
+                            response = supabase.table('Titles').update(updates).eq('id', article_id).execute()
+                        else:
+                            raise
                     
                     if response.data:
                         logger.info(f"Updated Supabase Titles for article {article_id}. Rows modified: {len(response.data)}")
@@ -373,8 +714,36 @@ def _extract_claims(result: Dict[str, Any], task_instance: Any = None) -> Dict[s
                 }
             )
         research_data = result.get('research_data', {})
+        research_dossier = research_data.get('research_dossier') if research_data.get('dossier_validated', True) else {}
         brief = research_data.get('brief', '')
         keywords = research_data.get('keywords', '')
+
+        dossier_claims = research_dossier.get('primary_claims') if isinstance(research_dossier, dict) else None
+        if dossier_claims and isinstance(dossier_claims, list):
+            normalized_claims = []
+            for idx, claim in enumerate(dossier_claims):
+                if isinstance(claim, dict):
+                    text = _normalize_claim_text(claim.get('claim', ''))
+                    if not text:
+                        continue
+                    normalized_claims.append(
+                        {
+                            "claim_id": claim.get("claim_id") or _make_claim_id(text, idx),
+                            "claim": text,
+                            "category": claim.get('category', 'dossier'),
+                            "importance": claim.get('importance', 'medium'),
+                            "keywords": _claim_keywords(text)[:16],
+                        }
+                    )
+            if normalized_claims:
+                logger.info(f"Using {len(normalized_claims)} claims from research dossier")
+                return {
+                    'claims': normalized_claims,
+                    'stage_data': {
+                        'extracted_claims': len(normalized_claims),
+                        'claim_source': 'research_dossier',
+                    }
+                }
         
         # Create LLM client
         
@@ -427,13 +796,14 @@ def _extract_claims(result: Dict[str, Any], task_instance: Any = None) -> Dict[s
         response = llm_client.generate(messages)
         
         # Parse response (simplified for now)
-        claims = [
-            {
-                "claim": f"Claim extracted from: {brief[:100]}...",
-                "category": "general",
-                "importance": "high"
-            }
-        ]
+        fallback_text = _normalize_claim_text(f"Claim extracted from: {brief[:100]}...")
+        claims = [{
+            "claim_id": _make_claim_id(fallback_text, 0),
+            "claim": fallback_text,
+            "category": "general",
+            "importance": "high",
+            "keywords": _claim_keywords(fallback_text)[:16],
+        }]
         
         logger.info(f"Extracted {len(claims)} claims using {response.model}")
         
@@ -469,6 +839,7 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
         claims = result.get('claims', [])
         brief = research_data.get('brief', '')
         keywords = research_data.get('keywords', '')
+        research_dossier = research_data.get('research_dossier') or {}
         
         logger.info(f"📊 Claims count: {len(claims)}")
         logger.info(f"📝 Brief length: {len(brief)} chars")
@@ -538,13 +909,30 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                     # Extract first sentence of brief for context, then add keywords
                     brief_sentences = brief.split('.')
                     brief_context = brief_sentences[0].strip() if brief_sentences else brief
+                    dossier_claims = []
+                    dossier_questions = []
+                    dossier_summary = ""
+                    if isinstance(research_dossier, dict):
+                        dossier_summary = str(research_dossier.get('summary', '') or '')[:240]
+                        claims_list = research_dossier.get('primary_claims') or []
+                        if isinstance(claims_list, list):
+                            dossier_claims = [
+                                c.get('claim', '').strip() for c in claims_list[:3]
+                                if isinstance(c, dict) and c.get('claim')
+                            ]
+                        questions_list = research_dossier.get('unresolved_questions') or []
+                        if isinstance(questions_list, list):
+                            dossier_questions = [str(q).strip() for q in questions_list[:2] if str(q).strip()]
                     
                     # Include draft title if provided for better focus
                     draft_title = research_data.get('draft_title', '')
+                    dossier_context = " ".join(
+                        [part for part in [dossier_summary, " ".join(dossier_claims), " ".join(dossier_questions)] if part]
+                    ).strip()
                     if draft_title:
-                        rag_query_text = f"{keywords} {draft_title} {brief_context}"
+                        rag_query_text = f"{keywords} {draft_title} {brief_context} {dossier_context}"
                     else:
-                        rag_query_text = f"{keywords} {brief_context}"
+                        rag_query_text = f"{keywords} {brief_context} {dossier_context}"
                     logger.info(f"Creating RAG query:")
                     logger.info(f"  - Brief: '{brief}'")
                     logger.info(f"  - Keywords: '{keywords}'")
@@ -660,6 +1048,13 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
         # Collect evidence from web search if claims research is enabled
         # Default to True (consistent with app.py) - web search should run unless explicitly disabled
         claims_research_enabled = research_data.get('claims_research_enabled', True)
+        research_provider_strategy = str(
+            research_data.get('research_provider_strategy') or
+            os.getenv('RESEARCH_PROVIDER_STRATEGY', 'hybrid')
+        ).strip().lower()
+        if research_provider_strategy not in {'linkup_only', 'tavily_only', 'hybrid', 'auto'}:
+            logger.warning(f"Unknown research_provider_strategy '{research_provider_strategy}', defaulting to hybrid")
+            research_provider_strategy = 'hybrid'
         
         # Auto-enable LinkUp in scenarios where RAG doesn't provide sufficient evidence:
         # 1. RAG is disabled at the flag level
@@ -715,81 +1110,118 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                             'message': 'Searching web for supplemental evidence...'
                         }
                     )
-                logger.info("🔍 Web search needed - collecting evidence from Linkup API")
+                logger.info(f"🔍 Web search needed - provider strategy: {research_provider_strategy}")
                 try:
-                    # Get Linkup API key from Supabase (all API keys are stored in Supabase)
-                    linkup_api_key = get_linkup_api_key()
-                    if not linkup_api_key:
-                        logger.warning("Linkup API key not found in Supabase api_keys table, skipping web search")
-                    else:
-                        logger.info(f"Using Linkup API key: {linkup_api_key[:10]}...")
-                        linkup_client = create_linkup_client(
-                            api_key=linkup_api_key,
-                            cache_enabled=optimization_config.cache_enabled
-                        )
+                    def _add_search_results(resp, target_list, provider_label: str):
+                        nonlocal web_sources
+                        seen_urls = {ev.get('source') for ev in evidence + target_list if ev.get('source_type') in {'web', 'linkup', 'tavily'}}
+                        added = 0
+                        for search_item in resp.results:
+                            if search_item.url and search_item.url in seen_urls:
+                                continue
+                            target_list.append({
+                                "source": search_item.url,
+                                "content": search_item.content or search_item.snippet,
+                                "relevance_score": search_item.relevance_score,
+                                "credibility_score": search_item.credibility_score,
+                                "source_type": "web",
+                                "metadata": {**(search_item.metadata or {}), "provider": provider_label}
+                            })
+                            seen_urls.add(search_item.url)
+                            web_sources += 1
+                            added += 1
+                        return added
+
+                    normalized_query = ' '.join(f"{brief} {keywords}".split())
+                    severe_insufficient = (
+                        rag_coverage.get('source_count', 0) < optimization_config.deep_trigger_min_sources or
+                        rag_coverage.get('avg_relevance', 0.0) < optimization_config.deep_trigger_min_avg_relevance or
+                        rag_coverage.get('keyword_coverage', 0.0) < optimization_config.deep_trigger_min_keyword_coverage
+                    )
+
+                    # Provider 1: Linkup (default in hybrid/auto/linkup_only)
+                    linkup_results_added = 0
+                    linkup_standard_result_count = 0
+                    linkup_search_succeeded = False
+                    if research_provider_strategy in {'linkup_only', 'hybrid', 'auto'}:
+                        linkup_api_key = get_linkup_api_key()
+                        if not linkup_api_key:
+                            logger.warning("Linkup API key not found in Supabase api_keys table")
+                        else:
+                            logger.info(f"Using Linkup API key: {linkup_api_key[:10]}...")
+                            linkup_client = create_linkup_client(
+                                api_key=linkup_api_key,
+                                cache_enabled=optimization_config.cache_enabled
+                            )
                         
                         # Progressive search: start with standard, escalate to deep only if needed
-                        normalized_query = ' '.join(f"{brief} {keywords}".split())
-                        severe_insufficient = (
-                            rag_coverage.get('source_count', 0) < optimization_config.deep_trigger_min_sources or
-                            rag_coverage.get('avg_relevance', 0.0) < optimization_config.deep_trigger_min_avg_relevance or
-                            rag_coverage.get('keyword_coverage', 0.0) < optimization_config.deep_trigger_min_keyword_coverage
+                            initial_depth = 'standard'
+                            if request_depth == 'deep' and not rag_coverage.get('sufficient', False) and severe_insufficient:
+                                initial_depth = 'deep'
+
+                            logger.info(f"🎯 Linkup strategy: initial_depth='{initial_depth}', severe_insufficient={severe_insufficient}")
+                            linkup_response = linkup_client.search(SearchQuery(query=normalized_query, depth=initial_depth))
+                            if linkup_response.success:
+                                linkup_search_succeeded = True
+                                linkup_standard_result_count = len(linkup_response.results)
+                                linkup_results_added = _add_search_results(linkup_response, web_evidence, "linkup")
+                                logger.info(
+                                    f"Linkup ({initial_depth}) returned {len(linkup_response.results)} results, added {linkup_results_added} new (deduped)"
+                                )
+
+                                need_deep = (
+                                    initial_depth == 'standard' and
+                                    not rag_coverage.get('sufficient', False) and
+                                    len(linkup_response.results) < optimization_config.deep_min_standard_results_threshold and
+                                    severe_insufficient
+                                )
+                                if need_deep:
+                                    logger.info("🚀 Escalating to Linkup deep search: standard results below threshold and RAG insufficient")
+                                    deep_resp = linkup_client.search(SearchQuery(query=normalized_query, depth='deep'))
+                                    if deep_resp.success:
+                                        added_deep = _add_search_results(deep_resp, web_evidence, "linkup")
+                                        linkup_results_added += added_deep
+                                        logger.info(
+                                            f"Linkup (deep) returned {len(deep_resp.results)} results, added {added_deep} new (deduped)"
+                                        )
+                                    else:
+                                        logger.warning(f"Linkup deep search failed: {deep_resp.error}")
+                            else:
+                                logger.warning(f"Linkup search failed: {linkup_response.error}")
+
+                    # Provider 2: Tavily (for tavily_only / hybrid / auto escalation)
+                    should_run_tavily = False
+                    if research_provider_strategy == 'tavily_only':
+                        should_run_tavily = True
+                    elif research_provider_strategy == 'hybrid':
+                        should_run_tavily = True
+                    elif research_provider_strategy == 'auto':
+                        should_run_tavily = (not linkup_search_succeeded) or (
+                            linkup_standard_result_count < optimization_config.deep_min_standard_results_threshold
                         )
 
-                        # Decide initial depth (favor standard to minimize cost)
-                        initial_depth = 'standard'
-                        if request_depth == 'deep' and not rag_coverage.get('sufficient', False) and severe_insufficient:
-                            # Only honor deep upfront if RAG is clearly insufficient
-                            initial_depth = 'deep'
+                    if should_run_tavily:
+                        from tavily_client import create_tavily_client
+                        from supabase_client import get_api_key
 
-                        logger.info(f"🎯 Linkup strategy: initial_depth='{initial_depth}', severe_insufficient={severe_insufficient}")
-
-                        # Run initial search
-                        linkup_response = linkup_client.search(SearchQuery(query=normalized_query, depth=initial_depth))
-
-                        # Helper for deduplication
-                        def _add_linkup_results(resp, target_list):
-                            nonlocal web_sources
-                            seen_urls = {ev.get('source') for ev in evidence + target_list if ev.get('source_type') == 'web'}
-                            added = 0
-                            for result in resp.results:
-                                if result.url and result.url in seen_urls:
-                                    continue
-                                target_list.append({
-                                    "source": result.url,
-                                    "content": result.content or result.snippet,
-                                    "relevance_score": result.relevance_score,
-                                    "credibility_score": result.credibility_score,
-                                    "source_type": "web",
-                                    "metadata": result.metadata
-                                })
-                                seen_urls.add(result.url)
-                                web_sources += 1
-                                added += 1
-                            return added
-
-                        if linkup_response.success:
-                            added_std = _add_linkup_results(linkup_response, web_evidence)
-                            logger.info(f"Linkup ({initial_depth}) returned {len(linkup_response.results)} results, added {added_std} new (deduped)")
-
-                            # Escalate to deep only if RAG is insufficient AND standard results are below threshold
-                            need_deep = (
-                                initial_depth == 'standard' and
-                                not rag_coverage.get('sufficient', False) and
-                                len(linkup_response.results) < optimization_config.deep_min_standard_results_threshold and
-                                severe_insufficient
-                            )
-
-                            if need_deep:
-                                logger.info("🚀 Escalating to Linkup deep search: standard results below threshold and RAG insufficient")
-                                deep_resp = linkup_client.search(SearchQuery(query=normalized_query, depth='deep'))
-                                if deep_resp.success:
-                                    added_deep = _add_linkup_results(deep_resp, web_evidence)
-                                    logger.info(f"Linkup (deep) returned {len(deep_resp.results)} results, added {added_deep} new (deduped)")
-                                else:
-                                    logger.warning(f"Linkup deep search failed: {deep_resp.error}")
+                        tavily_api_key = get_api_key('tavily') or os.getenv('TAVILY_API_KEY')
+                        if not tavily_api_key:
+                            logger.warning("Tavily API key not found; skipping Tavily search")
                         else:
-                            logger.warning(f"Linkup search failed: {linkup_response.error}")
+                            tavily_client = create_tavily_client(
+                                api_key=tavily_api_key,
+                                timeout=30,
+                                max_results=8,
+                            )
+                            tavily_depth = 'deep' if (request_depth == 'deep' or severe_insufficient) else 'standard'
+                            tavily_resp = tavily_client.search(SearchQuery(query=normalized_query, depth=tavily_depth))
+                            if tavily_resp.success:
+                                added_tavily = _add_search_results(tavily_resp, web_evidence, "tavily")
+                                logger.info(
+                                    f"Tavily ({tavily_depth}) returned {len(tavily_resp.results)} results, added {added_tavily} new (deduped)"
+                                )
+                            else:
+                                logger.warning(f"Tavily search failed: {tavily_resp.error}")
                         
                 except Exception as e:
                     logger.error(f"Error in web search (SIGSEGV protection): {str(e)}")
@@ -857,12 +1289,17 @@ def _rank_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict[st
         logger.info("🔍 Starting evidence ranking stage...")
         research_data = result.get('research_data', {})
         evidence = result.get('evidence', [])
+        claims = result.get('claims', [])
         
         logger.info(f"📊 Evidence count: {len(evidence)}")
         
         if not evidence:
             logger.info("⚠️ No evidence to rank - proceeding without evidence sources")
-            return {'ranked_evidence': [], 'stage_data': {'ranked_sources': 0, 'note': 'No evidence available'}}
+            return {
+                'ranked_evidence': [],
+                'claim_bundles': [],
+                'stage_data': {'ranked_sources': 0, 'note': 'No evidence available'}
+            }
         
         # Limit evidence size to prevent memory issues
         if len(evidence) > 5:
@@ -873,8 +1310,12 @@ def _rank_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict[st
         
         # Simple evidence ranking based on existing scores
         ranked_evidence = []
+        source_type_distribution = {k: 0 for k in _SOURCE_TYPES}
         for i, ev in enumerate(evidence):
             ranked_ev = ev.copy()
+            source_type = _classify_source_type(ranked_ev)
+            ranked_ev["source_type_taxonomy"] = source_type
+            source_type_distribution[source_type] = source_type_distribution.get(source_type, 0) + 1
             # Use existing scores or create simple ones
             ranked_ev.update({
                 'relevance_score': ev.get('relevance_score', 0.8 - (i * 0.05)),
@@ -898,12 +1339,96 @@ def _rank_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict[st
                 }
             )
             
-        logger.info(f"✅ Ranked {len(ranked_evidence)} evidence sources")
-        
+        claim_bundles = []
+        claim_supporting_pairs = 0
+        contradiction_bundles = 0
+        mixed_bundles = 0
+        for idx, claim in enumerate(claims):
+            claim_text = _normalize_claim_text(claim.get("claim", ""))
+            if not claim_text:
+                continue
+            claim_id = claim.get("claim_id") or _make_claim_id(claim_text, idx)
+            keywords = claim.get("keywords") or _claim_keywords(claim_text)
+            support_items = []
+            contradict_items = []
+            neutral_items = []
+            matched_hosts = set()
+
+            for ev in ranked_evidence:
+                alignment = _compute_claim_alignment(keywords, ev)
+                if alignment["match_ratio"] >= 0.15 or len(alignment["matched_terms"]) >= 2:
+                    pair = {
+                        "rank": ev.get("rank"),
+                        "source": ev.get("source"),
+                        "url": ev.get("url"),
+                        "relevance_score": ev.get("relevance_score"),
+                        "credibility_score": ev.get("credibility_score"),
+                        "quality_score": ev.get("quality_score"),
+                        "match_ratio": round(alignment["match_ratio"], 3),
+                        "matched_terms": alignment["matched_terms"][:8],
+                    }
+                    is_contradiction = _detect_contradiction_signal(ev, claim_text)
+                    if is_contradiction:
+                        contradict_items.append(pair)
+                    elif alignment["match_ratio"] >= 0.25 or len(alignment["matched_terms"]) >= 3:
+                        support_items.append(pair)
+                    else:
+                        neutral_items.append(pair)
+                    matched_hosts.add(_evidence_source_host(ev))
+
+            coverage = min(1.0, len(support_items) / 3.0) if support_items else 0.0
+            contradiction_ratio = (
+                len(contradict_items) / max((len(support_items) + len(contradict_items)), 1)
+            )
+            mixed_signal = len(support_items) > 0 and len(contradict_items) > 0
+            source_type_counts = {k: 0 for k in _SOURCE_TYPES}
+            for item in support_items + contradict_items + neutral_items:
+                ev_match = next((e for e in ranked_evidence if e.get("rank") == item.get("rank")), None)
+                if ev_match:
+                    st = ev_match.get("source_type_taxonomy", "secondary")
+                    source_type_counts[st] = source_type_counts.get(st, 0) + 1
+            confidence = max(0.0, min(
+                1.0,
+                (coverage * 0.55) +
+                (min(len(matched_hosts), 4) / 4.0 * 0.25) +
+                ((1.0 - contradiction_ratio) * 0.20),
+            ))
+            if len(contradict_items) > 0:
+                contradiction_bundles += 1
+            if mixed_signal:
+                mixed_bundles += 1
+            claim_supporting_pairs += len(support_items) + len(contradict_items)
+            claim_bundles.append({
+                "claim_id": claim_id,
+                "claim": claim_text,
+                "keywords": keywords[:16],
+                "supporting_evidence": support_items[:5],
+                "contradicting_evidence": contradict_items[:5],
+                "neutral_evidence": neutral_items[:3],
+                "support_count": len(support_items),
+                "contradiction_count": len(contradict_items),
+                "neutral_count": len(neutral_items),
+                "coverage_score": round(coverage, 3),
+                "confidence_score": round(confidence, 3),
+                "mixed_signal": mixed_signal,
+                "source_diversity": len(matched_hosts),
+                "source_type_distribution": source_type_counts,
+            })
+
+        logger.info(
+            f"✅ Ranked {len(ranked_evidence)} evidence sources; built {len(claim_bundles)} claim bundles"
+        )
+
         return {
             'ranked_evidence': ranked_evidence,
+            'claim_bundles': claim_bundles,
             'stage_data': {
                 'ranked_sources': len(ranked_evidence),
+                'claim_bundles': len(claim_bundles),
+                'claim_supporting_pairs': claim_supporting_pairs,
+                'contradiction_bundles': contradiction_bundles,
+                'mixed_signal_bundles': mixed_bundles,
+                'source_type_distribution': source_type_distribution,
                 'llm_model': 'fallback',
                 'note': 'LLM calls disabled to prevent SIGSEGV'
             }
@@ -911,7 +1436,11 @@ def _rank_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict[st
         
     except Exception as e:
         logger.error(f"Error in evidence ranking: {str(e)}")
-        return {'ranked_evidence': [], 'stage_data': {'ranked_sources': 0, 'error': str(e)}}
+        return {
+            'ranked_evidence': [],
+            'claim_bundles': [],
+            'stage_data': {'ranked_sources': 0, 'claim_bundles': 0, 'error': str(e)}
+        }
 
 def _generate_structure(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
     """Generate article structure using comprehensive structure generator."""
@@ -929,6 +1458,7 @@ def _generate_structure(result: Dict[str, Any], task_instance: Any = None) -> Di
         research_data = result.get('research_data', {})
         claims = result.get('claims', [])
         evidence = result.get('evidence', [])
+        claim_bundles = result.get('claim_bundles', [])
         
         # Limit evidence size to prevent memory issues
         if len(evidence) > 10:
@@ -959,7 +1489,8 @@ def _generate_structure(result: Dict[str, Any], task_instance: Any = None) -> Di
         structure = structure_generator.generate_structure(
             research_data=research_data,
             claims=claims,
-            evidence=evidence
+            evidence=evidence,
+            claim_bundles=claim_bundles
         )
         
         # Convert ArticleStructure object to dictionary
@@ -1024,6 +1555,7 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
         key_points = section_outline.get('key_points', [])
         brief = research_data.get('brief', '')
         keywords = research_data.get('keywords', '')
+        research_dossier = research_data.get('research_dossier') or {}
         
         # Create a focused section query that prioritizes keywords and specific content
         # Extract the main topic from the brief (first sentence or key phrases)
@@ -1033,6 +1565,21 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
         # Include draft title if provided for better focus
         draft_title = research_data.get('draft_title', '')
         
+        dossier_claims = []
+        dossier_questions = []
+        dossier_summary = ""
+        if isinstance(research_dossier, dict):
+            dossier_summary = str(research_dossier.get('summary', '') or '')[:180]
+            claims_list = research_dossier.get('primary_claims') or []
+            if isinstance(claims_list, list):
+                dossier_claims = [
+                    c.get('claim', '').strip() for c in claims_list[:3]
+                    if isinstance(c, dict) and c.get('claim')
+                ]
+            questions_list = research_dossier.get('unresolved_questions') or []
+            if isinstance(questions_list, list):
+                dossier_questions = [str(q).strip() for q in questions_list[:2] if str(q).strip()]
+
         # Create a focused query that prioritizes keywords first, then section content
         if key_points and len(key_points) > 0:
             # Use the most specific key points, avoiding generic terms
@@ -1055,6 +1602,12 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
                 section_query = f"{keywords} {draft_title} {section_title} {main_topic}"
             else:
                 section_query = f"{keywords} {section_title} {main_topic}"
+
+        dossier_context = " ".join(
+            [part for part in [dossier_summary, " ".join(dossier_claims), " ".join(dossier_questions)] if part]
+        ).strip()
+        if dossier_context:
+            section_query = f"{section_query} {dossier_context}"
         
         # Clean up extra spaces and ensure it's not too long
         section_query = ' '.join(section_query.split())
@@ -1116,6 +1669,12 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
         if claims_research_enabled:
             config = get_config()
             optimization_config = config.linkup_optimization
+            research_provider_strategy = str(
+                research_data.get('research_provider_strategy') or
+                os.getenv('RESEARCH_PROVIDER_STRATEGY', 'hybrid')
+            ).strip().lower()
+            if research_provider_strategy not in {'linkup_only', 'tavily_only', 'hybrid', 'auto'}:
+                research_provider_strategy = 'hybrid'
             
             # Determine if we need Linkup
             need_linkup = False
@@ -1151,40 +1710,66 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
             # Use Linkup if needed
             if need_linkup:
                 try:
-                    # Get Linkup API key from Supabase (all API keys are stored in Supabase)
-                    linkup_api_key = get_linkup_api_key()
-                    if not linkup_api_key:
-                        logger.warning("  - Linkup API key not found in Supabase api_keys table, skipping section Linkup search")
-                    else:
-                        linkup_client = create_linkup_client(
-                            api_key=linkup_api_key,
-                            cache_enabled=optimization_config.cache_enabled
-                        )
-                        
-                        # Use standard depth for section-specific searches (more cost-effective)
-                        linkup_response = linkup_client.search(SearchQuery(query=section_query, depth='standard'))
-                        
-                        if linkup_response.success:
-                            # Deduplicate against existing evidence
-                            seen_urls = {ev.get('source') for ev in section_evidence if ev.get('source')}
-                            added_count = 0
-                            
-                            for result in linkup_response.results:
-                                if result.url and result.url not in seen_urls:
-                                    section_evidence.append({
-                                        "source": result.url,
-                                        "content": result.content or result.snippet,
-                                        "relevance_score": result.relevance_score,
-                                        "credibility_score": result.credibility_score,
-                                        "source_type": "web",
-                                        "metadata": result.metadata
-                                    })
-                                    seen_urls.add(result.url)
-                                    added_count += 1
-                            
-                            logger.info(f"  - Linkup added {added_count} additional evidence items for section")
+                    # Deduplicate against existing evidence
+                    seen_urls = {ev.get('source') for ev in section_evidence if ev.get('source')}
+                    linkup_result_count = 0
+
+                    def _append_section_results(search_response, provider_label: str) -> int:
+                        added_count = 0
+                        for search_result in search_response.results:
+                            if search_result.url and search_result.url not in seen_urls:
+                                section_evidence.append({
+                                    "source": search_result.url,
+                                    "content": search_result.content or search_result.snippet,
+                                    "relevance_score": search_result.relevance_score,
+                                    "credibility_score": search_result.credibility_score,
+                                    "source_type": "web",
+                                    "metadata": {**(search_result.metadata or {}), "provider": provider_label},
+                                })
+                                seen_urls.add(search_result.url)
+                                added_count += 1
+                        return added_count
+
+                    if research_provider_strategy in {'linkup_only', 'hybrid', 'auto'}:
+                        linkup_api_key = get_linkup_api_key()
+                        if not linkup_api_key:
+                            logger.warning("  - Linkup API key not found in Supabase api_keys table")
                         else:
-                            logger.warning(f"  - Section Linkup search failed: {linkup_response.error}")
+                            linkup_client = create_linkup_client(
+                                api_key=linkup_api_key,
+                                cache_enabled=optimization_config.cache_enabled
+                            )
+                            linkup_response = linkup_client.search(SearchQuery(query=section_query, depth='standard'))
+                            if linkup_response.success:
+                                linkup_result_count = len(linkup_response.results)
+                                added = _append_section_results(linkup_response, "linkup")
+                                logger.info(f"  - Linkup added {added} additional evidence items for section")
+                            else:
+                                logger.warning(f"  - Section Linkup search failed: {linkup_response.error}")
+
+                    should_run_tavily = False
+                    if research_provider_strategy == 'tavily_only':
+                        should_run_tavily = True
+                    elif research_provider_strategy == 'hybrid':
+                        should_run_tavily = True
+                    elif research_provider_strategy == 'auto':
+                        should_run_tavily = linkup_result_count < optimization_config.deep_min_standard_results_threshold
+
+                    if should_run_tavily:
+                        from tavily_client import create_tavily_client
+                        from supabase_client import get_api_key
+
+                        tavily_api_key = get_api_key('tavily') or os.getenv('TAVILY_API_KEY')
+                        if not tavily_api_key:
+                            logger.warning("  - Tavily API key not found, skipping section Tavily search")
+                        else:
+                            tavily_client = create_tavily_client(api_key=tavily_api_key, timeout=30, max_results=6)
+                            tavily_response = tavily_client.search(SearchQuery(query=section_query, depth='standard'))
+                            if tavily_response.success:
+                                added = _append_section_results(tavily_response, "tavily")
+                                logger.info(f"  - Tavily added {added} additional evidence items for section")
+                            else:
+                                logger.warning(f"  - Section Tavily search failed: {tavily_response.error}")
                 except Exception as e:
                     logger.error(f"  - Error in section Linkup search: {str(e)}")
                     logger.info("  - Continuing without Linkup evidence for this section")
@@ -1265,44 +1850,155 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
         
         sections = structure.get('sections', [])
         total_sections = len(sections)
-        
-        # Helper function for parallel processing of a single section
-        def process_single_section(idx, section_outline):
-            section_title = section_outline.get('title', 'Unknown Section')
-            logger.info(f"🧵 Starting parallel generation for section {idx + 1}/{total_sections}: {section_title}")
-            
-            # Start with global evidence
-            section_evidence = evidence.copy()
-            
-            # Collect section-specific evidence
-            section_title_lower = section_title.lower()
-            claims_research_enabled = research_data.get('claims_research_enabled', True)
-            rag_enabled = research_data.get('rag_enabled', False)
-            
-            section_specific_evidence = []
-            if section_title_lower not in ['introduction', 'conclusion', 'overview', 'summary']:
-                if (rag_enabled and research_data.get('rag_endpoint')) or claims_research_enabled:
-                    section_specific_evidence = _collect_section_evidence(section_outline, research_data)
-                    section_evidence.extend(section_specific_evidence)
-            
-            # Prepare mock "previous sections" context for the parallel calls
-            # We use the structure to provide titles and targets since actual content isn't ready
-            mock_previous_sections = []
-            for i in range(max(0, idx - 2), idx):
-                prev_outline = sections[i]
-                mock_prev = type('MockSection', (), {
-                    'title': prev_outline.get('title'),
-                    'section_order': prev_outline.get('order', i + 1),
-                    'total_word_count': prev_outline.get('word_count_target', 300)
-                })
-                mock_previous_sections.append(mock_prev)
 
-            # Generate content
-            section_content = content_generator.generate_section_content(
-                section_outline, research_data, claims, section_evidence, mock_previous_sections
+        def _is_intro_section(title: str) -> bool:
+            t = (title or "").strip().lower()
+            return any(k in t for k in ["introduction", "overview"])
+
+        def _is_conclusion_section(title: str) -> bool:
+            t = (title or "").strip().lower()
+            return any(k in t for k in ["conclusion", "final thoughts", "closing"])
+
+        def _section_text(section_dict: Dict[str, Any]) -> str:
+            blocks = section_dict.get("content_blocks") or []
+            return " ".join([str(b.get("content", "")) for b in blocks if isinstance(b, dict)]).strip().lower()
+
+        def _build_section_memory_context(memory: Dict[str, Any], section_outline: Dict[str, Any]) -> str:
+            recent_sections = memory.get("recent_sections", [])[-3:]
+            repeated = sorted(
+                memory.get("theme_counts", {}).items(),
+                key=lambda kv: kv[1],
+                reverse=True
             )
-            
-            # Convert to dictionary format
+            top_repeated = [k for k, v in repeated if v > 1][:5]
+            uncovered_promises = sorted(list(memory.get("promised_points_remaining", set())))[:8]
+            return (
+                "Section continuity memory:\n"
+                f"- Recently covered sections: {', '.join(recent_sections) if recent_sections else 'none yet'}\n"
+                f"- Covered claim ids: {', '.join(sorted(memory.get('covered_claim_ids', set()))) if memory.get('covered_claim_ids') else 'none yet'}\n"
+                f"- Used sources count: {len(memory.get('used_sources', set()))}\n"
+                f"- Repeated themes to avoid overusing: {', '.join(top_repeated) if top_repeated else 'none'}\n"
+                f"- Promised but not yet fully covered points: {', '.join(uncovered_promises) if uncovered_promises else 'none'}\n"
+                f"- Current section key points: {', '.join(section_outline.get('key_points', [])[:6])}\n"
+            )
+
+        def _update_memory_from_section(
+            memory: Dict[str, Any],
+            section_outline: Dict[str, Any],
+            section_dict: Dict[str, Any],
+            section_evidence: List[Dict[str, Any]],
+        ) -> None:
+            text = _section_text(section_dict)
+            title = section_outline.get("title", "")
+            if title:
+                memory["recent_sections"].append(title)
+                for tok in re.findall(r"\b[a-z0-9]{4,}\b", title.lower()):
+                    if tok not in _STOPWORDS:
+                        memory["theme_counts"][tok] = memory["theme_counts"].get(tok, 0) + 1
+
+            for kp in section_outline.get("key_points", []) or []:
+                kp_norm = str(kp).strip()
+                if not kp_norm:
+                    continue
+                memory["promised_points"].add(kp_norm)
+                kp_tokens = [t for t in re.findall(r"\b[a-z0-9]{4,}\b", kp_norm.lower()) if t not in _STOPWORDS]
+                covered = any(tok in text for tok in kp_tokens[:4]) if kp_tokens else False
+                if not covered:
+                    memory["promised_points_remaining"].add(kp_norm)
+                elif kp_norm in memory["promised_points_remaining"]:
+                    memory["promised_points_remaining"].remove(kp_norm)
+
+            for claim in claims:
+                cid = claim.get("claim_id")
+                if not cid:
+                    continue
+                kws = claim.get("keywords") or _claim_keywords(claim.get("claim", ""))
+                if kws and sum(1 for k in kws[:8] if k in text) >= 2:
+                    memory["covered_claim_ids"].add(cid)
+
+            for ev in section_evidence:
+                ev_url = ev.get("source") or ev.get("url")
+                if ev_url:
+                    memory["used_sources"].add(ev_url)
+
+        # Phase 4 hybrid orchestration:
+        # 1) collect section-specific evidence in parallel (fast IO step)
+        # 2) generate section prose sequentially with live memory for coherence
+        claims_research_enabled = research_data.get('claims_research_enabled', True)
+        rag_enabled = research_data.get('rag_enabled', False)
+        section_specific_map: Dict[int, List[Dict[str, Any]]] = {}
+        all_section_evidence = []
+        seen_urls = {ev.get('source') for ev in evidence if ev.get('source')}
+
+        def _prefetch_section_evidence(idx: int, section_outline: Dict[str, Any]) -> tuple:
+            section_title = section_outline.get('title', 'Unknown Section')
+            section_title_lower = section_title.lower()
+            if section_title_lower in ['introduction', 'conclusion', 'overview', 'summary']:
+                return idx, []
+            if (rag_enabled and research_data.get('rag_endpoint')) or claims_research_enabled:
+                return idx, _collect_section_evidence(section_outline, research_data)
+            return idx, []
+
+        prefetch_workers = min(max(total_sections, 1), 5)
+        logger.info(
+            f"🚀 Prefetching section evidence in parallel with {prefetch_workers} workers for {total_sections} sections"
+        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=prefetch_workers) as executor:
+            futures = {
+                executor.submit(_prefetch_section_evidence, i, section): i
+                for i, section in enumerate(sections)
+            }
+            for future in concurrent.futures.as_completed(futures):
+                idx = futures[future]
+                try:
+                    sec_idx, sec_evidence = future.result()
+                    section_specific_map[sec_idx] = sec_evidence
+                    for ev in sec_evidence:
+                        ev_url = ev.get('source') or ev.get('url', '')
+                        if ev_url and ev_url not in seen_urls:
+                            all_section_evidence.append(ev)
+                            seen_urls.add(ev_url)
+                except Exception as e:
+                    logger.error(f"Error prefetching evidence for section {idx + 1}: {str(e)}")
+                    section_specific_map[idx] = []
+
+        # Generate body first, intro second-to-last, conclusion last when present.
+        intro_idxs = [i for i, s in enumerate(sections) if _is_intro_section(s.get("title", ""))]
+        concl_idxs = [i for i, s in enumerate(sections) if _is_conclusion_section(s.get("title", ""))]
+        normal_idxs = [i for i in range(total_sections) if i not in set(intro_idxs + concl_idxs)]
+        generation_order = normal_idxs + intro_idxs + concl_idxs
+
+        logger.info(
+            f"🧠 Sequential drafting order (Phase 4): {generation_order} | intro={intro_idxs} conclusion={concl_idxs}"
+        )
+        generated_sections_map: Dict[int, Dict[str, Any]] = {}
+        generated_section_objects = []
+        section_memory = {
+            "covered_claim_ids": set(),
+            "used_sources": set(),
+            "theme_counts": {},
+            "recent_sections": [],
+            "promised_points": set(),
+            "promised_points_remaining": set(),
+            "similarity_alerts": 0,
+        }
+
+        completed_count = 0
+        for ordinal, idx in enumerate(generation_order):
+            section_outline = sections[idx]
+            section_title = section_outline.get('title', f'Section {idx + 1}')
+            section_evidence = evidence.copy()
+            section_evidence.extend(section_specific_map.get(idx, []))
+
+            section_research_data = dict(research_data)
+            section_research_data["section_memory_context"] = _build_section_memory_context(
+                section_memory, section_outline
+            )
+
+            prev_context = generated_section_objects[-3:]
+            section_content = content_generator.generate_section_content(
+                section_outline, section_research_data, claims, section_evidence, prev_context
+            )
             section_dict = {
                 'title': section_content.title,
                 'subtitle': section_content.subtitle,
@@ -1321,52 +2017,45 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
                 'citations': section_content.citations,
                 'section_order': section_content.section_order
             }
-            
-            logger.info(f"✅ Finished parallel generation for section {idx + 1}: {section_title}")
-            return idx, section_dict, section_specific_evidence, section_content
+            generated_sections_map[idx] = section_dict
+            generated_section_objects.append(section_content)
+            _update_memory_from_section(
+                section_memory,
+                section_outline=section_outline,
+                section_dict=section_dict,
+                section_evidence=section_evidence,
+            )
 
-        # Run sections in parallel
-        generated_sections_map = {}
-        all_section_evidence = []
-        seen_urls = {ev.get('source') for ev in evidence if ev.get('source')}
-        
-        max_workers = min(total_sections, 5) # Cap at 5 workers to avoid resource exhaustion
-        logger.info(f"🚀 Launching parallel content generation with {max_workers} workers for {total_sections} sections")
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_section = {executor.submit(process_single_section, i, section): i for i, section in enumerate(sections)}
-            
-            completed_count = 0
-            for future in concurrent.futures.as_completed(future_to_section):
-                idx = future_to_section[future]
-                try:
-                    idx, section_dict, section_specific_evidence, section_content = future.result()
-                    generated_sections_map[idx] = section_dict
-                    
-                    # Track evidence
-                    for ev in section_specific_evidence:
-                        ev_url = ev.get('source') or ev.get('url', '')
-                        if ev_url and ev_url not in seen_urls:
-                            all_section_evidence.append(ev)
-                            seen_urls.add(ev_url)
-                    
-                    completed_count += 1
-                    # Update global progress
-                    if task_instance:
-                        section_progress = 70 + int((completed_count / total_sections) * 10)
-                        task_instance.update_state(
-                            state=TASK_STATUS['PROGRESS'],
-                            meta={
-                                'current_stage': 'CONTENT_GENERATION',
-                                'progress': section_progress,
-                                'message': f'Completed {completed_count}/{total_sections} sections...'
-                            }
-                        )
-                except Exception as e:
-                    logger.error(f"Error generating section {idx + 1}: {str(e)}")
-                    # We continue and provide a fallback if needed, or raise later if critical
+            # lightweight anti-repetition diagnostic across adjacent sections
+            if len(generated_section_objects) >= 2:
+                prev_text = " ".join(
+                    b.content for b in generated_section_objects[-2].content_blocks if getattr(b, "content", "")
+                ).lower()
+                curr_text = " ".join(
+                    b.content for b in generated_section_objects[-1].content_blocks if getattr(b, "content", "")
+                ).lower()
+                prev_set = set(re.findall(r"\b[a-z0-9]{4,}\b", prev_text[:1200]))
+                curr_set = set(re.findall(r"\b[a-z0-9]{4,}\b", curr_text[:1200]))
+                overlap = len(prev_set.intersection(curr_set)) / max(len(prev_set.union(curr_set)), 1)
+                if overlap > 0.52:
+                    section_memory["similarity_alerts"] += 1
+                    logger.warning(
+                        f"High adjacent-section similarity detected ({overlap:.2f}) between '{generated_section_objects[-2].title}' and '{generated_section_objects[-1].title}'"
+                    )
 
-        # Sort generated sections back to original order
+            completed_count += 1
+            if task_instance:
+                section_progress = 70 + int((completed_count / max(total_sections, 1)) * 10)
+                task_instance.update_state(
+                    state=TASK_STATUS['PROGRESS'],
+                    meta={
+                        'current_stage': 'CONTENT_GENERATION',
+                        'progress': section_progress,
+                        'message': f'Completed {completed_count}/{total_sections} sections (sequential draft)...'
+                    }
+                )
+
+        # Restore original section order for downstream steps and finalization
         generated_sections = [generated_sections_map[i] for i in range(total_sections) if i in generated_sections_map]
         
         # Aggregate all evidence
@@ -1377,7 +2066,7 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
         total_words = sum(s.get('total_word_count', 0) for s in generated_sections)
         total_citations = sum(len(s.get('citations', [])) for s in generated_sections)
         
-        logger.info(f"Generated content for {len(generated_sections)} sections with {total_words} total words in parallel")
+        logger.info(f"Generated content for {len(generated_sections)} sections with {total_words} total words in hybrid mode")
         
         return {
             'content': {
@@ -1392,8 +2081,15 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
                 'average_words_per_section': total_words // len(generated_sections) if generated_sections else 0,
                 'llm_model': llm_client.config.model,
                 'aggregated_evidence_count': len(aggregated_evidence),
-                'parallel_execution': True,
-                'max_workers': max_workers
+                'parallel_execution': False,
+                'hybrid_execution': True,
+                'evidence_prefetch_parallel': True,
+                'evidence_prefetch_workers': prefetch_workers,
+                'generation_order': generation_order,
+                'section_memory_covered_claims': len(section_memory['covered_claim_ids']),
+                'section_memory_used_sources': len(section_memory['used_sources']),
+                'section_memory_promised_points_remaining': len(section_memory['promised_points_remaining']),
+                'adjacent_similarity_alerts': section_memory['similarity_alerts']
             }
         }
         
@@ -1646,6 +2342,41 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
         # Log tone for debugging
         logger.info(f"🔍 Refinement - Using tone: '{tone}' (from research_data)")
         logger.info(f"🔍 Refinement - Tone instructions length: {len(tone_instructions)} chars")
+        from src.services.humanization_service import analyze_humanization
+
+        def _clean_llm_html(raw_text: str) -> str:
+            cleaned = (raw_text or "").strip()
+            patterns_to_remove = [
+                r'^Here\'s the refined content[^\n]*\n*',
+                r'^Here is the refined content[^\n]*\n*',
+                r'^Refined content[^\n]*\n*',
+                r'^Here\'s the improved version[^\n]*\n*',
+                r'^Here is the improved version[^\n]*\n*',
+                r'optimized for [^\n]*tone[^\n]*\n*',
+                r'with improved clarity[^\n]*\n*',
+                r'^[^\<]*?(?=<)',
+                r'^.*?optimized for.*?\n',
+                r'^.*?refined content.*?\n',
+                r'^.*?improved version.*?\n',
+            ]
+            for pattern in patterns_to_remove:
+                cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE | re.MULTILINE)
+            if not cleaned.strip().startswith('<'):
+                html_match = re.search(r'<[^>]+>', cleaned)
+                if html_match:
+                    cleaned = cleaned[html_match.start():]
+            return cleaned.strip()
+
+        def _run_refinement_pass(pass_name: str, system_content: str, input_html: str) -> Optional[str]:
+            try:
+                response = llm_client.generate([
+                    {"role": "system", "content": system_content},
+                    {"role": "user", "content": _build_refinement_user_message(tone, input_html)},
+                ])
+                return _clean_llm_html(response.content)
+            except Exception as run_err:
+                logger.error(f"Failed {pass_name} pass: {run_err}")
+                return None
         
         # Helper function to remove citation references
         def remove_citations_from_text(text: str) -> str:
@@ -1666,6 +2397,10 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
         sections = content.get('sections', [])
         total_sections = len(sections)
         failed_sections = 0
+        factual_pass_applied = 0
+        humanization_pass_applied = 0
+        cleanup_pass_applied = 0
+        weak_sections_detected = 0
         
         for i, section in enumerate(sections):
             # Update progress if task instance is available
@@ -1759,100 +2494,85 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
             if tone.lower() not in ['academic', 'formal']:
                 tone_warnings += "\n                    - DO NOT use academic or formal tone - this is WRONG for this article"
             
-            messages = [
-                {
-                    "role": "system",
-                    "content": f"""You are an expert editor. Review and refine the content to ensure it matches the {tone} tone perfectly, while improving clarity, flow, and engagement.
+            # Phase 5 multi-pass refinement:
+            # 1) factual integrity pass
+            # 2) humanization pass (targeted only when weak)
+            # 3) final cleanup/tone consistency pass
+            refined_content = original_content
 
-                    ========================================
-                    ⚠️ CRITICAL: THE TONE FOR THIS ARTICLE IS {tone.upper()} ⚠️
-                    ========================================
-                    YOU MUST USE ONLY THE {tone.upper()} TONE AS SPECIFIED BELOW
-                    {tone_warnings}
-                    
-                    The tone is {tone} - use ONLY this tone, not any other tone.
-                    
-                    ========================================
-                    TONE REQUIREMENTS (HIGHEST PRIORITY)
-                    ========================================
-                    {tone_instructions}
-                    {friendly_checks}
-                    
-                    ========================================
-                    REFINEMENT TASKS
-                    ========================================
-                    - Ensure the content consistently follows the {tone} tone throughout EVERY sentence
-                    - Improve clarity and readability while maintaining the {tone} tone
-                    - Enhance flow and transitions between ideas
-                    - Make sure complex concepts are explained simply (especially for friendly tone)
-                    - Ensure the language matches the {tone} tone perfectly (personal and story-driven for friendly, clear and professional for professional, etc.)
-                    - Verify that the content addresses the reader appropriately for the {tone} tone
-                    - Keep the content engaging and natural - make it interesting to read
-                    - Maintain the original meaning and factual accuracy
-                    - Maintain HTML structure (paragraphs, headings, lists, tables) exactly as provided
-                    {citation_instructions}
-                    
-                    ========================================
-                    TONE CONSISTENCY CHECK
-                    ========================================
-                    Review EVERY sentence and ask:
-                    - Does this sentence match the {tone} tone?
-                    - If it sounds formal, professional, journalistic, or boring, rewrite it to match the {tone} tone
-                    - If it uses complex vocabulary, simplify it
-                    - If it lacks personality (for friendly tone), add personal touches and examples
-                    
-                    ========================================
-                    OUTPUT REQUIREMENTS
-                    ========================================
-                    - Return ONLY the refined content - NO meta-commentary, NO explanations, NO "Here's the refined content" text
-                    - Do NOT include phrases like "Here's the refined content", "optimized for X tone", "Here's the improved version"
-                    - Return ONLY the HTML content itself, starting directly with the content
-                    - Ensure EVERY sentence matches the {tone} tone perfectly
-                    - Return the content with the same HTML structure"""
-                },
-                {
-                    "role": "user",
-                    "content": _build_refinement_user_message(tone, original_content)
-                }
-            ]
+            factual_prompt = f"""You are a factual integrity editor.
+Maintain original meaning and factual claims while improving precision and clarity.
+Rules:
+- Do not invent facts.
+- Remove overstatements that are not supported.
+- Preserve all HTML structure and any citation markers.
+- Keep wording concise and concrete.
+- Return only cleaned HTML."""
+            factual_result = _run_refinement_pass("factual_integrity", factual_prompt, refined_content)
+            if factual_result:
+                refined_content = factual_result
+                factual_pass_applied += 1
+
+            diagnostics = analyze_humanization(refined_content)
+            weak_reasons = diagnostics.get("weak_reasons", [])
+            if diagnostics.get("needs_humanization_rewrite"):
+                weak_sections_detected += 1
+                humanization_prompt = f"""You are a senior human editor.
+Rewrite this section so it sounds naturally human, not robotic.
+Target fixes: {", ".join(weak_reasons) if weak_reasons else "robotic style"}.
+Rules:
+- Vary sentence cadence.
+- Prefer concrete language over abstract filler.
+- Reduce hedging and repetitive transitions.
+- Remove banned/generic phrases.
+- Keep the same facts and HTML structure.
+- Keep tone as {tone}.
+- Return only revised HTML."""
+                humanized = _run_refinement_pass("humanization", humanization_prompt, refined_content)
+                if humanized:
+                    refined_content = humanized
+                    humanization_pass_applied += 1
+
+            cleanup_prompt = f"""You are an expert editor. Review and refine the content to ensure it matches the {tone} tone perfectly, while improving clarity, flow, and engagement.
+
+            ========================================
+            ⚠️ CRITICAL: THE TONE FOR THIS ARTICLE IS {tone.upper()} ⚠️
+            ========================================
+            YOU MUST USE ONLY THE {tone.upper()} TONE AS SPECIFIED BELOW
+            {tone_warnings}
             
-            try:
-                response = llm_client.generate(messages)
-                refined_content = response.content.strip()
-            except Exception as e:
-                logger.error(f"Failed to refine section '{section_title}': {str(e)}")
+            The tone is {tone} - use ONLY this tone, not any other tone.
+            
+            ========================================
+            TONE REQUIREMENTS (HIGHEST PRIORITY)
+            ========================================
+            {tone_instructions}
+            {friendly_checks}
+            
+            ========================================
+            REFINEMENT TASKS
+            ========================================
+            - Ensure the content consistently follows the {tone} tone throughout EVERY sentence
+            - Improve clarity and readability while maintaining the {tone} tone
+            - Enhance flow and transitions between ideas
+            - Make sure complex concepts are explained simply (especially for friendly tone)
+            - Ensure the language matches the {tone} tone perfectly
+            - Keep the content engaging and natural
+            - Maintain the original meaning and factual accuracy
+            - Maintain HTML structure exactly as provided
+            {citation_instructions}
+            
+            ========================================
+            OUTPUT REQUIREMENTS
+            ========================================
+            - Return ONLY the refined HTML content, no meta-commentary."""
+            cleanup_result = _run_refinement_pass("cleanup", cleanup_prompt, refined_content)
+            if not cleanup_result:
+                logger.error(f"Failed to refine section '{section_title}' in final cleanup")
                 failed_sections += 1
                 continue
-            
-            # Remove any meta-commentary the LLM might have added
-            # Remove common LLM prefixes like "Here's the refined content", "optimized for X tone", etc.
-            import re
-            # Remove common LLM commentary patterns
-            patterns_to_remove = [
-                r'^Here\'s the refined content[^\n]*\n*',
-                r'^Here is the refined content[^\n]*\n*',
-                r'^Refined content[^\n]*\n*',
-                r'^Here\'s the improved version[^\n]*\n*',
-                r'^Here is the improved version[^\n]*\n*',
-                r'optimized for [^\n]*tone[^\n]*\n*',
-                r'with improved clarity[^\n]*\n*',
-                r'^[^\<]*?(?=<)',  # Remove any text before the first HTML tag
-                r'^.*?optimized for.*?\n',  # Remove lines with "optimized for"
-                r'^.*?refined content.*?\n',  # Remove lines with "refined content"
-                r'^.*?improved version.*?\n',  # Remove lines with "improved version"
-            ]
-            
-            for pattern in patterns_to_remove:
-                refined_content = re.sub(pattern, '', refined_content, flags=re.IGNORECASE | re.MULTILINE)
-            
-            # If content doesn't start with HTML, try to find where HTML starts
-            if not refined_content.strip().startswith('<'):
-                # Find first HTML tag
-                html_match = re.search(r'<[^>]+>', refined_content)
-                if html_match:
-                    refined_content = refined_content[html_match.start():]
-            
-            refined_content = refined_content.strip()
+            refined_content = cleanup_result
+            cleanup_pass_applied += 1
             
             # For friendly tone, do an additional check and fix if needed
             if tone.lower() == 'friendly':
@@ -1890,7 +2610,13 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
                 'section': section_title,
                 'original_word_count': len(original_content.split()),
                 'refined_word_count': len(refined_content.split()),
-                'improvements': ['Clarity improved', 'Flow enhanced', 'Tone refined', 'Citations handled' if not include_in_text_citations else 'Citations preserved']
+                'improvements': [
+                    'Factual integrity pass',
+                    'Humanization pass' if diagnostics.get("needs_humanization_rewrite") else 'Humanization check passed',
+                    'Final cleanup pass',
+                    'Citations handled' if not include_in_text_citations else 'Citations preserved'
+                ],
+                'humanization': diagnostics,
             })
         
         logger.info(f"Applied {len(refinements)} refinements using {llm_client.config.model}")
@@ -1900,7 +2626,13 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
         
         return {
             'refinements': refinements,
-            'stage_data': {'refinements_applied': len(refinements)}
+            'stage_data': {
+                'refinements_applied': len(refinements),
+                'factual_pass_applied': factual_pass_applied,
+                'humanization_pass_applied': humanization_pass_applied,
+                'cleanup_pass_applied': cleanup_pass_applied,
+                'weak_sections_detected': weak_sections_detected,
+            }
         }
         
     except Exception as e:
@@ -1913,6 +2645,7 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
         structure = result.get('structure', {})
         content = result.get('content', {})
         citations = result.get('citations', [])
+        claim_bundles = result.get('claim_bundles', [])
         research_data = result.get('research_data', {})
         include_in_text_citations = research_data.get('include_in_text_citations', True)
         
@@ -1929,6 +2662,7 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
         
         # Combine all content - handle different content structures
         full_content = ""
+        geo_auto_applied = False
         
         # Function to remove citation references if needed
         def remove_citations_from_text(text: str) -> str:
@@ -2000,6 +2734,27 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
         if not full_content.strip() or (current_word_count < 50 and len(sections) > 0):
             logger.error(f"Finalization failed: Content too short ({current_word_count} words)")
             raise ValueError(f"Content generation failed: Produced only {current_word_count} words")
+
+        # Phase 6 GEO enforcement: ensure answer-first block near top when enabled.
+        geo_enforce_answer_first = bool(research_data.get('geo_enforce_answer_first', True))
+        lower_content = full_content.lower()
+        has_answer_first = any(
+            marker in lower_content for marker in [
+                "<h2>short answer",
+                "<h2>quick answer",
+                "in short,",
+                "the short answer",
+            ]
+        )
+        if geo_enforce_answer_first and not has_answer_first:
+            title = structure.get('title', 'this topic')
+            thesis = structure.get('thesis', '') or structure.get('excerpt', '')
+            answer_block = (
+                "<h2>Short Answer</h2>\n\n"
+                f"<p>In short: {thesis[:280].strip() if thesis else f'The best approach to {title} is to prioritize clear goals, evidence-based decisions, and practical execution.'}</p>\n\n"
+            )
+            full_content = answer_block + full_content
+            geo_auto_applied = True
         
         # Create clickable citation links only if in-text citations are enabled
         if include_in_text_citations:
@@ -2150,7 +2905,41 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
         seo_optimization_score = _calculate_seo_score(title, meta_description, word_count, citations_count)
         viral_potential_score = _calculate_viral_score(hook, excerpt, word_count)
         readability_score = _calculate_readability_score(articleText)
-        
+
+        # Phase 0 instrumentation: machine-readable quality diagnostics
+        # Keep this non-blocking so generation resilience is preserved.
+        quality_report: Dict[str, Any] = {}
+        try:
+            from src.services.article_quality_evaluator import build_article_quality_report
+
+            evidence_for_quality = result.get('aggregated_evidence') or result.get('ranked_evidence') or result.get('evidence') or []
+            quality_report = build_article_quality_report(
+                title=title,
+                html_content=htmlArticle,
+                plain_text=articleText,
+                citations=citations,
+                sections=content.get('sections', []),
+                evidence_count=len(evidence_for_quality),
+            )
+            logger.info(
+                "Quality report generated: overall=%s humanization=%s grounding=%s geo=%s",
+                quality_report.get('overall_score', 0),
+                quality_report.get('humanization_score', 0),
+                quality_report.get('grounding_score', 0),
+                quality_report.get('geo_score', 0),
+            )
+        except Exception as quality_error:
+            logger.warning(f"Quality report generation failed: {quality_error}")
+            quality_report = {
+                'version': 'phase0_v1',
+                'overall_score': 0.0,
+                'humanization_score': 0.0,
+                'grounding_score': 0.0,
+                'geo_score': 0.0,
+                'diagnostics': {},
+                'warnings': [f'quality_report_unavailable: {quality_error}'],
+            }
+
         # Create engagement hooks array (include hook and potentially excerpt)
         engagement_hooks = []
         if hook:
@@ -2162,6 +2951,26 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
                 engagement_hooks.append(excerpt_first)
         
         # Create final article with all required fields
+        claim_bundle_summary = {
+            "bundle_count": len(claim_bundles),
+            "mixed_signal_count": len([b for b in claim_bundles if b.get("mixed_signal")]),
+            "weak_claims_count": len([b for b in claim_bundles if b.get("confidence_score", 0) < 0.45]),
+            "avg_confidence": round(
+                (
+                    sum(float(b.get("confidence_score", 0) or 0) for b in claim_bundles) /
+                    max(len(claim_bundles), 1)
+                ),
+                3,
+            ) if claim_bundles else 0.0,
+        }
+        confidence_map = _build_confidence_map(claim_bundles, full_content)
+        quality_gate = _evaluate_article_quality_gates(
+            research_data=research_data,
+            quality_report=quality_report,
+            claim_bundles=claim_bundles,
+            confidence_map=confidence_map,
+            citations_count=citations_count,
+        )
         final_article = {
             'title': title,
             'hook': hook,
@@ -2195,12 +3004,38 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
             'viral_potential_score': viral_potential_score,
             'seo_optimization_score': seo_optimization_score,
             'readability_score': readability_score,
+            'overall_quality_score': quality_report.get('overall_score', 0),
+            'quality_report': quality_report,
+            'claim_bundles': claim_bundles,
+            'claim_bundle_summary': claim_bundle_summary,
+            'confidence_map': confidence_map,
+            'quality_gate': quality_gate,
+            'generation_status': quality_gate.get('decision', 'Created'),
+            'geo_optimization': {
+                'answer_first_enforced': geo_enforce_answer_first,
+                'answer_first_auto_inserted': geo_auto_applied,
+                'passage_extractability_score': (
+                    (quality_report.get('diagnostics') or {})
+                    .get('passage_quality', {})
+                    .get('extractability_score', 0)
+                ),
+                'entity_clarity_score': (
+                    (quality_report.get('diagnostics') or {})
+                    .get('entity_clarity', {})
+                    .get('entity_clarity_score', 0)
+                ),
+            },
             'external_links_suggested': external_links_suggested,
             'metadata': {
                 'deck': structure.get('deck', ''),
                 'word_count': word_count,
                 'sections': len(content.get('sections', [])),
                 'citations_count': citations_count,
+                'claim_bundle_count': claim_bundle_summary.get("bundle_count", 0),
+                'claim_bundle_avg_confidence': claim_bundle_summary.get("avg_confidence", 0.0),
+                'quality_gate_decision': quality_gate.get('decision', 'Created'),
+                'geo_answer_first_auto_inserted': geo_auto_applied,
+                'quality_report_version': quality_report.get('version', 'phase0_v1'),
                 'generated_at': datetime.utcnow().isoformat()
             }
         }
@@ -2210,7 +3045,14 @@ def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
         return {
             'article': final_article,  # Store in 'article' field for API response
             'final_article': final_article,  # Keep both for compatibility
-            'stage_data': {'finalized': True}
+            'stage_data': {
+                'finalized': True,
+                'quality_overall_score': quality_report.get('overall_score', 0),
+                'quality_humanization_score': quality_report.get('humanization_score', 0),
+                'quality_grounding_score': quality_report.get('grounding_score', 0),
+                'quality_geo_score': quality_report.get('geo_score', 0),
+                'quality_gate_decision': quality_gate.get('decision', 'Created'),
+            }
         }
         
     except Exception as e:
