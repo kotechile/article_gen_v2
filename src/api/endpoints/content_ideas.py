@@ -7,6 +7,7 @@ Provides list, publish, and delete actions used by the frontend Idea Burst flow.
 import asyncio
 import logging
 import re
+import time
 from datetime import datetime
 from uuid import uuid4
 from flask import Blueprint, jsonify, request
@@ -90,8 +91,17 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
 
     Returns aggregate metrics and a compact offers preview.
     """
+    idea_id = idea.get("id")
+    start_ts = time.perf_counter()
     keywords = _extract_keywords_for_enrichment(idea)
+    logger.info(
+        "Enrichment start for idea_id=%s title=%s keyword_count=%s",
+        idea_id,
+        (idea.get("title") or "")[:120],
+        len(keywords),
+    )
     if not keywords:
+        logger.warning("Enrichment aborted for idea_id=%s: no keywords extracted", idea_id)
         return {
             "keywords_used": [],
             "total_search_volume": 0,
@@ -111,9 +121,16 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
 
     metrics_map = {}
     try:
+        bulk_start = time.perf_counter()
         bulk_metrics = await asyncio.wait_for(
             dataforseo_api.get_bulk_metrics_standard(keywords),
             timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS
+        )
+        logger.info(
+            "DataForSEO bulk metrics completed for idea_id=%s in %.2fs rows=%s",
+            idea_id,
+            time.perf_counter() - bulk_start,
+            len(bulk_metrics or []),
         )
         for item in (bulk_metrics or []):
             keyword = str(item.get("keyword") or "").strip().lower()
@@ -124,12 +141,19 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
                 "cpc": item.get("cpc") or 0.0,
             }
     except Exception:
-        logger.warning("DataForSEO bulk metrics failed for idea_id=%s", idea.get("id"), exc_info=True)
+        logger.warning("DataForSEO bulk metrics failed for idea_id=%s", idea_id, exc_info=True)
 
     try:
+        kd_start = time.perf_counter()
         kd_rows = await asyncio.wait_for(
             dataforseo_api.get_keyword_difficulty(keywords),
             timeout=DATAFORSEO_KD_TIMEOUT_SECONDS
+        )
+        logger.info(
+            "DataForSEO keyword difficulty completed for idea_id=%s in %.2fs rows=%s",
+            idea_id,
+            time.perf_counter() - kd_start,
+            len(kd_rows or []),
         )
         for item in (kd_rows or []):
             keyword = str(item.get("keyword") or "").strip().lower()
@@ -139,7 +163,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
             existing["keyword_difficulty"] = item.get("keyword_difficulty") or 0
             metrics_map[keyword] = existing
     except Exception:
-        logger.warning("DataForSEO keyword difficulty failed for idea_id=%s", idea.get("id"), exc_info=True)
+        logger.warning("DataForSEO keyword difficulty failed for idea_id=%s", idea_id, exc_info=True)
 
     for keyword in keywords:
         row = metrics_map.get(keyword.lower(), {})
@@ -162,6 +186,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     affiliate_offer_count = 0
     affiliate_offers_preview = []
     try:
+        affiliate_start = time.perf_counter()
         affiliate_result = await asyncio.wait_for(
             affiliate_research_service.search_affiliate_programs(
                 search_term=search_term,
@@ -169,6 +194,11 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
                 user_id=idea.get("user_id"),
             ),
             timeout=AFFILIATE_ENRICH_TIMEOUT_SECONDS
+        )
+        logger.info(
+            "Affiliate enrichment completed for idea_id=%s in %.2fs",
+            idea_id,
+            time.perf_counter() - affiliate_start,
         )
         programs = affiliate_result.get("programs") or []
         affiliate_offer_count = len(programs)
@@ -181,7 +211,18 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
             for program in programs[:5]
         ]
     except Exception:
-        logger.warning("Affiliate search failed for idea_id=%s", idea.get("id"), exc_info=True)
+        logger.warning("Affiliate search failed for idea_id=%s", idea_id, exc_info=True)
+
+    total_elapsed = time.perf_counter() - start_ts
+    logger.info(
+        "Enrichment complete for idea_id=%s in %.2fs volume=%s cpc=%s kd=%s offers=%s",
+        idea_id,
+        total_elapsed,
+        int(total_search_volume),
+        average_cpc,
+        average_difficulty,
+        affiliate_offer_count,
+    )
 
     return {
         "keywords_used": keywords,
@@ -439,11 +480,18 @@ def enrich_content_ideas():
                 status=403,
             ).dict()), 403
 
+        req_start = time.perf_counter()
         now = datetime.utcnow().isoformat()
         results = []
         enriched_count = 0
+        logger.info(
+            "Enrich request received user_id=%s idea_count=%s",
+            user_id,
+            len(idea_ids),
+        )
 
         for idea_id in idea_ids:
+            idea_start = time.perf_counter()
             fetch_resp = (
                 supabase
                 .table("content_ideas")
@@ -454,6 +502,7 @@ def enrich_content_ideas():
                 .execute()
             )
             if not fetch_resp.data:
+                logger.warning("Enrich idea fetch failed idea_id=%s user_id=%s", idea_id, user_id)
                 results.append({
                     "idea_id": idea_id,
                     "status": "failed",
@@ -479,6 +528,11 @@ def enrich_content_ideas():
                 continue
 
             if enrichment.get("status") != "enriched":
+                logger.warning(
+                    "Enrichment failed for idea_id=%s reason=%s",
+                    idea_id,
+                    enrichment.get("reason"),
+                )
                 results.append({
                     "idea_id": idea_id,
                     "status": "failed",
@@ -521,6 +575,11 @@ def enrich_content_ideas():
 
             if updated:
                 enriched_count += 1
+                logger.info(
+                    "Enrichment persisted for idea_id=%s in %.2fs",
+                    idea_id,
+                    time.perf_counter() - idea_start,
+                )
                 results.append({
                     "idea_id": idea_id,
                     "status": "enriched",
@@ -534,12 +593,24 @@ def enrich_content_ideas():
                     "offers_preview": enrichment["affiliate_offers"],
                 })
             else:
+                logger.error(
+                    "Enrichment persistence failed for idea_id=%s after %.2fs",
+                    idea_id,
+                    time.perf_counter() - idea_start,
+                )
                 results.append({
                     "idea_id": idea_id,
                     "status": "failed",
                     "reason": "Could not persist enrichment values",
                 })
 
+        logger.info(
+            "Enrich request finished user_id=%s requested=%s enriched=%s elapsed=%.2fs",
+            user_id,
+            len(idea_ids),
+            enriched_count,
+            time.perf_counter() - req_start,
+        )
         return jsonify({
             "success": enriched_count > 0,
             "requested_count": len(idea_ids),
