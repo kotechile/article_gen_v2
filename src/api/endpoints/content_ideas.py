@@ -32,10 +32,10 @@ content_ideas_bp = Blueprint("content_ideas", __name__, url_prefix="/api/content
 affiliate_research_service = AffiliateResearchService()
 
 # Keep request latency bounded so reverse proxies don't return 504 on enrichment.
-DATAFORSEO_BULK_TIMEOUT_SECONDS = 12
-DATAFORSEO_KD_TIMEOUT_SECONDS = 12
+DATAFORSEO_BULK_TIMEOUT_SECONDS = 45
+DATAFORSEO_KD_TIMEOUT_SECONDS = 20
 AFFILIATE_ENRICH_TIMEOUT_SECONDS = 15
-PER_IDEA_ENRICH_TIMEOUT_SECONDS = 25
+PER_IDEA_ENRICH_TIMEOUT_SECONDS = 70
 
 
 def _resolve_user_id_from_request(supabase, data=None):
@@ -537,6 +537,26 @@ def enrich_content_ideas():
                     "idea_id": idea_id,
                     "status": "failed",
                     "reason": enrichment.get("reason") or "Enrichment failed",
+                })
+                continue
+
+            # If all enrichment metrics are zero, report this as a failed enrichment
+            # so UI does not show a misleading "success" with no visible SEO stats.
+            if (
+                int(enrichment.get("total_search_volume") or 0) == 0
+                and float(enrichment.get("average_cpc") or 0.0) == 0.0
+                and float(enrichment.get("average_difficulty") or 0.0) == 0.0
+                and int(enrichment.get("affiliate_offer_count") or 0) == 0
+            ):
+                logger.warning(
+                    "Enrichment produced zero metrics for idea_id=%s keywords=%s",
+                    idea_id,
+                    enrichment.get("keywords_used") or [],
+                )
+                results.append({
+                    "idea_id": idea_id,
+                    "status": "failed",
+                    "reason": "No SEO/offer metrics returned for this idea",
                 })
                 continue
 
