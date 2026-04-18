@@ -28,6 +28,7 @@ export function TopicDetail() {
     const [showIdeaModal, setShowIdeaModal] = React.useState(false)
     const [hasStoredIdeas, setHasStoredIdeas] = React.useState(false)
     const [subtopicsWithSavedIdeas, setSubtopicsWithSavedIdeas] = React.useState<Set<string>>(new Set())
+    const [subtopicsReadyForContent, setSubtopicsReadyForContent] = React.useState<Set<string>>(new Set())
 
     React.useEffect(() => {
         if (!authLoading && user && id) {
@@ -60,10 +61,25 @@ export function TopicDetail() {
                         .map((idea) => (idea.subtopic || '').trim().toLowerCase())
                         .filter(Boolean)
                 )
+                const readySubtopicNames = new Set(
+                    (storedIdeas || [])
+                        .filter((idea) =>
+                            Boolean(
+                                idea.published ||
+                                idea.published_to_titles ||
+                                idea.titles_record_id ||
+                                idea.status?.toLowerCase() === 'published'
+                            )
+                        )
+                        .map((idea) => (idea.subtopic || '').trim().toLowerCase())
+                        .filter(Boolean)
+                )
                 setSubtopicsWithSavedIdeas(savedSubtopicNames)
+                setSubtopicsReadyForContent(readySubtopicNames)
             } else {
                 setHasStoredIdeas(false)
                 setSubtopicsWithSavedIdeas(new Set())
+                setSubtopicsReadyForContent(new Set())
             }
             setError(null)
         } catch (err) {
@@ -210,6 +226,7 @@ export function TopicDetail() {
             hasResearchProgress: hasSeoResearchData || hasStoredIdeas,
         }
     }, [subtopics, hasStoredIdeas])
+    const enrichmentFailed = subtopics.length > 0 && !metrics.hasSeoResearchData && !enriching
 
     React.useEffect(() => {
         if (!id) return
@@ -311,7 +328,13 @@ export function TopicDetail() {
                                 {metrics.hasSeoResearchData ? metrics.totalVolume.toLocaleString() : '—'}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData ? 'Monthly Searches' : metrics.hasResearchProgress ? 'Idea candidates generated' : 'SEO/Offer data pending'}
+                                {metrics.hasSeoResearchData
+                                    ? 'Monthly Searches'
+                                    : enrichmentFailed
+                                        ? 'Enrichment failed - retry SEO/Offers'
+                                        : metrics.hasResearchProgress
+                                            ? 'Idea candidates generated'
+                                            : 'SEO/Offer data pending'}
                             </div>
                         </motion.div>
 
@@ -330,7 +353,13 @@ export function TopicDetail() {
                                 {metrics.hasSeoResearchData ? metrics.totalOpportunities : '—'}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData ? 'Affiliate Offers' : metrics.hasResearchProgress ? 'Awaiting SEO/offer enrichment' : 'SEO/Offer data pending'}
+                                {metrics.hasSeoResearchData
+                                    ? 'Affiliate Offers'
+                                    : enrichmentFailed
+                                        ? 'Enrichment failed - retry SEO/Offers'
+                                        : metrics.hasResearchProgress
+                                            ? 'Awaiting SEO/offer enrichment'
+                                            : 'SEO/Offer data pending'}
                             </div>
                         </motion.div>
 
@@ -349,7 +378,13 @@ export function TopicDetail() {
                                 {metrics.hasSeoResearchData ? metrics.avgDifficulty : '—'}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData ? 'Keyword Difficulty' : metrics.hasResearchProgress ? 'Awaiting SEO difficulty data' : 'SEO/Offer data pending'}
+                                {metrics.hasSeoResearchData
+                                    ? 'Keyword Difficulty'
+                                    : enrichmentFailed
+                                        ? 'Enrichment failed - retry SEO/Offers'
+                                        : metrics.hasResearchProgress
+                                            ? 'Awaiting SEO difficulty data'
+                                            : 'SEO/Offer data pending'}
                             </div>
                         </motion.div>
 
@@ -371,7 +406,13 @@ export function TopicDetail() {
                                 {metrics.potential}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData ? 'Overall Viability' : metrics.hasResearchProgress ? 'Pre-SEO candidate quality' : 'Estimated (pre-SEO)'}
+                                {metrics.hasSeoResearchData
+                                    ? 'Overall Viability'
+                                    : enrichmentFailed
+                                        ? 'Enrichment failed - retry SEO/Offers'
+                                        : metrics.hasResearchProgress
+                                            ? 'Pre-SEO candidate quality'
+                                            : 'Estimated (pre-SEO)'}
                             </div>
                         </motion.div>
                     </div>
@@ -501,6 +542,7 @@ export function TopicDetail() {
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {subtopics.map((sub, i) => {
                                     const hasSavedIdeas = subtopicsWithSavedIdeas.has((sub.name || '').trim().toLowerCase())
+                                    const readyForContent = subtopicsReadyForContent.has((sub.name || '').trim().toLowerCase())
                                     const hasCachedIdeas = cachedIdeasBySubtopic.has(sub.id)
                                     return (
                                     <motion.div
@@ -519,7 +561,7 @@ export function TopicDetail() {
                                             <div className="flex items-center gap-2">
                                                 {hasCachedIdeas && (
                                                     <span className="text-xs px-2 py-1 rounded-full border flex-shrink-0 text-indigo-300 border-indigo-500/30 bg-indigo-500/10">
-                                                        Saved candidates
+                                                        Generated
                                                     </span>
                                                 )}
                                                 <span className={`text-xs px-2 py-1 rounded-full border flex-shrink-0 ${sub.trend_direction === 'up'
@@ -528,9 +570,13 @@ export function TopicDetail() {
                                                             ? 'text-red-500 dark:text-red-400 border-red-500/20 bg-red-500/10'
                                                             : 'text-muted-foreground border-border bg-muted/50'
                                                     }`}>
-                                                    {hasSeoResearchSignals(sub)
+                                                    {readyForContent
+                                                        ? 'READY FOR CONTENT'
+                                                        : hasSavedIdeas
+                                                            ? 'GENERATED'
+                                                        : hasSeoResearchSignals(sub)
                                                         ? (sub.trend_direction?.toUpperCase() || 'N/A')
-                                                        : (hasSavedIdeas ? 'IDEAS READY' : 'Pending SEO')}
+                                                        : 'NOT GENERATED'}
                                                 </span>
                                             </div>
                                         </div>
@@ -539,13 +585,13 @@ export function TopicDetail() {
                                             <div>
                                                 <div className="text-muted-foreground mb-1">Volume</div>
                                                 <div className="text-foreground font-semibold">
-                                                    {hasSeoResearchSignals(sub) ? (sub.search_volume?.toLocaleString() || '0') : (hasSavedIdeas ? 'Ideas saved' : '—')}
+                                                    {hasSeoResearchSignals(sub) ? (sub.search_volume?.toLocaleString() || '0') : '—'}
                                                 </div>
                                             </div>
                                             <div>
                                                 <div className="text-muted-foreground mb-1">CPC</div>
                                                 <div className="text-foreground font-semibold">
-                                                    {hasSeoResearchSignals(sub) ? `$${sub.cpc?.toFixed(2) || '0.00'}` : (hasSavedIdeas ? 'Ideas saved' : 'Pending SEO/Offers')}
+                                                    {hasSeoResearchSignals(sub) ? `$${sub.cpc?.toFixed(2) || '0.00'}` : '—'}
                                                 </div>
                                             </div>
                                             <div>
@@ -554,16 +600,21 @@ export function TopicDetail() {
                                                         (sub.seo_difficulty || 0) > 30 ? 'text-amber-500 dark:text-amber-400' :
                                                             'text-emerald-500 dark:text-emerald-400'
                                                     }`}>
-                                                    {hasSeoResearchSignals(sub) ? (sub.seo_difficulty || '0') : (hasSavedIdeas ? 'Ideas saved' : 'Pending SEO/Offers')}
+                                                    {hasSeoResearchSignals(sub) ? (sub.seo_difficulty || '0') : '—'}
                                                 </div>
                                             </div>
                                             <div>
                                                 <div className="text-muted-foreground mb-1">Offers</div>
                                                 <div className="text-foreground font-semibold">
-                                                    {hasSeoResearchSignals(sub) ? (sub.affiliate_offer_count || 0) : (hasSavedIdeas ? 'Ideas saved' : 'Pending SEO/Offers')}
+                                                    {hasSeoResearchSignals(sub) ? (sub.affiliate_offer_count || 0) : '—'}
                                                 </div>
                                             </div>
                                         </div>
+                                        {!hasSeoResearchSignals(sub) && hasSavedIdeas && (
+                                            <div className="mt-2 text-[11px] text-amber-400">
+                                                Enrichment failed. Click "Run SEO/Offers" to retry.
+                                            </div>
+                                        )}
 
                                         {(sub.intent_bucket || sub.cluster_type || sub.primary_user_outcome || sub.decision_focus) && (
                                             <div className="mt-3 pt-3 border-t border-white/5 space-y-2">

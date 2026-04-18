@@ -77,6 +77,15 @@ function buildInternalLinkGroups(ideas: ContentIdea[]): Array<{ hook: string; co
         .sort((a, b) => b.count - a.count);
 }
 
+function isSentToContentLibrary(idea: ContentIdea): boolean {
+    return Boolean(
+        idea.published_to_titles ||
+        idea.titles_record_id ||
+        idea.published ||
+        idea.status?.toLowerCase() === "published"
+    );
+}
+
 export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle, projectName, categoryPath }: IdeaBurstModalProps) {
     const { user } = useAuth();
     const [loading, setLoading] = React.useState(false);
@@ -91,6 +100,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
     const [saved, setSaved] = React.useState(false);
     const [expandedMetrics, setExpandedMetrics] = React.useState<string | null>(null);
     const [loadedFromCache, setLoadedFromCache] = React.useState(false);
+    const [loadedFromStored, setLoadedFromStored] = React.useState(false);
     const lastGeneratedKeyRef = React.useRef<string | null>(null);
 
     const cacheKey = React.useMemo(() => {
@@ -103,28 +113,76 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         const generationKey = `${topicId}:${subtopic.id}:${user.id}`;
         if (lastGeneratedKeyRef.current === generationKey) return;
 
-        if (cacheKey) {
+        let cancelled = false;
+        const hydrateIdeas = async () => {
+            // 1) Prefer persisted ideas for this topic/subtopic.
             try {
-                const raw = localStorage.getItem(cacheKey);
-                if (raw) {
-                    const parsed = JSON.parse(raw) as CachedIdeaBurst;
-                    if (Array.isArray(parsed.blogIdeas) || Array.isArray(parsed.softwareIdeas)) {
-                        setBlogIdeas(Array.isArray(parsed.blogIdeas) ? parsed.blogIdeas : []);
-                        setSoftwareIdeas(Array.isArray(parsed.softwareIdeas) ? parsed.softwareIdeas : []);
-                        setError(null);
-                        setLoadedFromCache(true);
-                        lastGeneratedKeyRef.current = generationKey;
-                        return;
+                const storedIdeas = await contentIdeasService.getContentIdeas(topicId, user.id);
+                const normalizedSubtopic = (subtopic.name || "").trim().toLowerCase();
+                const filtered = (storedIdeas || []).filter(
+                    (idea) => (idea.subtopic || "").trim().toLowerCase() === normalizedSubtopic
+                );
+                if (!cancelled && filtered.length > 0) {
+                    const nextBlogIdeas = filtered.filter((idea) => idea.content_type === "blog");
+                    const nextSoftwareIdeas = filtered.filter((idea) => idea.content_type === "software");
+                    setBlogIdeas(nextBlogIdeas);
+                    setSoftwareIdeas(nextSoftwareIdeas);
+                    setError(null);
+                    setLoadedFromStored(true);
+                    setLoadedFromCache(false);
+
+                    if (cacheKey) {
+                        try {
+                            const payload: CachedIdeaBurst = {
+                                blogIdeas: nextBlogIdeas,
+                                softwareIdeas: nextSoftwareIdeas,
+                                cachedAt: new Date().toISOString(),
+                            };
+                            localStorage.setItem(cacheKey, JSON.stringify(payload));
+                        } catch (e) {
+                            console.warn("Failed to persist idea burst cache:", e);
+                        }
                     }
+                    lastGeneratedKeyRef.current = generationKey;
+                    return;
                 }
             } catch (e) {
-                console.warn("Failed to read idea burst cache:", e);
+                console.warn("Failed to load stored ideas for subtopic:", e);
             }
-        }
 
-        lastGeneratedKeyRef.current = generationKey;
-        generateIdeas();
-    }, [isOpen, topicId, subtopic?.id, user?.id]);
+            // 2) Fall back to local cache.
+            if (cacheKey) {
+                try {
+                    const raw = localStorage.getItem(cacheKey);
+                    if (raw) {
+                        const parsed = JSON.parse(raw) as CachedIdeaBurst;
+                        if (Array.isArray(parsed.blogIdeas) || Array.isArray(parsed.softwareIdeas)) {
+                            setBlogIdeas(Array.isArray(parsed.blogIdeas) ? parsed.blogIdeas : []);
+                            setSoftwareIdeas(Array.isArray(parsed.softwareIdeas) ? parsed.softwareIdeas : []);
+                            setError(null);
+                            setLoadedFromCache(true);
+                            setLoadedFromStored(false);
+                            lastGeneratedKeyRef.current = generationKey;
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Failed to read idea burst cache:", e);
+                }
+            }
+
+            // 3) Generate only when no persisted ideas and no cache.
+            setLoadedFromStored(false);
+            setLoadedFromCache(false);
+            lastGeneratedKeyRef.current = generationKey;
+            await generateIdeas();
+        };
+
+        hydrateIdeas();
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, topicId, subtopic?.id, subtopic?.name, user?.id, cacheKey]);
 
     React.useEffect(() => {
         if (!isOpen) {
@@ -167,6 +225,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         setLoading(true);
         setError(null);
         setLoadedFromCache(false);
+        setLoadedFromStored(false);
         setBlogIdeas([]);
         setSoftwareIdeas([]);
         setSelectedBlogIdeas(new Set());
@@ -307,6 +366,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             console.warn("Failed to clear cached idea burst:", e);
         }
         setLoadedFromCache(false);
+        setLoadedFromStored(false);
         setBlogIdeas([]);
         setSoftwareIdeas([]);
         setSelectedBlogIdeas(new Set());
@@ -378,7 +438,11 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                 </div>
                 <div className="px-6 py-3 border-b border-white/10 bg-white/5 flex flex-wrap items-center justify-between gap-2">
                     <div className="text-xs text-slate-400">
-                        {loadedFromCache ? "Loaded previously generated candidates" : "Candidates are generated for this subtopic"}
+                        {loadedFromStored
+                            ? "Loaded existing ideas already saved for this subtopic"
+                            : loadedFromCache
+                                ? "Loaded previously generated candidates"
+                                : "Candidates are generated for this subtopic"}
                     </div>
                     <div className="flex items-center gap-2">
                         {cacheKey && (
@@ -739,9 +803,16 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
                         {isSelected && <Check className="w-3 h-3 text-white" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <h4 className={`font-medium text-sm mb-1 ${isSelected ? 'text-indigo-300' : 'text-white'}`}>
-                            {idea.title}
-                        </h4>
+                        <div className="flex items-center gap-2 mb-1">
+                            <h4 className={`font-medium text-sm ${isSelected ? 'text-indigo-300' : 'text-white'}`}>
+                                {idea.title}
+                            </h4>
+                            {isSentToContentLibrary(idea) && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                                    Sent to content library
+                                </span>
+                            )}
+                        </div>
                         {idea.description && (
                             <p className="text-xs text-slate-400 line-clamp-2 mb-2">{idea.description}</p>
                         )}
@@ -1010,9 +1081,16 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                         {isSelected && <Check className="w-3 h-3 text-white" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <h4 className={`font-medium text-sm mb-1 ${isSelected ? 'text-amber-300' : 'text-white'}`}>
-                            {idea.title}
-                        </h4>
+                        <div className="flex items-center gap-2 mb-1">
+                            <h4 className={`font-medium text-sm ${isSelected ? 'text-amber-300' : 'text-white'}`}>
+                                {idea.title}
+                            </h4>
+                            {isSentToContentLibrary(idea) && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                                    Sent to content library
+                                </span>
+                            )}
+                        </div>
                         {idea.description && (
                             <p className="text-xs text-slate-400 line-clamp-2 mb-2">{idea.description}</p>
                         )}

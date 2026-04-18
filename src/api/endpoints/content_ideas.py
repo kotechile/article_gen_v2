@@ -171,8 +171,9 @@ def publish_content_ideas():
                     "Title": idea.get("title") or "Untitled Article",
                     "userDescription": idea.get("description") or "",
                     "Keywords": ", ".join(idea.get("keywords") or []),
-                    "status": "Published",
-                    "published": True,
+                    # This record is queued for writing, not published to an external CMS.
+                    "status": "New",
+                    "published": False,
                     "dateCreatedOn": now,
                     "source_idea_id": idea.get("id"),
                 }

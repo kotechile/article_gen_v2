@@ -43,6 +43,9 @@ class _TableQuery:
         self._filters.append((field, value))
         return self
 
+    def limit(self, *_args, **_kwargs):
+        return self
+
     def update(self, payload):
         self._action = "update"
         self._update_payload = payload

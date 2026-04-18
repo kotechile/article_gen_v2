@@ -24,7 +24,10 @@ type ContentIdeaRow = {
     created_at: string
 }
 
-function getStatusStyle(status: string, published: boolean) {
+function getStatusStyle(status: string, published: boolean, source: 'titles' | 'content_ideas') {
+    if (source === 'content_ideas' && (published || status === 'Published' || status === 'published')) {
+        return { label: 'Ready for content', color: 'text-emerald-500 dark:text-emerald-400' }
+    }
     if (published || status === 'Published') return { label: 'Published', color: 'text-emerald-500 dark:text-emerald-400' }
     if (status === 'Scheduled') return { label: 'Scheduled', color: 'text-purple-500 dark:text-purple-400' }
     if (status === 'Generated') return { label: 'Generated', color: 'text-blue-500 dark:text-blue-400' }
@@ -110,7 +113,7 @@ export const MyArticles: React.FC = () => {
                 Title: idea.title,
                 userDescription: idea.description || '',
                 Keywords: '',
-                status: idea.status || 'Published',
+                status: idea.status || 'ready_for_content',
                 published: Boolean(idea.published || idea.published_to_titles || idea.status?.toLowerCase() === 'published'),
                 dateCreatedOn: idea.created_at,
                 articleLength: '0',
@@ -401,7 +404,7 @@ export const MyArticles: React.FC = () => {
                             <div className="divide-y divide-border">
                                 {filteredArticles.map(article => {
                                     const selected = selectedIds.has(article.id)
-                                    const status = getStatusStyle(article.status, article.published)
+                    const status = getStatusStyle(article.status, article.published, article._source)
                                     return (
                                         <div
                                             key={article.id}
