@@ -197,8 +197,8 @@ export const ContentStudio: React.FC = () => {
     };
 
     // Save Changes
-    const handleSave = async () => {
-        if (!articleId) return;
+    const handleSave = async (): Promise<boolean> => {
+        if (!articleId) return false;
         setSaving(true);
         try {
             // Calculate estimated reading time
@@ -241,8 +241,11 @@ export const ContentStudio: React.FC = () => {
             }
 
             // Optional: show toast
+            return true;
         } catch (error) {
             console.error("Error saving:", error);
+            setError("Failed to save article settings. Please verify DB schema/settings and try again.");
+            return false;
         } finally {
             setSaving(false);
         }
@@ -256,7 +259,11 @@ export const ContentStudio: React.FC = () => {
 
         try {
             // Save first
-            await handleSave();
+            const saveOk = await handleSave();
+            if (!saveOk) {
+                setGenerating(false);
+                return;
+            }
 
             // Clear any old progress from local storage
             localStorage.removeItem(`gen_progress_${articleId}`);
@@ -320,11 +327,12 @@ export const ContentStudio: React.FC = () => {
 
             if (response.data && response.data.research_id) {
                 setTaskId(response.data.research_id);
+                // Show Progress Modal only when we have a valid task id
+                setShowProgress(true);
+                setGenerating(false);
+            } else {
+                throw new Error("Generation started but no task id was returned by the API.");
             }
-
-            // Show Progress Modal instead of navigating immediately
-            setShowProgress(true);
-            setGenerating(false); // Stop loading button, start modal
 
         } catch (error: any) {
             console.error("Generation error:", error);
