@@ -12,7 +12,10 @@ import structlog
 from ..core.supabase_database import get_supabase_db
 from ..core.redis import cache
 from .llm.llm_service import llm_service
-from .web_search_service import WebSearchService
+try:
+    from .web_search_service import WebSearchService
+except ImportError:
+    WebSearchService = None
 from ..integrations.linkup_api import linkup_api
 
 logger = structlog.get_logger()
@@ -23,7 +26,7 @@ class EnhancedAffiliateResearchService:
     def __init__(self):
         self.db = get_supabase_db()
         self.cache_ttl = 3600  # 1 hour cache TTL
-        self.web_search = WebSearchService()
+        self.web_search = WebSearchService() if WebSearchService is not None else None
     
     async def intelligent_offer_discovery(
         self,

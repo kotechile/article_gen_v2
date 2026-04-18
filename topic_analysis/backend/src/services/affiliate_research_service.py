@@ -12,7 +12,11 @@ import structlog
 from src.core.supabase_database import get_supabase_db
 from src.core.redis import cache
 from src.core.llm_config import LLMConfigManager
-from .web_search_service import WebSearchService
+try:
+    from .web_search_service import WebSearchService
+except ImportError:
+    # Optional dependency in some deployments; service should still boot
+    WebSearchService = None
 # Import LinkUp API directly to avoid relative import issues
 try:
     from src.integrations.linkup_api import linkup_api
@@ -918,6 +922,12 @@ class AffiliateResearchService:
         Search the web for affiliate programs when database results are insufficient
         """
         try:
+            if WebSearchService is None:
+                logger.warning(
+                    "WebSearchService unavailable; skipping web search fallback",
+                    search_term=search_term
+                )
+                return []
             async with WebSearchService() as web_search:
                 web_programs = await web_search.search_affiliate_programs(search_term, max_results=5)
                 logger.info("Web search found programs", 
