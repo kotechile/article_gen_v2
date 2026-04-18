@@ -809,7 +809,7 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
                             </h4>
                             {isSentToContentLibrary(idea) && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
-                                    Sent to content library
+                                    In Library
                                 </span>
                             )}
                         </div>
@@ -1087,7 +1087,7 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                             </h4>
                             {isSentToContentLibrary(idea) && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
-                                    Sent to content library
+                                    in Library
                                 </span>
                             )}
                         </div>

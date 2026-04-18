@@ -573,12 +573,12 @@ export function TopicDetail() {
                                                             : 'text-muted-foreground border-border bg-muted/50'
                                                     }`}>
                                                     {readyForContent
-                                                        ? 'READY FOR CONTENT'
+                                                        ? 'In Library'
                                                         : hasSavedIdeas
-                                                            ? 'GENERATED'
+                                                            ? 'STARTED'
                                                         : hasSeoResearchSignals(sub)
                                                         ? (sub.trend_direction?.toUpperCase() || 'N/A')
-                                                        : 'NOT GENERATED'}
+                                                        : 'NOT STARTED'}
                                                 </span>
                                             </div>
                                         </div>

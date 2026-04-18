@@ -249,7 +249,7 @@ class KeywordCluster(Base):
         return (self.cluster_quality_score or 0) >= 70
 
     def is_ready_for_content(self) -> bool:
-        """Check if cluster is ready for content generation"""
+        """Check if cluster is In Content Library ready for content generation"""
         return (
             self.is_processed and
             self.is_active and

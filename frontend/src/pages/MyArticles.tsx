@@ -26,7 +26,7 @@ type ContentIdeaRow = {
 
 function getStatusStyle(status: string, published: boolean, source: 'titles' | 'content_ideas') {
     if (source === 'content_ideas' && (published || status === 'Published' || status === 'published')) {
-        return { label: 'Ready for content', color: 'text-emerald-500 dark:text-emerald-400' }
+        return { label: 'In Library', color: 'text-emerald-500 dark:text-emerald-400' }
     }
     if (published || status === 'Published') return { label: 'Published', color: 'text-emerald-500 dark:text-emerald-400' }
     if (status === 'Scheduled') return { label: 'Scheduled', color: 'text-purple-500 dark:text-purple-400' }
