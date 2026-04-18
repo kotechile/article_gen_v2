@@ -16,6 +16,10 @@ from typing import Dict, Any, Optional, List
 from celery import current_task
 from celery_config import celery
 from supabase_client import get_supabase_client, get_llm_api_key, get_linkup_api_key, get_default_llm_provider
+from llm_client import create_llm_client
+from rag_client import create_rag_client, RAGQuery
+from linkup_client import create_linkup_client
+from src.utils.config import get_config
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -905,7 +909,6 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 )
             
             # Resolve RAG configuration
-            from src.utils.config import get_config
             app_config = get_config()
             
             # Determine RAG endpoint: research_data > config > None
@@ -2679,7 +2682,7 @@ Rules:
         logger.error(f"Error in article refinement: {str(e)}")
         return {'refinements': [], 'stage_data': {'refinements_applied': 0, 'error': str(e)}}
 
-def _finalize_article(result: Dict[str, Any]) -> Dict[str, Any]:
+def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
     """Finalize the article."""
     try:
         structure = result.get('structure', {})
@@ -3230,10 +3233,25 @@ def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
             }
             
     except Exception as e:
-        logger.error(f"Error getting task status for {task_id}: {str(e)}", exc_info=True)
-        # Return a pending status instead of None if task lookup fails
-        # This handles cases where the task hasn't been picked up by worker yet
-        # or when there's a NotRegistered error (task not yet in Celery's registry)
+        error_msg = str(e)
+        logger.error(f"Error getting task status for {task_id}: {error_msg}", exc_info=True)
+        # If Celery result metadata is corrupted, surface a failure to the UI instead
+        # of masking it as PENDING forever.
+        if "exception type" in error_msg.lower():
+            return {
+                'task_id': task_id,
+                'status': TASK_STATUS['FAILURE'],
+                'progress': 0,
+                'progress_percent': 0,
+                'current_stage': 'UNKNOWN',
+                'message': 'Task failed while persisting result metadata.',
+                'error': error_msg,
+                'info': {
+                    'progress': 0,
+                    'message': 'Task failed while persisting result metadata.'
+                }
+            }
+        # For transient lookup issues, keep PENDING fallback behavior.
         return {
             'task_id': task_id,
             'status': TASK_STATUS['PENDING'],
