@@ -25,12 +25,21 @@ type ContentIdeaRow = {
 }
 
 function getStatusStyle(status: string, published: boolean, source: 'titles' | 'content_ideas') {
+    const normalized = (status || '').trim().toLowerCase()
     if (source === 'content_ideas' && (published || status === 'Published' || status === 'published')) {
         return { label: 'In Library', color: 'text-emerald-500 dark:text-emerald-400' }
     }
+    if (normalized === 'ready for content' || normalized === 'ready_for_content' || normalized === 'sent to content library' || normalized === 'in library') {
+        return { label: 'In Library', color: 'text-emerald-500 dark:text-emerald-400' }
+    }
+    if (normalized === 'generated' || normalized === 'started') {
+        return { label: 'Started', color: 'text-indigo-300' }
+    }
+    if (normalized === 'not generated' || normalized === 'not started' || normalized === 'not started.') {
+        return { label: 'Not Started', color: 'text-muted-foreground' }
+    }
     if (published || status === 'Published') return { label: 'Published', color: 'text-emerald-500 dark:text-emerald-400' }
     if (status === 'Scheduled') return { label: 'Scheduled', color: 'text-purple-500 dark:text-purple-400' }
-    if (status === 'Generated') return { label: 'Generated', color: 'text-blue-500 dark:text-blue-400' }
     if (status === 'Saved') return { label: 'Saved', color: 'text-cyan-500 dark:text-cyan-400' }
     if (status === 'Draft' || status === 'New') return { label: status || 'Draft', color: 'text-muted-foreground' }
     if (status === 'Error' || status === 'Failed') return { label: status, color: 'text-red-500 dark:text-red-400' }
@@ -432,7 +441,11 @@ export const MyArticles: React.FC = () => {
                                                 )}
                                             </div>
 
-                                            <span className={`text-xs font-medium ${status.color}`}>
+                                            <span className={`text-xs font-medium ${status.color} ${
+                                                status.label === 'In Library'
+                                                    ? 'inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5'
+                                                    : ''
+                                            }`}>
                                                 {status.label}
                                             </span>
 

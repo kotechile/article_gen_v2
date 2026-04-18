@@ -563,22 +563,21 @@ export function TopicDetail() {
                                             <div className="flex items-center gap-2">
                                                 {hasCachedIdeas && (
                                                     <span className="text-xs px-2 py-1 rounded-full border flex-shrink-0 text-indigo-300 border-indigo-500/30 bg-indigo-500/10">
-                                                        Generated
+                                                        Started
                                                     </span>
                                                 )}
-                                                <span className={`text-xs px-2 py-1 rounded-full border flex-shrink-0 ${sub.trend_direction === 'up'
-                                                        ? 'text-emerald-500 dark:text-emerald-400 border-emerald-500/20 bg-emerald-500/10'
-                                                        : sub.trend_direction === 'down'
-                                                            ? 'text-red-500 dark:text-red-400 border-red-500/20 bg-red-500/10'
+                                                <span className={`text-xs px-2 py-1 rounded-full border flex-shrink-0 ${
+                                                    readyForContent
+                                                        ? 'text-emerald-500 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                                                        : hasSavedIdeas
+                                                            ? 'text-indigo-300 border-indigo-500/30 bg-indigo-500/10'
                                                             : 'text-muted-foreground border-border bg-muted/50'
-                                                    }`}>
+                                                }`}>
                                                     {readyForContent
                                                         ? 'In Library'
                                                         : hasSavedIdeas
-                                                            ? 'STARTED'
-                                                        : hasSeoResearchSignals(sub)
-                                                        ? (sub.trend_direction?.toUpperCase() || 'N/A')
-                                                        : 'NOT STARTED'}
+                                                            ? 'Started'
+                                                            : 'Not Started'}
                                                 </span>
                                             </div>
                                         </div>
