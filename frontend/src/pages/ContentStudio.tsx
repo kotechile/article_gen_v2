@@ -130,10 +130,9 @@ export const ContentStudio: React.FC = () => {
                 if (artError) throw artError;
                 setArticle(artData);
 
-                // Restore progress modal if generating or still new/processing
-                if (artData.status === 'Generating' || artData.status === 'Researching' || artData.status === 'Writing') {
-                    setShowProgress(true);
-                }
+                // Do not auto-open progress modal from DB status alone.
+                // It creates stale 90% hangs when previous runs crashed and left status as Generating.
+                setShowProgress(false);
 
                 // 2. Fetch Settings
                 const { data: settingsData, error: settingsError } = await supabase
@@ -635,9 +634,13 @@ export const ContentStudio: React.FC = () => {
                 articleId={articleId || ''}
                 taskId={taskId}
                 isOpen={showProgress}
-                onClose={() => setShowProgress(false)}
+                onClose={() => {
+                    setShowProgress(false);
+                    setTaskId(null);
+                }}
                 onComplete={() => {
                     setShowProgress(false);
+                    setTaskId(null);
                     navigate('/');
                 }}
             />
