@@ -460,7 +460,7 @@ export function TopicDetail() {
                     <div className="bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-6">
                         <div className="flex items-center justify-between mb-6">
                             <h2 className="text-xl font-semibold text-foreground">
-                                Sub-Topics for {topic?.name || 'this topic'}
+                                Sub-Topics for {topic?.title || 'this topic'}
                             </h2>
                             {subtopics.length > 0 && (
                                 <div className="flex items-center gap-2">
