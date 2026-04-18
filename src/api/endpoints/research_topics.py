@@ -126,6 +126,104 @@ def _enrich_research_topics(supabase, topics):
     return topics
 
 
+def _attach_topic_progress_counts(supabase, user_id, topics):
+    """
+    Attach lightweight progress counts used by the Research Topics list UI.
+
+    Adds (best-effort) fields:
+    - subtopics_count: number of subtopics for the topic
+    - content_ideas_count: number of content ideas generated for the topic
+    - in_library_count: number of ideas that were published/sent to library
+
+    This is intentionally computed in-process to avoid N+1 requests from the frontend.
+    For current paging sizes (e.g. 12 items), fetching minimal columns is fast enough.
+    """
+    if not topics:
+        return topics
+
+    topic_ids = [topic.get("id") for topic in topics if topic.get("id")]
+    if not topic_ids:
+        return topics
+
+    # Default counts to 0 so the frontend can render "Empty" reliably.
+    subtopics_by_topic = {tid: 0 for tid in topic_ids}
+    ideas_by_topic = {tid: 0 for tid in topic_ids}
+    in_library_by_topic = {tid: 0 for tid in topic_ids}
+
+    # Subtopics: primary key path is research_topic_id; fallback to project_id for legacy schemas.
+    try:
+        sub_resp = (
+            supabase
+            .table("subtopics")
+            .select("research_topic_id")
+            .eq("user_id", user_id)
+            .in_("research_topic_id", topic_ids)
+            .execute()
+        )
+        for row in (sub_resp.data or []):
+            tid = row.get("research_topic_id")
+            if tid in subtopics_by_topic:
+                subtopics_by_topic[tid] += 1
+    except Exception:
+        logger.debug("Could not compute subtopics_count via research_topic_id", exc_info=True)
+
+    try:
+        # Only apply fallback for topics that had zero via primary path.
+        missing = [tid for tid, count in subtopics_by_topic.items() if count == 0]
+        if missing:
+            sub_fallback_resp = (
+                supabase
+                .table("subtopics")
+                .select("project_id")
+                .eq("user_id", user_id)
+                .in_("project_id", missing)
+                .execute()
+            )
+            for row in (sub_fallback_resp.data or []):
+                tid = row.get("project_id")
+                if tid in subtopics_by_topic:
+                    subtopics_by_topic[tid] += 1
+    except Exception:
+        logger.debug("Could not compute subtopics_count via legacy project_id fallback", exc_info=True)
+
+    # Content ideas: created by idea-burst and linked by topic_id.
+    try:
+        ideas_resp = (
+            supabase
+            .table("content_ideas")
+            .select("topic_id,published,published_to_titles,status")
+            .eq("user_id", user_id)
+            .in_("topic_id", topic_ids)
+            .execute()
+        )
+        for row in (ideas_resp.data or []):
+            tid = row.get("topic_id")
+            if tid not in ideas_by_topic:
+                continue
+            ideas_by_topic[tid] += 1
+
+            status = (row.get("status") or "").strip().lower()
+            is_in_library = bool(
+                row.get("published")
+                or row.get("published_to_titles")
+                or status == "published"
+            )
+            if is_in_library:
+                in_library_by_topic[tid] += 1
+    except Exception:
+        logger.debug("Could not compute content_ideas_count/in_library_count", exc_info=True)
+
+    for topic in topics:
+        tid = topic.get("id")
+        if not tid:
+            continue
+        topic["subtopics_count"] = subtopics_by_topic.get(tid, 0)
+        topic["content_ideas_count"] = ideas_by_topic.get(tid, 0)
+        topic["in_library_count"] = in_library_by_topic.get(tid, 0)
+
+    return topics
+
+
 ANGLE_METADATA_FIELDS = [
     "intent_bucket",
     "decision_focus",
@@ -441,6 +539,7 @@ def list_research_topics():
         # Execute
         response = query.execute()
         items = _enrich_research_topics(supabase, response.data or [])
+        items = _attach_topic_progress_counts(supabase, user_id, items)
 
         return jsonify({
             "items": items,

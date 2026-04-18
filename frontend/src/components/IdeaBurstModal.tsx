@@ -808,7 +808,7 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
                                 {idea.title}
                             </h4>
                             {isSentToContentLibrary(idea) && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                                <span className="inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium leading-none text-emerald-300">
                                     In Library
                                 </span>
                             )}
@@ -1086,8 +1086,8 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                                 {idea.title}
                             </h4>
                             {isSentToContentLibrary(idea) && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
-                                    in Library
+                                <span className="inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium leading-none text-emerald-300">
+                                    In Library
                                 </span>
                             )}
                         </div>

@@ -234,9 +234,40 @@ export function Research() {
                                                 {topic.title}
                                             </h3>
                                             <div className="flex items-center gap-2 flex-shrink-0">
-                                                <span className="px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wide">
-                                                    {topic.status}
-                                                </span>
+                                                {(() => {
+                                                    const subtopicsCount = Number(topic.subtopics_count || 0)
+                                                    const ideasCount = Number(topic.content_ideas_count || 0)
+                                                    const inLibraryCount = Number(topic.in_library_count || 0)
+                                                    const hasAny = subtopicsCount > 0 || ideasCount > 0 || inLibraryCount > 0
+
+                                                    const chipBase =
+                                                        "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-medium leading-none"
+
+                                                    return (
+                                                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                                            {!hasAny && (
+                                                                <span className={`${chipBase} border-border bg-muted/60 text-muted-foreground`}>
+                                                                    Empty
+                                                                </span>
+                                                            )}
+                                                            {subtopicsCount > 0 && (
+                                                                <span className={`${chipBase} border-indigo-500/20 bg-indigo-500/10 text-indigo-300`}>
+                                                                    Subtopics {subtopicsCount}
+                                                                </span>
+                                                            )}
+                                                            {ideasCount > 0 && (
+                                                                <span className={`${chipBase} border-sky-500/20 bg-sky-500/10 text-sky-300`}>
+                                                                    Content Ideas {ideasCount}
+                                                                </span>
+                                                            )}
+                                                            {inLibraryCount > 0 && (
+                                                                <span className={`${chipBase} border-emerald-500/30 bg-emerald-500/10 text-emerald-300`}>
+                                                                    In Library {inLibraryCount}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )
+                                                })()}
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"

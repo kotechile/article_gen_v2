@@ -24,6 +24,9 @@ export interface ResearchTopic {
     project_name?: string | null
     primary_category_name?: string | null
     secondary_category_name?: string | null
+    subtopics_count?: number | null
+    content_ideas_count?: number | null
+    in_library_count?: number | null
 }
 
 export enum ResearchTopicStatus {
