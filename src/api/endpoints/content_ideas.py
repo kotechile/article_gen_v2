@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 content_ideas_bp = Blueprint("content_ideas", __name__, url_prefix="/api/content-ideas")
 affiliate_research_service = AffiliateResearchService()
 
+# Keep request latency bounded so reverse proxies don't return 504 on enrichment.
+DATAFORSEO_BULK_TIMEOUT_SECONDS = 12
+DATAFORSEO_KD_TIMEOUT_SECONDS = 12
+AFFILIATE_ENRICH_TIMEOUT_SECONDS = 15
+PER_IDEA_ENRICH_TIMEOUT_SECONDS = 25
+
 
 def _resolve_user_id_from_request(supabase, data=None):
     auth_header = request.headers.get("Authorization")
@@ -105,7 +111,10 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
 
     metrics_map = {}
     try:
-        bulk_metrics = await dataforseo_api.get_bulk_metrics_standard(keywords)
+        bulk_metrics = await asyncio.wait_for(
+            dataforseo_api.get_bulk_metrics_standard(keywords),
+            timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS
+        )
         for item in (bulk_metrics or []):
             keyword = str(item.get("keyword") or "").strip().lower()
             if not keyword:
@@ -118,7 +127,10 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         logger.warning("DataForSEO bulk metrics failed for idea_id=%s", idea.get("id"), exc_info=True)
 
     try:
-        kd_rows = await dataforseo_api.get_keyword_difficulty(keywords)
+        kd_rows = await asyncio.wait_for(
+            dataforseo_api.get_keyword_difficulty(keywords),
+            timeout=DATAFORSEO_KD_TIMEOUT_SECONDS
+        )
         for item in (kd_rows or []):
             keyword = str(item.get("keyword") or "").strip().lower()
             if not keyword:
@@ -150,10 +162,13 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     affiliate_offer_count = 0
     affiliate_offers_preview = []
     try:
-        affiliate_result = await affiliate_research_service.search_affiliate_programs(
-            search_term=search_term,
-            niche=str(idea.get("content_type") or "").strip() or None,
-            user_id=idea.get("user_id"),
+        affiliate_result = await asyncio.wait_for(
+            affiliate_research_service.search_affiliate_programs(
+                search_term=search_term,
+                niche=str(idea.get("content_type") or "").strip() or None,
+                user_id=idea.get("user_id"),
+            ),
+            timeout=AFFILIATE_ENRICH_TIMEOUT_SECONDS
         )
         programs = affiliate_result.get("programs") or []
         affiliate_offer_count = len(programs)
@@ -447,7 +462,21 @@ def enrich_content_ideas():
                 continue
 
             idea = fetch_resp.data[0]
-            enrichment = asyncio.run(_compute_idea_enrichment(idea))
+            try:
+                enrichment = asyncio.run(
+                    asyncio.wait_for(
+                        _compute_idea_enrichment(idea),
+                        timeout=PER_IDEA_ENRICH_TIMEOUT_SECONDS
+                    )
+                )
+            except TimeoutError:
+                logger.warning("Per-idea enrichment timed out for idea_id=%s", idea_id)
+                results.append({
+                    "idea_id": idea_id,
+                    "status": "failed",
+                    "reason": "Enrichment timed out for this idea",
+                })
+                continue
 
             if enrichment.get("status") != "enriched":
                 results.append({
