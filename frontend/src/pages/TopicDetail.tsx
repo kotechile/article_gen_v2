@@ -22,7 +22,6 @@ export function TopicDetail() {
     const [subtopics, setSubtopics] = React.useState<Subtopic[]>([])
     const [loading, setLoading] = React.useState(true)
     const [decomposing, setDecomposing] = React.useState(false)
-    const [enriching, setEnriching] = React.useState(false)
     const [error, setError] = React.useState<string | null>(null)
     const [selectedSubtopic, setSelectedSubtopic] = React.useState<Subtopic | null>(null)
     const [showIdeaModal, setShowIdeaModal] = React.useState(false)
@@ -97,19 +96,11 @@ export function TopicDetail() {
             // Call the generation endpoint
             const newSubtopics = await subtopicsService.generateSubtopics(id)
             setSubtopics(newSubtopics)
-
-            // Auto-enrich immediately after decomposition so SEO/offer metrics are populated without extra clicks.
-            if (newSubtopics.length > 0) {
-                setEnriching(true)
-                const enrichedSubtopics = await subtopicsService.enrichSubtopics(id)
-                setSubtopics(enrichedSubtopics)
-            }
         } catch (err) {
             console.error('Failed to decompose topic:', err)
             setError('Failed to decompose topic. Please try again.')
         } finally {
             setDecomposing(false)
-            setEnriching(false)
         }
     }
 
@@ -212,7 +203,7 @@ export function TopicDetail() {
             hasResearchProgress: hasSeoResearchData || hasStoredIdeas,
         }
     }, [subtopics, hasStoredIdeas])
-    const enrichmentFailed = subtopics.length > 0 && !metrics.hasSeoResearchData && !enriching
+    const enrichmentFailed = subtopics.length > 0 && !metrics.hasSeoResearchData
 
     React.useEffect(() => {
         if (!id) return
@@ -452,7 +443,7 @@ export function TopicDetail() {
                                 <div className="flex items-center gap-2">
                                     <Button
                                         onClick={handleDecompose}
-                                        disabled={decomposing || enriching}
+                                        disabled={decomposing}
                                         variant="outline"
                                         size="sm"
                                         className="border-border hover:bg-muted"
