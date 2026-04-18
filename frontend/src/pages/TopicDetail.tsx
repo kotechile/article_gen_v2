@@ -338,7 +338,7 @@ export function TopicDetail() {
                             </div>
                         </motion.div>
 
-                        {/* Total Opportunities */}
+                        {/* Total Sub-Topics */}
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -346,7 +346,7 @@ export function TopicDetail() {
                             className="bg-muted/30 backdrop-blur-md border border-border rounded-xl p-6"
                         >
                             <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm text-muted-foreground">Total Opportunities</span>
+                                <span className="text-sm text-muted-foreground">Total Sub-Topics</span>
                                 <TrendingUp className="h-4 w-4 text-blue-500 dark:text-blue-400" />
                             </div>
                             <div className="text-2xl font-bold text-foreground">
@@ -455,11 +455,13 @@ export function TopicDetail() {
                     </div>
                 </div>
 
-                {/* Content Opportunities Section */}
+                {/* Sub-Topics Section */}
                 <div className="max-w-7xl mx-auto">
                     <div className="bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-6">
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-xl font-semibold text-foreground">Content Opportunities</h2>
+                            <h2 className="text-xl font-semibold text-foreground">
+                                Sub-Topics for {topic?.name || 'this topic'}
+                            </h2>
                             {subtopics.length > 0 && (
                                 <div className="flex items-center gap-2">
                                     <Button
@@ -516,7 +518,7 @@ export function TopicDetail() {
                                         No subtopics found
                                     </h3>
                                     <p className="text-muted-foreground mb-8 leading-relaxed">
-                                        Click "Decompose Topic" to generate ideas and discover content opportunities for this research topic.
+                                        Click "Generate Sub-Topics" to create sub-topics for this research topic.
                                     </p>
                                     <Button
                                         onClick={handleDecompose}
@@ -527,12 +529,12 @@ export function TopicDetail() {
                                         {decomposing ? (
                                             <>
                                                 <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
-                                                Decomposing Topic...
+                                                Generating Sub-Topics...
                                             </>
                                         ) : (
                                             <>
                                                 <Sparkles className="mr-2 h-5 w-5" />
-                                                Decompose Topic
+                                                Generate Sub-Topics
                                             </>
                                         )}
                                     </Button>

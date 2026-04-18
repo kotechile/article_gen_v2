@@ -286,11 +286,11 @@ export default function ResearchDetailPage() {
                         {generating ? (
                             <>
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Decomposing...
+                                Generating Sub-Topics...
                             </>
                         ) : (
                             <>
-                                Decompose Topic
+                                Generate Sub-Topics
                                 <Zap className="ml-2 h-4 w-4" />
                             </>
                         )}
@@ -333,7 +333,7 @@ export default function ResearchDetailPage() {
                 </Card>
                 <Card className="border-zinc-200 dark:border-zinc-800 bg-background/50 backdrop-blur-sm">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Opportunities</CardTitle>
+                        <CardTitle className="text-sm font-medium">Total Sub-Topics</CardTitle>
                         <TrendingUp className="h-4 w-4 text-blue-500" />
                     </CardHeader>
                     <CardContent>
@@ -389,7 +389,7 @@ export default function ResearchDetailPage() {
                 <CardHeader>
                     <div className="flex items-center justify-between">
                         <div>
-                            <CardTitle>Content Opportunities</CardTitle>
+                            <CardTitle>Sub-Topics</CardTitle>
                             {subtopics.length === 0 ? (
                                 <div className="mt-2">
                                     <Button
@@ -398,12 +398,12 @@ export default function ResearchDetailPage() {
                                         onClick={handleGenerateSubtopics}
                                         disabled={isBusy}
                                     >
-                                        Decompose Topic
+                                        Generate Sub-Topics
                                         <Zap className="h-4 w-4" />
                                     </Button>
                                 </div>
                             ) : (
-                                <CardDescription>{`${subtopics.length} opportunities found`}</CardDescription>
+                                <CardDescription>{`${subtopics.length} sub-topics found`}</CardDescription>
                             )}
                         </div>
                         {subtopics.length > 0 && (
