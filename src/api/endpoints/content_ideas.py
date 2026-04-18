@@ -4,13 +4,17 @@ Content Ideas API endpoints.
 Provides list, publish, and delete actions used by the frontend Idea Burst flow.
 """
 
+import asyncio
 import logging
+import re
 from datetime import datetime
 from uuid import uuid4
 from flask import Blueprint, jsonify, request
 
 from ...core.models.errors import ErrorResponse
 from ...api.middleware.auth import require_api_key
+from ...integrations.dataforseo import dataforseo_api
+from ...services.affiliate_research_service import AffiliateResearchService
 
 try:
     from supabase_client import get_supabase_client
@@ -24,6 +28,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 content_ideas_bp = Blueprint("content_ideas", __name__, url_prefix="/api/content-ideas")
+affiliate_research_service = AffiliateResearchService()
 
 
 def _resolve_user_id_from_request(supabase, data=None):
@@ -43,6 +48,136 @@ def _resolve_user_id_from_request(supabase, data=None):
         user_id = data["user_id"]
 
     return user_id
+
+
+def _extract_keywords_for_enrichment(idea: dict) -> list[str]:
+    """Collect a normalized keyword list from idea payload fields."""
+    candidates = []
+    for field in ("primary_keywords", "keywords", "secondary_keywords"):
+        value = idea.get(field)
+        if isinstance(value, list):
+            candidates.extend([str(item).strip() for item in value if str(item).strip()])
+        elif isinstance(value, str) and value.strip():
+            # Handle comma-separated fallback shapes.
+            candidates.extend([part.strip() for part in value.split(",") if part.strip()])
+
+    if not candidates:
+        # Fallback: derive a few keyword-like tokens from title.
+        title = str(idea.get("title") or "").strip().lower()
+        tokens = re.findall(r"[a-z0-9]{3,}", title)
+        candidates.extend(tokens[:8])
+
+    seen = set()
+    normalized = []
+    for kw in candidates:
+        key = kw.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(kw)
+    return normalized[:20]
+
+
+async def _compute_idea_enrichment(idea: dict) -> dict:
+    """
+    Compute SEO/offer enrichment for one idea.
+
+    Returns aggregate metrics and a compact offers preview.
+    """
+    keywords = _extract_keywords_for_enrichment(idea)
+    if not keywords:
+        return {
+            "keywords_used": [],
+            "total_search_volume": 0,
+            "average_cpc": 0.0,
+            "average_difficulty": 0.0,
+            "affiliate_offer_count": 0,
+            "affiliate_offers": [],
+            "status": "failed",
+            "reason": "No usable keywords found on idea",
+        }
+
+    total_search_volume = 0
+    average_cpc = 0.0
+    average_difficulty = 0.0
+    cpc_count = 0
+    kd_count = 0
+
+    metrics_map = {}
+    try:
+        bulk_metrics = await dataforseo_api.get_bulk_metrics_standard(keywords)
+        for item in (bulk_metrics or []):
+            keyword = str(item.get("keyword") or "").strip().lower()
+            if not keyword:
+                continue
+            metrics_map[keyword] = {
+                "search_volume": item.get("search_volume") or 0,
+                "cpc": item.get("cpc") or 0.0,
+            }
+    except Exception:
+        logger.warning("DataForSEO bulk metrics failed for idea_id=%s", idea.get("id"), exc_info=True)
+
+    try:
+        kd_rows = await dataforseo_api.get_keyword_difficulty(keywords)
+        for item in (kd_rows or []):
+            keyword = str(item.get("keyword") or "").strip().lower()
+            if not keyword:
+                continue
+            existing = metrics_map.get(keyword, {})
+            existing["keyword_difficulty"] = item.get("keyword_difficulty") or 0
+            metrics_map[keyword] = existing
+    except Exception:
+        logger.warning("DataForSEO keyword difficulty failed for idea_id=%s", idea.get("id"), exc_info=True)
+
+    for keyword in keywords:
+        row = metrics_map.get(keyword.lower(), {})
+        search_volume = int(row.get("search_volume") or 0)
+        cpc = float(row.get("cpc") or 0.0)
+        difficulty = float(row.get("keyword_difficulty") or 0.0)
+
+        total_search_volume += search_volume
+        if cpc > 0:
+            average_cpc += cpc
+            cpc_count += 1
+        if difficulty > 0:
+            average_difficulty += difficulty
+            kd_count += 1
+
+    average_cpc = round((average_cpc / cpc_count) if cpc_count else 0.0, 2)
+    average_difficulty = round((average_difficulty / kd_count) if kd_count else 0.0, 1)
+
+    search_term = str(idea.get("title") or keywords[0]).strip()
+    affiliate_offer_count = 0
+    affiliate_offers_preview = []
+    try:
+        affiliate_result = await affiliate_research_service.search_affiliate_programs(
+            search_term=search_term,
+            niche=str(idea.get("content_type") or "").strip() or None,
+            user_id=idea.get("user_id"),
+        )
+        programs = affiliate_result.get("programs") or []
+        affiliate_offer_count = len(programs)
+        affiliate_offers_preview = [
+            {
+                "name": program.get("name"),
+                "network": program.get("network"),
+                "commission_rate": program.get("commission_rate"),
+            }
+            for program in programs[:5]
+        ]
+    except Exception:
+        logger.warning("Affiliate search failed for idea_id=%s", idea.get("id"), exc_info=True)
+
+    return {
+        "keywords_used": keywords,
+        "total_search_volume": int(total_search_volume),
+        "average_cpc": average_cpc,
+        "average_difficulty": average_difficulty,
+        "affiliate_offer_count": affiliate_offer_count,
+        "affiliate_offers": affiliate_offers_preview,
+        "status": "enriched",
+        "reason": None,
+    }
 
 
 @content_ideas_bp.route("/list", methods=["POST"])
@@ -237,6 +372,154 @@ def publish_content_ideas():
 
     except Exception as e:
         logger.error(f"Error publishing content ideas: {e}", exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message=str(e),
+            error_code="INTERNAL_ERROR",
+            status=500,
+        ).dict()), 500
+
+
+@content_ideas_bp.route("/enrich", methods=["POST"])
+@require_api_key
+def enrich_content_ideas():
+    """
+    Enrich selected content ideas with SEO metrics and affiliate offer signals.
+    """
+    try:
+        if not request.is_json:
+            return jsonify(ErrorResponse(
+                error="invalid_content_type",
+                message="Content-Type must be application/json",
+                error_code="INVALID_CONTENT_TYPE",
+                status=400,
+            ).dict()), 400
+
+        data = request.get_json() or {}
+        idea_ids = data.get("idea_ids") or []
+        if not idea_ids:
+            return jsonify(ErrorResponse(
+                error="validation_error",
+                message="idea_ids is required",
+                error_code="VALIDATION_ERROR",
+                status=400,
+            ).dict()), 400
+
+        supabase = get_supabase_client()
+        request_user_id = _resolve_user_id_from_request(supabase, data)
+        if not request_user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401,
+            ).dict()), 401
+
+        user_id = data.get("user_id") or request_user_id
+        if user_id != request_user_id:
+            return jsonify(ErrorResponse(
+                error="forbidden",
+                message="You do not have access to this user_id",
+                error_code="FORBIDDEN",
+                status=403,
+            ).dict()), 403
+
+        now = datetime.utcnow().isoformat()
+        results = []
+        enriched_count = 0
+
+        for idea_id in idea_ids:
+            fetch_resp = (
+                supabase
+                .table("content_ideas")
+                .select("*")
+                .eq("id", idea_id)
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            if not fetch_resp.data:
+                results.append({
+                    "idea_id": idea_id,
+                    "status": "failed",
+                    "reason": "Idea not found for user",
+                })
+                continue
+
+            idea = fetch_resp.data[0]
+            enrichment = asyncio.run(_compute_idea_enrichment(idea))
+
+            if enrichment.get("status") != "enriched":
+                results.append({
+                    "idea_id": idea_id,
+                    "status": "failed",
+                    "reason": enrichment.get("reason") or "Enrichment failed",
+                })
+                continue
+
+            update_payload = {
+                "total_search_volume": enrichment["total_search_volume"],
+                "average_cpc": enrichment["average_cpc"],
+                "average_difficulty": enrichment["average_difficulty"],
+                "affiliate_offer_count": enrichment["affiliate_offer_count"],
+                "status": "in_progress",
+                "updated_at": now,
+            }
+
+            updated = False
+            # Try richest payload first; gracefully degrade for older schemas.
+            for payload in (
+                {
+                    **update_payload,
+                    "idea_metadata": {
+                        **(idea.get("idea_metadata") or {}),
+                        "seo_offer_enrichment": {
+                            "keywords_used": enrichment["keywords_used"],
+                            "affiliate_offers_preview": enrichment["affiliate_offers"],
+                            "enriched_at": now,
+                        },
+                    },
+                },
+                update_payload,
+                {"updated_at": now},
+            ):
+                try:
+                    supabase.table("content_ideas").update(payload).eq("id", idea_id).eq("user_id", user_id).execute()
+                    updated = True
+                    break
+                except Exception:
+                    continue
+
+            if updated:
+                enriched_count += 1
+                results.append({
+                    "idea_id": idea_id,
+                    "status": "enriched",
+                    "metrics": {
+                        "total_search_volume": enrichment["total_search_volume"],
+                        "average_cpc": enrichment["average_cpc"],
+                        "average_difficulty": enrichment["average_difficulty"],
+                        "affiliate_offer_count": enrichment["affiliate_offer_count"],
+                    },
+                    "keywords_used": enrichment["keywords_used"],
+                    "offers_preview": enrichment["affiliate_offers"],
+                })
+            else:
+                results.append({
+                    "idea_id": idea_id,
+                    "status": "failed",
+                    "reason": "Could not persist enrichment values",
+                })
+
+        return jsonify({
+            "success": enriched_count > 0,
+            "requested_count": len(idea_ids),
+            "enriched_count": enriched_count,
+            "results": results,
+        }), 200 if enriched_count > 0 else 400
+
+    except Exception as e:
+        logger.error("Error enriching content ideas: %s", e, exc_info=True)
         return jsonify(ErrorResponse(
             error="internal_error",
             message=str(e),

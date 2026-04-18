@@ -96,6 +96,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
     const [selectedSoftwareIdeas, setSelectedSoftwareIdeas] = React.useState<Set<string>>(new Set());
     const [publishing, setPublishing] = React.useState(false);
     const [savingSoftware, setSavingSoftware] = React.useState(false);
+    const [enrichingIdeas, setEnrichingIdeas] = React.useState(false);
+    const [enrichResultMessage, setEnrichResultMessage] = React.useState<string | null>(null);
     const [published, setPublished] = React.useState(false);
     const [saved, setSaved] = React.useState(false);
     const [expandedMetrics, setExpandedMetrics] = React.useState<string | null>(null);
@@ -232,6 +234,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         setSelectedSoftwareIdeas(new Set());
         setPublished(false);
         setSaved(false);
+        setEnrichResultMessage(null);
 
         try {
             const keywords = subtopic.keywords || [];
@@ -355,6 +358,69 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             setError("Failed to save ideas. Please try again.");
         } finally {
             setSavingSoftware(false);
+        }
+    };
+
+    const applyEnrichedMetrics = (ideaId: string, metrics?: {
+        total_search_volume: number;
+        average_cpc: number;
+        average_difficulty: number;
+        affiliate_offer_count: number;
+    }) => {
+        if (!metrics) return;
+        setBlogIdeas((prev) => prev.map((idea) => (
+            idea.id === ideaId
+                ? {
+                    ...idea,
+                    total_search_volume: metrics.total_search_volume,
+                    average_cpc: metrics.average_cpc,
+                    average_difficulty: metrics.average_difficulty,
+                }
+                : idea
+        )));
+        setSoftwareIdeas((prev) => prev.map((idea) => (
+            idea.id === ideaId
+                ? {
+                    ...idea,
+                    total_search_volume: metrics.total_search_volume,
+                    average_cpc: metrics.average_cpc,
+                    average_difficulty: metrics.average_difficulty,
+                }
+                : idea
+        )));
+    };
+
+    const handleEnrichSelectedIdeas = async (ideaIds: string[]) => {
+        if (!user || ideaIds.length === 0) return;
+
+        try {
+            setEnrichingIdeas(true);
+            setEnrichResultMessage(null);
+            setError(null);
+            const result = await contentIdeasService.enrichContentIdeas(ideaIds, user.id);
+
+            if (!result.success || result.enrichedCount <= 0) {
+                setError("No ideas were enriched. Please try again.");
+                return;
+            }
+
+            result.results.forEach((item) => {
+                if (item.status === "enriched") {
+                    applyEnrichedMetrics(item.idea_id, item.metrics);
+                }
+            });
+
+            const failedCount = Math.max(0, result.requestedCount - result.enrichedCount);
+            setEnrichResultMessage(
+                failedCount > 0
+                    ? `Enriched ${result.enrichedCount} ideas (${failedCount} failed).`
+                    : `Enriched ${result.enrichedCount} ideas.`
+            );
+        } catch (err) {
+            console.error("Failed to enrich selected ideas:", err);
+            setError("Failed to run SEO/Offers for selected ideas.");
+        } finally {
+            setEnrichingIdeas(false);
         }
     };
 
@@ -613,8 +679,26 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                     {/* Blog Actions */}
                                     <div className="pt-4 border-t border-white/10">
                                         <Button
+                                            onClick={() => handleEnrichSelectedIdeas(Array.from(selectedBlogIdeas))}
+                                            disabled={selectedBlogIdeas.size === 0 || enrichingIdeas}
+                                            variant="outline"
+                                            className="w-full mb-2 border-sky-500/30 text-sky-300 hover:bg-sky-500/10"
+                                        >
+                                            {enrichingIdeas ? (
+                                                <>
+                                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                    Running SEO/Offers...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Sparkles className="w-4 h-4 mr-2" />
+                                                    Run SEO/Offers ({selectedBlogIdeas.size})
+                                                </>
+                                            )}
+                                        </Button>
+                                        <Button
                                             onClick={handlePublishBlogs}
-                                            disabled={selectedBlogIdeas.size === 0 || publishing}
+                                            disabled={selectedBlogIdeas.size === 0 || publishing || enrichingIdeas}
                                             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
                                         >
                                             {publishing ? (
@@ -691,8 +775,26 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                     {/* Software Actions */}
                                     <div className="pt-4 border-t border-white/10">
                                         <Button
+                                            onClick={() => handleEnrichSelectedIdeas(Array.from(selectedSoftwareIdeas))}
+                                            disabled={selectedSoftwareIdeas.size === 0 || enrichingIdeas}
+                                            variant="outline"
+                                            className="w-full mb-2 border-sky-500/30 text-sky-300 hover:bg-sky-500/10"
+                                        >
+                                            {enrichingIdeas ? (
+                                                <>
+                                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                    Running SEO/Offers...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Sparkles className="w-4 h-4 mr-2" />
+                                                    Run SEO/Offers ({selectedSoftwareIdeas.size})
+                                                </>
+                                            )}
+                                        </Button>
+                                        <Button
                                             onClick={handleSaveSoftware}
-                                            disabled={selectedSoftwareIdeas.size === 0 || savingSoftware}
+                                            disabled={selectedSoftwareIdeas.size === 0 || savingSoftware || enrichingIdeas}
                                             variant="outline"
                                             className="w-full border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
                                         >
@@ -728,6 +830,16 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                             <Check className="w-6 h-6 text-green-400 mx-auto mb-2" />
                             <p className="text-green-400 font-medium">Articles published successfully!</p>
                             <p className="text-xs text-slate-500 mt-1">Redirecting to Content Studio...</p>
+                        </motion.div>
+                    )}
+
+                    {enrichResultMessage && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="mt-4 bg-sky-500/10 border border-sky-500/20 rounded-xl p-3 text-center"
+                        >
+                            <p className="text-sky-300 text-sm">{enrichResultMessage}</p>
                         </motion.div>
                     )}
                 </div>

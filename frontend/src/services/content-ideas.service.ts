@@ -191,6 +191,48 @@ class ContentIdeasService {
             };
         }
     }
+
+    /**
+     * Enrich selected ideas with SEO metrics and affiliate offer signals.
+     */
+    async enrichContentIdeas(ideaIds: string[], userId: string): Promise<{
+        success: boolean;
+        requestedCount: number;
+        enrichedCount: number;
+        results: Array<{
+            idea_id: string;
+            status: 'enriched' | 'failed';
+            reason?: string;
+            metrics?: {
+                total_search_volume: number;
+                average_cpc: number;
+                average_difficulty: number;
+                affiliate_offer_count: number;
+            };
+        }>;
+    }> {
+        try {
+            const result = await apiClient.post<any>('/content-ideas/enrich', {
+                idea_ids: ideaIds,
+                user_id: userId,
+            });
+
+            return {
+                success: Boolean(result?.success),
+                requestedCount: Number(result?.requested_count || ideaIds.length),
+                enrichedCount: Number(result?.enriched_count || 0),
+                results: Array.isArray(result?.results) ? result.results : [],
+            };
+        } catch (error) {
+            console.error('Failed to enrich content ideas:', error);
+            return {
+                success: false,
+                requestedCount: ideaIds.length,
+                enrichedCount: 0,
+                results: [],
+            };
+        }
+    }
 }
 
 export const contentIdeasService = new ContentIdeasService();

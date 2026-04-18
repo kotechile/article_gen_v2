@@ -113,20 +113,6 @@ export function TopicDetail() {
         }
     }
 
-    const handleEnrich = async () => {
-        if (!id) return
-        try {
-            setEnriching(true)
-            const enrichedSubtopics = await subtopicsService.enrichSubtopics(id)
-            setSubtopics(enrichedSubtopics)
-        } catch (err) {
-            console.error('Failed to enrich subtopics:', err)
-            setError('Failed to enrich SEO/offer data. Please try again.')
-        } finally {
-            setEnriching(false)
-        }
-    }
-
     const handleSubtopicClick = (sub: Subtopic) => {
         setSelectedSubtopic(sub)
         setShowIdeaModal(true)
@@ -331,7 +317,7 @@ export function TopicDetail() {
                                 {metrics.hasSeoResearchData
                                     ? 'Monthly Searches'
                                     : enrichmentFailed
-                                        ? 'Enrichment failed - retry SEO/Offers'
+                                        ? 'Sub-topic metrics unavailable'
                                         : metrics.hasResearchProgress
                                             ? 'Idea candidates generated'
                                             : 'SEO/Offer data pending'}
@@ -356,9 +342,9 @@ export function TopicDetail() {
                                 {metrics.hasSeoResearchData
                                     ? 'Affiliate Offers'
                                     : enrichmentFailed
-                                        ? 'Enrichment failed - retry SEO/Offers'
+                                        ? 'Sub-topic metrics unavailable'
                                         : metrics.hasResearchProgress
-                                            ? 'Awaiting SEO/offer enrichment'
+                                            ? 'Use idea-level SEO/Offers'
                                             : 'SEO/Offer data pending'}
                             </div>
                         </motion.div>
@@ -381,9 +367,9 @@ export function TopicDetail() {
                                 {metrics.hasSeoResearchData
                                     ? 'Keyword Difficulty'
                                     : enrichmentFailed
-                                        ? 'Enrichment failed - retry SEO/Offers'
+                                        ? 'Sub-topic metrics unavailable'
                                         : metrics.hasResearchProgress
-                                            ? 'Awaiting SEO difficulty data'
+                                            ? 'Use idea-level SEO/Offers'
                                             : 'SEO/Offer data pending'}
                             </div>
                         </motion.div>
@@ -409,7 +395,7 @@ export function TopicDetail() {
                                 {metrics.hasSeoResearchData
                                     ? 'Overall Viability'
                                     : enrichmentFailed
-                                        ? 'Enrichment failed - retry SEO/Offers'
+                                        ? 'Sub-topic metrics unavailable'
                                         : metrics.hasResearchProgress
                                             ? 'Pre-SEO candidate quality'
                                             : 'Estimated (pre-SEO)'}
@@ -464,25 +450,6 @@ export function TopicDetail() {
                             </h2>
                             {subtopics.length > 0 && (
                                 <div className="flex items-center gap-2">
-                                    <Button
-                                        onClick={handleEnrich}
-                                        disabled={enriching || decomposing}
-                                        variant="outline"
-                                        size="sm"
-                                        className="border-border hover:bg-muted"
-                                    >
-                                        {enriching ? (
-                                            <>
-                                                <RefreshCw className="mr-2 h-3 w-3 animate-spin" />
-                                                Enriching SEO/Offers...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Sparkles className="mr-2 h-3 w-3" />
-                                                Run SEO/Offers
-                                            </>
-                                        )}
-                                    </Button>
                                     <Button
                                         onClick={handleDecompose}
                                         disabled={decomposing || enriching}
@@ -613,7 +580,7 @@ export function TopicDetail() {
                                         </div>
                                         {!hasSeoResearchSignals(sub) && hasSavedIdeas && (
                                             <div className="mt-2 text-[11px] text-amber-400">
-                                                Enrichment failed. Click "Run SEO/Offers" to retry.
+                                                Metrics unavailable on sub-topic. Use idea-level SEO/Offers.
                                             </div>
                                         )}
 
