@@ -563,7 +563,7 @@ export function TopicDetail() {
                                             <div className="flex items-center gap-2">
                                                 {hasCachedIdeas && (
                                                     <span className="text-xs px-2 py-1 rounded-full border flex-shrink-0 text-indigo-300 border-indigo-500/30 bg-indigo-500/10">
-                                                        Started
+                                                        Ideas
                                                     </span>
                                                 )}
                                                 <span className={`text-xs px-2 py-1 rounded-full border flex-shrink-0 ${
@@ -576,8 +576,8 @@ export function TopicDetail() {
                                                     {readyForContent
                                                         ? 'In Library'
                                                         : hasSavedIdeas
-                                                            ? 'Started'
-                                                            : 'Not Started'}
+                                                            ? 'Ideas'
+                                                            : 'Empty'}
                                                 </span>
                                             </div>
                                         </div>
