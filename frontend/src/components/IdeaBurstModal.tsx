@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { contentIdeasService } from "@/services/content-ideas.service";
 import type { ContentIdea } from "@/types/idea-burst";
 import type { Subtopic } from "@/types/research";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/auth-context";
 
 interface IdeaBurstModalProps {
@@ -79,7 +78,6 @@ function buildInternalLinkGroups(ideas: ContentIdea[]): Array<{ hook: string; co
 }
 
 export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle, projectName, categoryPath }: IdeaBurstModalProps) {
-    const navigate = useNavigate();
     const { user } = useAuth();
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
@@ -262,12 +260,12 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                 return;
             }
             setPublished(true);
+            // Keep user in-place so they can continue saving software ideas
+            // without losing research topic context.
+            setSelectedBlogIdeas(new Set());
             setTimeout(() => {
-                onClose();
-                // Avoid opening Content Studio with a content_ideas id (can cause blank screen).
-                // Published items are now discoverable from Content Library.
-                navigate('/my-articles');
-            }, 1500);
+                setPublished(false);
+            }, 2000);
         } catch (err) {
             console.error("Failed to publish ideas:", err);
             setError("Failed to publish ideas. Please try again.");
