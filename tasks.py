@@ -95,6 +95,29 @@ def _make_claim_id(text: str, idx: int) -> str:
     return f"clm_{idx + 1:02d}_{slug}"
 
 
+def _create_citation_links(content: str, citations: List[Dict[str, Any]]) -> str:
+    """
+    Convert in-text markers like [1] into clickable anchors to the References section.
+    Keeps original marker text if index is out of range.
+    """
+    if not content:
+        return ""
+    if not citations:
+        return content
+
+    def _replace(match: re.Match) -> str:
+        raw = match.group(0)
+        try:
+            idx = int(match.group(1))
+        except Exception:
+            return raw
+        if idx < 1 or idx > len(citations):
+            return raw
+        return f'<a href="#ref-{idx}" class="citation-link">[{idx}]</a>'
+
+    return re.sub(r"\[(\d+)\]", _replace, content)
+
+
 def _claim_keywords(claim_text: str) -> List[str]:
     tokens = re.findall(r"\b[a-z0-9]{3,}\b", str(claim_text or "").lower())
     return [t for t in tokens if t not in _STOPWORDS]
@@ -2867,7 +2890,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 publication_date = citation.get('publication_date', '')
                 
                 # Format the reference with proper style
-                references_section += f"<p><strong>[{i}]</strong> "
+                references_section += f'<p id="ref-{i}"><strong>[{i}]</strong> '
                 
                 if author and author != "Unknown Author":
                     references_section += f"{author}"
@@ -2905,7 +2928,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 publication_date = ev.get('publication_date', '')
                 
                 # Format the reference
-                references_section += f"<p><strong>[{i}]</strong> "
+                references_section += f'<p id="ref-{i}"><strong>[{i}]</strong> '
                 
                 if author and author != "Unknown Author":
                     references_section += f"{author}"
