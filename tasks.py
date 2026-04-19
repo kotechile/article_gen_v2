@@ -593,36 +593,21 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                 supabase.table('Titles').update({'status': 'Generating'}).eq('id', article_id).execute()
                 logger.info(f"Successfully set initial status to 'Generating' for article {article_id}")
                 
-                # Fetch content_outline and research dossier if available
+                # Fetch article row and recover handoff fields if available
                 logger.info(f"Fetching content_outline for article {article_id}")
-                try:
-                    response = (
-                        supabase.table('Titles')
-                        .select('content_outline,research_dossier,dossier_status,dossier_quality_score')
-                        .eq('id', article_id)
-                        .execute()
-                    )
-                except Exception as select_error:
-                    # Backward compatibility: if dossier columns are not migrated yet,
-                    # fall back to content_outline only.
-                    if "research_dossier" in str(select_error):
-                        logger.warning(
-                            "research_dossier column missing; falling back to content_outline only: %s",
-                            str(select_error),
-                        )
-                        response = (
-                            supabase.table('Titles')
-                            .select('content_outline')
-                            .eq('id', article_id)
-                            .execute()
-                        )
-                    else:
-                        raise
+                response = (
+                    supabase.table('Titles')
+                    .select('*')
+                    .eq('id', article_id)
+                    .limit(1)
+                    .execute()
+                )
                 if response.data and len(response.data) > 0:
-                    content_outline = response.data[0].get('content_outline')
-                    research_dossier = response.data[0].get('research_dossier')
-                    dossier_status = response.data[0].get('dossier_status')
-                    dossier_quality_score = response.data[0].get('dossier_quality_score')
+                    title_row = response.data[0]
+                    content_outline = title_row.get('content_outline')
+                    research_dossier = title_row.get('research_dossier')
+                    dossier_status = title_row.get('dossier_status')
+                    dossier_quality_score = title_row.get('dossier_quality_score')
                     if content_outline:
                         logger.info(f"Found content_outline for article {article_id}: {str(content_outline)[:100]}...")
                         research_data['content_outline'] = content_outline
@@ -651,6 +636,93 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                             gate.get("valid"),
                             gate.get("reason"),
                         )
+
+                    # Keyword handoff recovery:
+                    # 1) Prefer dossier fields already on Titles.
+                    # 2) If missing and source_idea_id exists, recover from content_ideas.
+                    keyword_candidates = title_row.get('keyword_candidates_json') or []
+                    if not isinstance(keyword_candidates, list):
+                        keyword_candidates = []
+                    source_idea_id = title_row.get('source_idea_id')
+
+                    recovered_volume = int(title_row.get('selected_keyword_search_volume') or 0)
+                    recovered_difficulty = float(title_row.get('selected_keyword_difficulty') or 0.0)
+                    recovered_intent = str(title_row.get('selected_keyword_intent') or '').strip().lower()
+
+                    if not keyword_candidates and source_idea_id:
+                        try:
+                            idea_response = (
+                                supabase.table('content_ideas')
+                                .select('primary_keywords,secondary_keywords,total_search_volume,average_difficulty,target_intent')
+                                .eq('id', source_idea_id)
+                                .limit(1)
+                                .execute()
+                            )
+                            if idea_response.data:
+                                idea_row = idea_response.data[0]
+                                primary_keywords = idea_row.get('primary_keywords') or []
+                                secondary_keywords = idea_row.get('secondary_keywords') or []
+                                if isinstance(primary_keywords, str):
+                                    primary_keywords = [k.strip() for k in primary_keywords.split(',') if k.strip()]
+                                if isinstance(secondary_keywords, str):
+                                    secondary_keywords = [k.strip() for k in secondary_keywords.split(',') if k.strip()]
+                                keyword_candidates = []
+                                for kw in (primary_keywords + secondary_keywords):
+                                    kw_text = str(kw).strip()
+                                    if kw_text and kw_text not in keyword_candidates:
+                                        keyword_candidates.append(kw_text)
+                                recovered_volume = int(idea_row.get('total_search_volume') or recovered_volume or 0)
+                                recovered_difficulty = float(idea_row.get('average_difficulty') or recovered_difficulty or 0.0)
+                                recovered_intent = str(idea_row.get('target_intent') or recovered_intent or '').strip().lower()
+                                logger.info(
+                                    "Recovered keyword dossier from content_ideas for article %s (source_idea_id=%s, candidates=%s)",
+                                    article_id,
+                                    source_idea_id,
+                                    len(keyword_candidates),
+                                )
+                        except Exception as keyword_recovery_error:
+                            logger.warning(
+                                "Keyword dossier recovery from content_ideas failed for article %s: %s",
+                                article_id,
+                                keyword_recovery_error,
+                            )
+
+                    if keyword_candidates:
+                        research_data['keyword_candidates'] = keyword_candidates
+                        research_data['keywords'] = research_data.get('keywords') or ", ".join(keyword_candidates)
+                        research_data['total_search_volume'] = recovered_volume
+                        research_data['avg_keyword_difficulty'] = recovered_difficulty
+                        research_data['target_intent'] = recovered_intent or "informational"
+                        research_data['keyword_research_status'] = title_row.get('keyword_research_status') or 'ready'
+                        research_data['keyword_research_source'] = title_row.get('keyword_research_source') or 'research_dossier_reused'
+                        research_data['keyword_research_confidence'] = float(title_row.get('keyword_research_confidence') or 0.75)
+
+                        # Best-effort persistence back to Titles so downstream UI sees it.
+                        keyword_updates = {
+                            'keyword_candidates_json': keyword_candidates,
+                            'keyword_research_status': research_data['keyword_research_status'],
+                            'keyword_research_source': research_data['keyword_research_source'],
+                            'keyword_research_confidence': research_data['keyword_research_confidence'],
+                            'keyword_research_generated_at': datetime.utcnow().isoformat(),
+                            'primary_keyword': (title_row.get('primary_keyword') or keyword_candidates[0]),
+                            'selected_keyword_search_volume': recovered_volume,
+                            'selected_keyword_difficulty': recovered_difficulty,
+                            'selected_keyword_intent': research_data['target_intent'],
+                        }
+                        try:
+                            supabase.table('Titles').update(keyword_updates).eq('id', article_id).execute()
+                        except Exception as keyword_update_error:
+                            err = str(keyword_update_error)
+                            missing_cols = re.findall(r"Could not find the '([^']+)' column", err)
+                            if missing_cols:
+                                fallback_updates = {k: v for k, v in keyword_updates.items() if k not in missing_cols}
+                                if fallback_updates:
+                                    try:
+                                        supabase.table('Titles').update(fallback_updates).eq('id', article_id).execute()
+                                    except Exception:
+                                        logger.warning("Keyword dossier fallback update failed for article %s", article_id, exc_info=True)
+                            else:
+                                logger.warning("Keyword dossier update failed for article %s", article_id, exc_info=True)
                 else:
                     logger.warning(f"Failed to fetch article row for {article_id}")
             else:

@@ -13,6 +13,7 @@ Target outcome:
 - [x] Added Research -> `Titles` handoff writes in content idea publish flow.
 - [x] Added baseline keyword strategy persistence in generation finalization (`tasks.py`).
 - [x] Added backward-compatible fallback logic when new `Titles` columns are not yet present.
+- [x] Added generation-start recovery of keyword dossier from `source_idea_id` (`content_ideas`) when `Titles` is missing structured keyword fields.
 
 ## Principles
 
