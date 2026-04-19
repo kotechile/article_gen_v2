@@ -2098,6 +2098,17 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
         key_points = section_outline.get('key_points', [])
         brief = research_data.get('brief', '')
         keywords = research_data.get('keywords', '')
+        selected_primary_keyword = str(research_data.get('primary_keyword') or '').strip()
+        selected_secondary_keywords = research_data.get('secondary_keywords') or []
+        if isinstance(selected_secondary_keywords, str):
+            selected_secondary_keywords = [k.strip() for k in selected_secondary_keywords.split(',') if k.strip()]
+        if not isinstance(selected_secondary_keywords, list):
+            selected_secondary_keywords = []
+        selected_secondary_keywords = [str(k).strip() for k in selected_secondary_keywords if str(k).strip()]
+        keyword_strategy_terms = [selected_primary_keyword] + selected_secondary_keywords[:5]
+        keyword_strategy_terms = [k for k in keyword_strategy_terms if k]
+        keyword_strategy_text = ", ".join(keyword_strategy_terms)
+        target_intent = str(research_data.get('selected_keyword_intent') or research_data.get('target_intent') or '').strip().lower()
         research_dossier = research_data.get('research_dossier') or {}
         
         # Create a focused section query that prioritizes keywords and specific content
@@ -2124,6 +2135,8 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
                 dossier_questions = [str(q).strip() for q in questions_list[:2] if str(q).strip()]
 
         # Create a focused query that prioritizes keywords first, then section content
+        strategy_prefix = keyword_strategy_text or keywords
+        intent_hint = f" intent:{target_intent}" if target_intent else ""
         if key_points and len(key_points) > 0:
             # Use the most specific key points, avoiding generic terms
             specific_points = [point for point in key_points 
@@ -2132,19 +2145,19 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
             
             if specific_points:
                 if draft_title:
-                    section_query = f"{keywords} {draft_title} {section_title} {' '.join(specific_points[:2])} {main_topic}"
+                    section_query = f"{strategy_prefix} {draft_title} {section_title} {' '.join(specific_points[:2])} {main_topic}{intent_hint}"
                 else:
-                    section_query = f"{keywords} {section_title} {' '.join(specific_points[:2])} {main_topic}"
+                    section_query = f"{strategy_prefix} {section_title} {' '.join(specific_points[:2])} {main_topic}{intent_hint}"
             else:
                 if draft_title:
-                    section_query = f"{keywords} {draft_title} {section_title} {main_topic}"
+                    section_query = f"{strategy_prefix} {draft_title} {section_title} {main_topic}{intent_hint}"
                 else:
-                    section_query = f"{keywords} {section_title} {main_topic}"
+                    section_query = f"{strategy_prefix} {section_title} {main_topic}{intent_hint}"
         else:
             if draft_title:
-                section_query = f"{keywords} {draft_title} {section_title} {main_topic}"
+                section_query = f"{strategy_prefix} {draft_title} {section_title} {main_topic}{intent_hint}"
             else:
-                section_query = f"{keywords} {section_title} {main_topic}"
+                section_query = f"{strategy_prefix} {section_title} {main_topic}{intent_hint}"
 
         dossier_context = " ".join(
             [part for part in [dossier_summary, " ".join(dossier_claims), " ".join(dossier_questions)] if part]
@@ -2158,6 +2171,7 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
             section_query = section_query[:200] + "..."
         
         logger.info(f"  - Section Query: '{section_query}'")
+        logger.info(f"  - Section Strategy Terms: '{keyword_strategy_text}'")
         logger.info(f"  - Balance Emphasis: '{research_data.get('rag_balance_emphasis', 'auto')}'")
         
         section_evidence = []
@@ -2228,9 +2242,10 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
                 section_min_sources = max(1, optimization_config.rag_coverage_min_sources - 1)  # At least 1 source for section
                 section_min_relevance = max(0.5, optimization_config.rag_coverage_min_relevance - 0.1)  # Slightly lower threshold
                 
+                section_keywords_for_coverage = keyword_strategy_text or keywords
                 rag_coverage = _assess_rag_coverage(
                     rag_evidence=section_evidence,
-                    keywords=keywords,
+                    keywords=section_keywords_for_coverage,
                     min_sources=section_min_sources,
                     min_relevance=section_min_relevance
                 )
