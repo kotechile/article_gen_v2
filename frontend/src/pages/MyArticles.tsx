@@ -9,6 +9,12 @@ import { apiClient } from '../api-client'
 
 type LibraryArticle = Article & {
     _source: 'titles' | 'content_ideas'
+    _keywordTelemetry?: {
+        tier?: string
+        calls?: number
+        nonZero?: number
+        bestVolume?: number
+    }
 }
 
 type ContentIdeaRow = {
@@ -23,6 +29,7 @@ type ContentIdeaRow = {
     titles_record_id: string | null
     seo_optimization_score: number | null
     created_at: string
+    idea_metadata?: any
 }
 
 function hasWrittenContent(article: any) {
@@ -108,6 +115,21 @@ function getKeywordOpportunityScore(article: any): number | null {
     const diffScore = Math.max(0, 100 - difficulty)
     const score = Math.round(volScore * 0.55 + diffScore * 0.45)
     return Math.max(0, Math.min(100, score))
+}
+
+function getKeywordTelemetryLabel(article: any): string | null {
+    const telemetry = article?._keywordTelemetry
+    if (!telemetry) return null
+    const tier = String(telemetry.tier || '').trim()
+    const calls = safeNumber(telemetry.calls)
+    const nonZero = safeNumber(telemetry.nonZero)
+    const bestVolume = safeNumber(telemetry.bestVolume)
+    const parts: string[] = []
+    if (tier) parts.push(`Tier ${tier}`)
+    if (calls != null) parts.push(`DFS calls ${calls}`)
+    if (nonZero != null) parts.push(`Non-zero ${nonZero}`)
+    if (bestVolume != null) parts.push(`Best Vol ${bestVolume}`)
+    return parts.length ? parts.join(' · ') : null
 }
 
 function getKeywordRows(article: any): Array<{ keyword: string; volume: number; difficulty: number; cpc: number; isEstimated: boolean }> {
@@ -209,7 +231,36 @@ export const MyArticles: React.FC = () => {
                 titles_record_id: row.titles_record_id ?? null,
                 seo_optimization_score: row.seo_optimization_score ?? null,
                 created_at: row.created_at,
+                idea_metadata: row.idea_metadata ?? null,
             })) as ContentIdeaRow[]
+            const telemetryByIdeaId = new Map<string, { tier?: string; calls?: number; nonZero?: number; bestVolume?: number }>()
+            const telemetryByTitleId = new Map<string, { tier?: string; calls?: number; nonZero?: number; bestVolume?: number }>()
+            for (const idea of ideaRows as any[]) {
+                const seoEnrichment = idea?.idea_metadata?.seo_offer_enrichment || {}
+                const ladder = Array.isArray(seoEnrichment?.keyword_budget_ladder_used)
+                    ? seoEnrichment.keyword_budget_ladder_used
+                    : []
+                const lastTier = ladder.length ? ladder[ladder.length - 1] : null
+                const quality = seoEnrichment?.keyword_quality_summary || {}
+                const telemetry = {
+                    tier: String(lastTier?.name || '').trim() || undefined,
+                    calls: safeNumber(seoEnrichment?.dataforseo_call_count_estimate) ?? undefined,
+                    nonZero: safeNumber(quality?.non_zero_count) ?? undefined,
+                    bestVolume: safeNumber(quality?.best_volume) ?? undefined,
+                }
+                telemetryByIdeaId.set(idea.id, telemetry)
+                if (idea.titles_record_id) telemetryByTitleId.set(String(idea.titles_record_id), telemetry)
+            }
+
+            const enrichedTitleRows = titleRows.map((row: any) => {
+                const ideaTelemetry =
+                    telemetryByIdeaId.get(String(row.source_idea_id || '')) ||
+                    telemetryByTitleId.get(String(row.id || ''))
+                return {
+                    ...row,
+                    _keywordTelemetry: ideaTelemetry,
+                }
+            })
             const publishedIdeas = ideaRows.filter((idea) => {
                 const isPublished = Boolean(idea.published || idea.published_to_titles || idea.status?.toLowerCase() === 'published')
                 const hasTitleMirror = Boolean(idea.titles_record_id && titleIdSet.has(idea.titles_record_id))
@@ -234,12 +285,12 @@ export const MyArticles: React.FC = () => {
                 _source: 'content_ideas',
             }))
 
-            const combined = [...titleRows, ...mappedIdeas].sort((a, b) =>
+            const combined = [...enrichedTitleRows, ...mappedIdeas].sort((a, b) =>
                 new Date(b.dateCreatedOn).getTime() - new Date(a.dateCreatedOn).getTime()
             )
 
             console.info('[ContentLibrary] data loaded', {
-                titles: titleRows.length,
+                titles: enrichedTitleRows.length,
                 publishedIdeasOnly: mappedIdeas.length,
                 combined: combined.length,
             })
@@ -752,6 +803,11 @@ export const MyArticles: React.FC = () => {
                                                 <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                                                     {keywordEstimated ? 'Needs Keyword Refresh' : 'Exact Keyword Metrics'} · {metricSource}
                                                 </p>
+                                                {getKeywordTelemetryLabel(article) && (
+                                                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                                                        {getKeywordTelemetryLabel(article)}
+                                                    </p>
+                                                )}
                                                 <div className="mt-1 flex flex-wrap gap-1">
                                                     {keywordRows.slice(0, 3).map((row, idx) => (
                                                         <span
