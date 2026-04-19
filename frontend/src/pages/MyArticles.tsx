@@ -110,6 +110,49 @@ function getKeywordOpportunityScore(article: any): number | null {
     return Math.max(0, Math.min(100, score))
 }
 
+function getKeywordRows(article: any): Array<{ keyword: string; volume: number; difficulty: number; cpc: number; isEstimated: boolean }> {
+    const payload = article?.selected_keyword_metrics_json || {}
+    const rows: Array<{ keyword: string; volume: number; difficulty: number; cpc: number; isEstimated: boolean }> = []
+    const primary = payload?.primary
+    if (primary?.keyword) {
+        rows.push({
+            keyword: String(primary.keyword),
+            volume: safeNumber(primary.search_volume) ?? 0,
+            difficulty: safeNumber(primary.keyword_difficulty) ?? 0,
+            cpc: safeNumber(primary.cpc) ?? 0,
+            isEstimated: Boolean(primary.is_estimated),
+        })
+    }
+    const secondary = Array.isArray(payload?.secondary) ? payload.secondary : []
+    for (const item of secondary) {
+        if (!item?.keyword) continue
+        rows.push({
+            keyword: String(item.keyword),
+            volume: safeNumber(item.search_volume) ?? 0,
+            difficulty: safeNumber(item.keyword_difficulty) ?? 0,
+            cpc: safeNumber(item.cpc) ?? 0,
+            isEstimated: Boolean(item.is_estimated),
+        })
+    }
+    if (rows.length > 0) return rows
+
+    const fallbackPrimary = String(article?.primary_keyword || '').trim()
+    const fallbackSecondaryRaw = article?.secondary_keywords_json
+    const fallbackSecondary = Array.isArray(fallbackSecondaryRaw)
+        ? fallbackSecondaryRaw
+        : typeof fallbackSecondaryRaw === 'string'
+            ? fallbackSecondaryRaw.split(',').map((s) => s.trim()).filter(Boolean)
+            : []
+    const fallback = [fallbackPrimary, ...fallbackSecondary].filter(Boolean)
+    return fallback.slice(0, 3).map((keyword) => ({
+        keyword,
+        volume: safeNumber(article?.selected_keyword_search_volume) ?? 0,
+        difficulty: safeNumber(article?.selected_keyword_difficulty) ?? 0,
+        cpc: 0,
+        isEstimated: true,
+    }))
+}
+
 export const MyArticles: React.FC = () => {
     const { user } = useAuth()
     const navigate = useNavigate()
@@ -644,6 +687,7 @@ export const MyArticles: React.FC = () => {
                                     const status = getStatusStyle(article, article._source)
                                     const metricSource = getKeywordMetricSource(article)
                                     const keywordEstimated = isKeywordMetricEstimated(article)
+                                    const keywordRows = getKeywordRows(article)
                                     const volume = safeNumber((article as any).selected_keyword_search_volume ?? (article as any).total_search_volume)
                                     const difficulty = safeNumber((article as any).selected_keyword_difficulty ?? (article as any).avg_keyword_difficulty)
                                     const opportunity = getKeywordOpportunityScore(article)
@@ -675,6 +719,24 @@ export const MyArticles: React.FC = () => {
                                                 <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                                                     {keywordEstimated ? 'Needs Keyword Refresh' : 'Exact Keyword Metrics'} · {metricSource}
                                                 </p>
+                                                <div className="mt-1 flex flex-wrap gap-1">
+                                                    {keywordRows.slice(0, 3).map((row, idx) => (
+                                                        <span
+                                                            key={`${row.keyword}-${idx}`}
+                                                            className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] ${
+                                                                row.isEstimated
+                                                                    ? 'border-amber-500/30 text-amber-400'
+                                                                    : 'border-emerald-500/30 text-emerald-400'
+                                                            }`}
+                                                            title={`Keyword: ${row.keyword} | Vol: ${row.volume} | KD: ${row.difficulty} | CPC: ${row.cpc}`}
+                                                        >
+                                                            {row.keyword} · V{row.volume} · KD{row.difficulty}
+                                                        </span>
+                                                    ))}
+                                                    {keywordRows.length === 0 && (
+                                                        <span className="text-[10px] text-muted-foreground">No keyword metrics yet</span>
+                                                    )}
+                                                </div>
                                             </div>
 
                                             <span className={`text-xs font-medium ${status.color} ${
