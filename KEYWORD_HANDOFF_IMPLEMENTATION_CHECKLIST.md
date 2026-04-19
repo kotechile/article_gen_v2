@@ -16,6 +16,8 @@ Target outcome:
 - [x] Added generation-start recovery of keyword dossier from `source_idea_id` (`content_ideas`) when `Titles` is missing structured keyword fields.
 - [x] Added explicit `KEYWORD_INTELLIGENCE` pipeline stage before evidence collection.
 - [x] Updated evidence collection query formation to prioritize selected keyword strategy (primary + secondary + intent).
+- [x] Added derivation + persistence of `supporting_entities_json` and `priority_questions_json` from research dossier in `KEYWORD_INTELLIGENCE`.
+- [x] Updated finalization payload to reuse selected keyword strategy artifacts from `research_data` instead of writing empty GEO context arrays.
 
 ## Principles
 

@@ -1287,10 +1287,51 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
         selected_primary = ranked_keywords[0] if ranked_keywords else ""
         selected_secondary = [kw for kw in ranked_keywords[1:] if kw != selected_primary][:12]
 
+        # Derive supporting GEO context for downstream writing + dashboard visibility.
+        research_dossier = research_data.get('research_dossier') or {}
+        supporting_entities: List[str] = []
+        priority_questions: List[str] = []
+        if isinstance(research_dossier, dict):
+            claims_list = research_dossier.get('primary_claims') or []
+            if isinstance(claims_list, list):
+                for claim in claims_list:
+                    if not isinstance(claim, dict):
+                        continue
+                    claim_text = str(claim.get('claim') or '').strip()
+                    if not claim_text:
+                        continue
+                    # Use the leading phrase of each claim as a stable, human-readable entity hint.
+                    entity_hint = claim_text.split(':', 1)[0].split('—', 1)[0].strip()
+                    if not entity_hint:
+                        entity_hint = " ".join(claim_text.split()[:6]).strip()
+                    if entity_hint and entity_hint not in supporting_entities:
+                        supporting_entities.append(entity_hint)
+
+            questions_list = research_dossier.get('unresolved_questions') or []
+            if isinstance(questions_list, list):
+                for q in questions_list:
+                    if isinstance(q, dict):
+                        q_text = str(q.get('question') or q.get('text') or '').strip()
+                    else:
+                        q_text = str(q).strip()
+                    if q_text and q_text not in priority_questions:
+                        priority_questions.append(q_text)
+
+        # Backfill from selected keywords when dossier did not yield enough entities.
+        for kw in [selected_primary] + selected_secondary:
+            if kw and kw not in supporting_entities:
+                supporting_entities.append(kw)
+            if len(supporting_entities) >= 12:
+                break
+        supporting_entities = supporting_entities[:12]
+        priority_questions = priority_questions[:12]
+
         research_data['keyword_candidates'] = merged_candidates
         research_data['keywords'] = ", ".join(ranked_keywords) if ranked_keywords else research_data.get('keywords', '')
         research_data['primary_keyword'] = selected_primary
         research_data['secondary_keywords'] = selected_secondary
+        research_data['supporting_entities'] = supporting_entities
+        research_data['priority_questions'] = priority_questions
         research_data['keyword_selection_source'] = (
             're-ranked_with_dataforseo'
             if str(research_data.get('keyword_research_source') or '').lower() in {'dataforseo', 'hybrid'}
@@ -1314,6 +1355,8 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
                         'keyword_research_generated_at': datetime.utcnow().isoformat(),
                         'primary_keyword': selected_primary,
                         'secondary_keywords_json': selected_secondary,
+                        'supporting_entities_json': supporting_entities,
+                        'priority_questions_json': priority_questions,
                         'selected_keyword_search_volume': int(research_data.get('total_search_volume') or 0),
                         'selected_keyword_difficulty': float(research_data.get('avg_keyword_difficulty') or 0.0),
                         'selected_keyword_intent': target_intent,
@@ -1347,6 +1390,8 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
             'stage_data': {
                 'selected_primary_keyword': selected_primary,
                 'selected_secondary_keyword_count': len(selected_secondary),
+                'supporting_entities_count': len(supporting_entities),
+                'priority_questions_count': len(priority_questions),
                 'keyword_selection_source': research_data.get('keyword_selection_source'),
             }
         }
@@ -3534,9 +3579,26 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         for kw in structure_keywords + brief_keywords:
             if kw not in keyword_candidates:
                 keyword_candidates.append(kw)
-        selected_primary_keyword = focus_keyword or (keyword_candidates[0] if keyword_candidates else "")
-        selected_secondary_keywords = [kw for kw in keyword_candidates if kw and kw != selected_primary_keyword][:12]
+        selected_primary_keyword = str(research_data.get('primary_keyword') or '').strip() or focus_keyword or (keyword_candidates[0] if keyword_candidates else "")
+        selected_secondary_keywords = research_data.get('secondary_keywords') or []
+        if isinstance(selected_secondary_keywords, str):
+            selected_secondary_keywords = [x.strip() for x in selected_secondary_keywords.split(',') if x.strip()]
+        if not isinstance(selected_secondary_keywords, list):
+            selected_secondary_keywords = []
+        selected_secondary_keywords = [str(x).strip() for x in selected_secondary_keywords if str(x).strip() and str(x).strip() != selected_primary_keyword][:12]
+        if not selected_secondary_keywords:
+            selected_secondary_keywords = [kw for kw in keyword_candidates if kw and kw != selected_primary_keyword][:12]
         selected_intent = str(research_data.get('target_intent') or '').strip().lower() or "informational"
+        derived_supporting_entities = research_data.get('supporting_entities') or []
+        if isinstance(derived_supporting_entities, str):
+            derived_supporting_entities = [x.strip() for x in derived_supporting_entities.split(',') if x.strip()]
+        if not isinstance(derived_supporting_entities, list):
+            derived_supporting_entities = []
+        derived_supporting_entities = [str(x).strip() for x in derived_supporting_entities if str(x).strip()][:12]
+        derived_priority_questions = research_data.get('priority_questions') or []
+        if not isinstance(derived_priority_questions, list):
+            derived_priority_questions = []
+        derived_priority_questions = [str(x).strip() for x in derived_priority_questions if str(x).strip()][:12]
         final_article = {
             'title': title,
             'hook': hook,
@@ -3585,8 +3647,8 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             'keyword_research_generated_at': datetime.utcnow().isoformat(),
             'primary_keyword': selected_primary_keyword,
             'secondary_keywords_json': selected_secondary_keywords,
-            'supporting_entities_json': [],
-            'priority_questions_json': [],
+            'supporting_entities_json': derived_supporting_entities,
+            'priority_questions_json': derived_priority_questions,
             'selected_keyword_search_volume': int(research_data.get('total_search_volume') or 0),
             'selected_keyword_difficulty': float(research_data.get('avg_keyword_difficulty') or 0.0),
             'selected_keyword_intent': selected_intent,
