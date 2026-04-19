@@ -832,6 +832,22 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         'confidence_map': final_content.get('confidence_map', {}),
                         'quality_gate': final_content.get('quality_gate', {}),
                         'citations': citations_json,  # Store citations as JSON for Reference Selector
+                        'keyword_candidates_json': final_content.get('keyword_candidates_json', []),
+                        'keyword_clusters_json': final_content.get('keyword_clusters_json', []),
+                        'keyword_research_status': final_content.get('keyword_research_status', ''),
+                        'keyword_research_source': final_content.get('keyword_research_source', ''),
+                        'keyword_research_confidence': final_content.get('keyword_research_confidence', 0.0),
+                        'keyword_research_generated_at': final_content.get('keyword_research_generated_at'),
+                        'primary_keyword': final_content.get('primary_keyword', ''),
+                        'secondary_keywords_json': final_content.get('secondary_keywords_json', []),
+                        'supporting_entities_json': final_content.get('supporting_entities_json', []),
+                        'priority_questions_json': final_content.get('priority_questions_json', []),
+                        'selected_keyword_search_volume': final_content.get('selected_keyword_search_volume', 0),
+                        'selected_keyword_difficulty': final_content.get('selected_keyword_difficulty', 0.0),
+                        'selected_keyword_intent': final_content.get('selected_keyword_intent', ''),
+                        'keyword_selection_reason': final_content.get('keyword_selection_reason', ''),
+                        'keyword_strategy_version': final_content.get('keyword_strategy_version', ''),
+                        'keyword_selection_source': final_content.get('keyword_selection_source', ''),
                     }
 
                     # 1) Save essential content first so we never lose generated article text.
@@ -862,7 +878,27 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         removed_any = False
 
                         # First-pass known optional fields.
-                        for field in ['quality_report', 'confidence_map', 'quality_gate']:
+                        for field in [
+                            'quality_report',
+                            'confidence_map',
+                            'quality_gate',
+                            'keyword_candidates_json',
+                            'keyword_clusters_json',
+                            'keyword_research_status',
+                            'keyword_research_source',
+                            'keyword_research_confidence',
+                            'keyword_research_generated_at',
+                            'primary_keyword',
+                            'secondary_keywords_json',
+                            'supporting_entities_json',
+                            'priority_questions_json',
+                            'selected_keyword_search_volume',
+                            'selected_keyword_difficulty',
+                            'selected_keyword_intent',
+                            'keyword_selection_reason',
+                            'keyword_strategy_version',
+                            'keyword_selection_source',
+                        ]:
                             if field in err and field in updates:
                                 logger.warning(
                                     "Optional column missing; retrying Titles update without %s: %s",
@@ -3247,6 +3283,18 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             confidence_map=confidence_map,
             citations_count=citations_count,
         )
+        # Phase 1 keyword handoff baseline:
+        # Persist an explicit selected keyword strategy so downstream stages
+        # and dashboards can reason about provenance and fallback behavior.
+        structure_keywords = [str(k).strip() for k in (structure.get('keywords') or []) if str(k).strip()]
+        brief_keywords = [k.strip() for k in str(research_data.get('keywords', '') or '').split(',') if k.strip()]
+        keyword_candidates = []
+        for kw in structure_keywords + brief_keywords:
+            if kw not in keyword_candidates:
+                keyword_candidates.append(kw)
+        selected_primary_keyword = focus_keyword or (keyword_candidates[0] if keyword_candidates else "")
+        selected_secondary_keywords = [kw for kw in keyword_candidates if kw and kw != selected_primary_keyword][:12]
+        selected_intent = str(research_data.get('target_intent') or '').strip().lower() or "informational"
         final_article = {
             'title': title,
             'hook': hook,
@@ -3287,6 +3335,22 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             'confidence_map': confidence_map,
             'quality_gate': quality_gate,
             'generation_status': quality_gate.get('decision', 'Created'),
+            'keyword_candidates_json': keyword_candidates,
+            'keyword_clusters_json': [],
+            'keyword_research_status': 'ready' if keyword_candidates else 'fallback',
+            'keyword_research_source': 'hybrid',
+            'keyword_research_confidence': 0.75 if keyword_candidates else 0.35,
+            'keyword_research_generated_at': datetime.utcnow().isoformat(),
+            'primary_keyword': selected_primary_keyword,
+            'secondary_keywords_json': selected_secondary_keywords,
+            'supporting_entities_json': [],
+            'priority_questions_json': [],
+            'selected_keyword_search_volume': int(research_data.get('total_search_volume') or 0),
+            'selected_keyword_difficulty': float(research_data.get('avg_keyword_difficulty') or 0.0),
+            'selected_keyword_intent': selected_intent,
+            'keyword_selection_reason': 'Baseline selection from structure + brief keywords.',
+            'keyword_strategy_version': 'phase1_v1',
+            'keyword_selection_source': 'research_dossier_reused',
             'geo_optimization': {
                 'answer_first_enforced': geo_enforce_answer_first,
                 'answer_first_auto_inserted': geo_auto_applied,

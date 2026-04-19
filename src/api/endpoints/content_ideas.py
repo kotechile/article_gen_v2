@@ -356,23 +356,62 @@ def publish_content_ideas():
 
             # 2) For blog ideas, publish into Titles table directly.
             if (idea.get("content_type") or "").lower() != "software":
+                primary_keywords = idea.get("primary_keywords") or idea.get("keywords") or []
+                secondary_keywords = idea.get("secondary_keywords") or []
+                if isinstance(primary_keywords, str):
+                    primary_keywords = [k.strip() for k in primary_keywords.split(",") if k.strip()]
+                if isinstance(secondary_keywords, str):
+                    secondary_keywords = [k.strip() for k in secondary_keywords.split(",") if k.strip()]
+                primary_keyword = primary_keywords[0] if primary_keywords else ""
                 title_payload = {
                     "id": str(uuid4()),
                     "user_id": user_id,
                     "Title": idea.get("title") or "Untitled Article",
                     "userDescription": idea.get("description") or "",
-                    "Keywords": ", ".join(idea.get("keywords") or []),
+                    "Keywords": ", ".join(primary_keywords),
                     # This record is queued for writing, not published to an external CMS.
                     "status": "New",
                     "published": False,
                     "dateCreatedOn": now,
                     "source_idea_id": idea.get("id"),
+                    # Phase 1 keyword handoff defaults (Research -> Content Generation)
+                    "keyword_candidates_json": primary_keywords + [k for k in secondary_keywords if k not in primary_keywords],
+                    "keyword_clusters_json": [],
+                    "keyword_research_status": "ready" if primary_keywords else "fallback",
+                    "keyword_research_source": "dataforseo" if idea.get("total_search_volume") else "llm_fallback",
+                    "keyword_research_confidence": 0.85 if idea.get("total_search_volume") else 0.35,
+                    "keyword_research_generated_at": now,
+                    "primary_keyword": primary_keyword,
+                    "secondary_keywords_json": secondary_keywords,
+                    "selected_keyword_search_volume": int(idea.get("total_search_volume") or 0),
+                    "selected_keyword_difficulty": float(idea.get("average_difficulty") or 0.0),
+                    "selected_keyword_intent": idea.get("target_intent") or "informational",
+                    "keyword_selection_reason": "Initialized from research idea publish payload.",
+                    "keyword_strategy_version": "phase1_v1",
+                    "keyword_selection_source": "research_dossier_reused",
                 }
                 try:
                     supabase.table("Titles").insert(title_payload).execute()
                     published_to_titles_count += 1
-                except Exception:
-                    logger.warning("Could not insert Titles row for idea_id=%s", idea_id, exc_info=True)
+                except Exception as insert_error:
+                    err = str(insert_error)
+                    missing_cols = re.findall(r"Could not find the '([^']+)' column", err)
+                    if missing_cols:
+                        fallback_payload = dict(title_payload)
+                        for col in missing_cols:
+                            fallback_payload.pop(col, None)
+                        try:
+                            supabase.table("Titles").insert(fallback_payload).execute()
+                            published_to_titles_count += 1
+                            logger.warning(
+                                "Inserted Titles row for idea_id=%s after dropping missing columns: %s",
+                                idea_id,
+                                ", ".join(missing_cols),
+                            )
+                        except Exception:
+                            logger.warning("Could not insert Titles row for idea_id=%s", idea_id, exc_info=True)
+                    else:
+                        logger.warning("Could not insert Titles row for idea_id=%s", idea_id, exc_info=True)
 
             # 3) Best-effort status update on content_ideas with progressive fallbacks.
             try:
