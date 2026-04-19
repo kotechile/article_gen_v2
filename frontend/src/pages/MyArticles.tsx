@@ -24,8 +24,26 @@ type ContentIdeaRow = {
     created_at: string
 }
 
-function getStatusStyle(status: string, published: boolean, source: 'titles' | 'content_ideas') {
+function hasWrittenContent(article: any) {
+    return Boolean(
+        String(article?.htmlArticle || '').trim() ||
+        String(article?.articleText || '').trim()
+    )
+}
+
+function getStatusStyle(article: any, source: 'titles' | 'content_ideas') {
+    const status = article?.status || ''
+    const published = Boolean(article?.published)
     const normalized = (status || '').trim().toLowerCase()
+    const wpStatus = String(article?.last_wp_post_status || '').trim().toLowerCase()
+    const written = hasWrittenContent(article)
+
+    if (wpStatus || published) {
+        return { label: 'WP Published', color: 'text-emerald-500 dark:text-emerald-400' }
+    }
+    if (written) {
+        return { label: 'Written', color: 'text-cyan-500 dark:text-cyan-400' }
+    }
     if (source === 'content_ideas' && (published || status === 'Published' || status === 'published')) {
         return { label: 'In Library', color: 'text-emerald-500 dark:text-emerald-400' }
     }
@@ -38,13 +56,12 @@ function getStatusStyle(status: string, published: boolean, source: 'titles' | '
     if (normalized === 'not generated' || normalized === 'not started' || normalized === 'not started.') {
         return { label: 'Not Started', color: 'text-muted-foreground' }
     }
-    if (published || status === 'Published') return { label: 'Published', color: 'text-emerald-500 dark:text-emerald-400' }
+    if (status === 'Draft' || status === 'New') return { label: 'New', color: 'text-muted-foreground' }
     if (status === 'Scheduled') return { label: 'Scheduled', color: 'text-purple-500 dark:text-purple-400' }
     if (status === 'Saved') return { label: 'Saved', color: 'text-cyan-500 dark:text-cyan-400' }
-    if (status === 'Draft' || status === 'New') return { label: status || 'Draft', color: 'text-muted-foreground' }
     if (status === 'Error' || status === 'Failed') return { label: status, color: 'text-red-500 dark:text-red-400' }
     if (status === 'Review' || status === 'Editing') return { label: status, color: 'text-amber-500 dark:text-amber-400' }
-    return { label: status || 'Draft', color: 'text-muted-foreground' }
+    return { label: 'New', color: 'text-muted-foreground' }
 }
 
 function getScoreColor(score?: number) {
@@ -481,7 +498,7 @@ export const MyArticles: React.FC = () => {
                             <div className="divide-y divide-border">
                                 {filteredArticles.map(article => {
                                     const selected = selectedIds.has(article.id)
-                    const status = getStatusStyle(article.status, article.published, article._source)
+                                    const status = getStatusStyle(article, article._source)
                                     return (
                                         <div
                                             key={article.id}

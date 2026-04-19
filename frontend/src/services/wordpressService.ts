@@ -320,7 +320,7 @@ export const publishToWordPress = async (
 
         // Update Supabase status
         if (articleData.id) {
-            const newStatus = settings.postStatus === 'future' ? 'Scheduled' : 'Published';
+            const newStatus = settings.postStatus === 'future' ? 'Scheduled' : 'WP Published';
             await supabase
                 .from('Titles')
                 .update({

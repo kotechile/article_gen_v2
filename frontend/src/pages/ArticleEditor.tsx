@@ -380,6 +380,10 @@ export const ArticleEditor: React.FC = () => {
                     seo_optimization_score: d.seo_optimization_score,
                     readability_score: d.readability_score,
                     viral_potential_score: d.viral_potential_score,
+                    humanization_score: d.quality_report?.humanization_score,
+                    grounding_score: d.quality_report?.grounding_score,
+                    geo_score: d.quality_report?.geo_score,
+                    quality_gate_decision: d.quality_gate?.decision,
 
                     // New metrics
                     difficulty_level: d.difficulty_level,
@@ -1401,27 +1405,23 @@ export const ArticleEditor: React.FC = () => {
                                     />
 
                                     <Gauge
-                                        value={metrics.competition_score || 0}
-                                        label="Key. Difficulty"
-                                        color={getMetricColorClass(metrics.competition_score || 0, true)}
-                                        explanation={METRIC_EXPLANATIONS.difficulty}
+                                        value={metrics.humanization_score || 0}
+                                        label="Humanization"
+                                        color={getMetricColorClass(metrics.humanization_score || 0)}
                                         size={100}
                                     />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4 justify-items-center">
                                     <Gauge
-                                        value={metrics.total_search_volume ? Math.min((metrics.total_search_volume / 1000), 100) : 0}
-                                        label="Search Vol (K)"
-                                        color="text-blue-500"
-                                        explanation={METRIC_EXPLANATIONS.search_volume}
-                                        unit="K"
+                                        value={metrics.grounding_score || 0}
+                                        label="Grounding"
+                                        color={getMetricColorClass(metrics.grounding_score || 0)}
                                         size={100}
                                     />
                                     <Gauge
-                                        value={metrics.readability_score || 0}
-                                        label="Readability"
-                                        color={getMetricColorClass(metrics.readability_score || 0)}
-                                        explanation={METRIC_EXPLANATIONS.readability}
+                                        value={metrics.geo_score || 0}
+                                        label="GEO"
+                                        color={getMetricColorClass(metrics.geo_score || 0)}
                                         size={100}
                                     />
                                 </div>
@@ -1429,18 +1429,15 @@ export const ArticleEditor: React.FC = () => {
                                 <div className="border-t border-border my-4"></div>
 
                                 {/* Secondary Scores Grid */}
-                                <div className="grid grid-cols-3 gap-2">
+                                <div className="grid grid-cols-2 gap-2">
                                     <div className="p-2 bg-muted/50 rounded-lg text-center">
                                         <div className="text-md font-bold text-foreground">{metrics.overall_quality_score || 0}%</div>
                                         <div className="text-[9px] text-muted-foreground uppercase">Quality</div>
                                     </div>
 
-                                    <div className="p-2 bg-muted/50 rounded-lg text-center relative group">
-                                        <div className="text-md font-bold text-foreground">{metrics.traffic_potential_score || 0}%</div>
-                                        <div className="flex justify-center items-center gap-1">
-                                            <div className="text-[9px] text-muted-foreground uppercase">Traffic</div>
-                                            <MetricTooltip explanation={METRIC_EXPLANATIONS.traffic_potential} />
-                                        </div>
+                                    <div className="p-2 bg-muted/50 rounded-lg text-center">
+                                        <div className="text-md font-bold text-foreground">{metrics.quality_gate_decision || '-'}</div>
+                                        <div className="text-[9px] text-muted-foreground uppercase">Gate</div>
                                     </div>
                                 </div>
 
