@@ -118,6 +118,132 @@ def _create_citation_links(content: str, citations: List[Dict[str, Any]]) -> str
     return re.sub(r"\[(\d+)\]", _replace, content)
 
 
+def _extract_focus_keyword(keywords: str) -> str:
+    """Pick a primary keyword from comma-separated keywords."""
+    if not keywords:
+        return ""
+    parts = [p.strip() for p in str(keywords).split(",") if p.strip()]
+    if not parts:
+        return ""
+    # Prefer a moderately descriptive keyword phrase.
+    parts.sort(key=lambda p: (abs(len(p) - 28), -len(p)))
+    return parts[0]
+
+
+def _truncate_seo_title(title: str, max_length: int = 60, focus_keyword: str = "") -> str:
+    title = (title or "").strip()
+    if len(title) <= max_length:
+        return title
+    keyword = (focus_keyword or "").strip()
+    if keyword and len(keyword) < max_length - 6:
+        prefix = f"{keyword}: "
+        remaining = max_length - len(prefix) - 1
+        if remaining > 8:
+            return prefix + title[:remaining].rstrip(" -:;,.") + "…"
+    return title[: max_length - 1].rstrip(" -:;,.") + "…"
+
+
+def _ensure_meta_description_length(meta_description: str, max_length: int = 160) -> str:
+    text = re.sub(r"\s+", " ", (meta_description or "").strip())
+    if not text:
+        return ""
+    if len(text) <= max_length:
+        return text
+    clipped = text[:max_length]
+    # Try not to cut mid-word.
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0]
+    return clipped.rstrip(" -:;,.") + "…"
+
+
+def _generate_wp_slug(title: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")
+    return slug[:80] if slug else f"article-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+
+
+def _generate_wp_tag_ids(keywords: str) -> List[int]:
+    # Keep generation deterministic without depending on WP lookup at this stage.
+    # Downstream publish flow can map names -> IDs if needed.
+    return []
+
+
+def _generate_breadcrumb_title(title: str) -> str:
+    t = (title or "").strip()
+    if len(t) <= 48:
+        return t
+    return t[:47].rstrip(" -:;,.") + "…"
+
+
+def _extract_plain_text(html_content: str) -> str:
+    if not html_content:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", str(html_content))
+    text = html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _extract_external_links(citations: List[Dict[str, Any]]) -> List[str]:
+    links: List[str] = []
+    seen = set()
+    for c in citations or []:
+        url = (c or {}).get("url") or (c or {}).get("source")
+        if not url:
+            continue
+        u = str(url).strip()
+        if not u or u in seen:
+            continue
+        seen.add(u)
+        links.append(u)
+    return links
+
+
+def _calculate_readability_score(text: str) -> float:
+    words = re.findall(r"\b\w+\b", text or "")
+    if not words:
+        return 0.0
+    sentences = max(1, len(re.findall(r"[.!?]+", text or "")))
+    avg_sentence_len = len(words) / sentences
+    # Simple heuristic score in 0-100 range (shorter sentences score higher).
+    return float(max(0, min(100, 100 - (avg_sentence_len - 12) * 3)))
+
+
+def _calculate_seo_score(title: str, meta_description: str, word_count: int, citations_count: int) -> float:
+    score = 0.0
+    t_len = len((title or "").strip())
+    m_len = len((meta_description or "").strip())
+    if 35 <= t_len <= 60:
+        score += 30
+    elif t_len > 0:
+        score += 15
+    if 120 <= m_len <= 160:
+        score += 25
+    elif m_len > 0:
+        score += 10
+    if 900 <= int(word_count or 0) <= 3500:
+        score += 25
+    elif int(word_count or 0) > 0:
+        score += 10
+    if int(citations_count or 0) >= 3:
+        score += 20
+    elif int(citations_count or 0) > 0:
+        score += 10
+    return float(max(0, min(100, score)))
+
+
+def _calculate_viral_score(hook: str, excerpt: str, word_count: int) -> float:
+    score = 0.0
+    if len((hook or "").strip()) >= 40:
+        score += 35
+    if len((excerpt or "").strip()) >= 80:
+        score += 30
+    wc = int(word_count or 0)
+    if 1000 <= wc <= 2800:
+        score += 35
+    elif wc > 0:
+        score += 15
+    return float(max(0, min(100, score)))
+
+
 def _claim_keywords(claim_text: str) -> List[str]:
     tokens = re.findall(r"\b[a-z0-9]{3,}\b", str(claim_text or "").lower())
     return [t for t in tokens if t not in _STOPWORDS]
