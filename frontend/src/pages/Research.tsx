@@ -236,8 +236,11 @@ export function Research() {
                                             <div className="absolute right-6 top-6 flex flex-col items-end gap-2">
                                                 {(() => {
                                                     const subtopicsCount = Number(topic.subtopics_count || 0)
+                                                    const researchedSubtopicsCount = Number(topic.researched_subtopics_count || 0)
                                                     const ideasCount = Number(topic.content_ideas_count || 0)
                                                     const inLibraryCount = Number(topic.in_library_count || 0)
+                                                    const isFullyResearched = Boolean(topic.all_subtopics_researched)
+                                                    const isResearching = Boolean(topic.has_underlying_data) && !isFullyResearched
                                                     const hasAny = subtopicsCount > 0 || ideasCount > 0 || inLibraryCount > 0
 
                                                     const chipBase =
@@ -253,6 +256,21 @@ export function Research() {
                                                             {subtopicsCount > 0 && (
                                                                 <span className={`${chipBase} border-indigo-500/20 bg-indigo-500/10 text-indigo-300`}>
                                                                     {subtopicsCount} Sub-Topics
+                                                                </span>
+                                                            )}
+                                                            {isFullyResearched && (
+                                                                <span className={`${chipBase} border-emerald-500/30 bg-emerald-500/10 text-emerald-300`}>
+                                                                    Researched
+                                                                </span>
+                                                            )}
+                                                            {isResearching && (
+                                                                <span className={`${chipBase} border-amber-500/30 bg-amber-500/10 text-amber-300`}>
+                                                                    Researching
+                                                                </span>
+                                                            )}
+                                                            {researchedSubtopicsCount > 0 && !isFullyResearched && (
+                                                                <span className={`${chipBase} border-emerald-500/20 bg-emerald-500/10 text-emerald-300`}>
+                                                                    {researchedSubtopicsCount}/{subtopicsCount} Researched
                                                                 </span>
                                                             )}
                                                             {ideasCount > 0 && (

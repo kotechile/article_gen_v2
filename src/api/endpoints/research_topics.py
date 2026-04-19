@@ -147,6 +147,8 @@ def _attach_topic_progress_counts(supabase, user_id, topics):
 
     # Default counts to 0 so the frontend can render "Empty" reliably.
     subtopics_by_topic = {tid: 0 for tid in topic_ids}
+    researched_subtopics_by_topic = {tid: 0 for tid in topic_ids}
+    has_underlying_data_by_topic = {tid: False for tid in topic_ids}
     ideas_by_topic = {tid: 0 for tid in topic_ids}
     in_library_by_topic = {tid: 0 for tid in topic_ids}
 
@@ -155,7 +157,7 @@ def _attach_topic_progress_counts(supabase, user_id, topics):
         sub_resp = (
             supabase
             .table("subtopics")
-            .select("research_topic_id")
+            .select("research_topic_id,project_id,search_volume,seo_difficulty,cpc,affiliate_offer_count,monetization_data,trend_analysis")
             .eq("user_id", user_id)
             .in_("research_topic_id", topic_ids)
             .execute()
@@ -164,6 +166,19 @@ def _attach_topic_progress_counts(supabase, user_id, topics):
             tid = row.get("research_topic_id")
             if tid in subtopics_by_topic:
                 subtopics_by_topic[tid] += 1
+                monetization_data = row.get("monetization_data") or {}
+                trend_analysis = row.get("trend_analysis") or {}
+                has_signal = bool(
+                    (row.get("search_volume") or 0) > 0
+                    or (row.get("seo_difficulty") or 0) > 0
+                    or (row.get("cpc") or 0) > 0
+                    or (row.get("affiliate_offer_count") or 0) > 0
+                    or (monetization_data.get("offers") or [])
+                )
+                if has_signal:
+                    has_underlying_data_by_topic[tid] = True
+                if bool(trend_analysis.get("manual_researched")):
+                    researched_subtopics_by_topic[tid] += 1
     except Exception:
         logger.debug("Could not compute subtopics_count via research_topic_id", exc_info=True)
 
@@ -174,7 +189,7 @@ def _attach_topic_progress_counts(supabase, user_id, topics):
             sub_fallback_resp = (
                 supabase
                 .table("subtopics")
-                .select("project_id")
+                .select("research_topic_id,project_id,search_volume,seo_difficulty,cpc,affiliate_offer_count,monetization_data,trend_analysis")
                 .eq("user_id", user_id)
                 .in_("project_id", missing)
                 .execute()
@@ -183,6 +198,19 @@ def _attach_topic_progress_counts(supabase, user_id, topics):
                 tid = row.get("project_id")
                 if tid in subtopics_by_topic:
                     subtopics_by_topic[tid] += 1
+                    monetization_data = row.get("monetization_data") or {}
+                    trend_analysis = row.get("trend_analysis") or {}
+                    has_signal = bool(
+                        (row.get("search_volume") or 0) > 0
+                        or (row.get("seo_difficulty") or 0) > 0
+                        or (row.get("cpc") or 0) > 0
+                        or (row.get("affiliate_offer_count") or 0) > 0
+                        or (monetization_data.get("offers") or [])
+                    )
+                    if has_signal:
+                        has_underlying_data_by_topic[tid] = True
+                    if bool(trend_analysis.get("manual_researched")):
+                        researched_subtopics_by_topic[tid] += 1
     except Exception:
         logger.debug("Could not compute subtopics_count via legacy project_id fallback", exc_info=True)
 
@@ -218,6 +246,11 @@ def _attach_topic_progress_counts(supabase, user_id, topics):
         if not tid:
             continue
         topic["subtopics_count"] = subtopics_by_topic.get(tid, 0)
+        researched_count = researched_subtopics_by_topic.get(tid, 0)
+        total_subtopics = subtopics_by_topic.get(tid, 0)
+        topic["researched_subtopics_count"] = researched_count
+        topic["has_underlying_data"] = has_underlying_data_by_topic.get(tid, False)
+        topic["all_subtopics_researched"] = bool(total_subtopics > 0 and researched_count == total_subtopics)
         topic["content_ideas_count"] = ideas_by_topic.get(tid, 0)
         topic["in_library_count"] = in_library_by_topic.get(tid, 0)
 
@@ -1016,6 +1049,106 @@ def get_subtopics(topic_id):
         logger.error(f"Error getting subtopics: {str(e)}", exc_info=True)
         # Return empty list instead of 500 to avoid breaking UI if table missing
         return jsonify({"items": [], "total": 0}), 200
+
+
+@research_topics_bp.route('/<topic_id>/subtopics/<subtopic_id>', methods=['PUT'])
+@require_api_key
+def update_subtopic(topic_id, subtopic_id):
+    """Update a subtopic for a research topic."""
+    try:
+        if not request.is_json:
+            return jsonify(ErrorResponse(
+                error="invalid_content_type",
+                message="Content-Type must be application/json",
+                error_code="INVALID_CONTENT_TYPE",
+                status=400
+            ).dict()), 400
+
+        data = request.get_json() or {}
+        supabase = get_supabase_client()
+        user_id = _resolve_user_id_from_request(supabase)
+        if not user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        topic_owner = (
+            supabase
+            .table('research_topics')
+            .select('id,user_id')
+            .eq('id', topic_id)
+            .single()
+            .execute()
+        )
+        if not topic_owner.data or topic_owner.data.get('user_id') != user_id:
+            return jsonify(ErrorResponse(
+                error="forbidden",
+                message="You do not have access to this research topic",
+                error_code="FORBIDDEN",
+                status=403
+            ).dict()), 403
+
+        update_data = {}
+        allowed_fields = {
+            "name",
+            "trend_direction",
+            "trend_score",
+            "seo_difficulty",
+            "search_volume",
+            "cpc",
+            "affiliate_offer_count",
+            "keywords",
+            "trend_analysis",
+            "monetization_data",
+            "rationale",
+            "target_audience",
+            "intent_bucket",
+            "decision_focus",
+            "angle_question",
+            "value_layer_tags",
+            "cluster_type",
+            "primary_user_outcome",
+            "serp_intent_match",
+            "tool_potential_score",
+        }
+        for key in allowed_fields:
+            if key in data:
+                update_data[key] = data.get(key)
+
+        update_data["updated_at"] = datetime.utcnow().isoformat()
+
+        updated = (
+            supabase
+            .table('subtopics')
+            .update(update_data)
+            .eq('id', subtopic_id)
+            .eq('user_id', user_id)
+            .or_(f"research_topic_id.eq.{topic_id},project_id.eq.{topic_id}")
+            .execute()
+        )
+
+        rows = updated.data or []
+        if not rows:
+            return jsonify(ErrorResponse(
+                error="not_found",
+                message="Subtopic not found",
+                error_code="NOT_FOUND",
+                status=404
+            ).dict()), 404
+
+        return jsonify(rows[0]), 200
+
+    except Exception as e:
+        logger.error(f"Error updating subtopic {subtopic_id}: {str(e)}", exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message="Failed to update subtopic",
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
 
 # Additional imports for Enhanced Logic
 from src.services.enhanced_topic_decomposition_service import EnhancedTopicDecompositionService

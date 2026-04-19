@@ -138,6 +138,47 @@ export function TopicDetail() {
         return hasSeoSignal || hasMonetizationSignal
     }
 
+    const isSubtopicResearched = (sub: Subtopic) => {
+        return Boolean((sub as any).researched || sub.trend_analysis?.manual_researched)
+    }
+
+    const handleToggleSubtopicResearched = async (e: React.MouseEvent, sub: Subtopic) => {
+        e.stopPropagation()
+        if (!id || !sub?.id) return
+
+        const current = isSubtopicResearched(sub)
+        const next = !current
+        const previousSubtopics = subtopics
+
+        const nextTrendAnalysis = {
+            ...(sub.trend_analysis || {}),
+            manual_researched: next,
+            manual_researched_at: next ? new Date().toISOString() : null,
+        }
+
+        setSubtopics((prev) =>
+            prev.map((item) =>
+                item.id === sub.id
+                    ? {
+                          ...item,
+                          researched: next,
+                          trend_analysis: nextTrendAnalysis,
+                      }
+                    : item
+            )
+        )
+
+        try {
+            await subtopicsService.updateSubtopic(id, sub.id, {
+                trend_analysis: nextTrendAnalysis,
+            })
+        } catch (err) {
+            console.error("Failed to update researched state:", err)
+            setSubtopics(previousSubtopics)
+            setError("Failed to update researched state")
+        }
+    }
+
     const cachedIdeasBySubtopic = React.useMemo(() => {
         if (!id || !user || typeof window === 'undefined') return new Set<string>()
         const cachedIds = new Set<string>()
@@ -519,6 +560,26 @@ export function TopicDetail() {
                                                 {sub.name}
                                             </h3>
                                             <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => handleToggleSubtopicResearched(e, sub)}
+                                                    className={`text-xs px-2 py-1 rounded-full border transition-colors ${
+                                                        isSubtopicResearched(sub)
+                                                            ? 'text-emerald-500 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                                                            : 'text-muted-foreground border-border bg-muted/50 hover:bg-muted'
+                                                    }`}
+                                                    title="Mark subtopic as researched"
+                                                >
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isSubtopicResearched(sub)}
+                                                            readOnly
+                                                            className="h-3 w-3 accent-emerald-500"
+                                                        />
+                                                        Researched
+                                                    </span>
+                                                </button>
                                                 {hasCachedIdeas && (
                                                     <span className="text-xs px-2 py-1 rounded-full border flex-shrink-0 text-indigo-300 border-indigo-500/30 bg-indigo-500/10">
                                                         Ideas

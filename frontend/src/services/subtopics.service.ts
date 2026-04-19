@@ -21,6 +21,7 @@ export interface SubtopicUpdate {
     cpc?: number;
     affiliate_offer_count?: number;
     keywords?: string[];
+    trend_analysis?: any;
 }
 
 export interface SubtopicsResponse {

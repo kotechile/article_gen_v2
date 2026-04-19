@@ -25,8 +25,11 @@ export interface ResearchTopic {
     primary_category_name?: string | null
     secondary_category_name?: string | null
     subtopics_count?: number | null
+    researched_subtopics_count?: number | null
     content_ideas_count?: number | null
     in_library_count?: number | null
+    has_underlying_data?: boolean | null
+    all_subtopics_researched?: boolean | null
 }
 
 export enum ResearchTopicStatus {
@@ -173,6 +176,7 @@ export interface Subtopic {
     target_audience?: string
     trend_analysis?: any
     monetization_data?: any
+    researched?: boolean
     intent_bucket?: string | null
     decision_focus?: string | null
     angle_question?: string | null
