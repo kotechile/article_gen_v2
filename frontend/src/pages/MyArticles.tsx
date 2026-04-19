@@ -559,19 +559,34 @@ export const MyArticles: React.FC = () => {
                     className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5"
                 >
                     <div className="rounded-lg border border-border bg-muted/20 p-3">
-                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Humanization</p>
+                        <p
+                            className="text-[11px] uppercase tracking-wide text-muted-foreground cursor-help"
+                            title="Humanization: Measures how natural, fluent, and human-like the writing sounds."
+                        >
+                            Humanization
+                        </p>
                         <p className={`mt-1 text-lg font-semibold ${getScoreColor(qualityMetrics.avgHumanization ?? undefined)}`}>
                             {qualityMetrics.avgHumanization ?? '—'}
                         </p>
                     </div>
                     <div className="rounded-lg border border-border bg-muted/20 p-3">
-                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Grounding</p>
+                        <p
+                            className="text-[11px] uppercase tracking-wide text-muted-foreground cursor-help"
+                            title="Grounding: Measures factual support and citation alignment with research sources."
+                        >
+                            Grounding
+                        </p>
                         <p className={`mt-1 text-lg font-semibold ${getScoreColor(qualityMetrics.avgGrounding ?? undefined)}`}>
                             {qualityMetrics.avgGrounding ?? '—'}
                         </p>
                     </div>
                     <div className="rounded-lg border border-border bg-muted/20 p-3">
-                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">GEO</p>
+                        <p
+                            className="text-[11px] uppercase tracking-wide text-muted-foreground cursor-help"
+                            title="GEO (Generative Engine Optimization): Measures how well content is structured for AI answer engines."
+                        >
+                            GEO
+                        </p>
                         <p className={`mt-1 text-lg font-semibold ${getScoreColor(qualityMetrics.avgGeo ?? undefined)}`}>
                             {qualityMetrics.avgGeo ?? '—'}
                         </p>
@@ -642,13 +657,29 @@ export const MyArticles: React.FC = () => {
                                 <button
                                     type="button"
                                     onClick={() => handleSort('seo_optimization_score')}
-                                    className="text-left hover:text-foreground transition"
+                                    className="text-left hover:text-foreground transition cursor-help"
+                                    title="SEO: Search Engine Optimization score based on on-page relevance and keyword targeting."
                                 >
                                     SEO{sortKey === 'seo_optimization_score' ? (sortAsc ? ' ▲' : ' ▼') : ''}
                                 </button>
-                                <span className="text-left">Hum</span>
-                                <span className="text-left">Grd</span>
-                                <span className="text-left">GEO</span>
+                                <span
+                                    className="text-left cursor-help"
+                                    title="HUM: Humanization score."
+                                >
+                                    Hum
+                                </span>
+                                <span
+                                    className="text-left cursor-help"
+                                    title="GRD: Grounding score."
+                                >
+                                    Grd
+                                </span>
+                                <span
+                                    className="text-left cursor-help"
+                                    title="GEO: Generative Engine Optimization score."
+                                >
+                                    GEO
+                                </span>
                                 <button
                                     type="button"
                                     onClick={() => handleSort('selected_keyword_search_volume' as keyof Article)}
@@ -659,14 +690,16 @@ export const MyArticles: React.FC = () => {
                                 <button
                                     type="button"
                                     onClick={() => handleSort('selected_keyword_difficulty' as keyof Article)}
-                                    className="text-left hover:text-foreground transition"
+                                    className="text-left hover:text-foreground transition cursor-help"
+                                    title="KD: Keyword Difficulty. Lower values are generally easier to rank for."
                                 >
                                     KD{sortKey === 'selected_keyword_difficulty' ? (sortAsc ? ' ▲' : ' ▼') : ''}
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => handleSort('traffic_potential_score' as keyof Article)}
-                                    className="text-left hover:text-foreground transition"
+                                    className="text-left hover:text-foreground transition cursor-help"
+                                    title="Opp: Opportunity score balancing search volume and keyword difficulty."
                                 >
                                     Opp{sortKey === 'traffic_potential_score' ? (sortAsc ? ' ▲' : ' ▼') : ''}
                                 </button>
