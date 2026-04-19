@@ -733,15 +733,10 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
             'failed_at': datetime.utcnow().isoformat(),
             'message': f'Article generation failed: {str(e)}'
         })
-        self.update_state(
-            state=TASK_STATUS['FAILURE'],
-            meta={
-                'current_stage': result.get('current_stage', 'UNKNOWN'),
-                'progress': result.get('progress', 0),
-                'error': str(e),
-                'message': f'Task failed: {str(e)}'
-            }
-        )
+        # Do NOT call update_state(..., state=FAILURE, meta=<plain dict>).
+        # Celery backends expect a serialized exception payload for FAILURE and
+        # can corrupt result metadata when given arbitrary dicts here. Re-raising
+        # below lets Celery persist a proper terminal failure state.
 
         # Ensure Supabase status is updated to Failed
         try:
@@ -805,7 +800,7 @@ def _process_stage(self, result: Dict[str, Any], stage: str, progress: int,
         
     except Exception as e:
         logger.error(f"Stage {stage} failed for task {result['task_id']}: {str(e)}")
-        raise e
+        raise
 
 # Stage functions with LLM integration
 def _extract_claims(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
