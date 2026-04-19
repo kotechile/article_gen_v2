@@ -105,7 +105,7 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                 }
 
                 // ... (rest of existing completion logic) ...
-                if (currentStatus === 'Created' || currentStatus === 'Generated') {
+                if (['Created', 'Generated', 'Written', 'WP Published', 'Scheduled'].includes(currentStatus)) {
                     // ... existing validation/completion logic ...
                     if (!statusData?.htmlArticle || statusData.htmlArticle.length < 50) {
                         setError('Generation completed but returned empty content. Please try again.');

@@ -45,10 +45,10 @@ function getStatusStyle(article: any, source: 'titles' | 'content_ideas') {
         return { label: 'Written', color: 'text-cyan-500 dark:text-cyan-400' }
     }
     if (source === 'content_ideas' && (published || status === 'Published' || status === 'published')) {
-        return { label: 'In Library', color: 'text-emerald-500 dark:text-emerald-400' }
+        return { label: 'New', color: 'text-muted-foreground' }
     }
     if (normalized === 'ready for content' || normalized === 'ready_for_content' || normalized === 'sent to content library' || normalized === 'in library') {
-        return { label: 'In Library', color: 'text-emerald-500 dark:text-emerald-400' }
+        return { label: 'New', color: 'text-muted-foreground' }
     }
     if (normalized === 'generated' || normalized === 'started') {
         return { label: 'Started', color: 'text-indigo-300' }
@@ -527,7 +527,7 @@ export const MyArticles: React.FC = () => {
                                             </div>
 
                                             <span className={`text-xs font-medium ${status.color} ${
-                                                status.label === 'In Library'
+                                                status.label === 'WP Published'
                                                     ? 'inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5'
                                                     : ''
                                             }`}>

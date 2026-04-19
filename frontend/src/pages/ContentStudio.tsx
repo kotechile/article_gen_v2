@@ -567,14 +567,14 @@ export const ContentStudio: React.FC = () => {
                                 <Gauge value={article.seo_optimization_score || 0} label="SEO Score" color="text-primary" explanation={METRIC_EXPLANATIONS.seo_score} />
 
                                 <Gauge
-                                    value={article.competition_score || 0}
+                                    value={article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? article.competition_score ?? 0}
                                     label="Key. Difficulty"
-                                    color={getCompetitionColor(article.competition_score || 0)}
+                                    color={getCompetitionColor(article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? article.competition_score ?? 0)}
                                     explanation={METRIC_EXPLANATIONS.difficulty}
                                 />
                                 <Gauge
-                                    value={article.total_search_volume ? Math.min((article.total_search_volume / 1000), 100) : 0}
-                                    displayValue={article.total_search_volume || 0}
+                                    value={(article.selected_keyword_search_volume ?? article.total_search_volume) ? Math.min(((article.selected_keyword_search_volume ?? article.total_search_volume ?? 0) / 1000), 100) : 0}
+                                    displayValue={article.selected_keyword_search_volume ?? article.total_search_volume ?? 0}
                                     label="Search Volume"
                                     color="text-chart-1"
                                     explanation={METRIC_EXPLANATIONS.search_volume}
@@ -668,23 +668,23 @@ export const ContentStudio: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="p-3 bg-muted/50 rounded-xl">
-                                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Intent</div>
-                                    <div className="font-medium text-sm text-foreground">{article.selected_keyword_intent || '-'}</div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="p-3 bg-muted/50 rounded-xl">
+                                        <div className="text-[10px] text-muted-foreground uppercase mb-1">Intent</div>
+                                        <div className="font-medium text-sm text-foreground">{article.selected_keyword_intent || '-'}</div>
+                                    </div>
+                                    <div className="p-3 bg-muted/50 rounded-xl">
+                                        <div className="text-[10px] text-muted-foreground uppercase mb-1">Volume</div>
+                                        <div className="font-medium text-sm text-foreground">{article.selected_keyword_search_volume ?? article.total_search_volume ?? '-'}</div>
+                                    </div>
                                 </div>
                                 <div className="p-3 bg-muted/50 rounded-xl">
-                                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Volume</div>
-                                    <div className="font-medium text-sm text-foreground">{article.selected_keyword_search_volume ?? '-'}</div>
+                                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Difficulty</div>
+                                <div className="font-medium text-sm text-foreground">{article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? '-'}</div>
                                 </div>
-                            </div>
-                            <div className="p-3 bg-muted/50 rounded-xl">
-                                <div className="text-[10px] text-muted-foreground uppercase mb-1">Difficulty</div>
-                                <div className="font-medium text-sm text-foreground">{article.selected_keyword_difficulty ?? '-'}</div>
                             </div>
                         </div>
                     </div>
-                </div>
             </div>
 
             <GenerationModal

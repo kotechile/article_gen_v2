@@ -18,6 +18,9 @@ Target outcome:
 - [x] Updated evidence collection query formation to prioritize selected keyword strategy (primary + secondary + intent).
 - [x] Added derivation + persistence of `supporting_entities_json` and `priority_questions_json` from research dossier in `KEYWORD_INTELLIGENCE`.
 - [x] Updated finalization payload to reuse selected keyword strategy artifacts from `research_data` instead of writing empty GEO context arrays.
+- [x] Switched generation-complete lifecycle status to `Written` while keeping quality gate decision in `quality_gate`.
+- [x] Updated Content Library/Generation modal status handling for `New` -> `Written` -> `WP Published`.
+- [x] Added keyword metric UI fallbacks (selected keyword metrics first, DataForSEO aggregate fallback second).
 
 ## Principles
 

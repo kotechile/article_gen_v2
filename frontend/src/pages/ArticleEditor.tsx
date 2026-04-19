@@ -388,8 +388,8 @@ export const ArticleEditor: React.FC = () => {
                     keyword_selection_source: d.keyword_selection_source || d.keyword_research_source,
                     keyword_research_confidence: d.keyword_research_confidence,
                     selected_keyword_intent: d.selected_keyword_intent,
-                    selected_keyword_search_volume: d.selected_keyword_search_volume,
-                    selected_keyword_difficulty: d.selected_keyword_difficulty,
+                    selected_keyword_search_volume: d.selected_keyword_search_volume ?? d.total_search_volume,
+                    selected_keyword_difficulty: d.selected_keyword_difficulty ?? d.avg_keyword_difficulty,
 
                     // New metrics
                     difficulty_level: d.difficulty_level,

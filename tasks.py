@@ -894,10 +894,11 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     
                     # Serialize citations for storage
                     citations_json = json.dumps(final_content.get('citations', []))
-                    final_decision = final_content.get('generation_status', 'Created')
+                    final_quality_decision = final_content.get('generation_status', 'Created')
+                    lifecycle_status = 'Written'
                     
                     core_updates = {
-                        'status': final_decision,
+                        'status': lifecycle_status,
                         'articleText': article_text,
                         'htmlArticle': html_article,
                         'seo_optimization_score': int(float(final_content.get('seo_optimization_score', 0))),
@@ -937,9 +938,11 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     response = supabase.table('Titles').update(core_updates).eq('id', article_id).execute()
                     if response.data:
                         logger.info(
-                            "Saved core article fields for %s. Rows modified: %s",
+                            "Saved core article fields for %s. Rows modified: %s (lifecycle_status=%s, quality_gate=%s)",
                             article_id,
                             len(response.data),
+                            lifecycle_status,
+                            final_quality_decision,
                         )
                     else:
                         logger.warning(
