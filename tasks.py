@@ -813,25 +813,43 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     citations_json = json.dumps(final_content.get('citations', []))
                     final_decision = final_content.get('generation_status', 'Created')
                     
-                    updates = {
+                    core_updates = {
                         'status': final_decision,
                         'articleText': article_text,
                         'htmlArticle': html_article,
                         'seo_optimization_score': int(float(final_content.get('seo_optimization_score', 0))),
                         'readability_score': int(float(final_content.get('readability_score', 0))),
                         'overall_quality_score': int(float(final_content.get('overall_quality_score', 0))),
-                        'quality_report': final_content.get('quality_report', {}),
-                        'confidence_map': final_content.get('confidence_map', {}),
-                        'quality_gate': final_content.get('quality_gate', {}),
-                        'citations': citations_json,  # Store citations as JSON for Reference Selector
                         'include_in_text_citations': True,  # Default to showing in-text citations
                         'deck': final_content.get('deck', ''),
                         'hook': final_content.get('hook', ''),
                         'thesis': final_content.get('thesis', ''),
                         'excerpt': final_content.get('excerpt', ''),
-                        # Add other fields as needed
                     }
 
+                    optional_updates = {
+                        'quality_report': final_content.get('quality_report', {}),
+                        'confidence_map': final_content.get('confidence_map', {}),
+                        'quality_gate': final_content.get('quality_gate', {}),
+                        'citations': citations_json,  # Store citations as JSON for Reference Selector
+                    }
+
+                    # 1) Save essential content first so we never lose generated article text.
+                    response = supabase.table('Titles').update(core_updates).eq('id', article_id).execute()
+                    if response.data:
+                        logger.info(
+                            "Saved core article fields for %s. Rows modified: %s",
+                            article_id,
+                            len(response.data),
+                        )
+                    else:
+                        logger.warning(
+                            "Core Titles update returned success but no rows were modified for %s",
+                            article_id,
+                        )
+
+                    # 2) Save optional metadata with backward-compatible, column-aware retries.
+                    updates = dict(optional_updates)
                     try:
                         response = supabase.table('Titles').update(updates).eq('id', article_id).execute()
                     except Exception as update_error:
@@ -866,14 +884,22 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                                 updates = {k: v for k, v in updates.items() if k != col}
                                 removed_any = True
 
-                        if removed_any:
+                        if removed_any and updates:
                             response = supabase.table('Titles').update(updates).eq('id', article_id).execute()
+                        elif removed_any and not updates:
+                            response = None
                         else:
-                            raise
+                            # Optional metadata must not fail the entire generation.
+                            logger.warning(
+                                "Skipping optional Titles metadata update for %s due to error: %s",
+                                article_id,
+                                err,
+                            )
+                            response = None
                     
-                    if response.data:
+                    if response and response.data:
                         logger.info(f"Updated Supabase Titles for article {article_id}. Rows modified: {len(response.data)}")
-                    else:
+                    elif response:
                         logger.warning(f"Supabase update returned success but NO rows were modified for {article_id}. Potential RLS or ID mismatch.")
                         
             except Exception as e:
