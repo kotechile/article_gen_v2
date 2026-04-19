@@ -40,6 +40,15 @@ MAX_KEYWORDS_FOR_METRICS = 15
 MAX_RELATED_SEEDS = 3
 MAX_RELATED_PER_SEED = 12
 
+# Adaptive budget ladder (quality-first, cost-aware)
+KEYWORD_QUALITY_MIN_NON_ZERO = 3
+KEYWORD_QUALITY_MIN_BEST_VOLUME = 40
+KEYWORD_BUDGET_LADDER = [
+    {"name": "lite", "max_keywords_for_metrics": 12, "max_related_seeds": 0, "max_related_per_seed": 0},
+    {"name": "balanced", "max_keywords_for_metrics": 20, "max_related_seeds": 2, "max_related_per_seed": 10},
+    {"name": "deep", "max_keywords_for_metrics": 35, "max_related_seeds": 4, "max_related_per_seed": 18},
+]
+
 
 def _resolve_user_id_from_request(supabase, data=None):
     auth_header = request.headers.get("Authorization")
@@ -153,12 +162,12 @@ def _build_keyword_candidates(seed_keywords: list[str], title: str = "") -> list
     return out[:40]
 
 
-async def _fetch_metrics_map_for_keywords(keywords: list[str]) -> dict:
+async def _fetch_metrics_map_for_keywords(keywords: list[str], max_keywords_for_metrics: int = MAX_KEYWORDS_FOR_METRICS) -> dict:
     """Fetch search volume/cpc/kd and return normalized metrics map."""
     if not keywords:
         return {}
 
-    scoped_keywords = keywords[:MAX_KEYWORDS_FOR_METRICS]
+    scoped_keywords = keywords[:max_keywords_for_metrics]
     metrics_map: dict = {}
     try:
         bulk_metrics = await asyncio.wait_for(
@@ -218,6 +227,23 @@ def _rank_keywords_by_opportunity(candidates: list[str], metrics_map: dict) -> l
         reverse=True,
     )
     return ranked
+
+
+def _keyword_quality_summary(ranked_candidates: list[dict]) -> dict:
+    non_zero = [row for row in ranked_candidates if int(row.get("search_volume") or 0) > 0]
+    best = ranked_candidates[0] if ranked_candidates else {}
+    return {
+        "non_zero_count": len(non_zero),
+        "best_volume": int(best.get("search_volume") or 0),
+        "best_opportunity": float(best.get("opportunity") or 0.0),
+    }
+
+
+def _quality_gate_passed(summary: dict) -> bool:
+    return (
+        int(summary.get("non_zero_count") or 0) >= KEYWORD_QUALITY_MIN_NON_ZERO
+        and int(summary.get("best_volume") or 0) >= KEYWORD_QUALITY_MIN_BEST_VOLUME
+    )
 
 
 def _build_keyword_metrics_payload(
@@ -386,44 +412,71 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     cpc_count = 0
     kd_count = 0
 
-    metrics_map = await _fetch_metrics_map_for_keywords(candidates)
-    ranked_candidates = _rank_keywords_by_opportunity(candidates, metrics_map)
-    non_zero_count = sum(1 for row in ranked_candidates if int(row.get("search_volume") or 0) > 0)
+    working_candidates = list(candidates)
+    metrics_map: dict = {}
+    ranked_candidates: list[dict] = []
+    ladder_used = []
+    dataforseo_calls = 0
 
-    # Rescue path: if initial candidate set is all zero-volume, expand via DataForSEO related keywords.
-    if non_zero_count == 0 and keywords:
-        rescue_seeds = [_shorten_keyword_term(k) or k for k in keywords[:MAX_RELATED_SEEDS]]
-        rescue_seeds = [s for s in rescue_seeds if s]
-        try:
-            related_rows = await asyncio.wait_for(
-                dataforseo_api.get_related_keywords_standard(
-                    rescue_seeds,
-                    limit_per_seed=MAX_RELATED_PER_SEED,
-                ),
-                timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS,
-            )
-            related_keywords = []
-            seen_related = set()
-            for row in related_rows or []:
-                kw = _normalize_keyword_term(row.get("keyword") or "")
-                if not kw or kw in seen_related:
-                    continue
-                seen_related.add(kw)
-                related_keywords.append(kw)
-            if related_keywords:
-                combined_candidates = candidates + [k for k in related_keywords if k not in set(candidates)]
-                metrics_map = await _fetch_metrics_map_for_keywords(combined_candidates)
-                ranked_candidates = _rank_keywords_by_opportunity(combined_candidates, metrics_map)
-                non_zero_count = sum(1 for row in ranked_candidates if int(row.get("search_volume") or 0) > 0)
-                logger.info(
-                    "Keyword rescue executed for idea_id=%s seeds=%s related=%s non_zero_after=%s",
-                    idea_id,
-                    len(rescue_seeds),
-                    len(related_keywords),
-                    non_zero_count,
+    for tier in KEYWORD_BUDGET_LADDER:
+        tier_name = tier["name"]
+        max_kws = int(tier["max_keywords_for_metrics"])
+        max_related_seeds = int(tier["max_related_seeds"])
+        max_related_per_seed = int(tier["max_related_per_seed"])
+
+        tier_calls = 0
+        metrics_map = await _fetch_metrics_map_for_keywords(
+            working_candidates,
+            max_keywords_for_metrics=max_kws,
+        )
+        tier_calls += 2  # bulk metrics + keyword difficulty
+        ranked_candidates = _rank_keywords_by_opportunity(working_candidates, metrics_map)
+        summary = _keyword_quality_summary(ranked_candidates)
+
+        if _quality_gate_passed(summary):
+            ladder_used.append({**tier, "quality": summary, "calls": tier_calls, "expanded_related": 0})
+            dataforseo_calls += tier_calls
+            break
+
+        expanded_related_count = 0
+        if max_related_seeds > 0 and keywords:
+            rescue_seeds = [_shorten_keyword_term(k) or k for k in keywords[:max_related_seeds]]
+            rescue_seeds = [s for s in rescue_seeds if s]
+            try:
+                related_rows = await asyncio.wait_for(
+                    dataforseo_api.get_related_keywords_standard(
+                        rescue_seeds,
+                        limit_per_seed=max_related_per_seed,
+                    ),
+                    timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS,
                 )
-        except Exception:
-            logger.warning("Keyword rescue related-keyword expansion failed for idea_id=%s", idea_id, exc_info=True)
+                tier_calls += 1
+                related_keywords = []
+                seen_related = set()
+                for row in related_rows or []:
+                    kw = _normalize_keyword_term(row.get("keyword") or "")
+                    if not kw or kw in seen_related:
+                        continue
+                    seen_related.add(kw)
+                    related_keywords.append(kw)
+                expanded_related_count = len(related_keywords)
+                if related_keywords:
+                    existing = set(working_candidates)
+                    working_candidates.extend([kw for kw in related_keywords if kw not in existing])
+                    metrics_map = await _fetch_metrics_map_for_keywords(
+                        working_candidates,
+                        max_keywords_for_metrics=max_kws,
+                    )
+                    tier_calls += 2
+                    ranked_candidates = _rank_keywords_by_opportunity(working_candidates, metrics_map)
+                    summary = _keyword_quality_summary(ranked_candidates)
+            except Exception:
+                logger.warning("Keyword rescue related-keyword expansion failed for idea_id=%s tier=%s", idea_id, tier_name, exc_info=True)
+
+        ladder_used.append({**tier, "quality": summary, "calls": tier_calls, "expanded_related": expanded_related_count})
+        dataforseo_calls += tier_calls
+        if _quality_gate_passed(summary):
+            break
 
     selected_keywords = [row["keyword"] for row in ranked_candidates[:5]]
 
@@ -477,13 +530,14 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
 
     total_elapsed = time.perf_counter() - start_ts
     logger.info(
-        "Enrichment complete for idea_id=%s in %.2fs volume=%s cpc=%s kd=%s offers=%s",
+        "Enrichment complete for idea_id=%s in %.2fs volume=%s cpc=%s kd=%s offers=%s calls=%s",
         idea_id,
         total_elapsed,
         int(total_search_volume),
         average_cpc,
         average_difficulty,
         affiliate_offer_count,
+        dataforseo_calls,
     )
 
     return {
@@ -493,6 +547,9 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         "average_difficulty": average_difficulty,
         "keyword_metrics_map": metrics_map,
         "keyword_ranked_candidates": ranked_candidates[:10],
+        "keyword_quality_summary": _keyword_quality_summary(ranked_candidates),
+        "keyword_budget_ladder_used": ladder_used,
+        "dataforseo_call_count_estimate": dataforseo_calls,
         "affiliate_offer_count": affiliate_offer_count,
         "affiliate_offers": affiliate_offers_preview,
         "status": "enriched",
@@ -901,6 +958,9 @@ def enrich_content_ideas():
                             "keywords_used": enrichment["keywords_used"],
                             "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
                             "keyword_ranked_candidates": enrichment.get("keyword_ranked_candidates") or [],
+                            "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
+                            "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
+                            "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
                             "affiliate_offers_preview": enrichment["affiliate_offers"],
                             "enriched_at": now,
                         },
@@ -1099,6 +1159,9 @@ def refresh_keywords_for_library():
                             "keywords_used": enrichment["keywords_used"],
                             "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
                             "keyword_ranked_candidates": enrichment.get("keyword_ranked_candidates") or [],
+                            "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
+                            "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
+                            "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
                             "affiliate_offers_preview": enrichment["affiliate_offers"],
                             "enriched_at": now,
                         },
