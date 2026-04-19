@@ -21,6 +21,18 @@ export interface Article {
     estimated_reading_time?: string;
     target_audience?: string;
     overall_quality_score?: number;
+    quality_report?: {
+        overall_score?: number;
+        humanization_score?: number;
+        grounding_score?: number;
+        geo_score?: number;
+        [key: string]: any;
+    };
+    confidence_map?: Record<string, any>;
+    quality_gate?: {
+        decision?: string;
+        [key: string]: any;
+    };
     viral_potential_score?: number;
     audience_alignment_score?: number;
     content_feasibility_score?: number;

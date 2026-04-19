@@ -54,6 +54,15 @@ function getScoreColor(score?: number) {
     return 'text-red-500 dark:text-red-400'
 }
 
+function safeNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value === 'string') {
+        const parsed = Number(value)
+        if (Number.isFinite(parsed)) return parsed
+    }
+    return null
+}
+
 export const MyArticles: React.FC = () => {
     const { user } = useAuth()
     const navigate = useNavigate()
@@ -279,6 +288,29 @@ export const MyArticles: React.FC = () => {
 
     const publishedCount = articles.filter(a => a.published).length
     const allSelected = articles.length > 0 && selectedIds.size === filteredArticles.length
+    const titlesOnly = useMemo(() => articles.filter(a => a._source === 'titles'), [articles])
+    const qualityMetrics = useMemo(() => {
+        const reports = titlesOnly
+            .map((a) => a.quality_report || {})
+            .filter((r) => Object.keys(r).length > 0)
+        const avg = (key: 'humanization_score' | 'grounding_score' | 'geo_score') => {
+            const values = reports
+                .map((r: any) => safeNumber(r?.[key]))
+                .filter((n): n is number => n != null)
+            if (values.length === 0) return null
+            return Math.round(values.reduce((acc, n) => acc + n, 0) / values.length)
+        }
+        const gatePassed = titlesOnly.filter((a: any) => {
+            const decision = String(a?.quality_gate?.decision || '').toLowerCase()
+            return decision === 'created' || decision === 'pass'
+        }).length
+        return {
+            avgHumanization: avg('humanization_score'),
+            avgGrounding: avg('grounding_score'),
+            avgGeo: avg('geo_score'),
+            gatePassRate: titlesOnly.length ? Math.round((gatePassed / titlesOnly.length) * 100) : null,
+        }
+    }, [titlesOnly])
 
     return (
         <div className="min-h-screen bg-background">
@@ -344,6 +376,38 @@ export const MyArticles: React.FC = () => {
                     </div>
                 </motion.div>
 
+                <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.25, delay: 0.06 }}
+                    className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"
+                >
+                    <div className="rounded-lg border border-border bg-muted/20 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Humanization</p>
+                        <p className={`mt-1 text-lg font-semibold ${getScoreColor(qualityMetrics.avgHumanization ?? undefined)}`}>
+                            {qualityMetrics.avgHumanization ?? '—'}
+                        </p>
+                    </div>
+                    <div className="rounded-lg border border-border bg-muted/20 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Grounding</p>
+                        <p className={`mt-1 text-lg font-semibold ${getScoreColor(qualityMetrics.avgGrounding ?? undefined)}`}>
+                            {qualityMetrics.avgGrounding ?? '—'}
+                        </p>
+                    </div>
+                    <div className="rounded-lg border border-border bg-muted/20 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">GEO</p>
+                        <p className={`mt-1 text-lg font-semibold ${getScoreColor(qualityMetrics.avgGeo ?? undefined)}`}>
+                            {qualityMetrics.avgGeo ?? '—'}
+                        </p>
+                    </div>
+                    <div className="rounded-lg border border-border bg-muted/20 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Quality Gate Pass</p>
+                        <p className="mt-1 text-lg font-semibold text-foreground">
+                            {qualityMetrics.gatePassRate != null ? `${qualityMetrics.gatePassRate}%` : '—'}
+                        </p>
+                    </div>
+                </motion.div>
+
                 <div className="mt-6 border-t border-border" />
 
                 <motion.div
@@ -366,7 +430,7 @@ export const MyArticles: React.FC = () => {
                         </div>
                     ) : (
                         <>
-                            <div className="grid grid-cols-[2.5rem_1fr_5.5rem_4rem_6rem_auto] items-center gap-2 border-b border-border px-1 pb-3 text-[11px] uppercase tracking-wider text-muted-foreground">
+                            <div className="grid grid-cols-[2.5rem_1fr_5.5rem_4rem_4rem_4rem_5.5rem_6rem_auto] items-center gap-2 border-b border-border px-1 pb-3 text-[11px] uppercase tracking-wider text-muted-foreground">
                                 <span className="flex justify-center">
                                     <input
                                         type="checkbox"
@@ -400,6 +464,10 @@ export const MyArticles: React.FC = () => {
                                 >
                                     SEO{sortKey === 'seo_optimization_score' ? (sortAsc ? ' ▲' : ' ▼') : ''}
                                 </button>
+                                <span className="text-left">Hum</span>
+                                <span className="text-left">Grd</span>
+                                <span className="text-left">GEO</span>
+                                <span className="text-left">Gate</span>
                                 <button
                                     type="button"
                                     onClick={() => handleSort('dateCreatedOn')}
@@ -417,7 +485,7 @@ export const MyArticles: React.FC = () => {
                                     return (
                                         <div
                                             key={article.id}
-                                            className={`grid grid-cols-[2.5rem_1fr_5.5rem_4rem_6rem_auto] items-center gap-2 px-1 py-3 transition ${
+                                            className={`grid grid-cols-[2.5rem_1fr_5.5rem_4rem_4rem_4rem_5.5rem_6rem_auto] items-center gap-2 px-1 py-3 transition ${
                                                 selected ? 'bg-primary/[0.05]' : ''
                                             }`}
                                         >
@@ -451,6 +519,18 @@ export const MyArticles: React.FC = () => {
 
                                             <span className={`text-xs font-medium ${getScoreColor(article.seo_optimization_score)}`}>
                                                 {article.seo_optimization_score != null ? article.seo_optimization_score : '—'}
+                                            </span>
+                                            <span className={`text-xs font-medium ${getScoreColor(safeNumber((article as any)?.quality_report?.humanization_score) ?? undefined)}`}>
+                                                {safeNumber((article as any)?.quality_report?.humanization_score) ?? '—'}
+                                            </span>
+                                            <span className={`text-xs font-medium ${getScoreColor(safeNumber((article as any)?.quality_report?.grounding_score) ?? undefined)}`}>
+                                                {safeNumber((article as any)?.quality_report?.grounding_score) ?? '—'}
+                                            </span>
+                                            <span className={`text-xs font-medium ${getScoreColor(safeNumber((article as any)?.quality_report?.geo_score) ?? undefined)}`}>
+                                                {safeNumber((article as any)?.quality_report?.geo_score) ?? '—'}
+                                            </span>
+                                            <span className="text-xs text-muted-foreground">
+                                                {(article as any)?.quality_gate?.decision || '—'}
                                             </span>
 
                                             <span className="text-xs text-muted-foreground">
