@@ -191,6 +191,7 @@ export const MyArticles: React.FC = () => {
     const [keywordLabInput, setKeywordLabInput] = useState('')
     const [keywordLabLoading, setKeywordLabLoading] = useState(false)
     const [keywordLabResults, setKeywordLabResults] = useState<Array<any>>([])
+    const [keywordLabResultMap, setKeywordLabResultMap] = useState<Record<string, any>>({})
     const [keywordLabPrimary, setKeywordLabPrimary] = useState('')
     const [keywordLabSecondary, setKeywordLabSecondary] = useState<Set<string>>(new Set())
 
@@ -479,6 +480,7 @@ export const MyArticles: React.FC = () => {
         setKeywordLabArticle(article)
         setKeywordLabInput(defaults.join('\n'))
         setKeywordLabResults([])
+        setKeywordLabResultMap({})
         setKeywordLabPrimary(defaults[0] || '')
         setKeywordLabSecondary(new Set(defaults.slice(1)))
         setKeywordLabOpen(true)
@@ -498,6 +500,11 @@ export const MyArticles: React.FC = () => {
             })
             const rows = Array.isArray(res?.keywords) ? res.keywords : []
             setKeywordLabResults(rows)
+            const map: Record<string, any> = {}
+            for (const row of rows) {
+                if (row?.keyword) map[String(row.keyword)] = row
+            }
+            setKeywordLabResultMap(map)
             if (rows.length > 0 && !keywordLabPrimary) {
                 setKeywordLabPrimary(rows[0].keyword)
             }
@@ -520,16 +527,37 @@ export const MyArticles: React.FC = () => {
                 limit: 15,
             })
             const rows = Array.isArray(res?.keywords) ? res.keywords : []
-            setKeywordLabResults(rows)
-            if (rows.length > 0) {
-                setKeywordLabPrimary(rows[0].keyword)
-                setKeywordLabSecondary(new Set(rows.slice(1, 4).map((r: any) => r.keyword)))
-            }
+            setKeywordLabResults((prev) => {
+                const seen = new Set<string>()
+                const merged = [...prev, ...rows].filter((r: any) => {
+                    const kw = String(r?.keyword || '')
+                    if (!kw || seen.has(kw)) return false
+                    seen.add(kw)
+                    return true
+                })
+                return merged
+            })
+            setKeywordLabResultMap((prev) => {
+                const next = { ...prev }
+                for (const row of rows) {
+                    const kw = String(row?.keyword || '')
+                    if (!kw) continue
+                    next[kw] = row
+                }
+                return next
+            })
+            // Do not auto-overwrite user's chosen primary/secondary.
         } catch (error) {
             console.error('Keyword Lab related failed:', error)
         } finally {
             setKeywordLabLoading(false)
         }
+    }
+
+    const getKeywordLabMetricText = (kw: string) => {
+        const row = keywordLabResultMap[kw]
+        if (!row) return 'V— · KD— · CPC —'
+        return `V${row.search_volume || 0} · KD${row.keyword_difficulty || 0} · CPC ${row.cpc || 0}`
     }
 
     const applyKeywordLab = async () => {
@@ -1051,6 +1079,20 @@ export const MyArticles: React.FC = () => {
 
                                 <div>
                                     <p className="text-xs text-muted-foreground">Select primary and secondary keywords</p>
+                                    <div className="mt-2 rounded-lg border border-border bg-muted/20 p-2 text-xs">
+                                        <p className="text-muted-foreground">
+                                            Primary: <span className="text-foreground">{keywordLabPrimary || 'Not selected'}</span>
+                                            {keywordLabPrimary ? ` · ${getKeywordLabMetricText(keywordLabPrimary)}` : ''}
+                                        </p>
+                                        <p className="mt-1 text-muted-foreground">
+                                            Secondary: <span className="text-foreground">
+                                                {Array.from(keywordLabSecondary).filter((k) => k !== keywordLabPrimary).join(', ') || 'None selected'}
+                                            </span>
+                                        </p>
+                                        <p className="mt-1 text-[11px] text-muted-foreground">
+                                            Note: Apply re-validates selected keywords with a fresh DataForSEO fetch.
+                                        </p>
+                                    </div>
                                     <div className="mt-1 max-h-72 overflow-auto rounded-lg border border-border">
                                         {keywordLabResults.length === 0 ? (
                                             <p className="p-3 text-xs text-muted-foreground">Run metrics or related search to load results.</p>
