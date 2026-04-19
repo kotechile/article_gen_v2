@@ -514,6 +514,7 @@ export const MyArticles: React.FC = () => {
         () => articles.filter((a) => selectedIds.has(a.id) && isKeywordMetricEstimated(a)).length,
         [articles, selectedIds],
     )
+    const selectedCount = selectedIds.size
 
     return (
         <div className="min-h-screen bg-background">
@@ -574,14 +575,20 @@ export const MyArticles: React.FC = () => {
                         {selectedIds.size > 0 && (
                             <button
                                 onClick={handleRefreshSelectedKeywords}
-                                disabled={selectedRefreshableCount === 0 || refreshingKeywords}
+                                disabled={refreshingKeywords}
                                 className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3.5 text-sm transition ${
-                                    selectedRefreshableCount === 0 || refreshingKeywords
+                                    refreshingKeywords
                                         ? 'cursor-not-allowed border-border bg-muted/40 text-muted-foreground/60'
                                         : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15'
                                 }`}
                             >
-                                <span>{refreshingKeywords ? 'Refreshing…' : `Refresh Keywords (${selectedRefreshableCount})`}</span>
+                                <span>
+                                    {refreshingKeywords
+                                        ? 'Refreshing…'
+                                        : selectedRefreshableCount > 0
+                                            ? `Refresh Keywords (${selectedRefreshableCount}/${selectedCount})`
+                                            : `Refresh Keywords (${selectedCount})`}
+                                </span>
                             </button>
                         )}
                         {selectedIds.size > 0 && (
