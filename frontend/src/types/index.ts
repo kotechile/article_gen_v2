@@ -33,6 +33,14 @@ export interface Article {
         decision?: string;
         [key: string]: any;
     };
+    primary_keyword?: string;
+    secondary_keywords_json?: string[] | string;
+    keyword_research_source?: string;
+    keyword_research_confidence?: number;
+    selected_keyword_intent?: string;
+    selected_keyword_search_volume?: number;
+    selected_keyword_difficulty?: number;
+    keyword_selection_source?: string;
     viral_potential_score?: number;
     audience_alignment_score?: number;
     content_feasibility_score?: number;

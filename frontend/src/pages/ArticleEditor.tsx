@@ -384,6 +384,12 @@ export const ArticleEditor: React.FC = () => {
                     grounding_score: d.quality_report?.grounding_score,
                     geo_score: d.quality_report?.geo_score,
                     quality_gate_decision: d.quality_gate?.decision,
+                    primary_keyword: d.primary_keyword,
+                    keyword_selection_source: d.keyword_selection_source || d.keyword_research_source,
+                    keyword_research_confidence: d.keyword_research_confidence,
+                    selected_keyword_intent: d.selected_keyword_intent,
+                    selected_keyword_search_volume: d.selected_keyword_search_volume,
+                    selected_keyword_difficulty: d.selected_keyword_difficulty,
 
                     // New metrics
                     difficulty_level: d.difficulty_level,
@@ -1462,6 +1468,47 @@ export const ArticleEditor: React.FC = () => {
                                             <MetricTooltip explanation={METRIC_EXPLANATIONS.audience_align} />
                                         </div>
                                         <span className="font-medium text-foreground text-sm">{metrics.target_audience || '-'}</span>
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-border my-4"></div>
+
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
+                                        <span className="text-xs text-muted-foreground">Primary Keyword</span>
+                                        <span className="font-medium text-sm text-foreground truncate max-w-[60%] text-right">
+                                            {metrics.primary_keyword || '-'}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="p-2 bg-muted/50 rounded-lg">
+                                            <div className="text-[9px] text-muted-foreground uppercase">Source</div>
+                                            <div className="font-medium text-xs text-foreground truncate">
+                                                {metrics.keyword_selection_source || '-'}
+                                            </div>
+                                        </div>
+                                        <div className="p-2 bg-muted/50 rounded-lg">
+                                            <div className="text-[9px] text-muted-foreground uppercase">Confidence</div>
+                                            <div className="font-medium text-xs text-foreground">
+                                                {typeof metrics.keyword_research_confidence === 'number'
+                                                    ? `${Math.round((metrics.keyword_research_confidence <= 1 ? metrics.keyword_research_confidence * 100 : metrics.keyword_research_confidence))}%`
+                                                    : '-'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="p-2 bg-muted/50 rounded-lg">
+                                            <div className="text-[9px] text-muted-foreground uppercase">Intent</div>
+                                            <div className="font-medium text-xs text-foreground">{metrics.selected_keyword_intent || '-'}</div>
+                                        </div>
+                                        <div className="p-2 bg-muted/50 rounded-lg">
+                                            <div className="text-[9px] text-muted-foreground uppercase">Volume</div>
+                                            <div className="font-medium text-xs text-foreground">{metrics.selected_keyword_search_volume ?? '-'}</div>
+                                        </div>
+                                    </div>
+                                    <div className="p-2 bg-muted/50 rounded-lg">
+                                        <div className="text-[9px] text-muted-foreground uppercase">Difficulty</div>
+                                        <div className="font-medium text-xs text-foreground">{metrics.selected_keyword_difficulty ?? '-'}</div>
                                     </div>
                                 </div>
                             </div>

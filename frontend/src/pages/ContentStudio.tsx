@@ -40,6 +40,14 @@ interface ArticleData {
     avg_keyword_difficulty?: number;
     traffic_potential_score?: number;
     competition_score?: number;
+    primary_keyword?: string;
+    secondary_keywords_json?: string[] | string;
+    keyword_research_source?: string;
+    keyword_research_confidence?: number;
+    selected_keyword_intent?: string;
+    selected_keyword_search_volume?: number;
+    selected_keyword_difficulty?: number;
+    keyword_selection_source?: string;
     // Affiliate
     affiliate_opportunities?: any;
 }
@@ -203,6 +211,12 @@ export const ContentStudio: React.FC = () => {
             return value.includes('min') ? value : `${value} min`;
         }
         return '-';
+    };
+
+    const formatConfidence = (value?: number | null) => {
+        if (typeof value !== 'number' || !Number.isFinite(value)) return '-';
+        const pct = value <= 1 ? value * 100 : value;
+        return `${Math.round(pct)}%`;
     };
 
     // Save Changes
@@ -626,6 +640,49 @@ export const ContentStudio: React.FC = () => {
                         ) : (
                             <div className="text-sm text-muted-foreground text-center py-4">No opportunities found</div>
                         )}
+                    </div>
+
+                    <div className="bg-background p-6 rounded-2xl border border-border shadow-sm">
+                        <div className="flex items-center gap-2 mb-4">
+                            <BrainCircuit className="w-5 h-5 text-primary" />
+                            <h3 className="font-semibold text-foreground">Keyword Strategy</h3>
+                        </div>
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between p-3 bg-muted/50 rounded-xl">
+                                <span className="text-sm text-muted-foreground">Primary Keyword</span>
+                                <span className="font-medium text-foreground text-right max-w-[60%] truncate">
+                                    {article.primary_keyword || '-'}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="p-3 bg-muted/50 rounded-xl">
+                                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Source</div>
+                                    <div className="font-medium text-sm text-foreground truncate">
+                                        {article.keyword_selection_source || article.keyword_research_source || '-'}
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-muted/50 rounded-xl">
+                                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Confidence</div>
+                                    <div className="font-medium text-sm text-foreground">
+                                        {formatConfidence(article.keyword_research_confidence)}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="p-3 bg-muted/50 rounded-xl">
+                                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Intent</div>
+                                    <div className="font-medium text-sm text-foreground">{article.selected_keyword_intent || '-'}</div>
+                                </div>
+                                <div className="p-3 bg-muted/50 rounded-xl">
+                                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Volume</div>
+                                    <div className="font-medium text-sm text-foreground">{article.selected_keyword_search_volume ?? '-'}</div>
+                                </div>
+                            </div>
+                            <div className="p-3 bg-muted/50 rounded-xl">
+                                <div className="text-[10px] text-muted-foreground uppercase mb-1">Difficulty</div>
+                                <div className="font-medium text-sm text-foreground">{article.selected_keyword_difficulty ?? '-'}</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
