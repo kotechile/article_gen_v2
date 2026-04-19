@@ -1271,3 +1271,167 @@ def delete_content_idea(idea_id):
             error_code="INTERNAL_ERROR",
             status=500,
         ).dict()), 500
+
+
+@content_ideas_bp.route("/keyword-lab/metrics", methods=["POST"])
+@require_api_key
+def keyword_lab_metrics():
+    try:
+        if not request.is_json:
+            return jsonify({"error": "Content-Type must be application/json"}), 400
+        data = request.get_json() or {}
+        raw_keywords = data.get("keywords") or []
+        if isinstance(raw_keywords, str):
+            raw_keywords = [part.strip() for part in re.split(r"[\n,]+", raw_keywords) if part.strip()]
+
+        keywords = []
+        seen = set()
+        for kw in raw_keywords:
+            norm = _normalize_keyword_term(str(kw))
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            keywords.append(norm)
+        if not keywords:
+            return jsonify({"error": "No valid keywords provided"}), 400
+
+        supabase = get_supabase_client()
+        request_user_id = _resolve_user_id_from_request(supabase, data)
+        if not request_user_id:
+            return jsonify({"error": "Authorization bearer token is required"}), 401
+
+        metrics_map = asyncio.run(
+            asyncio.wait_for(
+                _fetch_metrics_map_for_keywords(keywords, max_keywords_for_metrics=max(15, len(keywords))),
+                timeout=PER_IDEA_ENRICH_TIMEOUT_SECONDS,
+            )
+        )
+        ranked = _rank_keywords_by_opportunity(keywords, metrics_map)
+        return jsonify({
+            "success": True,
+            "keywords": ranked,
+            "quality": _keyword_quality_summary(ranked),
+        }), 200
+    except Exception as e:
+        logger.error("keyword_lab_metrics failed: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@content_ideas_bp.route("/keyword-lab/related", methods=["POST"])
+@require_api_key
+def keyword_lab_related():
+    try:
+        if not request.is_json:
+            return jsonify({"error": "Content-Type must be application/json"}), 400
+        data = request.get_json() or {}
+        seed = _normalize_keyword_term(data.get("seed_keyword") or "")
+        limit = int(data.get("limit") or 12)
+        if not seed:
+            return jsonify({"error": "seed_keyword is required"}), 400
+
+        supabase = get_supabase_client()
+        request_user_id = _resolve_user_id_from_request(supabase, data)
+        if not request_user_id:
+            return jsonify({"error": "Authorization bearer token is required"}), 401
+
+        related_rows = asyncio.run(
+            asyncio.wait_for(
+                dataforseo_api.get_related_keywords_standard([seed], limit_per_seed=max(5, min(limit, 25))),
+                timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS,
+            )
+        )
+        related_keywords = []
+        seen = set()
+        for row in related_rows or []:
+            kw = _normalize_keyword_term(row.get("keyword") or "")
+            if not kw or kw in seen:
+                continue
+            seen.add(kw)
+            related_keywords.append(kw)
+        metrics_map = asyncio.run(
+            asyncio.wait_for(
+                _fetch_metrics_map_for_keywords(related_keywords, max_keywords_for_metrics=max(15, len(related_keywords))),
+                timeout=PER_IDEA_ENRICH_TIMEOUT_SECONDS,
+            )
+        )
+        ranked = _rank_keywords_by_opportunity(related_keywords, metrics_map)
+        return jsonify({
+            "success": True,
+            "seed_keyword": seed,
+            "keywords": ranked,
+            "quality": _keyword_quality_summary(ranked),
+        }), 200
+    except Exception as e:
+        logger.error("keyword_lab_related failed: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@content_ideas_bp.route("/keyword-lab/apply", methods=["POST"])
+@require_api_key
+def keyword_lab_apply():
+    try:
+        if not request.is_json:
+            return jsonify({"error": "Content-Type must be application/json"}), 400
+        data = request.get_json() or {}
+        title_id = str(data.get("title_id") or "").strip()
+        primary_keyword = _normalize_keyword_term(data.get("primary_keyword") or "")
+        secondary_keywords = data.get("secondary_keywords") or []
+        if isinstance(secondary_keywords, str):
+            secondary_keywords = [part.strip() for part in re.split(r"[\n,]+", secondary_keywords) if part.strip()]
+        secondary_keywords = [_normalize_keyword_term(k) for k in secondary_keywords if _normalize_keyword_term(k)]
+        if not title_id or not primary_keyword:
+            return jsonify({"error": "title_id and primary_keyword are required"}), 400
+
+        supabase = get_supabase_client()
+        request_user_id = _resolve_user_id_from_request(supabase, data)
+        if not request_user_id:
+            return jsonify({"error": "Authorization bearer token is required"}), 401
+        user_id = data.get("user_id") or request_user_id
+        if user_id != request_user_id:
+            return jsonify({"error": "forbidden"}), 403
+
+        all_keywords = [primary_keyword] + [k for k in secondary_keywords if k != primary_keyword]
+        metrics_map = asyncio.run(
+            asyncio.wait_for(
+                _fetch_metrics_map_for_keywords(all_keywords, max_keywords_for_metrics=max(15, len(all_keywords))),
+                timeout=PER_IDEA_ENRICH_TIMEOUT_SECONDS,
+            )
+        )
+        payload_json = _build_keyword_metrics_payload(
+            primary_keyword=primary_keyword,
+            secondary_keywords=[k for k in secondary_keywords if k != primary_keyword],
+            metrics_map=metrics_map,
+            source="manual_verified",
+            target_intent="informational",
+        )
+        primary_metric = payload_json.get("primary") or {}
+        update_payload = {
+            "Keywords": ", ".join(all_keywords),
+            "keyword_candidates_json": all_keywords,
+            "keyword_research_status": "ready",
+            "keyword_research_source": "manual_verified",
+            "keyword_research_confidence": 0.95,
+            "keyword_research_generated_at": datetime.utcnow().isoformat(),
+            "primary_keyword": primary_keyword,
+            "secondary_keywords_json": [k for k in secondary_keywords if k != primary_keyword],
+            "selected_keyword_search_volume": int(primary_metric.get("search_volume") or 0),
+            "selected_keyword_difficulty": float(primary_metric.get("keyword_difficulty") or 0.0),
+            "selected_keyword_intent": "informational",
+            "selected_keyword_metrics_json": payload_json,
+            "keyword_selection_reason": "Manually selected in Keyword Lab.",
+            "keyword_strategy_version": "manual_v1",
+            "keyword_selection_source": "manual_keyword_lab",
+        }
+        response = (
+            supabase.table("Titles")
+            .update(update_payload)
+            .eq("id", title_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        if not response.data:
+            return jsonify({"error": "Title not found or not accessible"}), 404
+        return jsonify({"success": True, "title_id": title_id, "keyword_metrics": payload_json}), 200
+    except Exception as e:
+        logger.error("keyword_lab_apply failed: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500

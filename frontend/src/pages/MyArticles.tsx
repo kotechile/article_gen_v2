@@ -186,6 +186,13 @@ export const MyArticles: React.FC = () => {
     const [exactMetricsOnly, setExactMetricsOnly] = useState(false)
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
     const [refreshingKeywords, setRefreshingKeywords] = useState(false)
+    const [keywordLabOpen, setKeywordLabOpen] = useState(false)
+    const [keywordLabArticle, setKeywordLabArticle] = useState<LibraryArticle | null>(null)
+    const [keywordLabInput, setKeywordLabInput] = useState('')
+    const [keywordLabLoading, setKeywordLabLoading] = useState(false)
+    const [keywordLabResults, setKeywordLabResults] = useState<Array<any>>([])
+    const [keywordLabPrimary, setKeywordLabPrimary] = useState('')
+    const [keywordLabSecondary, setKeywordLabSecondary] = useState<Set<string>>(new Set())
 
     const fetchArticles = async () => {
         if (!user) return
@@ -463,6 +470,84 @@ export const MyArticles: React.FC = () => {
             console.error('Error refreshing keyword metrics:', error)
         } finally {
             setRefreshingKeywords(false)
+        }
+    }
+
+    const openKeywordLab = (article: LibraryArticle) => {
+        const rows = getKeywordRows(article)
+        const defaults = rows.map((r) => r.keyword).filter(Boolean)
+        setKeywordLabArticle(article)
+        setKeywordLabInput(defaults.join('\n'))
+        setKeywordLabResults([])
+        setKeywordLabPrimary(defaults[0] || '')
+        setKeywordLabSecondary(new Set(defaults.slice(1)))
+        setKeywordLabOpen(true)
+    }
+
+    const runKeywordLabMetrics = async () => {
+        if (!user || !keywordLabInput.trim()) return
+        setKeywordLabLoading(true)
+        try {
+            const keywords = keywordLabInput
+                .split(/\n|,/g)
+                .map((k) => k.trim())
+                .filter(Boolean)
+            const res = await apiClient.post<any>('/content-ideas/keyword-lab/metrics', {
+                user_id: user.id,
+                keywords,
+            })
+            const rows = Array.isArray(res?.keywords) ? res.keywords : []
+            setKeywordLabResults(rows)
+            if (rows.length > 0 && !keywordLabPrimary) {
+                setKeywordLabPrimary(rows[0].keyword)
+            }
+        } catch (error) {
+            console.error('Keyword Lab metrics failed:', error)
+        } finally {
+            setKeywordLabLoading(false)
+        }
+    }
+
+    const runKeywordLabRelated = async () => {
+        if (!user) return
+        const seed = keywordLabPrimary || keywordLabInput.split(/\n|,/g).map((k) => k.trim()).find(Boolean) || ''
+        if (!seed) return
+        setKeywordLabLoading(true)
+        try {
+            const res = await apiClient.post<any>('/content-ideas/keyword-lab/related', {
+                user_id: user.id,
+                seed_keyword: seed,
+                limit: 15,
+            })
+            const rows = Array.isArray(res?.keywords) ? res.keywords : []
+            setKeywordLabResults(rows)
+            if (rows.length > 0) {
+                setKeywordLabPrimary(rows[0].keyword)
+                setKeywordLabSecondary(new Set(rows.slice(1, 4).map((r: any) => r.keyword)))
+            }
+        } catch (error) {
+            console.error('Keyword Lab related failed:', error)
+        } finally {
+            setKeywordLabLoading(false)
+        }
+    }
+
+    const applyKeywordLab = async () => {
+        if (!user || !keywordLabArticle || keywordLabArticle._source !== 'titles' || !keywordLabPrimary) return
+        setKeywordLabLoading(true)
+        try {
+            await apiClient.post('/content-ideas/keyword-lab/apply', {
+                user_id: user.id,
+                title_id: keywordLabArticle.id,
+                primary_keyword: keywordLabPrimary,
+                secondary_keywords: Array.from(keywordLabSecondary).filter((k) => k !== keywordLabPrimary),
+            })
+            await fetchArticles()
+            setKeywordLabOpen(false)
+        } catch (error) {
+            console.error('Keyword Lab apply failed:', error)
+        } finally {
+            setKeywordLabLoading(false)
         }
     }
 
@@ -894,6 +979,15 @@ export const MyArticles: React.FC = () => {
                                                 >
                                                     <Trash2 className="h-3.5 w-3.5" />
                                                 </button>
+                                                {article._source === 'titles' && (
+                                                    <button
+                                                        onClick={() => openKeywordLab(article)}
+                                                        className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-emerald-400"
+                                                        title="Keyword Lab"
+                                                    >
+                                                        <span className="text-[11px] font-semibold">KW</span>
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     )
@@ -910,6 +1004,122 @@ export const MyArticles: React.FC = () => {
                         </div>
                     )}
                 </motion.div>
+
+                {keywordLabOpen && keywordLabArticle && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                        <div className="w-full max-w-3xl rounded-xl border border-border bg-background p-5">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-lg font-semibold text-foreground">Keyword Lab</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setKeywordLabOpen(false)}
+                                    className="rounded-md p-1 text-muted-foreground hover:text-foreground"
+                                >
+                                    <X className="h-4 w-4" />
+                                </button>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground truncate">{keywordLabArticle.Title}</p>
+
+                            <div className="mt-4 grid gap-4 md:grid-cols-2">
+                                <div>
+                                    <label className="text-xs text-muted-foreground">Manual Keywords (one per line or comma-separated)</label>
+                                    <textarea
+                                        value={keywordLabInput}
+                                        onChange={(e) => setKeywordLabInput(e.target.value)}
+                                        rows={8}
+                                        className="mt-1 w-full rounded-lg border border-border bg-muted/30 p-2 text-sm text-foreground outline-none focus:border-ring/50"
+                                    />
+                                    <div className="mt-2 flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={runKeywordLabMetrics}
+                                            disabled={keywordLabLoading}
+                                            className="rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                                        >
+                                            Get Metrics
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={runKeywordLabRelated}
+                                            disabled={keywordLabLoading}
+                                            className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/15 disabled:opacity-60"
+                                        >
+                                            Find Related Keywords
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <p className="text-xs text-muted-foreground">Select primary and secondary keywords</p>
+                                    <div className="mt-1 max-h-72 overflow-auto rounded-lg border border-border">
+                                        {keywordLabResults.length === 0 ? (
+                                            <p className="p-3 text-xs text-muted-foreground">Run metrics or related search to load results.</p>
+                                        ) : (
+                                            <div className="divide-y divide-border">
+                                                {keywordLabResults.map((row: any, idx: number) => {
+                                                    const kw = String(row.keyword || '')
+                                                    const isPrimary = keywordLabPrimary === kw
+                                                    const isSecondary = keywordLabSecondary.has(kw)
+                                                    return (
+                                                        <div key={`${kw}-${idx}`} className="flex items-center justify-between px-3 py-2 text-xs">
+                                                            <div>
+                                                                <p className="text-foreground">{kw}</p>
+                                                                <p className="text-muted-foreground">V{row.search_volume || 0} · KD{row.keyword_difficulty || 0} · CPC {row.cpc || 0}</p>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <label className="inline-flex items-center gap-1 text-muted-foreground">
+                                                                    <input
+                                                                        type="radio"
+                                                                        checked={isPrimary}
+                                                                        onChange={() => setKeywordLabPrimary(kw)}
+                                                                    />
+                                                                    P
+                                                                </label>
+                                                                <label className="inline-flex items-center gap-1 text-muted-foreground">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={isSecondary}
+                                                                        onChange={() => {
+                                                                            setKeywordLabSecondary((prev) => {
+                                                                                const next = new Set(prev)
+                                                                                if (next.has(kw)) next.delete(kw)
+                                                                                else next.add(kw)
+                                                                                return next
+                                                                            })
+                                                                        }}
+                                                                    />
+                                                                    S
+                                                                </label>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setKeywordLabOpen(false)}
+                                    className="rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground hover:bg-muted"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={applyKeywordLab}
+                                    disabled={keywordLabLoading || !keywordLabPrimary || keywordLabArticle._source !== 'titles'}
+                                    className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/15 disabled:opacity-60"
+                                >
+                                    Apply Selected Keywords
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     )
