@@ -14,6 +14,7 @@ Target outcome:
 - [x] Added baseline keyword strategy persistence in generation finalization (`tasks.py`).
 - [x] Added backward-compatible fallback logic when new `Titles` columns are not yet present.
 - [x] Added generation-start recovery of keyword dossier from `source_idea_id` (`content_ideas`) when `Titles` is missing structured keyword fields.
+- [x] Added explicit `KEYWORD_INTELLIGENCE` pipeline stage before evidence collection.
 
 ## Principles
 

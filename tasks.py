@@ -48,6 +48,7 @@ TASK_STATUS = {
 }
 PIPELINE_STAGES = [
     'INITIALIZED',
+    'KEYWORD_INTELLIGENCE',
     'CLAIM_EXTRACTION',
     'EVIDENCE_COLLECTION',
     'EVIDENCE_RANKING',
@@ -754,47 +755,57 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
             'error': None
         }
         
-        # Stage 1: Claim Extraction
+        # Stage 1: Keyword Intelligence
+        result = _process_stage(
+            self,
+            result,
+            'KEYWORD_INTELLIGENCE',
+            10,
+            'Selecting article keyword strategy...',
+            lambda r: _run_keyword_intelligence(r, self)
+        )
+
+        # Stage 2: Claim Extraction
         result = _process_stage(
             self, 
             result, 
             'CLAIM_EXTRACTION', 
-            10,
+            18,
             'Extracting claims from research brief...',
             _extract_claims
         )
         
-        # Stage 2: Evidence Collection
+        # Stage 3: Evidence Collection
         result = _process_stage(
             self,
             result,
             'EVIDENCE_COLLECTION',
-            25,
+            30,
             'Collecting evidence from RAG and web search...',
             _collect_evidence
         )
         
-        # Stage 3: Evidence Ranking
+        # Stage 4: Evidence Ranking
         result = _process_stage(
             self,
             result,
             'EVIDENCE_RANKING',
-            40,
+            42,
             'Ranking and assessing evidence quality...',
             _rank_evidence
         )
         
-        # Stage 4: Structure Generation
+        # Stage 5: Structure Generation
         result = _process_stage(
             self,
             result,
             'STRUCTURE_GENERATION',
-            55,
+            56,
             'Generating article structure and outline...',
             _generate_structure
         )
         
-        # Stage 5: Content Generation
+        # Stage 6: Content Generation
         result = _process_stage(
             self,
             result,
@@ -804,7 +815,7 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
             lambda r: _generate_content(r, self)
         )
         
-        # Stage 6: Citation Generation
+        # Stage 7: Citation Generation
         result = _process_stage(
             self,
             result,
@@ -814,7 +825,7 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
             _generate_citations
         )
         
-        # Stage 7: Refinement
+        # Stage 8: Refinement
         result = _process_stage(
             self,
             result,
@@ -824,7 +835,7 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
             lambda r: _refine_article(r, task_instance=self)
         )
         
-        # Stage 8: Finalization
+        # Stage 9: Finalization
         result = _process_stage(
             self,
             result,
@@ -1222,6 +1233,129 @@ def _extract_claims(result: Dict[str, Any], task_instance: Any = None) -> Dict[s
     except Exception as e:
         logger.error(f"Error in claim extraction: {str(e)}")
         return {'claims': [], 'stage_data': {'extracted_claims': 0, 'error': str(e)}}
+
+
+def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
+    """
+    Baseline keyword selection stage.
+    Chooses primary/secondary keywords from recovered candidates + brief keywords
+    and persists the selection with explicit provenance fields.
+    """
+    try:
+        if task_instance:
+            task_instance.update_state(
+                state=TASK_STATUS['PROGRESS'],
+                meta={
+                    'current_stage': 'KEYWORD_INTELLIGENCE',
+                    'progress': 8,
+                    'message': 'Selecting best-fit keywords for this article...'
+                }
+            )
+
+        research_data = result.get('research_data', {})
+        candidate_keywords = research_data.get('keyword_candidates') or []
+        if isinstance(candidate_keywords, str):
+            candidate_keywords = [k.strip() for k in candidate_keywords.split(',') if k.strip()]
+        if not isinstance(candidate_keywords, list):
+            candidate_keywords = []
+        candidate_keywords = [str(k).strip() for k in candidate_keywords if str(k).strip()]
+
+        brief_keywords = [k.strip() for k in str(research_data.get('keywords', '') or '').split(',') if k.strip()]
+        merged_candidates = []
+        for kw in candidate_keywords + brief_keywords:
+            if kw not in merged_candidates:
+                merged_candidates.append(kw)
+
+        target_intent = str(research_data.get('target_intent') or '').strip().lower() or "informational"
+
+        # Simple deterministic ranking:
+        # - Prefer moderate-length phrases (3-6 tokens)
+        # - Prefer terms that appear in draft title (if provided)
+        # - Keep stable ordering otherwise
+        draft_title = str(research_data.get('draft_title') or '').lower()
+        scored = []
+        for idx, kw in enumerate(merged_candidates):
+            kw_l = kw.lower()
+            token_count = len([p for p in kw_l.split() if p.strip()])
+            length_score = 1.0 if 3 <= token_count <= 6 else (0.6 if 2 <= token_count <= 8 else 0.3)
+            title_bonus = 0.8 if draft_title and kw_l in draft_title else 0.0
+            stable_penalty = idx * 0.0001
+            scored.append((length_score + title_bonus - stable_penalty, kw))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        ranked_keywords = [kw for _, kw in scored]
+
+        selected_primary = ranked_keywords[0] if ranked_keywords else ""
+        selected_secondary = [kw for kw in ranked_keywords[1:] if kw != selected_primary][:12]
+
+        research_data['keyword_candidates'] = merged_candidates
+        research_data['keywords'] = ", ".join(ranked_keywords) if ranked_keywords else research_data.get('keywords', '')
+        research_data['primary_keyword'] = selected_primary
+        research_data['secondary_keywords'] = selected_secondary
+        research_data['keyword_selection_source'] = (
+            're-ranked_with_dataforseo'
+            if str(research_data.get('keyword_research_source') or '').lower() in {'dataforseo', 'hybrid'}
+            else 'llm_fallback'
+        )
+        research_data['keyword_selection_reason'] = 'Keyword intelligence selected best-fit candidates from dossier + brief.'
+        research_data['keyword_strategy_version'] = 'phase1_v2'
+        research_data['selected_keyword_intent'] = target_intent
+
+        # Best-effort early persistence for visibility while task is running.
+        article_id = research_data.get('article_id')
+        if article_id:
+            try:
+                supabase = get_supabase_client()
+                if supabase:
+                    keyword_updates = {
+                        'keyword_candidates_json': merged_candidates,
+                        'keyword_research_status': research_data.get('keyword_research_status') or ('ready' if ranked_keywords else 'fallback'),
+                        'keyword_research_source': research_data.get('keyword_research_source') or 'hybrid',
+                        'keyword_research_confidence': float(research_data.get('keyword_research_confidence') or (0.75 if ranked_keywords else 0.35)),
+                        'keyword_research_generated_at': datetime.utcnow().isoformat(),
+                        'primary_keyword': selected_primary,
+                        'secondary_keywords_json': selected_secondary,
+                        'selected_keyword_search_volume': int(research_data.get('total_search_volume') or 0),
+                        'selected_keyword_difficulty': float(research_data.get('avg_keyword_difficulty') or 0.0),
+                        'selected_keyword_intent': target_intent,
+                        'keyword_selection_reason': research_data['keyword_selection_reason'],
+                        'keyword_strategy_version': research_data['keyword_strategy_version'],
+                        'keyword_selection_source': research_data['keyword_selection_source'],
+                    }
+                    try:
+                        supabase.table('Titles').update(keyword_updates).eq('id', article_id).execute()
+                    except Exception as keyword_update_error:
+                        err = str(keyword_update_error)
+                        missing_cols = re.findall(r"Could not find the '([^']+)' column", err)
+                        if missing_cols:
+                            fallback_updates = {k: v for k, v in keyword_updates.items() if k not in missing_cols}
+                            if fallback_updates:
+                                supabase.table('Titles').update(fallback_updates).eq('id', article_id).execute()
+                        else:
+                            raise
+            except Exception as persist_error:
+                logger.warning(f"Keyword intelligence persistence warning for article {article_id}: {persist_error}")
+
+        logger.info(
+            "Keyword intelligence selected primary='%s' secondary_count=%s source=%s",
+            selected_primary,
+            len(selected_secondary),
+            research_data.get('keyword_selection_source'),
+        )
+
+        return {
+            'research_data': research_data,
+            'stage_data': {
+                'selected_primary_keyword': selected_primary,
+                'selected_secondary_keyword_count': len(selected_secondary),
+                'keyword_selection_source': research_data.get('keyword_selection_source'),
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error in keyword intelligence stage: {str(e)}")
+        return {
+            'research_data': result.get('research_data', {}),
+            'stage_data': {'keyword_intelligence_error': str(e)}
+        }
 
 def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
     """Collect evidence from RAG and web search."""
