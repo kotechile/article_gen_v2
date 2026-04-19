@@ -5,6 +5,7 @@ import type { Article } from '../types'
 import { Plus, Search, Trash2, Sparkles, Edit, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { apiClient } from '../api-client'
 
 type LibraryArticle = Article & {
     _source: 'titles' | 'content_ideas'
@@ -84,6 +85,31 @@ function safeNumber(value: unknown): number | null {
     return null
 }
 
+function getKeywordMetricSource(article: any): string {
+    const metricSource = String(article?.selected_keyword_metrics_json?.primary?.metric_source || '').trim()
+    if (metricSource) return metricSource
+    const selectionSource = String(article?.keyword_selection_source || article?.keyword_research_source || '').trim()
+    return selectionSource || 'unknown'
+}
+
+function isKeywordMetricEstimated(article: any): boolean {
+    const explicit = article?.selected_keyword_metrics_json?.primary?.is_estimated
+    if (typeof explicit === 'boolean') return explicit
+    const source = getKeywordMetricSource(article).toLowerCase()
+    return source.includes('aggregate') || source.includes('fallback') || source === 'unknown'
+}
+
+function getKeywordOpportunityScore(article: any): number | null {
+    const volume = safeNumber(article?.selected_keyword_search_volume ?? article?.total_search_volume)
+    const difficulty = safeNumber(article?.selected_keyword_difficulty ?? article?.avg_keyword_difficulty)
+    if (volume == null || difficulty == null) return null
+    if (volume <= 0) return 0
+    const volScore = Math.min(volume / 50, 100)
+    const diffScore = Math.max(0, 100 - difficulty)
+    const score = Math.round(volScore * 0.55 + diffScore * 0.45)
+    return Math.max(0, Math.min(100, score))
+}
+
 export const MyArticles: React.FC = () => {
     const { user } = useAuth()
     const navigate = useNavigate()
@@ -92,7 +118,9 @@ export const MyArticles: React.FC = () => {
     const [sortKey, setSortKey] = useState<keyof Article>('dateCreatedOn')
     const [sortAsc, setSortAsc] = useState(false)
     const [search, setSearch] = useState('')
+    const [exactMetricsOnly, setExactMetricsOnly] = useState(false)
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+    const [refreshingKeywords, setRefreshingKeywords] = useState(false)
 
     const fetchArticles = async () => {
         if (!user) return
@@ -187,8 +215,20 @@ export const MyArticles: React.FC = () => {
     const sortedArticles = useMemo(() => {
         const copy = [...articles]
         copy.sort((a, b) => {
-            const aVal = a[sortKey]
-            const bVal = b[sortKey]
+            const aVal = sortKey === ('selected_keyword_search_volume' as keyof Article)
+                ? (safeNumber((a as any).selected_keyword_search_volume ?? (a as any).total_search_volume) ?? -1)
+                : sortKey === ('selected_keyword_difficulty' as keyof Article)
+                    ? (safeNumber((a as any).selected_keyword_difficulty ?? (a as any).avg_keyword_difficulty) ?? 9999)
+                    : sortKey === ('traffic_potential_score' as keyof Article)
+                        ? (getKeywordOpportunityScore(a) ?? -1)
+                    : a[sortKey]
+            const bVal = sortKey === ('selected_keyword_search_volume' as keyof Article)
+                ? (safeNumber((b as any).selected_keyword_search_volume ?? (b as any).total_search_volume) ?? -1)
+                : sortKey === ('selected_keyword_difficulty' as keyof Article)
+                    ? (safeNumber((b as any).selected_keyword_difficulty ?? (b as any).avg_keyword_difficulty) ?? 9999)
+                    : sortKey === ('traffic_potential_score' as keyof Article)
+                        ? (getKeywordOpportunityScore(b) ?? -1)
+                    : b[sortKey]
             if (aVal == null) return 1
             if (bVal == null) return -1
             if (typeof aVal === 'number' && typeof bVal === 'number') {
@@ -202,8 +242,14 @@ export const MyArticles: React.FC = () => {
     }, [articles, sortKey, sortAsc])
 
     const filteredArticles = useMemo(
-        () => sortedArticles.filter(article => article.Title?.toLowerCase().includes(search.toLowerCase())),
-        [sortedArticles, search],
+        () =>
+            sortedArticles.filter(article => {
+                const titleMatch = article.Title?.toLowerCase().includes(search.toLowerCase())
+                if (!titleMatch) return false
+                if (!exactMetricsOnly) return true
+                return !isKeywordMetricEstimated(article)
+            }),
+        [sortedArticles, search, exactMetricsOnly],
     )
 
     const handleCreateNew = async () => {
@@ -297,6 +343,35 @@ export const MyArticles: React.FC = () => {
         }
     }
 
+    const handleRefreshSelectedKeywords = async () => {
+        if (!user || refreshingKeywords) return
+        const selectedRows = articles.filter((a) => selectedIds.has(a.id))
+        const titleIds = selectedRows
+            .filter((a) => a._source === 'titles')
+            .map((a) => a.id)
+        const ideaIds = selectedRows
+            .filter((a) => a._source === 'content_ideas')
+            .map((a) => a.id)
+
+        if (titleIds.length === 0 && ideaIds.length === 0) {
+            return
+        }
+
+        setRefreshingKeywords(true)
+        try {
+            await apiClient.post('/content-ideas/refresh-keywords', {
+                user_id: user.id,
+                title_ids: titleIds,
+                idea_ids: ideaIds,
+            })
+            await fetchArticles()
+        } catch (error) {
+            console.error('Error refreshing keyword metrics:', error)
+        } finally {
+            setRefreshingKeywords(false)
+        }
+    }
+
     const handleSort = (field: keyof Article) => {
         if (sortKey === field) setSortAsc(prev => !prev)
         else { setSortKey(field); setSortAsc(true) }
@@ -336,6 +411,15 @@ export const MyArticles: React.FC = () => {
             gatePassRate: titlesOnly.length ? Math.round((gatePassed / titlesOnly.length) * 100) : null,
         }
     }, [titlesOnly])
+    const exactKeywordCoverage = useMemo(() => {
+        if (!titlesOnly.length) return null
+        const exact = titlesOnly.filter((a: any) => !isKeywordMetricEstimated(a)).length
+        return Math.round((exact / titlesOnly.length) * 100)
+    }, [titlesOnly])
+    const selectedRefreshableCount = useMemo(
+        () => articles.filter((a) => selectedIds.has(a.id) && isKeywordMetricEstimated(a)).length,
+        [articles, selectedIds],
+    )
 
     return (
         <div className="min-h-screen bg-background">
@@ -382,6 +466,30 @@ export const MyArticles: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setExactMetricsOnly((prev) => !prev)}
+                            className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3.5 text-sm transition ${
+                                exactMetricsOnly
+                                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                                    : 'border-border bg-muted/50 text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground'
+                            }`}
+                        >
+                            <span>{exactMetricsOnly ? 'Exact Metrics Only' : 'Show All Metrics'}</span>
+                        </button>
+                        {selectedIds.size > 0 && (
+                            <button
+                                onClick={handleRefreshSelectedKeywords}
+                                disabled={selectedRefreshableCount === 0 || refreshingKeywords}
+                                className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3.5 text-sm transition ${
+                                    selectedRefreshableCount === 0 || refreshingKeywords
+                                        ? 'cursor-not-allowed border-border bg-muted/40 text-muted-foreground/60'
+                                        : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15'
+                                }`}
+                            >
+                                <span>{refreshingKeywords ? 'Refreshing…' : `Refresh Keywords (${selectedRefreshableCount})`}</span>
+                            </button>
+                        )}
                         {selectedIds.size > 0 && (
                             <button
                                 onClick={handleDeleteSelected}
@@ -405,7 +513,7 @@ export const MyArticles: React.FC = () => {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.25, delay: 0.06 }}
-                    className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"
+                    className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5"
                 >
                     <div className="rounded-lg border border-border bg-muted/20 p-3">
                         <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Humanization</p>
@@ -429,6 +537,12 @@ export const MyArticles: React.FC = () => {
                         <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Quality Gate Pass</p>
                         <p className="mt-1 text-lg font-semibold text-foreground">
                             {qualityMetrics.gatePassRate != null ? `${qualityMetrics.gatePassRate}%` : '—'}
+                        </p>
+                    </div>
+                    <div className="rounded-lg border border-border bg-muted/20 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Exact Metrics Coverage</p>
+                        <p className="mt-1 text-lg font-semibold text-foreground">
+                            {exactKeywordCoverage != null ? `${exactKeywordCoverage}%` : '—'}
                         </p>
                     </div>
                 </motion.div>
@@ -455,7 +569,7 @@ export const MyArticles: React.FC = () => {
                         </div>
                     ) : (
                         <>
-                            <div className="grid grid-cols-[2.5rem_1fr_5.5rem_4rem_4rem_4rem_5.5rem_6rem_auto] items-center gap-2 border-b border-border px-1 pb-3 text-[11px] uppercase tracking-wider text-muted-foreground">
+                            <div className="grid grid-cols-[2.5rem_1fr_5.5rem_4rem_4rem_4rem_4rem_4.5rem_4.5rem_5.5rem_6rem_auto] items-center gap-2 border-b border-border px-1 pb-3 text-[11px] uppercase tracking-wider text-muted-foreground">
                                 <span className="flex justify-center">
                                     <input
                                         type="checkbox"
@@ -492,6 +606,27 @@ export const MyArticles: React.FC = () => {
                                 <span className="text-left">Hum</span>
                                 <span className="text-left">Grd</span>
                                 <span className="text-left">GEO</span>
+                                <button
+                                    type="button"
+                                    onClick={() => handleSort('selected_keyword_search_volume' as keyof Article)}
+                                    className="text-left hover:text-foreground transition"
+                                >
+                                    Vol{sortKey === 'selected_keyword_search_volume' ? (sortAsc ? ' ▲' : ' ▼') : ''}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleSort('selected_keyword_difficulty' as keyof Article)}
+                                    className="text-left hover:text-foreground transition"
+                                >
+                                    KD{sortKey === 'selected_keyword_difficulty' ? (sortAsc ? ' ▲' : ' ▼') : ''}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleSort('traffic_potential_score' as keyof Article)}
+                                    className="text-left hover:text-foreground transition"
+                                >
+                                    Opp{sortKey === 'traffic_potential_score' ? (sortAsc ? ' ▲' : ' ▼') : ''}
+                                </button>
                                 <span className="text-left">Gate</span>
                                 <button
                                     type="button"
@@ -507,10 +642,15 @@ export const MyArticles: React.FC = () => {
                                 {filteredArticles.map(article => {
                                     const selected = selectedIds.has(article.id)
                                     const status = getStatusStyle(article, article._source)
+                                    const metricSource = getKeywordMetricSource(article)
+                                    const keywordEstimated = isKeywordMetricEstimated(article)
+                                    const volume = safeNumber((article as any).selected_keyword_search_volume ?? (article as any).total_search_volume)
+                                    const difficulty = safeNumber((article as any).selected_keyword_difficulty ?? (article as any).avg_keyword_difficulty)
+                                    const opportunity = getKeywordOpportunityScore(article)
                                     return (
                                         <div
                                             key={article.id}
-                                            className={`grid grid-cols-[2.5rem_1fr_5.5rem_4rem_4rem_4rem_5.5rem_6rem_auto] items-center gap-2 px-1 py-3 transition ${
+                                            className={`grid grid-cols-[2.5rem_1fr_5.5rem_4rem_4rem_4rem_4rem_4.5rem_4.5rem_5.5rem_6rem_auto] items-center gap-2 px-1 py-3 transition ${
                                                 selected ? 'bg-primary/[0.05]' : ''
                                             }`}
                                         >
@@ -532,6 +672,9 @@ export const MyArticles: React.FC = () => {
                                                         {article.userDescription}
                                                     </p>
                                                 )}
+                                                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                                                    {keywordEstimated ? 'Needs Keyword Refresh' : 'Exact Keyword Metrics'} · {metricSource}
+                                                </p>
                                             </div>
 
                                             <span className={`text-xs font-medium ${status.color} ${
@@ -553,6 +696,15 @@ export const MyArticles: React.FC = () => {
                                             </span>
                                             <span className={`text-xs font-medium ${getScoreColor(safeNumber((article as any)?.quality_report?.geo_score) ?? undefined)}`}>
                                                 {safeNumber((article as any)?.quality_report?.geo_score) ?? '—'}
+                                            </span>
+                                            <span className={`text-xs font-medium ${getScoreColor(opportunity ?? undefined)}`}>
+                                                {volume ?? '—'}
+                                            </span>
+                                            <span className={`text-xs font-medium ${difficulty != null ? getScoreColor(100 - difficulty) : 'text-muted-foreground'}`}>
+                                                {difficulty ?? '—'}
+                                            </span>
+                                            <span className={`text-xs font-medium ${getScoreColor(opportunity ?? undefined)}`}>
+                                                {opportunity ?? '—'}
                                             </span>
                                             <span className="text-xs text-muted-foreground">
                                                 {(article as any)?.quality_gate?.decision || '—'}

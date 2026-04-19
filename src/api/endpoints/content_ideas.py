@@ -85,6 +85,127 @@ def _extract_keywords_for_enrichment(idea: dict) -> list[str]:
     return normalized[:20]
 
 
+def _build_keyword_metrics_payload(
+    primary_keyword: str,
+    secondary_keywords: list[str],
+    metrics_map: dict,
+    source: str,
+    target_intent: str | None = None,
+) -> dict:
+    """Create a structured keyword metrics payload from exact per-keyword enrichment data."""
+    normalized_map = {}
+    for key, value in (metrics_map or {}).items():
+        if not key:
+            continue
+        normalized_map[str(key).strip().lower()] = value or {}
+
+    def _row(keyword: str) -> dict:
+        raw = normalized_map.get(str(keyword or "").strip().lower(), {})
+        return {
+            "keyword": str(keyword or "").strip(),
+            "search_volume": int(raw.get("search_volume") or 0),
+            "keyword_difficulty": float(raw.get("keyword_difficulty") or 0.0),
+            "cpc": float(raw.get("cpc") or 0.0),
+            "metric_source": "research_keyword_dossier",
+            "is_estimated": False,
+        }
+
+    primary = _row(primary_keyword) if primary_keyword else {
+        "keyword": "",
+        "search_volume": 0,
+        "keyword_difficulty": 0.0,
+        "cpc": 0.0,
+        "metric_source": "research_keyword_dossier",
+        "is_estimated": False,
+    }
+    secondary = [_row(keyword) for keyword in (secondary_keywords or []) if str(keyword).strip()]
+    return {
+        "primary": {
+            **primary,
+            "intent": str(target_intent or "").strip().lower() or "informational",
+        },
+        "secondary": secondary,
+        "candidate_count": len(([primary_keyword] if primary_keyword else []) + [k for k in (secondary_keywords or []) if str(k).strip()]),
+        "source": str(source or "").strip().lower() or "dataforseo",
+        "generated_at": datetime.utcnow().isoformat(),
+    }
+
+
+def _sync_titles_keyword_fields_from_idea(supabase, idea: dict, user_id: str, now_iso: str) -> int:
+    """Update Titles keyword fields from a content_ideas row; returns number of rows updated."""
+    primary_keywords = idea.get("primary_keywords") or idea.get("keywords") or []
+    secondary_keywords = idea.get("secondary_keywords") or []
+    if isinstance(primary_keywords, str):
+        primary_keywords = [k.strip() for k in primary_keywords.split(",") if k.strip()]
+    if isinstance(secondary_keywords, str):
+        secondary_keywords = [k.strip() for k in secondary_keywords.split(",") if k.strip()]
+    if not secondary_keywords and isinstance(primary_keywords, list) and len(primary_keywords) > 1:
+        secondary_keywords = primary_keywords[1:]
+
+    primary_keyword = primary_keywords[0] if primary_keywords else ""
+    exact_keyword_metrics = idea.get("keyword_metrics") or {}
+    if not exact_keyword_metrics:
+        seo_offer_enrichment = (idea.get("idea_metadata") or {}).get("seo_offer_enrichment") or {}
+        exact_keyword_metrics = seo_offer_enrichment.get("keyword_metrics") or {}
+    selected_keyword_metrics_json = _build_keyword_metrics_payload(
+        primary_keyword=primary_keyword,
+        secondary_keywords=secondary_keywords,
+        metrics_map=exact_keyword_metrics,
+        source="dataforseo" if idea.get("total_search_volume") else "llm_fallback",
+        target_intent=idea.get("target_intent") or "informational",
+    )
+    primary_metric = (selected_keyword_metrics_json.get("primary") or {}) if primary_keyword else {}
+
+    update_payload = {
+        "Keywords": ", ".join(primary_keywords),
+        "keyword_candidates_json": primary_keywords + [k for k in secondary_keywords if k not in primary_keywords],
+        "keyword_research_status": "ready" if primary_keywords else "fallback",
+        "keyword_research_source": "dataforseo" if idea.get("total_search_volume") else "llm_fallback",
+        "keyword_research_confidence": 0.85 if idea.get("total_search_volume") else 0.35,
+        "keyword_research_generated_at": now_iso,
+        "primary_keyword": primary_keyword,
+        "secondary_keywords_json": secondary_keywords,
+        "selected_keyword_search_volume": int(primary_metric.get("search_volume") or idea.get("total_search_volume") or 0),
+        "selected_keyword_difficulty": float(primary_metric.get("keyword_difficulty") or idea.get("average_difficulty") or 0.0),
+        "selected_keyword_intent": idea.get("target_intent") or "informational",
+        "selected_keyword_metrics_json": selected_keyword_metrics_json,
+        "keyword_selection_reason": "Refreshed from content_ideas keyword enrichment.",
+        "keyword_strategy_version": "phase1_v3",
+        "keyword_selection_source": "re-ranked_with_dataforseo",
+    }
+    updated_rows = 0
+    for where_key, where_value in (("source_idea_id", idea.get("id")), ("id", idea.get("titles_record_id"))):
+        if not where_value:
+            continue
+        try:
+            response = (
+                supabase.table("Titles")
+                .update(update_payload)
+                .eq("user_id", user_id)
+                .eq(where_key, where_value)
+                .execute()
+            )
+            updated_rows += len(response.data or [])
+        except Exception as update_error:
+            # Backward-compatible fallback for deployments missing some columns.
+            err = str(update_error)
+            missing_cols = re.findall(r"Could not find the '([^']+)' column", err)
+            fallback_payload = dict(update_payload)
+            for col in missing_cols:
+                fallback_payload.pop(col, None)
+            if not fallback_payload:
+                continue
+            response = (
+                supabase.table("Titles")
+                .update(fallback_payload)
+                .eq("user_id", user_id)
+                .eq(where_key, where_value)
+                .execute()
+            )
+            updated_rows += len(response.data or [])
+    return updated_rows
+
+
 async def _compute_idea_enrichment(idea: dict) -> dict:
     """
     Compute SEO/offer enrichment for one idea.
@@ -229,6 +350,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         "total_search_volume": int(total_search_volume),
         "average_cpc": average_cpc,
         "average_difficulty": average_difficulty,
+        "keyword_metrics_map": metrics_map,
         "affiliate_offer_count": affiliate_offer_count,
         "affiliate_offers": affiliate_offers_preview,
         "status": "enriched",
@@ -362,7 +484,22 @@ def publish_content_ideas():
                     primary_keywords = [k.strip() for k in primary_keywords.split(",") if k.strip()]
                 if isinstance(secondary_keywords, str):
                     secondary_keywords = [k.strip() for k in secondary_keywords.split(",") if k.strip()]
+                if not secondary_keywords and isinstance(primary_keywords, list) and len(primary_keywords) > 1:
+                    secondary_keywords = primary_keywords[1:]
                 primary_keyword = primary_keywords[0] if primary_keywords else ""
+                # Prefer explicit keyword_metrics column in content_ideas schema.
+                exact_keyword_metrics = idea.get("keyword_metrics") or {}
+                if not exact_keyword_metrics:
+                    seo_offer_enrichment = (idea.get("idea_metadata") or {}).get("seo_offer_enrichment") or {}
+                    exact_keyword_metrics = seo_offer_enrichment.get("keyword_metrics") or {}
+                selected_keyword_metrics_json = _build_keyword_metrics_payload(
+                    primary_keyword=primary_keyword,
+                    secondary_keywords=secondary_keywords,
+                    metrics_map=exact_keyword_metrics,
+                    source="dataforseo" if idea.get("total_search_volume") else "llm_fallback",
+                    target_intent=idea.get("target_intent") or "informational",
+                )
+                primary_metric = (selected_keyword_metrics_json.get("primary") or {}) if primary_keyword else {}
                 title_payload = {
                     "id": str(uuid4()),
                     "user_id": user_id,
@@ -383,9 +520,10 @@ def publish_content_ideas():
                     "keyword_research_generated_at": now,
                     "primary_keyword": primary_keyword,
                     "secondary_keywords_json": secondary_keywords,
-                    "selected_keyword_search_volume": int(idea.get("total_search_volume") or 0),
-                    "selected_keyword_difficulty": float(idea.get("average_difficulty") or 0.0),
+                    "selected_keyword_search_volume": int(primary_metric.get("search_volume") or idea.get("total_search_volume") or 0),
+                    "selected_keyword_difficulty": float(primary_metric.get("keyword_difficulty") or idea.get("average_difficulty") or 0.0),
                     "selected_keyword_intent": idea.get("target_intent") or "informational",
+                    "selected_keyword_metrics_json": selected_keyword_metrics_json,
                     "keyword_selection_reason": "Initialized from research idea publish payload.",
                     "keyword_strategy_version": "phase1_v1",
                     "keyword_selection_source": "research_dossier_reused",
@@ -613,10 +751,12 @@ def enrich_content_ideas():
             for payload in (
                 {
                     **update_payload,
+                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
                     "idea_metadata": {
                         **(idea.get("idea_metadata") or {}),
                         "seo_offer_enrichment": {
                             "keywords_used": enrichment["keywords_used"],
+                            "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
                             "affiliate_offers_preview": enrichment["affiliate_offers"],
                             "enriched_at": now,
                         },
@@ -679,6 +819,191 @@ def enrich_content_ideas():
 
     except Exception as e:
         logger.error("Error enriching content ideas: %s", e, exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message=str(e),
+            error_code="INTERNAL_ERROR",
+            status=500,
+        ).dict()), 500
+
+
+@content_ideas_bp.route("/refresh-keywords", methods=["POST"])
+@require_api_key
+def refresh_keywords_for_library():
+    """
+    Refresh keyword metrics for content_ideas and sync linked Titles rows.
+    Accepts idea_ids directly and/or title_ids that are mapped via Titles.source_idea_id.
+    """
+    try:
+        if not request.is_json:
+            return jsonify(ErrorResponse(
+                error="invalid_content_type",
+                message="Content-Type must be application/json",
+                error_code="INVALID_CONTENT_TYPE",
+                status=400,
+            ).dict()), 400
+
+        data = request.get_json() or {}
+        supabase = get_supabase_client()
+        request_user_id = _resolve_user_id_from_request(supabase, data)
+        if not request_user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401,
+            ).dict()), 401
+
+        user_id = data.get("user_id") or request_user_id
+        if user_id != request_user_id:
+            return jsonify(ErrorResponse(
+                error="forbidden",
+                message="You do not have access to this user_id",
+                error_code="FORBIDDEN",
+                status=403,
+            ).dict()), 403
+
+        input_idea_ids = [str(x).strip() for x in (data.get("idea_ids") or []) if str(x).strip()]
+        title_ids = [str(x).strip() for x in (data.get("title_ids") or []) if str(x).strip()]
+        if not input_idea_ids and not title_ids:
+            return jsonify(ErrorResponse(
+                error="validation_error",
+                message="Provide idea_ids and/or title_ids",
+                error_code="VALIDATION_ERROR",
+                status=400,
+            ).dict()), 400
+
+        idea_ids = set(input_idea_ids)
+        if title_ids:
+            title_rows = (
+                supabase.table("Titles")
+                .select("id,source_idea_id")
+                .eq("user_id", user_id)
+                .in_("id", title_ids)
+                .execute()
+                .data
+                or []
+            )
+            for row in title_rows:
+                source_idea_id = row.get("source_idea_id")
+                if source_idea_id:
+                    idea_ids.add(str(source_idea_id))
+
+        if not idea_ids:
+            return jsonify({
+                "success": False,
+                "requested_count": 0,
+                "enriched_count": 0,
+                "titles_synced_count": 0,
+                "results": [],
+                "message": "No linked content ideas found for selected titles."
+            }), 400
+
+        now = datetime.utcnow().isoformat()
+        enriched_count = 0
+        titles_synced_count = 0
+        results = []
+
+        for idea_id in sorted(idea_ids):
+            fetch_resp = (
+                supabase.table("content_ideas")
+                .select("*")
+                .eq("id", idea_id)
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            if not fetch_resp.data:
+                results.append({"idea_id": idea_id, "status": "failed", "reason": "Idea not found for user"})
+                continue
+
+            idea = fetch_resp.data[0]
+            try:
+                enrichment = asyncio.run(
+                    asyncio.wait_for(
+                        _compute_idea_enrichment(idea),
+                        timeout=PER_IDEA_ENRICH_TIMEOUT_SECONDS,
+                    )
+                )
+            except TimeoutError:
+                results.append({"idea_id": idea_id, "status": "failed", "reason": "Enrichment timed out for this idea"})
+                continue
+            except Exception:
+                logger.warning("Keyword refresh enrichment failed for idea_id=%s", idea_id, exc_info=True)
+                results.append({"idea_id": idea_id, "status": "failed", "reason": "Enrichment request failed"})
+                continue
+            if enrichment.get("status") != "enriched":
+                results.append({"idea_id": idea_id, "status": "failed", "reason": enrichment.get("reason") or "Enrichment failed"})
+                continue
+
+            update_payload = {
+                "total_search_volume": enrichment["total_search_volume"],
+                "average_cpc": enrichment["average_cpc"],
+                "average_difficulty": enrichment["average_difficulty"],
+                "affiliate_offer_count": enrichment["affiliate_offer_count"],
+                "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                "status": "in_progress",
+                "updated_at": now,
+            }
+            for payload in (
+                {
+                    **update_payload,
+                    "idea_metadata": {
+                        **(idea.get("idea_metadata") or {}),
+                        "seo_offer_enrichment": {
+                            "keywords_used": enrichment["keywords_used"],
+                            "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                            "affiliate_offers_preview": enrichment["affiliate_offers"],
+                            "enriched_at": now,
+                        },
+                    },
+                },
+                update_payload,
+                {"updated_at": now},
+            ):
+                try:
+                    supabase.table("content_ideas").update(payload).eq("id", idea_id).eq("user_id", user_id).execute()
+                    break
+                except Exception:
+                    continue
+
+            # Re-fetch updated row and sync Titles projection.
+            refreshed_idea_resp = (
+                supabase.table("content_ideas")
+                .select("*")
+                .eq("id", idea_id)
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            refreshed_idea = (refreshed_idea_resp.data or [idea])[0]
+            synced = _sync_titles_keyword_fields_from_idea(
+                supabase=supabase,
+                idea=refreshed_idea,
+                user_id=user_id,
+                now_iso=now,
+            )
+            titles_synced_count += synced
+            enriched_count += 1
+            results.append({
+                "idea_id": idea_id,
+                "status": "enriched",
+                "titles_synced": synced,
+                "metrics": {
+                    "total_search_volume": enrichment["total_search_volume"],
+                    "average_difficulty": enrichment["average_difficulty"],
+                },
+            })
+
+        return jsonify({
+            "success": enriched_count > 0,
+            "requested_count": len(idea_ids),
+            "enriched_count": enriched_count,
+            "titles_synced_count": titles_synced_count,
+            "results": results,
+        }), 200 if enriched_count > 0 else 400
+    except Exception as e:
+        logger.error("Error refreshing keyword metrics for content library: %s", e, exc_info=True)
         return jsonify(ErrorResponse(
             error="internal_error",
             message=str(e),
