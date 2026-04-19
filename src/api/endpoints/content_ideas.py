@@ -36,6 +36,9 @@ DATAFORSEO_BULK_TIMEOUT_SECONDS = 45
 DATAFORSEO_KD_TIMEOUT_SECONDS = 20
 AFFILIATE_ENRICH_TIMEOUT_SECONDS = 15
 PER_IDEA_ENRICH_TIMEOUT_SECONDS = 70
+MAX_KEYWORDS_FOR_METRICS = 15
+MAX_RELATED_SEEDS = 3
+MAX_RELATED_PER_SEED = 12
 
 
 def _resolve_user_id_from_request(supabase, data=None):
@@ -85,6 +88,138 @@ def _extract_keywords_for_enrichment(idea: dict) -> list[str]:
     return normalized[:20]
 
 
+def _normalize_keyword_term(term: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(term or "").strip().lower())
+    cleaned = re.sub(r"[^\w\s-]", " ", cleaned)
+    cleaned = re.sub(r"\b(202\d|203\d)\b", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _shorten_keyword_term(term: str) -> str:
+    stop_phrases = {
+        "how to", "best", "guide", "complete guide", "ultimate guide", "tips", "strategy", "strategies",
+        "for beginners", "step by step", "in 2026", "in 2025",
+    }
+    normalized = _normalize_keyword_term(term)
+    if not normalized:
+        return ""
+    for phrase in stop_phrases:
+        normalized = normalized.replace(phrase, " ")
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    tokens = [t for t in normalized.split(" ") if t]
+    if len(tokens) <= 2:
+        return normalized
+    # Keep compact 2-3 token terms likely to have measurable demand.
+    return " ".join(tokens[:3])
+
+
+def _build_keyword_candidates(seed_keywords: list[str], title: str = "") -> list[str]:
+    candidates: list[str] = []
+    for kw in seed_keywords or []:
+        base = _normalize_keyword_term(kw)
+        if not base:
+            continue
+        candidates.append(base)
+        short = _shorten_keyword_term(base)
+        if short and short != base:
+            candidates.append(short)
+        tokens = short.split(" ") if short else base.split(" ")
+        if len(tokens) >= 2:
+            # Last 2 tokens often gives a broader, measurable phrase.
+            tail = " ".join(tokens[-2:])
+            if tail:
+                candidates.append(tail)
+            # First 2 tokens often preserves core entity.
+            head = " ".join(tokens[:2])
+            if head:
+                candidates.append(head)
+
+    if title:
+        title_tokens = re.findall(r"[a-z0-9]{3,}", title.lower())
+        if len(title_tokens) >= 2:
+            candidates.append(" ".join(title_tokens[:2]))
+            candidates.append(" ".join(title_tokens[-2:]))
+
+    # de-dupe preserving order
+    seen = set()
+    out = []
+    for c in candidates:
+        c2 = _normalize_keyword_term(c)
+        if not c2 or c2 in seen:
+            continue
+        seen.add(c2)
+        out.append(c2)
+    return out[:40]
+
+
+async def _fetch_metrics_map_for_keywords(keywords: list[str]) -> dict:
+    """Fetch search volume/cpc/kd and return normalized metrics map."""
+    if not keywords:
+        return {}
+
+    scoped_keywords = keywords[:MAX_KEYWORDS_FOR_METRICS]
+    metrics_map: dict = {}
+    try:
+        bulk_metrics = await asyncio.wait_for(
+            dataforseo_api.get_bulk_metrics_standard(scoped_keywords),
+            timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS,
+        )
+        for item in (bulk_metrics or []):
+            keyword = str(item.get("keyword") or "").strip().lower()
+            if not keyword:
+                continue
+            metrics_map[keyword] = {
+                "search_volume": int(item.get("search_volume") or 0),
+                "cpc": float(item.get("cpc") or 0.0),
+            }
+    except Exception:
+        logger.warning("Bulk metrics request failed for candidate batch", exc_info=True)
+
+    try:
+        kd_rows = await asyncio.wait_for(
+            dataforseo_api.get_keyword_difficulty(scoped_keywords),
+            timeout=DATAFORSEO_KD_TIMEOUT_SECONDS,
+        )
+        for item in (kd_rows or []):
+            keyword = str(item.get("keyword") or "").strip().lower()
+            if not keyword:
+                continue
+            existing = metrics_map.get(keyword, {})
+            existing["keyword_difficulty"] = float(item.get("keyword_difficulty") or 0.0)
+            metrics_map[keyword] = existing
+    except Exception:
+        logger.warning("Keyword difficulty request failed for candidate batch", exc_info=True)
+
+    return metrics_map
+
+
+def _rank_keywords_by_opportunity(candidates: list[str], metrics_map: dict) -> list[dict]:
+    ranked = []
+    for kw in candidates:
+        row = metrics_map.get(kw.lower(), {}) or {}
+        vol = int(row.get("search_volume") or 0)
+        kd = float(row.get("keyword_difficulty") or 0.0)
+        cpc = float(row.get("cpc") or 0.0)
+        # Opportunity: favor measurable volume + manageable difficulty.
+        vol_score = min(vol / 50.0, 100.0)
+        kd_score = max(0.0, 100.0 - kd)
+        cpc_score = min(cpc * 10.0, 30.0)
+        opp = (vol_score * 0.6) + (kd_score * 0.3) + (cpc_score * 0.1)
+        ranked.append({
+            "keyword": kw,
+            "search_volume": vol,
+            "keyword_difficulty": kd,
+            "cpc": cpc,
+            "opportunity": round(opp, 2),
+        })
+    ranked.sort(
+        key=lambda x: (x["search_volume"] > 0, x["opportunity"], x["search_volume"], -x["keyword_difficulty"]),
+        reverse=True,
+    )
+    return ranked
+
+
 def _build_keyword_metrics_payload(
     primary_keyword: str,
     secondary_keywords: list[str],
@@ -99,15 +234,24 @@ def _build_keyword_metrics_payload(
             continue
         normalized_map[str(key).strip().lower()] = value or {}
 
+    source_normalized = str(source or "").strip().lower()
+    is_fallback_source = source_normalized in {"llm_fallback", "unknown", "aggregate_estimate"}
+    default_metric_source = "dataforseo_exact" if not is_fallback_source else "llm_fallback"
+
     def _row(keyword: str) -> dict:
         raw = normalized_map.get(str(keyword or "").strip().lower(), {})
+        search_volume = int(raw.get("search_volume") or 0)
+        keyword_difficulty = float(raw.get("keyword_difficulty") or 0.0)
+        cpc = float(raw.get("cpc") or 0.0)
+        has_exact_metrics = search_volume > 0 or keyword_difficulty > 0 or cpc > 0
+        is_estimated = is_fallback_source or not has_exact_metrics
         return {
             "keyword": str(keyword or "").strip(),
-            "search_volume": int(raw.get("search_volume") or 0),
-            "keyword_difficulty": float(raw.get("keyword_difficulty") or 0.0),
-            "cpc": float(raw.get("cpc") or 0.0),
-            "metric_source": "research_keyword_dossier",
-            "is_estimated": False,
+            "search_volume": search_volume,
+            "keyword_difficulty": keyword_difficulty,
+            "cpc": cpc,
+            "metric_source": default_metric_source if is_estimated else "dataforseo_exact",
+            "is_estimated": is_estimated,
         }
 
     primary = _row(primary_keyword) if primary_keyword else {
@@ -115,8 +259,8 @@ def _build_keyword_metrics_payload(
         "search_volume": 0,
         "keyword_difficulty": 0.0,
         "cpc": 0.0,
-        "metric_source": "research_keyword_dossier",
-        "is_estimated": False,
+        "metric_source": default_metric_source,
+        "is_estimated": True,
     }
     secondary = [_row(keyword) for keyword in (secondary_keywords or []) if str(keyword).strip()]
     return {
@@ -126,7 +270,7 @@ def _build_keyword_metrics_payload(
         },
         "secondary": secondary,
         "candidate_count": len(([primary_keyword] if primary_keyword else []) + [k for k in (secondary_keywords or []) if str(k).strip()]),
-        "source": str(source or "").strip().lower() or "dataforseo",
+        "source": source_normalized or "dataforseo_exact",
         "generated_at": datetime.utcnow().isoformat(),
     }
 
@@ -215,11 +359,13 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     idea_id = idea.get("id")
     start_ts = time.perf_counter()
     keywords = _extract_keywords_for_enrichment(idea)
+    candidates = _build_keyword_candidates(keywords, title=str(idea.get("title") or ""))
     logger.info(
-        "Enrichment start for idea_id=%s title=%s keyword_count=%s",
+        "Enrichment start for idea_id=%s title=%s keyword_count=%s candidate_count=%s",
         idea_id,
         (idea.get("title") or "")[:120],
         len(keywords),
+        len(candidates),
     )
     if not keywords:
         logger.warning("Enrichment aborted for idea_id=%s: no keywords extracted", idea_id)
@@ -240,53 +386,48 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     cpc_count = 0
     kd_count = 0
 
-    metrics_map = {}
-    try:
-        bulk_start = time.perf_counter()
-        bulk_metrics = await asyncio.wait_for(
-            dataforseo_api.get_bulk_metrics_standard(keywords),
-            timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS
-        )
-        logger.info(
-            "DataForSEO bulk metrics completed for idea_id=%s in %.2fs rows=%s",
-            idea_id,
-            time.perf_counter() - bulk_start,
-            len(bulk_metrics or []),
-        )
-        for item in (bulk_metrics or []):
-            keyword = str(item.get("keyword") or "").strip().lower()
-            if not keyword:
-                continue
-            metrics_map[keyword] = {
-                "search_volume": item.get("search_volume") or 0,
-                "cpc": item.get("cpc") or 0.0,
-            }
-    except Exception:
-        logger.warning("DataForSEO bulk metrics failed for idea_id=%s", idea_id, exc_info=True)
+    metrics_map = await _fetch_metrics_map_for_keywords(candidates)
+    ranked_candidates = _rank_keywords_by_opportunity(candidates, metrics_map)
+    non_zero_count = sum(1 for row in ranked_candidates if int(row.get("search_volume") or 0) > 0)
 
-    try:
-        kd_start = time.perf_counter()
-        kd_rows = await asyncio.wait_for(
-            dataforseo_api.get_keyword_difficulty(keywords),
-            timeout=DATAFORSEO_KD_TIMEOUT_SECONDS
-        )
-        logger.info(
-            "DataForSEO keyword difficulty completed for idea_id=%s in %.2fs rows=%s",
-            idea_id,
-            time.perf_counter() - kd_start,
-            len(kd_rows or []),
-        )
-        for item in (kd_rows or []):
-            keyword = str(item.get("keyword") or "").strip().lower()
-            if not keyword:
-                continue
-            existing = metrics_map.get(keyword, {})
-            existing["keyword_difficulty"] = item.get("keyword_difficulty") or 0
-            metrics_map[keyword] = existing
-    except Exception:
-        logger.warning("DataForSEO keyword difficulty failed for idea_id=%s", idea_id, exc_info=True)
+    # Rescue path: if initial candidate set is all zero-volume, expand via DataForSEO related keywords.
+    if non_zero_count == 0 and keywords:
+        rescue_seeds = [_shorten_keyword_term(k) or k for k in keywords[:MAX_RELATED_SEEDS]]
+        rescue_seeds = [s for s in rescue_seeds if s]
+        try:
+            related_rows = await asyncio.wait_for(
+                dataforseo_api.get_related_keywords_standard(
+                    rescue_seeds,
+                    limit_per_seed=MAX_RELATED_PER_SEED,
+                ),
+                timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS,
+            )
+            related_keywords = []
+            seen_related = set()
+            for row in related_rows or []:
+                kw = _normalize_keyword_term(row.get("keyword") or "")
+                if not kw or kw in seen_related:
+                    continue
+                seen_related.add(kw)
+                related_keywords.append(kw)
+            if related_keywords:
+                combined_candidates = candidates + [k for k in related_keywords if k not in set(candidates)]
+                metrics_map = await _fetch_metrics_map_for_keywords(combined_candidates)
+                ranked_candidates = _rank_keywords_by_opportunity(combined_candidates, metrics_map)
+                non_zero_count = sum(1 for row in ranked_candidates if int(row.get("search_volume") or 0) > 0)
+                logger.info(
+                    "Keyword rescue executed for idea_id=%s seeds=%s related=%s non_zero_after=%s",
+                    idea_id,
+                    len(rescue_seeds),
+                    len(related_keywords),
+                    non_zero_count,
+                )
+        except Exception:
+            logger.warning("Keyword rescue related-keyword expansion failed for idea_id=%s", idea_id, exc_info=True)
 
-    for keyword in keywords:
+    selected_keywords = [row["keyword"] for row in ranked_candidates[:5]]
+
+    for keyword in selected_keywords:
         row = metrics_map.get(keyword.lower(), {})
         search_volume = int(row.get("search_volume") or 0)
         cpc = float(row.get("cpc") or 0.0)
@@ -346,11 +487,12 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     )
 
     return {
-        "keywords_used": keywords,
+        "keywords_used": selected_keywords or keywords,
         "total_search_volume": int(total_search_volume),
         "average_cpc": average_cpc,
         "average_difficulty": average_difficulty,
         "keyword_metrics_map": metrics_map,
+        "keyword_ranked_candidates": ranked_candidates[:10],
         "affiliate_offer_count": affiliate_offer_count,
         "affiliate_offers": affiliate_offers_preview,
         "status": "enriched",
@@ -742,6 +884,7 @@ def enrich_content_ideas():
                 "average_cpc": enrichment["average_cpc"],
                 "average_difficulty": enrichment["average_difficulty"],
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
+                "keywords": enrichment.get("keywords_used") or [],
                 "status": "in_progress",
                 "updated_at": now,
             }
@@ -757,6 +900,7 @@ def enrich_content_ideas():
                         "seo_offer_enrichment": {
                             "keywords_used": enrichment["keywords_used"],
                             "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                            "keyword_ranked_candidates": enrichment.get("keyword_ranked_candidates") or [],
                             "affiliate_offers_preview": enrichment["affiliate_offers"],
                             "enriched_at": now,
                         },
@@ -941,6 +1085,7 @@ def refresh_keywords_for_library():
                 "average_cpc": enrichment["average_cpc"],
                 "average_difficulty": enrichment["average_difficulty"],
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
+                "keywords": enrichment.get("keywords_used") or [],
                 "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
                 "status": "in_progress",
                 "updated_at": now,
@@ -953,6 +1098,7 @@ def refresh_keywords_for_library():
                         "seo_offer_enrichment": {
                             "keywords_used": enrichment["keywords_used"],
                             "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                            "keyword_ranked_candidates": enrichment.get("keyword_ranked_candidates") or [],
                             "affiliate_offers_preview": enrichment["affiliate_offers"],
                             "enriched_at": now,
                         },
