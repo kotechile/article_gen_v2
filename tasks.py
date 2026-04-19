@@ -18,7 +18,7 @@ from celery_config import celery
 from supabase_client import get_supabase_client, get_llm_api_key, get_linkup_api_key, get_default_llm_provider
 from llm_client import create_llm_client
 from rag_client import create_rag_client, RAGQuery
-from linkup_client import create_linkup_client
+from linkup_client import create_linkup_client, SearchQuery
 from article_structure_generator import create_article_structure_generator
 from content_generator import create_content_generator, get_tone_specific_instructions
 from citation_generator import create_citation_generator, CitationStyle
@@ -1588,11 +1588,11 @@ def _generate_structure(result: Dict[str, Any], task_instance: Any = None) -> Di
         # Generate structure using the article structure generator (Verbalized sampling explicitly disabled)
         use_verbalized_sampling = False
         structure_generator = create_article_structure_generator(llm_client, use_verbalized_sampling)
+        # Keep call signature aligned with ArticleStructureGenerator.
         structure = structure_generator.generate_structure(
             research_data=research_data,
             claims=claims,
             evidence=evidence,
-            claim_bundles=claim_bundles
         )
         
         # Convert ArticleStructure object to dictionary
