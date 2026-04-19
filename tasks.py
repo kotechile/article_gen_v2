@@ -1375,11 +1375,24 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
         claims = result.get('claims', [])
         brief = research_data.get('brief', '')
         keywords = research_data.get('keywords', '')
+        selected_primary_keyword = str(research_data.get('primary_keyword') or '').strip()
+        selected_secondary_keywords = research_data.get('secondary_keywords') or []
+        if isinstance(selected_secondary_keywords, str):
+            selected_secondary_keywords = [k.strip() for k in selected_secondary_keywords.split(',') if k.strip()]
+        if not isinstance(selected_secondary_keywords, list):
+            selected_secondary_keywords = []
+        selected_secondary_keywords = [str(k).strip() for k in selected_secondary_keywords if str(k).strip()]
+        keyword_strategy_terms = [selected_primary_keyword] + selected_secondary_keywords[:6]
+        keyword_strategy_terms = [k for k in keyword_strategy_terms if k]
+        keyword_strategy_text = ", ".join(keyword_strategy_terms)
+        target_intent = str(research_data.get('selected_keyword_intent') or research_data.get('target_intent') or '').strip().lower()
         research_dossier = research_data.get('research_dossier') or {}
         
         logger.info(f"📊 Claims count: {len(claims)}")
         logger.info(f"📝 Brief length: {len(brief)} chars")
         logger.info(f"🏷️ Keywords: {keywords}")
+        logger.info(f"🎯 Keyword strategy primary: {selected_primary_keyword or '-'}")
+        logger.info(f"🎯 Keyword strategy secondary count: {len(selected_secondary_keywords)}")
         
         evidence = []
         rag_sources = 0
@@ -1464,13 +1477,16 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                     dossier_context = " ".join(
                         [part for part in [dossier_summary, " ".join(dossier_claims), " ".join(dossier_questions)] if part]
                     ).strip()
+                    strategy_prefix = keyword_strategy_text or keywords
+                    intent_hint = f" intent:{target_intent}" if target_intent else ""
                     if draft_title:
-                        rag_query_text = f"{keywords} {draft_title} {brief_context} {dossier_context}"
+                        rag_query_text = f"{strategy_prefix} {draft_title} {brief_context} {dossier_context}{intent_hint}"
                     else:
-                        rag_query_text = f"{keywords} {brief_context} {dossier_context}"
+                        rag_query_text = f"{strategy_prefix} {brief_context} {dossier_context}{intent_hint}"
                     logger.info(f"Creating RAG query:")
                     logger.info(f"  - Brief: '{brief}'")
                     logger.info(f"  - Keywords: '{keywords}'")
+                    logger.info(f"  - Strategy Terms: '{keyword_strategy_text}'")
                     logger.info(f"  - Draft Title: '{draft_title}'")
                     logger.info(f"  - Brief Context: '{brief_context}'")
                     logger.info(f"  - Combined Query: '{rag_query_text}'")
@@ -1543,9 +1559,10 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 }
             )
             
+        keywords_for_coverage = keyword_strategy_text or keywords
         coverage = _assess_rag_coverage(
             evidence, 
-            keywords=keywords,
+            keywords=keywords_for_coverage,
             min_sources=optimization_config.rag_coverage_min_sources,
             min_relevance=optimization_config.rag_coverage_min_relevance
         )
@@ -1555,7 +1572,7 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
         if rag_enabled and len(rag_evidence) > 0:
             rag_coverage = _assess_rag_coverage(
                 rag_evidence=rag_evidence,
-                keywords=keywords,
+                keywords=keywords_for_coverage,
                 min_sources=optimization_config.rag_coverage_min_sources,
                 min_relevance=optimization_config.rag_coverage_min_relevance
             )
@@ -1667,7 +1684,11 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                             added += 1
                         return added
 
-                    normalized_query = ' '.join(f"{brief} {keywords}".split())
+                    strategy_query = keyword_strategy_text or keywords
+                    if target_intent:
+                        normalized_query = ' '.join(f"{brief} {strategy_query} intent {target_intent}".split())
+                    else:
+                        normalized_query = ' '.join(f"{brief} {strategy_query}".split())
                     severe_insufficient = (
                         rag_coverage.get('source_count', 0) < optimization_config.deep_trigger_min_sources or
                         rag_coverage.get('avg_relevance', 0.0) < optimization_config.deep_trigger_min_avg_relevance or
