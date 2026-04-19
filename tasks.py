@@ -837,20 +837,36 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     except Exception as update_error:
                         # Backward-compatible fallback for environments that have not
                         # applied latest metadata migrations yet.
+                        #
+                        # Handle both known optional columns and any future missing
+                        # columns reported by PostgREST schema cache errors.
                         err = str(update_error)
-                        removable_fields = ['quality_report', 'confidence_map', 'quality_gate']
-                        retried = False
-                        for field in removable_fields:
+                        removed_any = False
+
+                        # First-pass known optional fields.
+                        for field in ['quality_report', 'confidence_map', 'quality_gate']:
                             if field in err and field in updates:
                                 logger.warning(
-                                    "%s column missing, retrying Titles update without %s: %s",
-                                    field,
+                                    "Optional column missing; retrying Titles update without %s: %s",
                                     field,
                                     err,
                                 )
                                 updates = {k: v for k, v in updates.items() if k != field}
-                                retried = True
-                        if retried:
+                                removed_any = True
+
+                        # Generic extraction:
+                        # "Could not find the 'quality_gate' column of 'Titles' ..."
+                        missing_cols = re.findall(r"Could not find the '([^']+)' column", err)
+                        for col in missing_cols:
+                            if col in updates:
+                                logger.warning(
+                                    "Schema cache missing column '%s'; retrying Titles update without it.",
+                                    col,
+                                )
+                                updates = {k: v for k, v in updates.items() if k != col}
+                                removed_any = True
+
+                        if removed_any:
                             response = supabase.table('Titles').update(updates).eq('id', article_id).execute()
                         else:
                             raise
