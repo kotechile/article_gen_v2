@@ -33,18 +33,22 @@ function hasWrittenContent(article: any) {
 
 function getStatusStyle(article: any, source: 'titles' | 'content_ideas') {
     const status = article?.status || ''
-    const published = Boolean(article?.published)
     const normalized = (status || '').trim().toLowerCase()
     const wpStatus = String(article?.last_wp_post_status || '').trim().toLowerCase()
     const written = hasWrittenContent(article)
+    const isWpPublished =
+        normalized === 'wp published' ||
+        normalized === 'scheduled' ||
+        wpStatus === 'publish' ||
+        wpStatus === 'future'
 
-    if (wpStatus || published) {
+    if (isWpPublished) {
         return { label: 'WP Published', color: 'text-emerald-500 dark:text-emerald-400' }
     }
     if (written) {
         return { label: 'Written', color: 'text-cyan-500 dark:text-cyan-400' }
     }
-    if (source === 'content_ideas' && (published || status === 'Published' || status === 'published')) {
+    if (source === 'content_ideas' && (status === 'Published' || status === 'published')) {
         return { label: 'New', color: 'text-muted-foreground' }
     }
     if (normalized === 'ready for content' || normalized === 'ready_for_content' || normalized === 'sent to content library' || normalized === 'in library') {
@@ -303,7 +307,11 @@ export const MyArticles: React.FC = () => {
         return count >= 1000 ? (count / 1000).toFixed(1) + 'K' : count.toString()
     }, [articles])
 
-    const publishedCount = articles.filter(a => a.published).length
+    const publishedCount = articles.filter((a: any) => {
+        const status = String(a?.status || '').trim().toLowerCase()
+        const wpStatus = String(a?.last_wp_post_status || '').trim().toLowerCase()
+        return status === 'wp published' || status === 'scheduled' || wpStatus === 'publish' || wpStatus === 'future'
+    }).length
     const allSelected = articles.length > 0 && selectedIds.size === filteredArticles.length
     const titlesOnly = useMemo(() => articles.filter(a => a._source === 'titles'), [articles])
     const qualityMetrics = useMemo(() => {
