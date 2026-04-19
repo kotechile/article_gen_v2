@@ -70,6 +70,15 @@ ARTICLE_MIN_GROUNDING_SCORE = 45
 ARTICLE_MIN_GEO_SCORE = 45
 ARTICLE_MIN_AVG_CLAIM_CONFIDENCE = 0.40
 ARTICLE_MAX_WEAK_CLAIMS = 3
+ARTICLE_MIN_WORD_COUNT = 900
+
+_LOW_SUBSTANCE_PATTERNS = (
+    r"\bthis section covers\b",
+    r"\bthe content provides detailed information and insights\b",
+    r"\boffering practical guidance and actionable advice\b",
+    r"\bthis article demonstrates that\b",
+    r"\ba quick guide to understanding the key concepts\b",
+)
 
 _STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how",
@@ -506,11 +515,20 @@ def _evaluate_article_quality_gates(
     avg_claim_conf = float((confidence_map.get("summary") or {}).get("avg_claim_confidence", 0) or 0)
     weak_claims = int((confidence_map.get("summary") or {}).get("low_count", 0) or 0)
     uncited_paragraphs = int((confidence_map.get("summary") or {}).get("uncited_paragraph_count", 0) or 0)
+    diagnostics = quality_report.get("diagnostics") or {}
+    generated_word_count = int(diagnostics.get("word_count") or 0)
+    placeholder_phrase_hits = int((diagnostics.get("low_substance") or {}).get("placeholder_phrase_hits", 0) or 0)
 
     sensitive = _is_sensitive_topic(research_data, research_data.get("draft_title", ""))
     min_quality = ARTICLE_MIN_QUALITY_SCORE + (8 if sensitive else 0)
     min_grounding = ARTICLE_MIN_GROUNDING_SCORE + (10 if sensitive else 0)
     min_geo = ARTICLE_MIN_GEO_SCORE
+    raw_target_wc = research_data.get("articleLength") or research_data.get("article_length") or 0
+    try:
+        raw_target_wc = int(str(raw_target_wc).strip() or 0)
+    except Exception:
+        raw_target_wc = 0
+    min_word_count = max(ARTICLE_MIN_WORD_COUNT, int(raw_target_wc * 0.50) if raw_target_wc > 0 else ARTICLE_MIN_WORD_COUNT)
     max_uncited = 4 if sensitive else 8
     min_citations = 3 if sensitive else 1
 
@@ -529,6 +547,10 @@ def _evaluate_article_quality_gates(
         failures.append("too_many_uncited_paragraphs")
     if citations_count < min_citations:
         failures.append("insufficient_citations")
+    if generated_word_count < min_word_count:
+        failures.append("word_count_below_threshold")
+    if placeholder_phrase_hits >= 2:
+        failures.append("template_placeholder_content_detected")
 
     decision = "Created" if not failures else "Needs Review"
     return {
@@ -543,6 +565,8 @@ def _evaluate_article_quality_gates(
             "max_low_confidence_claims": ARTICLE_MAX_WEAK_CLAIMS,
             "max_uncited_paragraphs": max_uncited,
             "min_citations": min_citations,
+            "min_word_count": min_word_count,
+            "max_placeholder_phrase_hits": 1,
         },
         "observed": {
             "overall_score": overall,
@@ -552,6 +576,8 @@ def _evaluate_article_quality_gates(
             "low_confidence_claim_count": weak_claims,
             "uncited_paragraph_count": uncited_paragraphs,
             "citations_count": citations_count,
+            "word_count": generated_word_count,
+            "placeholder_phrase_hits": placeholder_phrase_hits,
         },
         "failures": failures,
     }
@@ -3336,6 +3362,28 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         if not full_content.strip() or (current_word_count < 50 and len(sections) > 0):
             logger.error(f"Finalization failed: Content too short ({current_word_count} words)")
             raise ValueError(f"Content generation failed: Produced only {current_word_count} words")
+        
+        # Reject low-substance/template-like drafts before persisting.
+        requested_wc = research_data.get('articleLength') or research_data.get('article_length') or 0
+        try:
+            requested_wc = int(str(requested_wc).strip() or 0)
+        except Exception:
+            requested_wc = 0
+        min_substantive_wc = max(450, int(requested_wc * 0.35) if requested_wc > 0 else 450)
+        plain_preview = _extract_plain_text(full_content or "")
+        placeholder_hits = 0
+        for pattern in _LOW_SUBSTANCE_PATTERNS:
+            placeholder_hits += len(re.findall(pattern, plain_preview.lower()))
+        if current_word_count < min_substantive_wc or placeholder_hits >= 3:
+            logger.error(
+                "Finalization rejected low-substance draft: words=%s min_required=%s placeholder_hits=%s",
+                current_word_count,
+                min_substantive_wc,
+                placeholder_hits,
+            )
+            raise ValueError(
+                f"Low-substance draft rejected (words={current_word_count}, placeholder_hits={placeholder_hits})."
+            )
 
         # Phase 6 GEO enforcement: ensure answer-first block near top when enabled.
         geo_enforce_answer_first = bool(research_data.get('geo_enforce_answer_first', True))

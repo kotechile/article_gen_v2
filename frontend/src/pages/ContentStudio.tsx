@@ -48,6 +48,8 @@ interface ArticleData {
     selected_keyword_search_volume?: number;
     selected_keyword_difficulty?: number;
     keyword_selection_source?: string;
+    supporting_entities_json?: string[] | string;
+    priority_questions_json?: string[] | string;
     // Affiliate
     affiliate_opportunities?: any;
 }
@@ -681,6 +683,20 @@ export const ContentStudio: React.FC = () => {
                                 <div className="p-3 bg-muted/50 rounded-xl">
                                     <div className="text-[10px] text-muted-foreground uppercase mb-1">Difficulty</div>
                                 <div className="font-medium text-sm text-foreground">{article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? '-'}</div>
+                                </div>
+                                <div className="p-3 bg-muted/50 rounded-xl">
+                                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Secondary Keywords</div>
+                                    <div className="font-medium text-sm text-foreground">
+                                        {(() => {
+                                            const raw = article.secondary_keywords_json;
+                                            const list = Array.isArray(raw)
+                                                ? raw
+                                                : (typeof raw === 'string'
+                                                    ? raw.split(',').map((x) => x.trim()).filter(Boolean)
+                                                    : []);
+                                            return list.length > 0 ? list.slice(0, 6).join(', ') : '-';
+                                        })()}
+                                    </div>
                                 </div>
                             </div>
                         </div>

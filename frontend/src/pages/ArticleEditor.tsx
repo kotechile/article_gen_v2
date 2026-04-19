@@ -390,6 +390,9 @@ export const ArticleEditor: React.FC = () => {
                     selected_keyword_intent: d.selected_keyword_intent,
                     selected_keyword_search_volume: d.selected_keyword_search_volume ?? d.total_search_volume,
                     selected_keyword_difficulty: d.selected_keyword_difficulty ?? d.avg_keyword_difficulty,
+                    secondary_keywords_json: d.secondary_keywords_json,
+                    supporting_entities_json: d.supporting_entities_json,
+                    priority_questions_json: d.priority_questions_json,
 
                     // New metrics
                     difficulty_level: d.difficulty_level,
@@ -1509,6 +1512,20 @@ export const ArticleEditor: React.FC = () => {
                                     <div className="p-2 bg-muted/50 rounded-lg">
                                         <div className="text-[9px] text-muted-foreground uppercase">Difficulty</div>
                                         <div className="font-medium text-xs text-foreground">{metrics.selected_keyword_difficulty ?? '-'}</div>
+                                    </div>
+                                    <div className="p-2 bg-muted/50 rounded-lg">
+                                        <div className="text-[9px] text-muted-foreground uppercase">Secondary Keywords</div>
+                                        <div className="font-medium text-xs text-foreground">
+                                            {(() => {
+                                                const raw = metrics.secondary_keywords_json;
+                                                const list = Array.isArray(raw)
+                                                    ? raw
+                                                    : (typeof raw === 'string'
+                                                        ? raw.split(',').map((x: string) => x.trim()).filter(Boolean)
+                                                        : []);
+                                                return list.length > 0 ? list.slice(0, 6).join(', ') : '-';
+                                            })()}
+                                        </div>
                                     </div>
                                 </div>
                             </div>

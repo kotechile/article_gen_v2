@@ -24,6 +24,14 @@ _FILLER_PATTERNS = [
     r"\boverall\b",
 ]
 
+_LOW_SUBSTANCE_PATTERNS = [
+    r"\bthis section covers\b",
+    r"\bthe content provides detailed information and insights\b",
+    r"\boffering practical guidance and actionable advice\b",
+    r"\bthis article demonstrates that\b",
+    r"\ba quick guide to understanding the key concepts\b",
+]
+
 
 def _strip_html(text: str) -> str:
     if not text:
@@ -87,6 +95,21 @@ def _filler_density(text: str) -> Dict[str, Any]:
         "filler_hits": hits,
         "filler_density_per_1000_words": round(density, 2),
         "matched_pattern_count": len(matched_patterns),
+    }
+
+
+def _low_substance_signals(text: str) -> Dict[str, Any]:
+    lower_text = (text or "").lower()
+    hits = 0
+    matched: List[str] = []
+    for pattern in _LOW_SUBSTANCE_PATTERNS:
+        count = len(re.findall(pattern, lower_text))
+        if count > 0:
+            hits += count
+            matched.append(pattern)
+    return {
+        "placeholder_phrase_hits": hits,
+        "matched_pattern_count": len(matched),
     }
 
 
@@ -219,6 +242,7 @@ def build_article_quality_report(
 
     repetition = _repetition_diagnostics(text)
     filler = _filler_density(text)
+    low_substance = _low_substance_signals(text)
     geo = _geo_signals(html_content, text)
     passage_quality = _passage_quality_signals(html_content, text)
     entity_clarity = _entity_clarity_signals(title, text)
@@ -274,6 +298,8 @@ def build_article_quality_report(
         warnings.append("Passage extractability is weak for generative engines.")
     if entity_clarity["entity_clarity_score"] < 45:
         warnings.append("Entity clarity is low; add explicit definitions/disambiguation.")
+    if low_substance["placeholder_phrase_hits"] >= 2:
+        warnings.append("Template-like placeholder phrasing detected; revise for specificity.")
 
     return {
         "version": "phase0_v1",
@@ -293,6 +319,7 @@ def build_article_quality_report(
             "evidence_support_ratio": evidence_support_ratio,
             "repetition": repetition,
             "filler": filler,
+            "low_substance": low_substance,
             "geo_signals": geo,
             "passage_quality": passage_quality,
             "entity_clarity": entity_clarity,
