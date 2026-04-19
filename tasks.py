@@ -19,6 +19,9 @@ from supabase_client import get_supabase_client, get_llm_api_key, get_linkup_api
 from llm_client import create_llm_client
 from rag_client import create_rag_client, RAGQuery
 from linkup_client import create_linkup_client
+from article_structure_generator import create_article_structure_generator
+from content_generator import create_content_generator, get_tone_specific_instructions
+from citation_generator import create_citation_generator, CitationStyle
 from src.utils.config import get_config
 
 # Setup logger
@@ -126,6 +129,69 @@ def _compute_claim_alignment(
     matched_terms = [k for k in claim_keywords if k in text]
     match_ratio = len(set(matched_terms)) / max(len(set(claim_keywords)), 1)
     return {"matched_terms": sorted(set(matched_terms)), "match_ratio": match_ratio}
+
+
+def _assess_rag_coverage(
+    rag_evidence: List[Dict[str, Any]],
+    keywords: str = "",
+    min_sources: int = 2,
+    min_relevance: float = 0.55,
+) -> Dict[str, Any]:
+    """Assess whether current evidence coverage is sufficient to skip web search."""
+    evidence = [e for e in (rag_evidence or []) if isinstance(e, dict)]
+    source_count = len(evidence)
+    if source_count == 0:
+        return {
+            "sufficient": False,
+            "source_count": 0,
+            "avg_relevance": 0.0,
+            "keyword_coverage": 0.0,
+            "assessment": "no_evidence",
+        }
+
+    relevance_scores = []
+    for e in evidence:
+        score = e.get("relevance_score")
+        if score is None:
+            score = e.get("similarity_score", 0.0)
+        try:
+            relevance_scores.append(float(score or 0.0))
+        except Exception:
+            relevance_scores.append(0.0)
+    avg_relevance = sum(relevance_scores) / max(len(relevance_scores), 1)
+
+    kw_tokens = [k.strip().lower() for k in str(keywords or "").split(",") if k.strip()]
+    if kw_tokens:
+        text_parts: List[str] = []
+        for e in evidence:
+            text_parts.extend(
+                [
+                    str(e.get("title", "") or ""),
+                    str(e.get("content", "") or ""),
+                    str(e.get("snippet", "") or ""),
+                ]
+            )
+        combined_text = " ".join(text_parts).lower()
+        hits = sum(1 for kw in kw_tokens if kw in combined_text)
+        keyword_coverage = hits / max(len(kw_tokens), 1)
+    else:
+        keyword_coverage = 1.0
+
+    sufficient = source_count >= int(min_sources) and avg_relevance >= float(min_relevance)
+    if sufficient:
+        assessment = "sufficient"
+    elif source_count < int(min_sources):
+        assessment = "insufficient_sources"
+    else:
+        assessment = "low_relevance"
+
+    return {
+        "sufficient": sufficient,
+        "source_count": source_count,
+        "avg_relevance": round(avg_relevance, 3),
+        "keyword_coverage": round(keyword_coverage, 3),
+        "assessment": assessment,
+    }
 
 
 def _detect_contradiction_signal(evidence_item: Dict[str, Any], claim_text: str) -> bool:
