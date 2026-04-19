@@ -1631,24 +1631,11 @@ def _generate_structure(result: Dict[str, Any], task_instance: Any = None) -> Di
         }
         
     except Exception as e:
-        logger.error(f"Error in structure generation: {str(e)}")
-        return {
-            'structure': {
-                'title': 'Generated Article Title',
-                'hook': 'Generated hook',
-                'deck': 'Generated deck teaser',
-                'excerpt': 'Generated excerpt',
-                'thesis': 'Generated thesis',
-                'meta_description': 'Generated meta description for SEO optimization.',
-                'call_to_action': '',
-                'keywords': [],
-                'article_type': 'article',
-                'target_audience': 'general',
-                'tone': 'journalistic',
-                'sections': []
-            },
-            'stage_data': {'generated_sections': 0, 'error': str(e)}
-        }
+        logger.error(f"Error in structure generation: {str(e)}", exc_info=True)
+        # Fail fast instead of silently returning an empty/fallback structure.
+        # Silent fallback hides provider/auth/model issues and later manifests
+        # as a generic "Produced only 0 words" error in finalization.
+        raise RuntimeError(f"Structure generation failed: {str(e)}") from e
 
 def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Collect section-specific evidence from RAG and Linkup (if needed)."""
@@ -2196,14 +2183,10 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
         }
         
     except Exception as e:
-        logger.error(f"Error in content generation: {str(e)}")
-        return {
-            'content': {
-                'sections': [],
-                'word_count': 0
-            },
-            'stage_data': {'sections_written': 0, 'word_count': 0, 'error': str(e)}
-        }
+        logger.error(f"Error in content generation: {str(e)}", exc_info=True)
+        # Fail fast so clients see the real root cause (e.g. auth/model errors),
+        # instead of a downstream generic finalization failure.
+        raise RuntimeError(f"Content generation stage failed: {str(e)}") from e
 
 def _generate_citations(result: Dict[str, Any]) -> Dict[str, Any]:
     """Generate citations and references using comprehensive citation generator."""
