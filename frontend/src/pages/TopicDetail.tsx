@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ArrowLeft, FileText, TrendingUp, DollarSign, Target, Sparkles, RefreshCw, Lightbulb } from "lucide-react"
 import { motion } from "framer-motion"
 import { IdeaBurstModal } from "@/components/IdeaBurstModal"
+import { toast } from "sonner"
 
 export function TopicDetail() {
     const { id } = useParams<{ id: string }>()
@@ -142,12 +143,9 @@ export function TopicDetail() {
         return Boolean((sub as any).researched || sub.trend_analysis?.manual_researched)
     }
 
-    const handleToggleSubtopicResearched = async (e: React.MouseEvent, sub: Subtopic) => {
-        e.stopPropagation()
+    const handleToggleSubtopicResearched = async (sub: Subtopic, next: boolean) => {
         if (!id || !sub?.id) return
 
-        const current = isSubtopicResearched(sub)
-        const next = !current
         const previousSubtopics = subtopics
 
         const nextTrendAnalysis = {
@@ -172,10 +170,12 @@ export function TopicDetail() {
             await subtopicsService.updateSubtopic(id, sub.id, {
                 trend_analysis: nextTrendAnalysis,
             })
+            toast.success(`Marked as ${next ? "researched" : "not researched"}.`)
         } catch (err) {
             console.error("Failed to update researched state:", err)
             setSubtopics(previousSubtopics)
             setError("Failed to update researched state")
+            toast.error("Could not save researched state.")
         }
     }
 
@@ -560,26 +560,27 @@ export function TopicDetail() {
                                                 {sub.name}
                                             </h3>
                                             <div className="flex items-center gap-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => handleToggleSubtopicResearched(e, sub)}
-                                                    className={`text-xs px-2 py-1 rounded-full border transition-colors ${
+                                                <label
+                                                    className={`text-xs px-2 py-1 rounded-full border transition-colors inline-flex items-center gap-1.5 ${
                                                         isSubtopicResearched(sub)
                                                             ? 'text-emerald-500 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
                                                             : 'text-muted-foreground border-border bg-muted/50 hover:bg-muted'
                                                     }`}
                                                     title="Mark subtopic as researched"
+                                                    onClick={(e) => e.stopPropagation()}
                                                 >
-                                                    <span className="inline-flex items-center gap-1.5">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={isSubtopicResearched(sub)}
-                                                            readOnly
-                                                            className="h-3 w-3 accent-emerald-500"
-                                                        />
-                                                        Researched
-                                                    </span>
-                                                </button>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSubtopicResearched(sub)}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        onChange={(e) => {
+                                                            e.stopPropagation()
+                                                            handleToggleSubtopicResearched(sub, e.target.checked)
+                                                        }}
+                                                        className="h-3 w-3 accent-emerald-500"
+                                                    />
+                                                    Researched
+                                                </label>
                                                 {hasCachedIdeas && (
                                                     <span className="text-xs px-2 py-1 rounded-full border flex-shrink-0 text-indigo-300 border-indigo-500/30 bg-indigo-500/10">
                                                         Ideas

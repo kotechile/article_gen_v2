@@ -1326,6 +1326,9 @@ def keyword_lab_related():
         data = request.get_json() or {}
         seed = _normalize_keyword_term(data.get("seed_keyword") or "")
         limit = int(data.get("limit") or 12)
+        exclude_keywords = data.get("exclude_keywords") or []
+        if isinstance(exclude_keywords, str):
+            exclude_keywords = [part.strip() for part in re.split(r"[\n,]+", exclude_keywords) if part.strip()]
         if not seed:
             return jsonify({"error": "seed_keyword is required"}), 400
 
@@ -1341,20 +1344,23 @@ def keyword_lab_related():
             )
         )
         related_keywords = []
-        seen = set()
+        seen = {seed}
+        exclude_set = {_normalize_keyword_term(k) for k in exclude_keywords if _normalize_keyword_term(k)}
         for row in related_rows or []:
             kw = _normalize_keyword_term(row.get("keyword") or "")
-            if not kw or kw in seen:
+            if not kw or kw in seen or kw in exclude_set:
                 continue
             seen.add(kw)
             related_keywords.append(kw)
+        # Keep seed included as requested, then append new related terms.
+        candidate_keywords = [seed] + related_keywords
         metrics_map = asyncio.run(
             asyncio.wait_for(
-                _fetch_metrics_map_for_keywords(related_keywords, max_keywords_for_metrics=max(15, len(related_keywords))),
+                _fetch_metrics_map_for_keywords(candidate_keywords, max_keywords_for_metrics=max(15, len(candidate_keywords))),
                 timeout=PER_IDEA_ENRICH_TIMEOUT_SECONDS,
             )
         )
-        ranked = _rank_keywords_by_opportunity(related_keywords, metrics_map)
+        ranked = _rank_keywords_by_opportunity(candidate_keywords, metrics_map)
         return jsonify({
             "success": True,
             "seed_keyword": seed,

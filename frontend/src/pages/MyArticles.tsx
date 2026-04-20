@@ -517,7 +517,11 @@ export const MyArticles: React.FC = () => {
 
     const runKeywordLabRelated = async () => {
         if (!user) return
-        const seed = keywordLabPrimary || keywordLabInput.split(/\n|,/g).map((k) => k.trim()).find(Boolean) || ''
+        const currentKeywords = keywordLabInput
+            .split(/\n|,/g)
+            .map((k) => k.trim())
+            .filter(Boolean)
+        const seed = keywordLabPrimary || currentKeywords.find(Boolean) || ''
         if (!seed) return
         setKeywordLabLoading(true)
         try {
@@ -525,6 +529,7 @@ export const MyArticles: React.FC = () => {
                 user_id: user.id,
                 seed_keyword: seed,
                 limit: 15,
+                exclude_keywords: currentKeywords.filter((k) => k.toLowerCase() !== seed.toLowerCase()),
             })
             const rows = Array.isArray(res?.keywords) ? res.keywords : []
             setKeywordLabResults((prev) => {
