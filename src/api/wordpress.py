@@ -219,9 +219,17 @@ def sync_project_categories_to_wordpress():
         synced_count = 0
         local_to_wp: dict[str, int] = {}
         update_rows = []
+        sync_errors = []
+        sync_details = []
 
         level_1 = [c for c in local_categories if int(c.get("level") or 0) == 1]
         level_2 = [c for c in local_categories if int(c.get("level") or 0) == 2]
+
+        by_slug_global = {}
+        for cat in wp_categories:
+            slug = (cat.get("slug") or "").strip().lower()
+            if slug:
+                by_slug_global[slug] = cat
 
         def ensure_wp_category(local_cat, parent_wp_id: int = 0):
             nonlocal created_count, updated_count, synced_count
@@ -230,7 +238,11 @@ def sync_project_categories_to_wordpress():
             if not name:
                 return None
 
-            existing = by_slug_parent.get((slug, parent_wp_id)) or by_name_parent.get((name.lower(), parent_wp_id))
+            existing = (
+                by_slug_parent.get((slug, parent_wp_id))
+                or by_name_parent.get((name.lower(), parent_wp_id))
+                or by_slug_global.get(slug)
+            )
             if existing:
                 cat_id = int(existing.get("id"))
                 needs_update = (
@@ -252,13 +264,23 @@ def sync_project_categories_to_wordpress():
             by_id[cat_id] = existing
             by_slug_parent[(slug, int(parent_wp_id or 0))] = existing
             by_name_parent[(name.lower(), int(parent_wp_id or 0))] = existing
+            by_slug_global[slug] = existing
             synced_count += 1
             return cat_id
 
         # 1) Sync parent categories first.
         for cat in level_1:
             local_id = str(cat.get("id"))
-            wp_id = ensure_wp_category(cat, parent_wp_id=0)
+            try:
+                wp_id = ensure_wp_category(cat, parent_wp_id=0)
+            except Exception as e:
+                sync_errors.append({
+                    "local_category_id": local_id,
+                    "name": cat.get("name"),
+                    "level": 1,
+                    "error": str(e),
+                })
+                continue
             if wp_id:
                 local_to_wp[local_id] = wp_id
                 update_rows.append({
@@ -268,13 +290,30 @@ def sync_project_categories_to_wordpress():
                     "wordpress_site_domain": domain,
                     "wordpress_last_synced_at": datetime.utcnow().isoformat(),
                 })
+                sync_details.append({
+                    "local_category_id": local_id,
+                    "name": cat.get("name"),
+                    "level": 1,
+                    "wordpress_category_id": wp_id,
+                })
 
         # 2) Sync subcategories, linked to mapped parent.
         for cat in level_2:
             local_id = str(cat.get("id"))
             local_parent = str(cat.get("parent_category_id") or "")
             parent_wp_id = local_to_wp.get(local_parent, 0)
-            wp_id = ensure_wp_category(cat, parent_wp_id=parent_wp_id)
+            try:
+                wp_id = ensure_wp_category(cat, parent_wp_id=parent_wp_id)
+            except Exception as e:
+                sync_errors.append({
+                    "local_category_id": local_id,
+                    "name": cat.get("name"),
+                    "level": 2,
+                    "parent_local_id": local_parent or None,
+                    "parent_wordpress_id": parent_wp_id or None,
+                    "error": str(e),
+                })
+                continue
             if wp_id:
                 local_to_wp[local_id] = wp_id
                 update_rows.append({
@@ -283,6 +322,14 @@ def sync_project_categories_to_wordpress():
                     "wordpress_parent_category_id": parent_wp_id or None,
                     "wordpress_site_domain": domain,
                     "wordpress_last_synced_at": datetime.utcnow().isoformat(),
+                })
+                sync_details.append({
+                    "local_category_id": local_id,
+                    "name": cat.get("name"),
+                    "level": 2,
+                    "parent_local_id": local_parent or None,
+                    "parent_wordpress_id": parent_wp_id or None,
+                    "wordpress_category_id": wp_id,
                 })
 
         # Persist mappings back to project_categories.
@@ -308,7 +355,13 @@ def sync_project_categories_to_wordpress():
             "synced": synced_count,
             "created": created_count,
             "updated": updated_count,
-            "details": f"Synced {synced_count} categories to WordPress ({created_count} created, {updated_count} updated).",
+            "errors_count": len(sync_errors),
+            "errors": sync_errors,
+            "category_results": sync_details,
+            "details": (
+                f"Synced {synced_count} categories to WordPress "
+                f"({created_count} created, {updated_count} updated, {len(sync_errors)} errors)."
+            ),
         }), 200
     except Exception as e:
         logger.error(f"Project category sync error: {str(e)}", exc_info=True)

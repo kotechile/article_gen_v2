@@ -91,6 +91,17 @@ class WordPressClient:
             print(f"Error fetching detailed categories from {self.base_url}: {str(e)}")
             raise e
 
+    def get_category(self, category_id: int) -> Dict:
+        """Fetch a single WordPress category by ID."""
+        try:
+            url = f"{self.base_url}/categories/{category_id}"
+            response = requests.get(url, headers=self.headers, timeout=15, verify=False)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching category {category_id} from {self.base_url}: {str(e)}")
+            raise e
+
     def create_category(self, name: str, slug: str, parent: int = 0) -> Dict:
         """Create a WordPress category."""
         try:
@@ -101,7 +112,17 @@ class WordPressClient:
                 "parent": parent or 0,
             }
             response = requests.post(url, headers={**self.headers, 'Content-Type': 'application/json'}, json=payload, timeout=15, verify=False)
-            response.raise_for_status()
+            if not response.ok:
+                # Common WP behavior: term exists -> return existing category id in error payload.
+                try:
+                    err = response.json() or {}
+                    if err.get("code") == "term_exists":
+                        existing_id = ((err.get("data") or {}).get("term_id"))
+                        if existing_id:
+                            return self.get_category(int(existing_id))
+                except Exception:
+                    pass
+                response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
             print(f"Error creating category on {self.base_url}: {str(e)}")

@@ -393,7 +393,11 @@ export const Settings: React.FC = () => {
             }
 
             await fetchCategories(editingId);
-            setSuccess(payload?.details || 'Categories synced with WordPress.');
+            if (payload?.errors_count > 0) {
+                setError(payload?.details || 'Category sync completed with errors. Check WordPress credentials and category slugs.');
+            } else {
+                setSuccess(payload?.details || 'Categories synced with WordPress.');
+            }
         } catch (err: any) {
             setError(err?.message || 'Failed to sync categories with WordPress');
         } finally {
