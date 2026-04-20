@@ -159,7 +159,7 @@ def sync_project_categories_to_wordpress():
         project_resp = (
             supabase
             .table("projects")
-            .select("id, user_id, domain, wpUserName, wordpress_key, app_name")
+            .select("id, user_id, domain, wpusername, wordpress_key, app_name")
             .eq("id", project_id)
             .eq("user_id", user_id)
             .limit(1)
@@ -171,7 +171,7 @@ def sync_project_categories_to_wordpress():
         project = project_rows[0]
 
         domain = (project.get("domain") or "").strip()
-        username = (project.get("wpUserName") or "").strip()
+        username = (project.get("wpusername") or project.get("wpUserName") or "").strip()
         app_password = (project.get("wordpress_key") or "").strip()
         if not domain or not username or not app_password:
             return jsonify({'error': 'WordPress credentials are incomplete for this project'}), 400
