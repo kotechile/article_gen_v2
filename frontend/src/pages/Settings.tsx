@@ -99,7 +99,13 @@ export const Settings: React.FC = () => {
     // Categories State (managed per project being edited)
     const [categories, setCategories] = useState<any[]>([]);
     const [categoriesLoading, setCategoriesLoading] = useState(false);
-    const [editingCategory, setEditingCategory] = useState<{ id?: string; name: string; level: 1 | 2; parent_category_id?: string } | null>(null);
+    const [editingCategory, setEditingCategory] = useState<{
+        id?: string;
+        name: string;
+        description?: string;
+        level: 1 | 2;
+        parent_category_id?: string;
+    } | null>(null);
     const [isSavingCategory, setIsSavingCategory] = useState(false);
     const [isSyncingCategories, setIsSyncingCategories] = useState(false);
 
@@ -210,6 +216,7 @@ export const Settings: React.FC = () => {
                 project_id: editingId,
                 user_id: user.id,
                 name: editingCategory.name,
+                description: (editingCategory.description || '').trim() || null,
                 slug,
                 level: editingCategory.level,
                 parent_category_id: editingCategory.level === 2 ? editingCategory.parent_category_id : null,
@@ -241,7 +248,7 @@ export const Settings: React.FC = () => {
             if (editingCategory.id) {
                 setEditingCategory(null);
             } else {
-                setEditingCategory(prev => prev ? { ...prev, name: '' } : prev);
+                setEditingCategory(prev => prev ? { ...prev, name: '', description: '' } : prev);
             }
         } catch (err: any) {
             alert(err.message || 'Failed to save category');
@@ -784,7 +791,7 @@ export const Settings: React.FC = () => {
                                                     </Button>
                                                     <Button
                                                         onClick={() => {
-                                                            setEditingCategory({ name: '', level: 1 });
+                                                            setEditingCategory({ name: '', description: '', level: 1 });
                                                             fetchCategories(editingId);
                                                         }}
                                                         size="sm"
@@ -821,6 +828,11 @@ export const Settings: React.FC = () => {
                                                                         <div>
                                                                             <p className="text-sm font-medium text-foreground">{category.name}</p>
                                                                             <p className="text-[10px] text-muted-foreground">{childCategories.length} subcategories</p>
+                                                                            {category.description && (
+                                                                                <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2 max-w-[680px]">
+                                                                                    {category.description}
+                                                                                </p>
+                                                                            )}
                                                                         </div>
                                                                     </div>
                                                                     <div className="flex items-center gap-1">
@@ -829,7 +841,12 @@ export const Settings: React.FC = () => {
                                                                             size="icon"
                                                                             className="h-7 w-7 text-muted-foreground hover:text-primary"
                                                                             onClick={() => {
-                                                                                setEditingCategory({ id: category.id, name: category.name, level: 1 });
+                                                                                setEditingCategory({
+                                                                                    id: category.id,
+                                                                                    name: category.name,
+                                                                                    description: category.description || '',
+                                                                                    level: 1
+                                                                                });
                                                                                 fetchCategories(editingId);
                                                                             }}
                                                                         >
@@ -864,7 +881,13 @@ export const Settings: React.FC = () => {
                                                                                         size="icon"
                                                                                         className="h-6 w-6 text-muted-foreground hover:text-primary"
                                                                                         onClick={() => {
-                                                                                            setEditingCategory({ id: child.id, name: child.name, level: 2, parent_category_id: category.id });
+                                                                                            setEditingCategory({
+                                                                                                id: child.id,
+                                                                                                name: child.name,
+                                                                                                description: child.description || '',
+                                                                                                level: 2,
+                                                                                                parent_category_id: category.id
+                                                                                            });
                                                                                             fetchCategories(editingId);
                                                                                         }}
                                                                                     >
@@ -905,6 +928,16 @@ export const Settings: React.FC = () => {
                                                                         value={editingCategory.name}
                                                                         onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
                                                                         className="h-9 rounded-lg"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <Label className="text-xs font-semibold mb-1 block">Category Description (for WordPress SEO context)</Label>
+                                                                    <textarea
+                                                                        placeholder="Describe what this category covers. Used for WordPress category descriptions."
+                                                                        value={editingCategory.description || ''}
+                                                                        onChange={(e) => setEditingCategory({ ...editingCategory, description: e.target.value })}
+                                                                        rows={3}
+                                                                        className="w-full px-3 py-2 text-sm rounded-lg border border-input bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring/40"
                                                                     />
                                                                 </div>
                                                                 <div>

@@ -28,6 +28,25 @@ def _fallback_category_description(
     return f"Articles and guides about {category_name} for {site_domain or 'this website'}."
 
 
+def _shorten_wp_title(raw_name: str, max_chars: int = 60) -> str:
+    """
+    Keep titles SEO-friendly for WordPress category names with a hard max length.
+    Preserves whole words when possible.
+    """
+    name = re.sub(r"\s+", " ", (raw_name or "").strip())
+    if len(name) <= max_chars:
+        return name
+
+    clipped = name[:max_chars].rstrip()
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0].rstrip()
+
+    # If word-boundary clipping became too short, fallback to strict truncation.
+    if len(clipped) < max(20, max_chars // 2):
+        clipped = name[:max_chars].rstrip()
+    return clipped or name[:max_chars]
+
+
 def _generate_category_descriptions(
     domain: str,
     project_name: str | None,
@@ -45,14 +64,25 @@ def _generate_category_descriptions(
         if pid and pid in by_id:
             parent_name_by_id[cid] = (by_id[pid].get("name") or "").strip()
 
-    fallback_map = {
-        str(c.get("id")): _fallback_category_description(
-            (c.get("name") or "").strip(),
-            parent_name_by_id.get(str(c.get("id"))),
-            domain,
-        )
-        for c in categories
-    }
+    fallback_map: dict[str, str] = {}
+    for c in categories:
+        cid = str(c.get("id"))
+        manual_description = str(c.get("description") or "").strip()
+        if manual_description:
+            fallback_map[cid] = manual_description
+        else:
+            fallback_map[cid] = _fallback_category_description(
+                (c.get("name") or "").strip(),
+                parent_name_by_id.get(cid),
+                domain,
+            )
+
+    # Only generate with LLM for entries that do not have a manual description.
+    categories_missing_description = [
+        c for c in categories if not str(c.get("description") or "").strip()
+    ]
+    if not categories_missing_description:
+        return fallback_map
 
     try:
         from supabase_client import get_default_llm_provider as _get_default_llm_provider
@@ -71,7 +101,7 @@ def _generate_category_descriptions(
         from llm_client_direct import create_llm_client
 
         items = []
-        for c in categories:
+        for c in categories_missing_description:
             cid = str(c.get("id"))
             items.append({
                 "id": cid,
@@ -295,18 +325,35 @@ def sync_project_categories_to_wordpress():
         if not domain or not username or not app_password:
             return jsonify({'error': 'WordPress credentials are incomplete for this project'}), 400
 
-        categories_resp = (
-            supabase
-            .table("project_categories")
-            .select("id, name, slug, level, parent_category_id, sort_order")
-            .eq("project_id", project_id)
-            .eq("user_id", user_id)
-            .order("level", desc=False)
-            .order("sort_order", desc=False)
-            .order("name", desc=False)
-            .execute()
-        )
-        local_categories = categories_resp.data or []
+        try:
+            categories_resp = (
+                supabase
+                .table("project_categories")
+                .select("id, name, description, slug, level, parent_category_id, sort_order")
+                .eq("project_id", project_id)
+                .eq("user_id", user_id)
+                .order("level", desc=False)
+                .order("sort_order", desc=False)
+                .order("name", desc=False)
+                .execute()
+            )
+            local_categories = categories_resp.data or []
+        except Exception:
+            # Backward compatibility if description column is not migrated yet.
+            categories_resp = (
+                supabase
+                .table("project_categories")
+                .select("id, name, slug, level, parent_category_id, sort_order")
+                .eq("project_id", project_id)
+                .eq("user_id", user_id)
+                .order("level", desc=False)
+                .order("sort_order", desc=False)
+                .order("name", desc=False)
+                .execute()
+            )
+            local_categories = categories_resp.data or []
+            for row in local_categories:
+                row["description"] = None
         if not local_categories:
             return jsonify({
                 "success": True,
@@ -395,21 +442,22 @@ def sync_project_categories_to_wordpress():
         def ensure_wp_category(local_cat, parent_wp_id: int = 0):
             nonlocal created_count, updated_count, synced_count
             local_id = str(local_cat.get("id") or "")
-            name = (local_cat.get("name") or "").strip()
-            slug = (local_cat.get("slug") or "").strip().lower() or _slugify(name)
+            app_name = (local_cat.get("name") or "").strip()
+            wp_name = _shorten_wp_title(app_name, max_chars=60)
+            slug = (local_cat.get("slug") or "").strip().lower() or _slugify(app_name)
             description = (category_descriptions.get(local_id) or "").strip()
-            if not name:
+            if not app_name:
                 return None
 
             existing = (
                 by_slug_parent.get((slug, parent_wp_id))
-                or by_name_parent.get((name.lower(), parent_wp_id))
+                or by_name_parent.get((wp_name.lower(), parent_wp_id))
                 or by_slug_global.get(slug)
             )
             if existing:
                 cat_id = int(existing.get("id"))
                 needs_update = (
-                    (existing.get("name") or "").strip() != name
+                    (existing.get("name") or "").strip() != wp_name
                     or (existing.get("slug") or "").strip().lower() != slug
                     or int(existing.get("parent") or 0) != int(parent_wp_id or 0)
                     or (existing.get("description") or "").strip() != description
@@ -417,7 +465,7 @@ def sync_project_categories_to_wordpress():
                 if needs_update:
                     updated = client.update_category(
                         cat_id,
-                        name=name,
+                        name=wp_name,
                         slug=slug,
                         parent=parent_wp_id,
                         description=description,
@@ -426,7 +474,7 @@ def sync_project_categories_to_wordpress():
                     updated_count += 1
             else:
                 created = client.create_category(
-                    name=name,
+                    name=wp_name,
                     slug=slug,
                     parent=parent_wp_id,
                     description=description,
@@ -438,7 +486,7 @@ def sync_project_categories_to_wordpress():
             # refresh indexes for child lookups
             by_id[cat_id] = existing
             by_slug_parent[(slug, int(parent_wp_id or 0))] = existing
-            by_name_parent[(name.lower(), int(parent_wp_id or 0))] = existing
+            by_name_parent[(wp_name.lower(), int(parent_wp_id or 0))] = existing
             by_slug_global[slug] = existing
             synced_count += 1
             return cat_id
@@ -468,6 +516,7 @@ def sync_project_categories_to_wordpress():
                 sync_details.append({
                     "local_category_id": local_id,
                     "name": cat.get("name"),
+                    "wordpress_name": _shorten_wp_title((cat.get("name") or "").strip(), max_chars=60),
                     "level": 1,
                     "wordpress_category_id": wp_id,
                 })
@@ -501,6 +550,7 @@ def sync_project_categories_to_wordpress():
                 sync_details.append({
                     "local_category_id": local_id,
                     "name": cat.get("name"),
+                    "wordpress_name": _shorten_wp_title((cat.get("name") or "").strip(), max_chars=60),
                     "level": 2,
                     "parent_local_id": local_parent or None,
                     "parent_wordpress_id": parent_wp_id or None,
