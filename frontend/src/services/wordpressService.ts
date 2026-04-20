@@ -396,3 +396,80 @@ export const loadWordPressSettings = async (
         return null;
     }
 };
+
+const normalizeDomain = (domain: string): string => {
+    const cleaned = String(domain || '').trim().toLowerCase();
+    return cleaned.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+};
+
+/**
+ * Resolve synced WordPress category IDs from the article's linked project/topic categories.
+ * Returns IDs in preferred order: subcategory first (if present), then primary category.
+ */
+export const resolveLinkedWordPressCategoryIds = async (
+    articleData: any,
+    siteDomain: string
+): Promise<number[]> => {
+    try {
+        let topicId: string | null = articleData?.topic_id || null;
+
+        if (!topicId && articleData?.source_idea_id) {
+            const { data: idea } = await supabase
+                .from('content_ideas')
+                .select('topic_id')
+                .eq('id', articleData.source_idea_id)
+                .maybeSingle();
+            topicId = idea?.topic_id || null;
+        }
+
+        if (!topicId) return [];
+
+        const { data: topic } = await supabase
+            .from('research_topics')
+            .select('project_id, primary_category_id, secondary_category_id')
+            .eq('id', topicId)
+            .maybeSingle();
+
+        const projectId = topic?.project_id;
+        const primaryCategoryId = topic?.primary_category_id;
+        const secondaryCategoryId = topic?.secondary_category_id;
+
+        if (!projectId || (!primaryCategoryId && !secondaryCategoryId)) return [];
+
+        const categoryIds = [primaryCategoryId, secondaryCategoryId].filter(Boolean);
+        const { data: mappedCategories } = await supabase
+            .from('project_categories')
+            .select('id, wordpress_category_id, wordpress_site_domain')
+            .eq('project_id', projectId)
+            .in('id', categoryIds as string[]);
+
+        if (!mappedCategories?.length) return [];
+
+        const normalizedSite = normalizeDomain(siteDomain);
+        const mappedById = new Map<string, { wordpress_category_id?: number; wordpress_site_domain?: string }>();
+        for (const row of mappedCategories) {
+            mappedById.set(String(row.id), row);
+        }
+
+        const isDomainCompatible = (row: any) => {
+            const mappedDomain = normalizeDomain(row?.wordpress_site_domain || '');
+            return !mappedDomain || mappedDomain === normalizedSite;
+        };
+
+        const resolved: number[] = [];
+        const secondary = secondaryCategoryId ? mappedById.get(String(secondaryCategoryId)) : null;
+        const primary = primaryCategoryId ? mappedById.get(String(primaryCategoryId)) : null;
+
+        if (secondary?.wordpress_category_id && isDomainCompatible(secondary)) {
+            resolved.push(Number(secondary.wordpress_category_id));
+        }
+        if (primary?.wordpress_category_id && isDomainCompatible(primary)) {
+            resolved.push(Number(primary.wordpress_category_id));
+        }
+
+        return Array.from(new Set(resolved)).filter((id) => Number.isFinite(id));
+    } catch (error) {
+        console.error('Error resolving linked WordPress categories:', error);
+        return [];
+    }
+};

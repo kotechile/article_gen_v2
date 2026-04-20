@@ -60,3 +60,68 @@ class WordPressClient:
         except requests.exceptions.RequestException as e:
             print(f"Error fetching categories from {self.base_url}: {str(e)}")
             raise e
+
+    def get_categories_detailed(self, per_page: int = 100) -> List[Dict]:
+        """Fetch detailed categories from WordPress site with pagination."""
+        try:
+            page = 1
+            categories: List[Dict] = []
+
+            while True:
+                url = f"{self.base_url}/categories"
+                params = {
+                    'per_page': per_page,
+                    'page': page,
+                    'hide_empty': False,
+                    '_fields': 'id,name,slug,parent,count,description',
+                }
+
+                response = requests.get(url, headers=self.headers, params=params, timeout=15, verify=False)
+                response.raise_for_status()
+
+                page_items = response.json() or []
+                categories.extend(page_items)
+
+                if len(page_items) < per_page:
+                    break
+                page += 1
+
+            return categories
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching detailed categories from {self.base_url}: {str(e)}")
+            raise e
+
+    def create_category(self, name: str, slug: str, parent: int = 0) -> Dict:
+        """Create a WordPress category."""
+        try:
+            url = f"{self.base_url}/categories"
+            payload = {
+                "name": name,
+                "slug": slug,
+                "parent": parent or 0,
+            }
+            response = requests.post(url, headers={**self.headers, 'Content-Type': 'application/json'}, json=payload, timeout=15, verify=False)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error creating category on {self.base_url}: {str(e)}")
+            raise e
+
+    def update_category(self, category_id: int, name: Optional[str] = None, slug: Optional[str] = None, parent: Optional[int] = None) -> Dict:
+        """Update a WordPress category."""
+        try:
+            url = f"{self.base_url}/categories/{category_id}"
+            payload: Dict = {}
+            if name is not None:
+                payload["name"] = name
+            if slug is not None:
+                payload["slug"] = slug
+            if parent is not None:
+                payload["parent"] = parent
+
+            response = requests.post(url, headers={**self.headers, 'Content-Type': 'application/json'}, json=payload, timeout=15, verify=False)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error updating category {category_id} on {self.base_url}: {str(e)}")
+            raise e

@@ -101,6 +101,7 @@ export const Settings: React.FC = () => {
     const [categoriesLoading, setCategoriesLoading] = useState(false);
     const [editingCategory, setEditingCategory] = useState<{ id?: string; name: string; level: 1 | 2; parent_category_id?: string } | null>(null);
     const [isSavingCategory, setIsSavingCategory] = useState(false);
+    const [isSyncingCategories, setIsSyncingCategories] = useState(false);
 
     useEffect(() => {
         if (user) {
@@ -368,6 +369,35 @@ export const Settings: React.FC = () => {
             console.error("Sync error:", err);
         } finally {
             setIsSyncing(false);
+        }
+    };
+
+    const handleSyncProjectCategories = async () => {
+        if (!user || !editingId || editingId === 'new') return;
+        setIsSyncingCategories(true);
+        setError(null);
+        setSuccess(null);
+        try {
+            const response = await fetch('/api/wordpress/sync-project-categories', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: user.id,
+                    project_id: editingId
+                })
+            });
+
+            const payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload?.error || 'Category sync failed');
+            }
+
+            await fetchCategories(editingId);
+            setSuccess(payload?.details || 'Categories synced with WordPress.');
+        } catch (err: any) {
+            setError(err?.message || 'Failed to sync categories with WordPress');
+        } finally {
+            setIsSyncingCategories(false);
         }
     };
 
@@ -747,17 +777,29 @@ export const Settings: React.FC = () => {
                                                         Manage categories for {formData.domain || formData.app_name}
                                                     </p>
                                                 </div>
-                                                <Button
-                                                    onClick={() => {
-                                                        setEditingCategory({ name: '', level: 1 });
-                                                        fetchCategories(editingId);
-                                                    }}
-                                                    size="sm"
-                                                    className="h-8 rounded-lg bg-primary hover:bg-primary/90"
-                                                >
-                                                    <Plus className="w-3.5 h-3.5 mr-1" />
-                                                    Add Category
-                                                </Button>
+                                                <div className="flex items-center gap-2">
+                                                    <Button
+                                                        onClick={handleSyncProjectCategories}
+                                                        size="sm"
+                                                        variant="outline"
+                                                        disabled={isSyncingCategories || !formData.wpUserName || !formData.wordpress_key}
+                                                        className="h-8 rounded-lg border-primary/30 text-primary hover:bg-primary/10"
+                                                    >
+                                                        <RefreshCw className={cn("w-3.5 h-3.5 mr-1", isSyncingCategories && "animate-spin")} />
+                                                        {isSyncingCategories ? 'Syncing...' : 'Sync Categories with WordPress'}
+                                                    </Button>
+                                                    <Button
+                                                        onClick={() => {
+                                                            setEditingCategory({ name: '', level: 1 });
+                                                            fetchCategories(editingId);
+                                                        }}
+                                                        size="sm"
+                                                        className="h-8 rounded-lg bg-primary hover:bg-primary/90"
+                                                    >
+                                                        <Plus className="w-3.5 h-3.5 mr-1" />
+                                                        Add Category
+                                                    </Button>
+                                                </div>
                                             </div>
 
                                             {/* Categories List */}

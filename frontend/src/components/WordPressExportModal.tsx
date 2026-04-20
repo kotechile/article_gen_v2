@@ -5,7 +5,8 @@ import {
     fetchWordPressCategories,
     publishToWordPress,
     saveWordPressSettings,
-    loadWordPressSettings
+    loadWordPressSettings,
+    resolveLinkedWordPressCategoryIds
 } from '../services/wordpressService';
 import type { WordPressSite, WordPressCategory } from '../types/wordpress';
 
@@ -40,6 +41,7 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
 
     // Error state
     const [error, setError] = useState<string | null>(null);
+    const [autoCategoryHint, setAutoCategoryHint] = useState<string | null>(null);
 
     // Load WordPress sites on mount
     useEffect(() => {
@@ -76,6 +78,7 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
         const loadCategories = async () => {
             if (!selectedSiteId) {
                 setCategories([]);
+                setAutoCategoryHint(null);
                 return;
             }
 
@@ -87,22 +90,34 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                 setError(null);
                 const wpCategories = await fetchWordPressCategories(selectedSite);
                 setCategories(wpCategories);
+                setAutoCategoryHint(null);
 
                 // Restore saved category if available
                 const savedSettings = await loadWordPressSettings(articleId);
                 if (savedSettings?.categoryId && wpCategories.find(c => c.id === savedSettings.categoryId)) {
                     setSelectedCategoryIds([savedSettings.categoryId]);
+                    setAutoCategoryHint('Using your previously saved category selection.');
+                    return;
+                }
+
+                // Fallback: auto-link from article topic -> research topic -> project categories synced to WordPress
+                const linkedCategoryIds = await resolveLinkedWordPressCategoryIds(articleData, selectedSite.domain);
+                const validLinkedIds = linkedCategoryIds.filter((id) => wpCategories.some((cat) => cat.id === id));
+                if (validLinkedIds.length > 0) {
+                    setSelectedCategoryIds(validLinkedIds);
+                    setAutoCategoryHint('Auto-selected from linked project category/subcategory.');
                 }
             } catch (err) {
                 setError('Failed to load categories from WordPress. Please check your credentials.');
                 setCategories([]);
+                setAutoCategoryHint(null);
             } finally {
                 setLoadingCategories(false);
             }
         };
 
         loadCategories();
-    }, [selectedSiteId, sites, articleId]);
+    }, [selectedSiteId, sites, articleId, articleData]);
 
     // Handle category selection
     const handleCategoryToggle = (categoryId: number) => {
@@ -309,6 +324,11 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                             <FolderTree className="w-4 h-4" />
                             Categories * (select at least one)
                         </label>
+                        {autoCategoryHint && (
+                            <p className="text-xs text-indigo-600 dark:text-indigo-300 mb-2">
+                                {autoCategoryHint}
+                            </p>
+                        )}
                         {loadingCategories ? (
                             <div className="flex items-center justify-center py-8">
                                 <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
