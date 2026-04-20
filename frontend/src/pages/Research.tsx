@@ -240,19 +240,14 @@ export function Research() {
                                                     const ideasCount = Number(topic.content_ideas_count || 0)
                                                     const inLibraryCount = Number(topic.in_library_count || 0)
                                                     const isFullyResearched = Boolean(topic.all_subtopics_researched)
-                                                    const isResearching = Boolean(topic.has_underlying_data) && !isFullyResearched
-                                                    const hasAny = subtopicsCount > 0 || ideasCount > 0 || inLibraryCount > 0
-
+                                                    const hasAnyProgress = subtopicsCount > 0 || ideasCount > 0 || inLibraryCount > 0 || Boolean(topic.has_underlying_data)
+                                                    const isResearching = hasAnyProgress && !isFullyResearched
+                                                    const isNotStarted = !hasAnyProgress && !isFullyResearched
                                                     const chipBase =
                                                         "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-1 text-xs font-medium leading-none"
 
                                                     return (
                                                         <div className="flex flex-col items-end gap-1">
-                                                            {!hasAny && (
-                                                                <span className={`${chipBase} border-border bg-muted/60 text-muted-foreground`}>
-                                                                    Empty
-                                                                </span>
-                                                            )}
                                                             {subtopicsCount > 0 && (
                                                                 <span className={`${chipBase} border-indigo-500/20 bg-indigo-500/10 text-indigo-300`}>
                                                                     {subtopicsCount} Sub-Topics
@@ -266,6 +261,11 @@ export function Research() {
                                                             {isResearching && (
                                                                 <span className={`${chipBase} border-amber-500/30 bg-amber-500/10 text-amber-300`}>
                                                                     Researching
+                                                                </span>
+                                                            )}
+                                                            {isNotStarted && (
+                                                                <span className={`${chipBase} border-border bg-muted/60 text-muted-foreground`}>
+                                                                    Not Started
                                                                 </span>
                                                             )}
                                                             {researchedSubtopicsCount > 0 && !isFullyResearched && (
