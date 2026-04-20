@@ -3,6 +3,8 @@ from supabase_client import get_supabase_client
 from src.utils.wordpress_client import WordPressClient
 import logging
 import re
+import json
+import os
 import requests
 from datetime import datetime
 
@@ -14,6 +16,123 @@ def _slugify(value: str) -> str:
     value = (value or "").strip().lower()
     value = re.sub(r"[^a-z0-9]+", "-", value)
     return re.sub(r"(^-|-$)", "", value) or "category"
+
+
+def _fallback_category_description(
+    category_name: str,
+    parent_name: str | None = None,
+    site_domain: str | None = None,
+) -> str:
+    if parent_name:
+        return f"Articles and guides about {category_name} under {parent_name} for {site_domain or 'this website'}."
+    return f"Articles and guides about {category_name} for {site_domain or 'this website'}."
+
+
+def _generate_category_descriptions(
+    domain: str,
+    project_name: str | None,
+    categories: list[dict],
+) -> dict[str, str]:
+    """
+    Generate category descriptions with the default LLM.
+    Falls back to deterministic template descriptions on any failure.
+    """
+    by_id = {str(c.get("id")): c for c in categories}
+    parent_name_by_id = {}
+    for c in categories:
+        cid = str(c.get("id"))
+        pid = str(c.get("parent_category_id") or "")
+        if pid and pid in by_id:
+            parent_name_by_id[cid] = (by_id[pid].get("name") or "").strip()
+
+    fallback_map = {
+        str(c.get("id")): _fallback_category_description(
+            (c.get("name") or "").strip(),
+            parent_name_by_id.get(str(c.get("id"))),
+            domain,
+        )
+        for c in categories
+    }
+
+    try:
+        from supabase_client import get_default_llm_provider as _get_default_llm_provider
+    except Exception:
+        logger.warning("Default LLM provider helper unavailable, using fallback descriptions.")
+        return fallback_map
+
+    provider, model, api_key = _get_default_llm_provider()
+    if not provider or not model or not api_key:
+        logger.info("No default LLM configured; using fallback category descriptions.")
+        return fallback_map
+
+    try:
+        import sys as _sys
+        _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        from llm_client_direct import create_llm_client
+
+        items = []
+        for c in categories:
+            cid = str(c.get("id"))
+            items.append({
+                "id": cid,
+                "name": (c.get("name") or "").strip(),
+                "level": int(c.get("level") or 1),
+                "parent_name": parent_name_by_id.get(cid),
+            })
+
+        system_prompt = (
+            "You write concise WordPress category descriptions for SEO and readers. "
+            "Return only JSON."
+        )
+        user_prompt = (
+            "Create one plain-text description per category.\n"
+            f"Site domain: {domain}\n"
+            f"Project: {project_name or domain}\n"
+            "Rules:\n"
+            "- 1 sentence, 90-160 characters.\n"
+            "- No markdown, no quotes, no hype.\n"
+            "- Mention the category topic naturally.\n"
+            "- For subcategories, reflect the parent context.\n\n"
+            f"Categories JSON:\n{json.dumps(items, ensure_ascii=True)}\n\n"
+            "Return ONLY a JSON array with this exact shape:\n"
+            "[{\"id\":\"<id>\",\"description\":\"<text>\"}]"
+        )
+
+        llm = create_llm_client(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            temperature=0.3,
+            max_tokens=1500,
+            timeout=45,
+            max_retries=0,
+        )
+        raw = llm.generate([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]).content
+
+        cleaned = (raw or "").strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?", "", cleaned).strip()
+            cleaned = re.sub(r"```$", "", cleaned).strip()
+
+        parsed = json.loads(cleaned)
+        if not isinstance(parsed, list):
+            return fallback_map
+
+        output = dict(fallback_map)
+        for row in parsed:
+            if not isinstance(row, dict):
+                continue
+            cid = str(row.get("id") or "").strip()
+            desc = str(row.get("description") or "").strip()
+            if cid in output and desc:
+                output[cid] = desc
+        return output
+    except Exception as e:
+        logger.warning("Category description LLM generation failed, using fallback: %s", str(e))
+        return fallback_map
 
 @wordpress_bp.route('/api/wordpress/sync-posts', methods=['POST'])
 def sync_wordpress_posts():
@@ -267,10 +386,18 @@ def sync_project_categories_to_wordpress():
             if slug:
                 by_slug_global[slug] = cat
 
+        category_descriptions = _generate_category_descriptions(
+            domain=domain,
+            project_name=(project.get("app_name") or "").strip(),
+            categories=local_categories,
+        )
+
         def ensure_wp_category(local_cat, parent_wp_id: int = 0):
             nonlocal created_count, updated_count, synced_count
+            local_id = str(local_cat.get("id") or "")
             name = (local_cat.get("name") or "").strip()
             slug = (local_cat.get("slug") or "").strip().lower() or _slugify(name)
+            description = (category_descriptions.get(local_id) or "").strip()
             if not name:
                 return None
 
@@ -285,13 +412,25 @@ def sync_project_categories_to_wordpress():
                     (existing.get("name") or "").strip() != name
                     or (existing.get("slug") or "").strip().lower() != slug
                     or int(existing.get("parent") or 0) != int(parent_wp_id or 0)
+                    or (existing.get("description") or "").strip() != description
                 )
                 if needs_update:
-                    updated = client.update_category(cat_id, name=name, slug=slug, parent=parent_wp_id)
+                    updated = client.update_category(
+                        cat_id,
+                        name=name,
+                        slug=slug,
+                        parent=parent_wp_id,
+                        description=description,
+                    )
                     existing = updated
                     updated_count += 1
             else:
-                created = client.create_category(name=name, slug=slug, parent=parent_wp_id)
+                created = client.create_category(
+                    name=name,
+                    slug=slug,
+                    parent=parent_wp_id,
+                    description=description,
+                )
                 existing = created
                 created_count += 1
 

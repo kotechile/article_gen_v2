@@ -102,7 +102,7 @@ class WordPressClient:
             print(f"Error fetching category {category_id} from {self.base_url}: {str(e)}")
             raise e
 
-    def create_category(self, name: str, slug: str, parent: int = 0) -> Dict:
+    def create_category(self, name: str, slug: str, parent: int = 0, description: Optional[str] = None) -> Dict:
         """Create a WordPress category."""
         try:
             url = f"{self.base_url}/categories"
@@ -111,6 +111,8 @@ class WordPressClient:
                 "slug": slug,
                 "parent": parent or 0,
             }
+            if description is not None:
+                payload["description"] = description
             response = requests.post(url, headers={**self.headers, 'Content-Type': 'application/json'}, json=payload, timeout=15, verify=False)
             if not response.ok:
                 # Common WP behavior: term exists -> return existing category id in error payload.
@@ -128,7 +130,14 @@ class WordPressClient:
             print(f"Error creating category on {self.base_url}: {str(e)}")
             raise e
 
-    def update_category(self, category_id: int, name: Optional[str] = None, slug: Optional[str] = None, parent: Optional[int] = None) -> Dict:
+    def update_category(
+        self,
+        category_id: int,
+        name: Optional[str] = None,
+        slug: Optional[str] = None,
+        parent: Optional[int] = None,
+        description: Optional[str] = None,
+    ) -> Dict:
         """Update a WordPress category."""
         try:
             url = f"{self.base_url}/categories/{category_id}"
@@ -139,6 +148,8 @@ class WordPressClient:
                 payload["slug"] = slug
             if parent is not None:
                 payload["parent"] = parent
+            if description is not None:
+                payload["description"] = description
 
             response = requests.post(url, headers={**self.headers, 'Content-Type': 'application/json'}, json=payload, timeout=15, verify=False)
             response.raise_for_status()
