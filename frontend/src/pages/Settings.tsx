@@ -358,12 +358,7 @@ export const Settings: React.FC = () => {
         if (!user) return;
         setIsSyncing(true);
         try {
-            const response = await fetch('/api/wordpress/sync-posts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: user.id })
-            });
-            if (!response.ok) throw new Error('Sync failed');
+            await apiClient.post<any>('/wordpress/sync-posts', { user_id: user.id });
             fetchImportedPosts();
         } catch (err) {
             console.error("Sync error:", err);
@@ -378,19 +373,10 @@ export const Settings: React.FC = () => {
         setError(null);
         setSuccess(null);
         try {
-            const response = await fetch('/api/wordpress/sync-project-categories', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    user_id: user.id,
-                    project_id: editingId
-                })
+            const payload = await apiClient.post<any>('/wordpress/sync-project-categories', {
+                user_id: user.id,
+                project_id: editingId
             });
-
-            const payload = await response.json();
-            if (!response.ok) {
-                throw new Error(payload?.error || 'Category sync failed');
-            }
 
             await fetchCategories(editingId);
             if (payload?.errors_count > 0) {
