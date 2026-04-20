@@ -103,17 +103,6 @@ export const Settings: React.FC = () => {
     const [isSavingCategory, setIsSavingCategory] = useState(false);
     const [isSyncingCategories, setIsSyncingCategories] = useState(false);
 
-    const activeEditingProject = editingId && editingId !== 'new'
-        ? projects.find((p) => p.id === editingId)
-        : null;
-    const hasStoredWordPressCredentials = Boolean(
-        activeEditingProject?.wpUserName && activeEditingProject?.wordpress_key
-    );
-    const hasEnteredWordPressCredentials = Boolean(
-        formData.wpUserName && formData.wordpress_key
-    );
-    const canSyncCategoriesToWordPress = hasStoredWordPressCredentials || hasEnteredWordPressCredentials;
-
     useEffect(() => {
         if (user) {
             fetchAllData();
@@ -797,7 +786,7 @@ export const Settings: React.FC = () => {
                                                         onClick={handleSyncProjectCategories}
                                                         size="sm"
                                                         variant="outline"
-                                                        disabled={isSyncingCategories || !canSyncCategoriesToWordPress}
+                                                        disabled={isSyncingCategories}
                                                         className="h-8 rounded-lg border-primary/30 text-primary hover:bg-primary/10"
                                                     >
                                                         <RefreshCw className={cn("w-3.5 h-3.5 mr-1", isSyncingCategories && "animate-spin")} />
