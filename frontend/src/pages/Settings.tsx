@@ -385,7 +385,11 @@ export const Settings: React.FC = () => {
                 setSuccess(payload?.details || 'Categories synced with WordPress.');
             }
         } catch (err: any) {
-            setError(err?.message || 'Failed to sync categories with WordPress');
+            const serverMessage =
+                err?.response?.data?.details ||
+                err?.response?.data?.message ||
+                err?.response?.data?.error;
+            setError(serverMessage || err?.message || 'Failed to sync categories with WordPress');
         } finally {
             setIsSyncingCategories(false);
         }

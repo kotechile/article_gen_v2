@@ -3,6 +3,7 @@ from supabase_client import get_supabase_client
 from src.utils.wordpress_client import WordPressClient
 import logging
 import re
+import requests
 from datetime import datetime
 
 wordpress_bp = Blueprint('wordpress', __name__)
@@ -197,7 +198,42 @@ def sync_project_categories_to_wordpress():
             }), 200
 
         client = WordPressClient(domain, username, app_password)
-        wp_categories = client.get_categories_detailed()
+        try:
+            wp_categories = client.get_categories_detailed()
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            reason = None
+            if e.response is not None:
+                try:
+                    body = e.response.json() or {}
+                    reason = body.get("message") or body.get("code")
+                except Exception:
+                    reason = e.response.text[:300]
+            logger.warning(
+                "WordPress category fetch failed for domain=%s project=%s status=%s reason=%s",
+                domain,
+                project_id,
+                status,
+                reason,
+            )
+            return jsonify({
+                "success": False,
+                "error": "WordPress API request failed while reading categories",
+                "status_code": status,
+                "details": reason or str(e),
+            }), 400 if status in (400, 401, 403, 404) else 502
+        except requests.exceptions.RequestException as e:
+            logger.warning(
+                "WordPress network error for domain=%s project=%s: %s",
+                domain,
+                project_id,
+                str(e),
+            )
+            return jsonify({
+                "success": False,
+                "error": "Failed to connect to WordPress API",
+                "details": str(e),
+            }), 502
 
         # Build quick lookup indexes.
         by_slug_parent = {}
@@ -333,6 +369,7 @@ def sync_project_categories_to_wordpress():
                 })
 
         # Persist mappings back to project_categories.
+        mapping_update_errors = []
         for row in update_rows:
             update_payload = {
                 "wordpress_category_id": row["wordpress_category_id"],
@@ -345,8 +382,16 @@ def sync_project_categories_to_wordpress():
                 update_payload["wordpress_last_synced_at"] = row["wordpress_last_synced_at"]
                 supabase.table("project_categories").update(update_payload).eq("id", row["id"]).eq("user_id", user_id).execute()
             except Exception:
-                update_payload.pop("wordpress_last_synced_at", None)
-                supabase.table("project_categories").update(update_payload).eq("id", row["id"]).eq("user_id", user_id).execute()
+                # First fallback: retry without wordpress_last_synced_at for older schemas.
+                try:
+                    update_payload.pop("wordpress_last_synced_at", None)
+                    supabase.table("project_categories").update(update_payload).eq("id", row["id"]).eq("user_id", user_id).execute()
+                except Exception as persist_err:
+                    # Do not fail the whole sync if mapping persistence fails.
+                    mapping_update_errors.append({
+                        "local_category_id": row["id"],
+                        "error": str(persist_err),
+                    })
 
         return jsonify({
             "success": True,
@@ -357,10 +402,13 @@ def sync_project_categories_to_wordpress():
             "updated": updated_count,
             "errors_count": len(sync_errors),
             "errors": sync_errors,
+            "mapping_update_errors_count": len(mapping_update_errors),
+            "mapping_update_errors": mapping_update_errors,
             "category_results": sync_details,
             "details": (
                 f"Synced {synced_count} categories to WordPress "
-                f"({created_count} created, {updated_count} updated, {len(sync_errors)} errors)."
+                f"({created_count} created, {updated_count} updated, "
+                f"{len(sync_errors)} sync errors, {len(mapping_update_errors)} mapping update errors)."
             ),
         }), 200
     except Exception as e:
