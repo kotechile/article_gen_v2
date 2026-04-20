@@ -1,6 +1,6 @@
 
 import * as React from "react"
-import { useParams, useNavigate } from "react-router-dom"
+import { useParams, useNavigate, useLocation } from "react-router-dom"
 import { useAuth } from "@/context/auth-context"
 import { researchTopicsService } from "@/services/research-topics.service"
 import { subtopicsService } from "@/services/subtopics.service"
@@ -16,7 +16,12 @@ import { toast } from "sonner"
 export function TopicDetail() {
     const { id } = useParams<{ id: string }>()
     const navigate = useNavigate()
+    const location = useLocation()
     const { user, isLoading: authLoading } = useAuth()
+    const backToResearchUrl = React.useMemo(
+        () => `/research${location.search || ''}`,
+        [location.search]
+    )
 
     // State
     const [topic, setTopic] = React.useState<ResearchTopic | null>(null)
@@ -272,7 +277,7 @@ export function TopicDetail() {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground">
                 <p className="text-red-500 dark:text-red-400 mb-4">{error || "Topic not found"}</p>
-                <Button onClick={() => navigate('/research')} variant="outline">
+                <Button onClick={() => navigate(backToResearchUrl)} variant="outline">
                     Back to Research
                 </Button>
             </div>
@@ -291,7 +296,7 @@ export function TopicDetail() {
                         <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => navigate('/research')}
+                            onClick={() => navigate(backToResearchUrl)}
                             className="text-muted-foreground hover:text-foreground hover:bg-muted/50"
                         >
                             <ArrowLeft className="h-5 w-5" />

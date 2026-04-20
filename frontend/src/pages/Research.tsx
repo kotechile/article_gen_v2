@@ -5,12 +5,20 @@ import { useProject } from "@/context/project-context"
 import { researchTopicsService } from "@/services/research-topics.service"
 import type { ResearchTopic } from "@/types/research"
 import { ResearchTopicStatus } from "@/types/research"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Search, Clock, Trash2, ArrowUpRight, Loader2 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
+
+type ProjectCategory = {
+    id: string
+    name: string
+    level: number
+    parent_category_id: string | null
+}
 
 export function Research() {
     const { user, isLoading: authLoading } = useAuth()
@@ -21,6 +29,9 @@ export function Research() {
     const [searchTerm, setSearchTerm] = React.useState("")
     const [error, setError] = React.useState<string | null>(null)
     const [projectFilter, setProjectFilter] = React.useState<string>("")
+    const [primaryCategoryFilter, setPrimaryCategoryFilter] = React.useState<string>("")
+    const [secondaryCategoryFilter, setSecondaryCategoryFilter] = React.useState<string>("")
+    const [projectCategories, setProjectCategories] = React.useState<ProjectCategory[]>([])
 
     React.useEffect(() => {
         // Default to the active project when available.
@@ -38,7 +49,47 @@ export function Research() {
             setPage(1)
             loadTopics(1, false)
         }
-    }, [authLoading, user, projectFilter])
+    }, [authLoading, user, projectFilter, primaryCategoryFilter, secondaryCategoryFilter])
+
+    React.useEffect(() => {
+        const loadProjectCategories = async () => {
+            if (!user?.id || !projectFilter) {
+                setProjectCategories([])
+                return
+            }
+            const { data, error } = await supabase
+                .from('project_categories')
+                .select('id, name, level, parent_category_id')
+                .eq('user_id', user.id)
+                .eq('project_id', projectFilter)
+                .order('level', { ascending: true })
+                .order('sort_order', { ascending: true })
+                .order('name', { ascending: true })
+
+            if (error) {
+                console.error('Failed to load project categories:', error)
+                setProjectCategories([])
+                return
+            }
+            setProjectCategories((data || []) as ProjectCategory[])
+        }
+        void loadProjectCategories()
+    }, [projectFilter, user?.id])
+
+    React.useEffect(() => {
+        setPrimaryCategoryFilter("")
+        setSecondaryCategoryFilter("")
+    }, [projectFilter])
+
+    React.useEffect(() => {
+        if (!secondaryCategoryFilter) return
+        const exists = projectCategories.some(
+            (category) => category.id === secondaryCategoryFilter && category.parent_category_id === primaryCategoryFilter
+        )
+        if (!exists) {
+            setSecondaryCategoryFilter("")
+        }
+    }, [primaryCategoryFilter, secondaryCategoryFilter, projectCategories])
 
     const loadTopics = async (pageNum: number = 1, append: boolean = false) => {
         try {
@@ -50,6 +101,8 @@ export function Research() {
                 page: pageNum,
                 size: PAGE_SIZE,
                 project_id: projectFilter || undefined,
+                primary_category_id: primaryCategoryFilter || undefined,
+                secondary_category_id: secondaryCategoryFilter || undefined,
             })
 
             if (append) {
@@ -120,6 +173,26 @@ export function Research() {
         return haystack.includes(searchTerm.trim().toLowerCase())
     })
 
+    const primaryCategories = React.useMemo(
+        () => projectCategories.filter((category) => category.level === 1),
+        [projectCategories]
+    )
+    const secondaryCategories = React.useMemo(
+        () => projectCategories.filter(
+            (category) => category.level === 2 && (!primaryCategoryFilter || category.parent_category_id === primaryCategoryFilter)
+        ),
+        [projectCategories, primaryCategoryFilter]
+    )
+
+    const filterQuery = React.useMemo(() => {
+        const params = new URLSearchParams()
+        if (projectFilter) params.set('project_id', projectFilter)
+        if (primaryCategoryFilter) params.set('primary_category_id', primaryCategoryFilter)
+        if (secondaryCategoryFilter) params.set('secondary_category_id', secondaryCategoryFilter)
+        const q = params.toString()
+        return q ? `?${q}` : ''
+    }, [projectFilter, primaryCategoryFilter, secondaryCategoryFilter])
+
     return (
         <div className="min-h-screen bg-background relative overflow-hidden">
             {/* Radial gradient background */}
@@ -151,7 +224,7 @@ export function Research() {
                         </Button>
                     </div>
 
-                    <div className="mt-6 grid gap-3 md:grid-cols-[220px_1fr]">
+                    <div className="mt-6 grid gap-3 md:grid-cols-4">
                         <select
                             className="h-12 rounded-2xl border border-border bg-muted/50 px-4 text-sm text-foreground outline-none focus:border-ring/50"
                             value={projectFilter}
@@ -163,6 +236,37 @@ export function Research() {
                             {projects.map((p) => (
                                 <option key={p.id} value={p.id}>
                                     {p.domain || p.app_name || 'Untitled Project'}
+                                </option>
+                            ))}
+                        </select>
+
+                        <select
+                            className="h-12 rounded-2xl border border-border bg-muted/50 px-4 text-sm text-foreground outline-none focus:border-ring/50 disabled:opacity-50"
+                            value={primaryCategoryFilter}
+                            disabled={!projectFilter}
+                            onChange={(e) => {
+                                setPrimaryCategoryFilter(e.target.value)
+                                setSecondaryCategoryFilter("")
+                            }}
+                        >
+                            <option value="">All categories</option>
+                            {primaryCategories.map((category) => (
+                                <option key={category.id} value={category.id}>
+                                    {category.name}
+                                </option>
+                            ))}
+                        </select>
+
+                        <select
+                            className="h-12 rounded-2xl border border-border bg-muted/50 px-4 text-sm text-foreground outline-none focus:border-ring/50 disabled:opacity-50"
+                            value={secondaryCategoryFilter}
+                            disabled={!projectFilter || !primaryCategoryFilter}
+                            onChange={(e) => setSecondaryCategoryFilter(e.target.value)}
+                        >
+                            <option value="">All subcategories</option>
+                            {secondaryCategories.map((category) => (
+                                <option key={category.id} value={category.id}>
+                                    {category.name}
                                 </option>
                             ))}
                         </select>
@@ -225,7 +329,7 @@ export function Research() {
                                         initial={{ opacity: 0, y: 20 }}
                                         animate={{ opacity: 1, y: 0 }}
                                         transition={{ duration: 0.4, delay: index * 0.05 }}
-                                        onClick={() => navigate(`/research/${topic.id}`)}
+                                        onClick={() => navigate(`/research/${topic.id}${filterQuery}`)}
                                         className="group relative bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-8 cursor-pointer hover:-translate-y-1 hover:border-ring/50 transition-all duration-300"
                                     >
                                         {/* Header with Progress Chips */}

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/auth-context'
+import { useProject } from '../context/project-context'
 import type { Article } from '../types'
 import { Plus, Search, Trash2, Sparkles, Edit, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -15,6 +16,13 @@ type LibraryArticle = Article & {
         nonZero?: number
         bestVolume?: number
     }
+    _topic_id?: string | null
+    _project_id?: string | null
+    _primary_category_id?: string | null
+    _secondary_category_id?: string | null
+    _project_name?: string | null
+    _primary_category_name?: string | null
+    _secondary_category_name?: string | null
 }
 
 type ContentIdeaRow = {
@@ -30,6 +38,14 @@ type ContentIdeaRow = {
     seo_optimization_score: number | null
     created_at: string
     idea_metadata?: any
+    topic_id?: string | null
+}
+
+type ProjectCategory = {
+    id: string
+    name: string
+    level: number
+    parent_category_id: string | null
 }
 
 function hasWrittenContent(article: any) {
@@ -177,6 +193,7 @@ function getKeywordRows(article: any): Array<{ keyword: string; volume: number; 
 
 export const MyArticles: React.FC = () => {
     const { user } = useAuth()
+    const { activeProject, projects } = useProject()
     const navigate = useNavigate()
     const [articles, setArticles] = useState<LibraryArticle[]>([])
     const [loading, setLoading] = useState(true)
@@ -195,6 +212,56 @@ export const MyArticles: React.FC = () => {
     const [keywordLabPrimary, setKeywordLabPrimary] = useState('')
     const [keywordLabSecondary, setKeywordLabSecondary] = useState<Set<string>>(new Set())
     const [expandedKeywordRows, setExpandedKeywordRows] = useState<Set<string>>(new Set())
+    const [projectFilter, setProjectFilter] = useState('')
+    const [primaryCategoryFilter, setPrimaryCategoryFilter] = useState('')
+    const [secondaryCategoryFilter, setSecondaryCategoryFilter] = useState('')
+    const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>([])
+
+    useEffect(() => {
+        if (activeProject?.id && !projectFilter) {
+            setProjectFilter(activeProject.id)
+        }
+    }, [activeProject?.id])
+
+    useEffect(() => {
+        const loadProjectCategories = async () => {
+            if (!user?.id || !projectFilter) {
+                setProjectCategories([])
+                return
+            }
+            const { data, error } = await supabase
+                .from('project_categories')
+                .select('id, name, level, parent_category_id')
+                .eq('user_id', user.id)
+                .eq('project_id', projectFilter)
+                .order('level', { ascending: true })
+                .order('sort_order', { ascending: true })
+                .order('name', { ascending: true })
+
+            if (error) {
+                console.error('Failed to load project categories:', error)
+                setProjectCategories([])
+                return
+            }
+            setProjectCategories((data || []) as ProjectCategory[])
+        }
+        void loadProjectCategories()
+    }, [projectFilter, user?.id])
+
+    useEffect(() => {
+        setPrimaryCategoryFilter('')
+        setSecondaryCategoryFilter('')
+    }, [projectFilter])
+
+    useEffect(() => {
+        if (!secondaryCategoryFilter) return
+        const exists = projectCategories.some(
+            (category) => category.id === secondaryCategoryFilter && category.parent_category_id === primaryCategoryFilter
+        )
+        if (!exists) {
+            setSecondaryCategoryFilter('')
+        }
+    }, [primaryCategoryFilter, secondaryCategoryFilter, projectCategories])
 
     const fetchArticles = async () => {
         if (!user) return
@@ -241,6 +308,7 @@ export const MyArticles: React.FC = () => {
                 seo_optimization_score: row.seo_optimization_score ?? null,
                 created_at: row.created_at,
                 idea_metadata: row.idea_metadata ?? null,
+                topic_id: row.topic_id ?? null,
             })) as ContentIdeaRow[]
             const telemetryByIdeaId = new Map<string, { tier?: string; calls?: number; nonZero?: number; bestVolume?: number }>()
             const telemetryByTitleId = new Map<string, { tier?: string; calls?: number; nonZero?: number; bestVolume?: number }>()
@@ -261,13 +329,107 @@ export const MyArticles: React.FC = () => {
                 if (idea.titles_record_id) telemetryByTitleId.set(String(idea.titles_record_id), telemetry)
             }
 
+            const ideaTopicById = new Map<string, string>()
+            for (const idea of ideaRows) {
+                if (idea.id && idea.topic_id) {
+                    ideaTopicById.set(String(idea.id), String(idea.topic_id))
+                }
+            }
+
+            const topicIds = new Set<string>()
+            for (const row of titleRows as any[]) {
+                const topicId = row.topic_id || (row.source_idea_id ? ideaTopicById.get(String(row.source_idea_id)) : null)
+                if (topicId) topicIds.add(String(topicId))
+            }
+            for (const idea of ideaRows) {
+                if (idea.topic_id) topicIds.add(String(idea.topic_id))
+            }
+
+            const topicById = new Map<string, { project_id?: string | null; primary_category_id?: string | null; secondary_category_id?: string | null }>()
+            const projectNameById = new Map<string, string>()
+            const categoryNameById = new Map<string, string>()
+
+            if (topicIds.size > 0) {
+                const topicIdsArray = Array.from(topicIds)
+                const { data: topicRows, error: topicError } = await supabase
+                    .from('research_topics')
+                    .select('id, project_id, primary_category_id, secondary_category_id')
+                    .in('id', topicIdsArray)
+
+                if (topicError) {
+                    console.warn('[ContentLibrary] research_topics metadata query failed', topicError)
+                } else {
+                    for (const row of (topicRows || []) as any[]) {
+                        topicById.set(String(row.id), {
+                            project_id: row.project_id || null,
+                            primary_category_id: row.primary_category_id || null,
+                            secondary_category_id: row.secondary_category_id || null,
+                        })
+                    }
+                }
+            }
+
+            const projectIds = Array.from(
+                new Set(
+                    Array.from(topicById.values())
+                        .map((row) => row.project_id)
+                        .filter(Boolean)
+                )
+            ) as string[]
+            const categoryIds = Array.from(
+                new Set(
+                    Array.from(topicById.values())
+                        .flatMap((row) => [row.primary_category_id, row.secondary_category_id])
+                        .filter(Boolean)
+                )
+            ) as string[]
+
+            if (projectIds.length > 0) {
+                const { data: projectRows, error: projectError } = await supabase
+                    .from('projects')
+                    .select('id, domain, app_name')
+                    .in('id', projectIds)
+
+                if (projectError) {
+                    console.warn('[ContentLibrary] projects metadata query failed', projectError)
+                } else {
+                    for (const row of (projectRows || []) as any[]) {
+                        projectNameById.set(String(row.id), row.domain || row.app_name || 'Untitled Project')
+                    }
+                }
+            }
+
+            if (categoryIds.length > 0) {
+                const { data: categoryRows, error: categoryError } = await supabase
+                    .from('project_categories')
+                    .select('id, name')
+                    .in('id', categoryIds)
+
+                if (categoryError) {
+                    console.warn('[ContentLibrary] project_categories metadata query failed', categoryError)
+                } else {
+                    for (const row of (categoryRows || []) as any[]) {
+                        categoryNameById.set(String(row.id), String(row.name || ''))
+                    }
+                }
+            }
+
             const enrichedTitleRows = titleRows.map((row: any) => {
                 const ideaTelemetry =
                     telemetryByIdeaId.get(String(row.source_idea_id || '')) ||
                     telemetryByTitleId.get(String(row.id || ''))
+                const topicId = row.topic_id || (row.source_idea_id ? ideaTopicById.get(String(row.source_idea_id)) : null)
+                const topicMeta = topicId ? topicById.get(String(topicId)) : null
                 return {
                     ...row,
                     _keywordTelemetry: ideaTelemetry,
+                    _topic_id: topicId || null,
+                    _project_id: topicMeta?.project_id || null,
+                    _primary_category_id: topicMeta?.primary_category_id || null,
+                    _secondary_category_id: topicMeta?.secondary_category_id || null,
+                    _project_name: topicMeta?.project_id ? (projectNameById.get(String(topicMeta.project_id)) || null) : null,
+                    _primary_category_name: topicMeta?.primary_category_id ? (categoryNameById.get(String(topicMeta.primary_category_id)) || null) : null,
+                    _secondary_category_name: topicMeta?.secondary_category_id ? (categoryNameById.get(String(topicMeta.secondary_category_id)) || null) : null,
                 }
             })
             const publishedIdeas = ideaRows.filter((idea) => {
@@ -278,6 +440,26 @@ export const MyArticles: React.FC = () => {
             })
 
             const mappedIdeas: LibraryArticle[] = publishedIdeas.map((idea) => ({
+                ...(idea.topic_id ? (() => {
+                    const topicMeta = topicById.get(String(idea.topic_id))
+                    return {
+                        _topic_id: idea.topic_id,
+                        _project_id: topicMeta?.project_id || null,
+                        _primary_category_id: topicMeta?.primary_category_id || null,
+                        _secondary_category_id: topicMeta?.secondary_category_id || null,
+                        _project_name: topicMeta?.project_id ? (projectNameById.get(String(topicMeta.project_id)) || null) : null,
+                        _primary_category_name: topicMeta?.primary_category_id ? (categoryNameById.get(String(topicMeta.primary_category_id)) || null) : null,
+                        _secondary_category_name: topicMeta?.secondary_category_id ? (categoryNameById.get(String(topicMeta.secondary_category_id)) || null) : null,
+                    }
+                })() : {
+                    _topic_id: null,
+                    _project_id: null,
+                    _primary_category_id: null,
+                    _secondary_category_id: null,
+                    _project_name: null,
+                    _primary_category_name: null,
+                    _secondary_category_name: null,
+                }),
                 id: idea.id,
                 user_id: idea.user_id,
                 Title: idea.title,
@@ -344,15 +526,41 @@ export const MyArticles: React.FC = () => {
         return copy
     }, [articles, sortKey, sortAsc])
 
+    const primaryCategories = useMemo(
+        () => projectCategories.filter((category) => category.level === 1),
+        [projectCategories]
+    )
+    const secondaryCategories = useMemo(
+        () =>
+            projectCategories.filter(
+                (category) => category.level === 2 && (!primaryCategoryFilter || category.parent_category_id === primaryCategoryFilter)
+            ),
+        [projectCategories, primaryCategoryFilter]
+    )
+
     const filteredArticles = useMemo(
         () =>
             sortedArticles.filter(article => {
-                const titleMatch = article.Title?.toLowerCase().includes(search.toLowerCase())
+                if (projectFilter && article._project_id !== projectFilter) return false
+                if (primaryCategoryFilter && article._primary_category_id !== primaryCategoryFilter) return false
+                if (secondaryCategoryFilter && article._secondary_category_id !== secondaryCategoryFilter) return false
+
+                const haystack = [
+                    article.Title,
+                    article.userDescription,
+                    article._project_name,
+                    article._primary_category_name,
+                    article._secondary_category_name,
+                ]
+                    .filter(Boolean)
+                    .join(' ')
+                    .toLowerCase()
+                const titleMatch = haystack.includes(search.toLowerCase())
                 if (!titleMatch) return false
                 if (!exactMetricsOnly) return true
                 return !isKeywordMetricEstimated(article)
             }),
-        [sortedArticles, search, exactMetricsOnly],
+        [sortedArticles, search, exactMetricsOnly, projectFilter, primaryCategoryFilter, secondaryCategoryFilter],
     )
 
     const handleCreateNew = async () => {
@@ -730,6 +938,57 @@ export const MyArticles: React.FC = () => {
                 </motion.div>
 
                 <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.25, delay: 0.05 }}
+                    className="mt-3 grid gap-3 md:grid-cols-3"
+                >
+                    <select
+                        className="h-10 rounded-lg border border-border bg-muted/50 px-3 text-sm text-foreground outline-none focus:border-ring/50"
+                        value={projectFilter}
+                        onChange={(e) => setProjectFilter(e.target.value)}
+                    >
+                        <option value="">All projects</option>
+                        {projects.map((project) => (
+                            <option key={project.id} value={project.id}>
+                                {project.domain || project.app_name || 'Untitled Project'}
+                            </option>
+                        ))}
+                    </select>
+
+                    <select
+                        className="h-10 rounded-lg border border-border bg-muted/50 px-3 text-sm text-foreground outline-none focus:border-ring/50 disabled:opacity-50"
+                        value={primaryCategoryFilter}
+                        disabled={!projectFilter}
+                        onChange={(e) => {
+                            setPrimaryCategoryFilter(e.target.value)
+                            setSecondaryCategoryFilter('')
+                        }}
+                    >
+                        <option value="">All categories</option>
+                        {primaryCategories.map((category) => (
+                            <option key={category.id} value={category.id}>
+                                {category.name}
+                            </option>
+                        ))}
+                    </select>
+
+                    <select
+                        className="h-10 rounded-lg border border-border bg-muted/50 px-3 text-sm text-foreground outline-none focus:border-ring/50 disabled:opacity-50"
+                        value={secondaryCategoryFilter}
+                        disabled={!projectFilter || !primaryCategoryFilter}
+                        onChange={(e) => setSecondaryCategoryFilter(e.target.value)}
+                    >
+                        <option value="">All subcategories</option>
+                        {secondaryCategories.map((category) => (
+                            <option key={category.id} value={category.id}>
+                                {category.name}
+                            </option>
+                        ))}
+                    </select>
+                </motion.div>
+
+                <motion.div
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.25, delay: 0.06 }}
@@ -873,6 +1132,20 @@ export const MyArticles: React.FC = () => {
                                                                 <p className="mt-0.5 text-xs text-muted-foreground">
                                                                     {getKeywordTelemetryLabel(article)}
                                                                 </p>
+                                                            )}
+                                                            {(article._project_name || article._primary_category_name || article._secondary_category_name) && (
+                                                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                                                    {article._project_name && (
+                                                                        <span className="rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] text-foreground">
+                                                                            {article._project_name}
+                                                                        </span>
+                                                                    )}
+                                                                    {(article._primary_category_name || article._secondary_category_name) && (
+                                                                        <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
+                                                                            {[article._primary_category_name, article._secondary_category_name].filter(Boolean).join(' / ')}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             )}
                                                         </div>
 
