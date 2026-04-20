@@ -7,7 +7,6 @@ import { ModeToggle } from "@/components/mode-toggle"
 import { Separator } from "@/components/ui/separator"
 import { useAuth } from "@/context/auth-context"
 import { Link, useLocation } from "react-router-dom"
-import { supabase } from "@/lib/supabase"
 import { ZenithLogo } from "./ZenithLogo"
 
 const SIDEBAR_STORAGE_KEY = "zenith_sidebar_collapsed"
@@ -15,10 +14,8 @@ const SIDEBAR_STORAGE_KEY = "zenith_sidebar_collapsed"
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> { }
 
 export function Sidebar({ className }: SidebarProps) {
-    const { user } = useAuth()
     const [isCollapsed, setIsCollapsed] = React.useState(false)
     const [mobileOpen, setMobileOpen] = React.useState(false)
-    const [recentArticles, setRecentArticles] = React.useState<Array<{ id: string; Title: string }>>([])
     const location = useLocation()
     const pathname = location.pathname
 
@@ -36,31 +33,6 @@ export function Sidebar({ className }: SidebarProps) {
     React.useEffect(() => {
         setMobileOpen(false)
     }, [pathname])
-
-    React.useEffect(() => {
-        const loadRecentArticles = async () => {
-            if (!user) {
-                setRecentArticles([])
-                return
-            }
-
-            const { data, error } = await supabase
-                .from("Titles")
-                .select("id, Title")
-                .eq("user_id", user.id)
-                .order("dateCreatedOn", { ascending: false })
-                .limit(4)
-
-            if (error) {
-                console.error("Failed to load recent articles", error)
-                return
-            }
-
-            setRecentArticles(data || [])
-        }
-
-        loadRecentArticles()
-    }, [user])
 
     const toggleCollapsed = () => setIsCollapsed((current) => !current)
 
@@ -98,7 +70,7 @@ export function Sidebar({ className }: SidebarProps) {
 
             <aside
                 className={cn(
-                    "fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-border bg-background/95 backdrop-blur-xl transition-all duration-300 md:static md:translate-x-0",
+                    "fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-border bg-background/95 backdrop-blur-xl transition-all duration-300 md:sticky md:top-0 md:translate-x-0",
                     mobileOpen ? "translate-x-0" : "-translate-x-full",
                     isCollapsed ? "w-[92px]" : "w-[290px]",
                     className,
@@ -154,34 +126,6 @@ export function Sidebar({ className }: SidebarProps) {
                             />
                         </div>
 
-                        {!isCollapsed && (
-                            <div className="mt-8 rounded-2xl border border-border bg-muted/50 px-3 py-3">
-                                <div className="mb-2 flex items-center justify-between">
-                                    <p className="text-xs font-medium text-muted-foreground">Recent Articles</p>
-                                    <Link to="/my-articles" className="text-[11px] text-muted-foreground transition-colors hover:text-foreground">
-                                        View all
-                                    </Link>
-                                </div>
-
-                                <div className="space-y-0.5">
-                                    {recentArticles.length === 0 && (
-                                        <p className="px-1 py-3 text-[11px] text-muted-foreground">
-                                            No articles yet.
-                                        </p>
-                                    )}
-
-                                    {recentArticles.map((article) => (
-                                        <Link
-                                            key={article.id}
-                                            to="/my-articles"
-                                            className="block truncate rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                                        >
-                                            {article.Title || "Untitled Article"}
-                                        </Link>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
                     </ScrollArea>
 
                     <div className="mt-auto space-y-3 border-t border-border p-3">
