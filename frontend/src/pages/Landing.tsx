@@ -6,8 +6,10 @@ import { toast } from 'sonner'
 import { useProject } from '@/context/project-context'
 import { useAuth } from '@/context/auth-context'
 import { commandCenterService } from '@/services/command-center.service'
+import { researchTopicsService } from '@/services/research-topics.service'
 import type { Project } from '@/types'
 import type { ProjectCategory, TopicCandidate, TopicCandidateSource, TopicDraft } from '@/types/command-center'
+import type { ResearchTopic } from '@/types/research'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 const inputSelectClasses =
@@ -52,6 +54,7 @@ export function Landing() {
     const [newsLoading, setNewsLoading] = React.useState(false)
     const [manualLoading, setManualLoading] = React.useState(false)
     const [startLoading, setStartLoading] = React.useState(false)
+    const [researchTopicByTitle, setResearchTopicByTitle] = React.useState<Record<string, ResearchTopic>>({})
 
     const primaryCategories = React.useMemo(
         () => categories.filter((category) => category.level === 1),
@@ -151,6 +154,51 @@ export function Landing() {
 
         loadTopics()
     }, [activeProject, secondaryCategoryId])
+
+    React.useEffect(() => {
+        const normalizeTitle = (value: string) => value.trim().toLowerCase()
+
+        const loadResearchTopicStatuses = async () => {
+            if (!activeProject || !primaryCategoryId) {
+                setResearchTopicByTitle({})
+                return
+            }
+
+            try {
+                let page = 1
+                const size = 100
+                const allItems: ResearchTopic[] = []
+
+                while (true) {
+                    const response = await researchTopicsService.listResearchTopics({
+                        page,
+                        size,
+                        project_id: activeProject.id,
+                        primary_category_id: primaryCategoryId,
+                        secondary_category_id: secondaryCategoryId || undefined,
+                        order_by: 'created_at',
+                        order_direction: 'desc',
+                    })
+                    allItems.push(...(response.items || []))
+                    if (!response.has_next) break
+                    page += 1
+                }
+
+                const byTitle: Record<string, ResearchTopic> = {}
+                for (const item of allItems) {
+                    const key = normalizeTitle(item.title || '')
+                    if (!key || byTitle[key]) continue
+                    byTitle[key] = item
+                }
+                setResearchTopicByTitle(byTitle)
+            } catch (error) {
+                console.error('Failed to load research topic statuses for landing page:', error)
+                setResearchTopicByTitle({})
+            }
+        }
+
+        void loadResearchTopicStatuses()
+    }, [activeProject?.id, primaryCategoryId, secondaryCategoryId])
 
     React.useEffect(() => {
         setSelectedTopicIds((current) => {
@@ -565,6 +613,22 @@ export function Landing() {
                                     {topicCandidates.map((topic) => {
                                         const checked = selectedTopicIds.has(topic.id)
                                         const tag = getSourceTag(topic.topic_source)
+                                        const statusTopic = researchTopicByTitle[topic.title.trim().toLowerCase()]
+                                        const subtopicsCount = Number(statusTopic?.subtopics_count || 0)
+                                        const ideasCount = Number(statusTopic?.content_ideas_count || 0)
+                                        const inLibraryCount = Number(statusTopic?.in_library_count || 0)
+                                        const isFullyResearched = Boolean(statusTopic?.all_subtopics_researched)
+                                        const hasAnyProgress = subtopicsCount > 0 || ideasCount > 0 || inLibraryCount > 0 || Boolean(statusTopic?.has_underlying_data)
+                                        const statusLabel = isFullyResearched
+                                            ? 'Researched'
+                                            : hasAnyProgress
+                                                ? 'Researching'
+                                                : 'Not Started'
+                                        const statusClass = isFullyResearched
+                                            ? 'text-emerald-500 dark:text-emerald-400'
+                                            : hasAnyProgress
+                                                ? 'text-amber-500 dark:text-amber-400'
+                                                : 'text-muted-foreground'
                                         return (
                                             <div
                                                 key={topic.id}
@@ -580,6 +644,9 @@ export function Landing() {
                                                 />
                                                 <span className={`min-w-0 flex-1 truncate text-sm ${checked ? 'text-foreground' : 'text-muted-foreground'}`}>
                                                     {topic.title}
+                                                </span>
+                                                <span className={`shrink-0 text-xs font-medium ${statusClass}`}>
+                                                    {statusLabel}
                                                 </span>
                                                 <span className={`shrink-0 text-xs font-medium ${tag.color}`}>
                                                     {tag.label}
