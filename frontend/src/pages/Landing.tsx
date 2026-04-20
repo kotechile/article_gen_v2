@@ -8,7 +8,7 @@ import { useAuth } from '@/context/auth-context'
 import { commandCenterService } from '@/services/command-center.service'
 import { researchTopicsService } from '@/services/research-topics.service'
 import type { Project } from '@/types'
-import type { ProjectCategory, TopicCandidate, TopicCandidateSource, TopicDraft } from '@/types/command-center'
+import type { ProjectCategory, TopicCandidate, TopicDraft } from '@/types/command-center'
 import type { ResearchTopic } from '@/types/research'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
@@ -21,16 +21,6 @@ type TopicInputMode = 'ai' | 'news' | 'manual'
 
 function getProjectDescription(project: Project | null) {
     return project?.site_description || project?.websiteDescription || 'Choose a website to load its research workspace.'
-}
-
-function getSourceTag(source: TopicCandidateSource) {
-    const map: Record<TopicCandidateSource, { label: string; color: string }> = {
-        ai: { label: 'AI', color: 'text-violet-500 dark:text-violet-400' },
-        news: { label: 'News', color: 'text-amber-500 dark:text-amber-400' },
-        seed: { label: 'Seed', color: 'text-muted-foreground' },
-        manual: { label: 'Manual', color: 'text-emerald-500 dark:text-emerald-400' },
-    }
-    return map[source] || { label: source, color: 'text-muted-foreground' }
 }
 
 export function Landing() {
@@ -612,7 +602,6 @@ export function Landing() {
                                 <div className="divide-y divide-border">
                                     {topicCandidates.map((topic) => {
                                         const checked = selectedTopicIds.has(topic.id)
-                                        const tag = getSourceTag(topic.topic_source)
                                         const statusTopic = researchTopicByTitle[topic.title.trim().toLowerCase()]
                                         const subtopicsCount = Number(statusTopic?.subtopics_count || 0)
                                         const ideasCount = Number(statusTopic?.content_ideas_count || 0)
@@ -647,9 +636,6 @@ export function Landing() {
                                                 </span>
                                                 <span className={`shrink-0 text-xs font-medium ${statusClass}`}>
                                                     {statusLabel}
-                                                </span>
-                                                <span className={`shrink-0 text-xs font-medium ${tag.color}`}>
-                                                    {tag.label}
                                                 </span>
                                                 <button
                                                     type="button"
