@@ -61,6 +61,7 @@ def create_app(config_name: str = None) -> Flask:
     from .endpoints.research import research_bp
     from .endpoints.health import health_bp
     from .endpoints.images import images_bp
+    from .endpoints.settings import settings_bp
     from .endpoints.research_topics import research_topics_bp
     from .endpoints.content_ideas import content_ideas_bp
     from .endpoints.ai import ai_bp
@@ -71,6 +72,7 @@ def create_app(config_name: str = None) -> Flask:
     app.register_blueprint(research_bp)
     app.register_blueprint(health_bp)
     app.register_blueprint(images_bp)
+    app.register_blueprint(settings_bp)
     app.register_blueprint(research_topics_bp)
     app.register_blueprint(content_ideas_bp)
     app.register_blueprint(wordpress_bp)
