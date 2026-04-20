@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/auth-context'
 import type { Article } from '../types'
-import { Plus, Search, Trash2, Sparkles, Edit, X } from 'lucide-react'
+import { Plus, Search, Trash2, Sparkles, Edit, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { apiClient } from '../api-client'
@@ -194,6 +194,7 @@ export const MyArticles: React.FC = () => {
     const [keywordLabResultMap, setKeywordLabResultMap] = useState<Record<string, any>>({})
     const [keywordLabPrimary, setKeywordLabPrimary] = useState('')
     const [keywordLabSecondary, setKeywordLabSecondary] = useState<Set<string>>(new Set())
+    const [expandedKeywordRows, setExpandedKeywordRows] = useState<Set<string>>(new Set())
 
     const fetchArticles = async () => {
         if (!user) return
@@ -803,7 +804,7 @@ export const MyArticles: React.FC = () => {
                         </div>
                     ) : (
                         <>
-                            <div className="grid grid-cols-[2.5rem_1fr_5.5rem_4rem_4rem_4rem_4rem_4.5rem_4.5rem_5.5rem_6rem_auto] items-center gap-2 border-b border-border px-1 pb-3 text-[11px] uppercase tracking-wider text-muted-foreground">
+                            <div className="flex items-center gap-3 border-b border-border px-1 pb-3 text-[11px] uppercase tracking-wider text-muted-foreground">
                                 <span className="flex justify-center">
                                     <input
                                         type="checkbox"
@@ -816,70 +817,7 @@ export const MyArticles: React.FC = () => {
                                         }}
                                     />
                                 </span>
-                                <button
-                                    type="button"
-                                    onClick={() => handleSort('Title')}
-                                    className="text-left hover:text-foreground transition"
-                                >
-                                    Title{sortKey === 'Title' ? (sortAsc ? ' ▲' : ' ▼') : ''}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleSort('status')}
-                                    className="text-left hover:text-foreground transition"
-                                >
-                                    Status{sortKey === 'status' ? (sortAsc ? ' ▲' : ' ▼') : ''}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleSort('seo_optimization_score')}
-                                    className="text-left hover:text-foreground transition cursor-help"
-                                    title="SEO: Search Engine Optimization score based on on-page relevance and keyword targeting."
-                                >
-                                    SEO{sortKey === 'seo_optimization_score' ? (sortAsc ? ' ▲' : ' ▼') : ''}
-                                </button>
-                                <span
-                                    className="text-left cursor-help"
-                                    title="HUM: Humanization score."
-                                >
-                                    Hum
-                                </span>
-                                <span
-                                    className="text-left cursor-help"
-                                    title="GRD: Grounding score."
-                                >
-                                    Grd
-                                </span>
-                                <span
-                                    className="text-left cursor-help"
-                                    title="GEO: Generative Engine Optimization score."
-                                >
-                                    GEO
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => handleSort('selected_keyword_search_volume' as keyof Article)}
-                                    className="text-left hover:text-foreground transition"
-                                >
-                                    Vol{sortKey === 'selected_keyword_search_volume' ? (sortAsc ? ' ▲' : ' ▼') : ''}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleSort('selected_keyword_difficulty' as keyof Article)}
-                                    className="text-left hover:text-foreground transition cursor-help"
-                                    title="KD: Keyword Difficulty. Lower values are generally easier to rank for."
-                                >
-                                    KD{sortKey === 'selected_keyword_difficulty' ? (sortAsc ? ' ▲' : ' ▼') : ''}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleSort('traffic_potential_score' as keyof Article)}
-                                    className="text-left hover:text-foreground transition cursor-help"
-                                    title="Opp: Opportunity score balancing search volume and keyword difficulty."
-                                >
-                                    Opp{sortKey === 'traffic_potential_score' ? (sortAsc ? ' ▲' : ' ▼') : ''}
-                                </button>
-                                <span className="text-left">Gate</span>
+                                <span className="text-left">Select</span>
                                 <button
                                     type="button"
                                     onClick={() => handleSort('dateCreatedOn')}
@@ -887,7 +825,6 @@ export const MyArticles: React.FC = () => {
                                 >
                                     Date{sortKey === 'dateCreatedOn' ? (sortAsc ? ' ▲' : ' ▼') : ''}
                                 </button>
-                                <span className="text-right">Actions</span>
                             </div>
 
                             <div className="divide-y divide-border">
@@ -900,127 +837,172 @@ export const MyArticles: React.FC = () => {
                                     const volume = safeNumber((article as any).selected_keyword_search_volume ?? (article as any).total_search_volume)
                                     const difficulty = safeNumber((article as any).selected_keyword_difficulty ?? (article as any).avg_keyword_difficulty)
                                     const opportunity = getKeywordOpportunityScore(article)
+                                    const keywordsExpanded = expandedKeywordRows.has(article.id)
                                     return (
                                         <div
                                             key={article.id}
-                                            className={`grid grid-cols-[2.5rem_1fr_5.5rem_4rem_4rem_4rem_4rem_4.5rem_4.5rem_5.5rem_6rem_auto] items-center gap-2 px-1 py-3 transition ${
-                                                selected ? 'bg-primary/[0.05]' : ''
+                                            className={`px-1 py-4 transition ${
+                                                selected ? 'bg-primary/[0.05] rounded-lg' : ''
                                             }`}
                                         >
-                                            <span className="flex justify-center">
-                                                <input
-                                                    type="checkbox"
-                                                    className="h-4 w-4 rounded border-border bg-transparent text-primary focus:ring-ring focus:ring-offset-0"
-                                                    checked={selected}
-                                                    onChange={() => handleToggleSelect(article.id)}
-                                                />
-                                            </span>
+                                            <div className="flex items-start gap-3">
+                                                <span className="mt-1 flex justify-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="h-4 w-4 rounded border-border bg-transparent text-primary focus:ring-ring focus:ring-offset-0"
+                                                        checked={selected}
+                                                        onChange={() => handleToggleSelect(article.id)}
+                                                    />
+                                                </span>
 
-                                            <div className="min-w-0">
-                                                <p className="text-sm font-medium text-foreground break-words">
-                                                    {article.Title || 'Untitled'}
-                                                </p>
-                                                {article.userDescription && (
-                                                    <p className="mt-0.5 text-xs text-muted-foreground break-words">
-                                                        {article.userDescription}
-                                                    </p>
-                                                )}
-                                                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                                                    {keywordEstimated ? 'Needs Keyword Refresh' : 'Exact Keyword Metrics'} · {metricSource}
-                                                </p>
-                                                {getKeywordTelemetryLabel(article) && (
-                                                    <p className="mt-0.5 text-[11px] text-muted-foreground">
-                                                        {getKeywordTelemetryLabel(article)}
-                                                    </p>
-                                                )}
-                                                <div className="mt-1 flex flex-wrap gap-1">
-                                                    {keywordRows.slice(0, 3).map((row, idx) => (
-                                                        <span
-                                                            key={`${row.keyword}-${idx}`}
-                                                            className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] ${
-                                                                row.isEstimated
-                                                                    ? 'border-amber-500/30 text-amber-400'
-                                                                    : 'border-emerald-500/30 text-emerald-400'
-                                                            }`}
-                                                            title={`Keyword: ${row.keyword} | Vol: ${row.volume} | KD: ${row.difficulty} | CPC: ${row.cpc}`}
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="text-xl font-semibold text-foreground leading-tight">
+                                                                {article.Title || 'Untitled'}
+                                                            </p>
+                                                            {article.userDescription && (
+                                                                <p className="mt-1 text-sm text-muted-foreground">
+                                                                    {article.userDescription}
+                                                                </p>
+                                                            )}
+                                                            <p className="mt-1 text-xs text-muted-foreground">
+                                                                {keywordEstimated ? 'Needs Keyword Refresh' : 'Exact Keyword Metrics'} · {metricSource}
+                                                            </p>
+                                                            {getKeywordTelemetryLabel(article) && (
+                                                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                                                    {getKeywordTelemetryLabel(article)}
+                                                                </p>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`text-xs font-medium ${status.color} ${
+                                                                status.label === 'WP Published'
+                                                                    ? 'inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5'
+                                                                    : ''
+                                                            }`}>
+                                                                {status.label}
+                                                            </span>
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {new Date(article.dateCreatedOn).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                                            </span>
+                                                            <div className="ml-1 flex items-center gap-1">
+                                                                <button
+                                                                    onClick={() => navigate(`/content-studio?id=${article.id}`)}
+                                                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-primary"
+                                                                    title="Generate"
+                                                                >
+                                                                    <Sparkles className="h-3.5 w-3.5" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => navigate(article._source === 'content_ideas' ? `/content-studio?id=${article.id}` : `/article-editor/${article.id}`)}
+                                                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                                                                    title={article._source === 'content_ideas' ? 'Open in Studio' : 'Edit'}
+                                                                >
+                                                                    <Edit className="h-3.5 w-3.5" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleDelete(article.id)}
+                                                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-destructive"
+                                                                    title="Delete"
+                                                                >
+                                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                                </button>
+                                                                {article._source === 'titles' && (
+                                                                    <button
+                                                                        onClick={() => openKeywordLab(article)}
+                                                                        className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-emerald-400"
+                                                                        title="Keyword Lab"
+                                                                    >
+                                                                        <span className="text-[11px] font-semibold">KW</span>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-8">
+                                                        <div className="rounded-md border border-border/70 bg-muted/20 p-2">
+                                                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">SEO</p>
+                                                            <p className={`text-xs font-semibold ${getScoreColor(article.seo_optimization_score)}`}>{article.seo_optimization_score ?? '—'}</p>
+                                                        </div>
+                                                        <div className="rounded-md border border-border/70 bg-muted/20 p-2">
+                                                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">HUM</p>
+                                                            <p className={`text-xs font-semibold ${getScoreColor(safeNumber((article as any)?.quality_report?.humanization_score) ?? undefined)}`}>{safeNumber((article as any)?.quality_report?.humanization_score) ?? '—'}</p>
+                                                        </div>
+                                                        <div className="rounded-md border border-border/70 bg-muted/20 p-2">
+                                                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">GRD</p>
+                                                            <p className={`text-xs font-semibold ${getScoreColor(safeNumber((article as any)?.quality_report?.grounding_score) ?? undefined)}`}>{safeNumber((article as any)?.quality_report?.grounding_score) ?? '—'}</p>
+                                                        </div>
+                                                        <div className="rounded-md border border-border/70 bg-muted/20 p-2">
+                                                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">GEO</p>
+                                                            <p className={`text-xs font-semibold ${getScoreColor(safeNumber((article as any)?.quality_report?.geo_score) ?? undefined)}`}>{safeNumber((article as any)?.quality_report?.geo_score) ?? '—'}</p>
+                                                        </div>
+                                                        <div className="rounded-md border border-border/70 bg-muted/20 p-2">
+                                                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Vol</p>
+                                                            <p className={`text-xs font-semibold ${getScoreColor(opportunity ?? undefined)}`}>{volume ?? '—'}</p>
+                                                        </div>
+                                                        <div className="rounded-md border border-border/70 bg-muted/20 p-2">
+                                                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">KD</p>
+                                                            <p className={`text-xs font-semibold ${difficulty != null ? getScoreColor(100 - difficulty) : 'text-muted-foreground'}`}>{difficulty ?? '—'}</p>
+                                                        </div>
+                                                        <div className="rounded-md border border-border/70 bg-muted/20 p-2">
+                                                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Opp</p>
+                                                            <p className={`text-xs font-semibold ${getScoreColor(opportunity ?? undefined)}`}>{opportunity ?? '—'}</p>
+                                                        </div>
+                                                        <div className="rounded-md border border-border/70 bg-muted/20 p-2">
+                                                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Gate</p>
+                                                            <p className="text-xs font-semibold text-muted-foreground">{(article as any)?.quality_gate?.decision || '—'}</p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="mt-3">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setExpandedKeywordRows((prev) => {
+                                                                    const next = new Set(prev)
+                                                                    if (next.has(article.id)) next.delete(article.id)
+                                                                    else next.add(article.id)
+                                                                    return next
+                                                                })
+                                                            }}
+                                                            className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/20 px-2 py-1 text-xs text-foreground hover:bg-muted/30"
                                                         >
-                                                            {row.keyword} · V{row.volume} · KD{row.difficulty}
-                                                        </span>
-                                                    ))}
-                                                    {keywordRows.length === 0 && (
-                                                        <span className="text-[10px] text-muted-foreground">No keyword metrics yet</span>
-                                                    )}
+                                                            {keywordsExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                                            Keywords ({keywordRows.length})
+                                                        </button>
+                                                        {keywordsExpanded && (
+                                                            <div className="mt-2 overflow-x-auto rounded-lg border border-border">
+                                                                {keywordRows.length === 0 ? (
+                                                                    <p className="p-3 text-xs text-muted-foreground">No keyword metrics yet</p>
+                                                                ) : (
+                                                                    <table className="w-full text-left text-xs">
+                                                                        <thead className="bg-muted/20 text-muted-foreground">
+                                                                            <tr>
+                                                                                <th className="px-3 py-2 font-medium">Keyword</th>
+                                                                                <th className="px-3 py-2 font-medium">Vol</th>
+                                                                                <th className="px-3 py-2 font-medium">KD</th>
+                                                                                <th className="px-3 py-2 font-medium">CPC</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody className="divide-y divide-border">
+                                                                            {keywordRows.map((row, idx) => (
+                                                                                <tr key={`${row.keyword}-${idx}`}>
+                                                                                    <td className="px-3 py-2 text-foreground">{row.keyword}</td>
+                                                                                    <td className="px-3 py-2 text-muted-foreground">{row.volume}</td>
+                                                                                    <td className="px-3 py-2 text-muted-foreground">{row.difficulty}</td>
+                                                                                    <td className="px-3 py-2 text-muted-foreground">{row.cpc}</td>
+                                                                                </tr>
+                                                                            ))}
+                                                                        </tbody>
+                                                                    </table>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </div>
-
-                                            <span className={`text-xs font-medium ${status.color} ${
-                                                status.label === 'WP Published'
-                                                    ? 'inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5'
-                                                    : ''
-                                            }`}>
-                                                {status.label}
-                                            </span>
-
-                                            <span className={`text-xs font-medium ${getScoreColor(article.seo_optimization_score)}`}>
-                                                {article.seo_optimization_score != null ? article.seo_optimization_score : '—'}
-                                            </span>
-                                            <span className={`text-xs font-medium ${getScoreColor(safeNumber((article as any)?.quality_report?.humanization_score) ?? undefined)}`}>
-                                                {safeNumber((article as any)?.quality_report?.humanization_score) ?? '—'}
-                                            </span>
-                                            <span className={`text-xs font-medium ${getScoreColor(safeNumber((article as any)?.quality_report?.grounding_score) ?? undefined)}`}>
-                                                {safeNumber((article as any)?.quality_report?.grounding_score) ?? '—'}
-                                            </span>
-                                            <span className={`text-xs font-medium ${getScoreColor(safeNumber((article as any)?.quality_report?.geo_score) ?? undefined)}`}>
-                                                {safeNumber((article as any)?.quality_report?.geo_score) ?? '—'}
-                                            </span>
-                                            <span className={`text-xs font-medium ${getScoreColor(opportunity ?? undefined)}`}>
-                                                {volume ?? '—'}
-                                            </span>
-                                            <span className={`text-xs font-medium ${difficulty != null ? getScoreColor(100 - difficulty) : 'text-muted-foreground'}`}>
-                                                {difficulty ?? '—'}
-                                            </span>
-                                            <span className={`text-xs font-medium ${getScoreColor(opportunity ?? undefined)}`}>
-                                                {opportunity ?? '—'}
-                                            </span>
-                                            <span className="text-xs text-muted-foreground">
-                                                {(article as any)?.quality_gate?.decision || '—'}
-                                            </span>
-
-                                            <span className="text-xs text-muted-foreground">
-                                                {new Date(article.dateCreatedOn).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                            </span>
-
-                                            <div className="flex items-center justify-end gap-1">
-                                                <button
-                                                    onClick={() => navigate(`/content-studio?id=${article.id}`)}
-                                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-primary"
-                                                    title="Generate"
-                                                >
-                                                    <Sparkles className="h-3.5 w-3.5" />
-                                                </button>
-                                                <button
-                                                    onClick={() => navigate(article._source === 'content_ideas' ? `/content-studio?id=${article.id}` : `/article-editor/${article.id}`)}
-                                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                                                    title={article._source === 'content_ideas' ? 'Open in Studio' : 'Edit'}
-                                                >
-                                                    <Edit className="h-3.5 w-3.5" />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(article.id)}
-                                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-destructive"
-                                                    title="Delete"
-                                                >
-                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                </button>
-                                                {article._source === 'titles' && (
-                                                    <button
-                                                        onClick={() => openKeywordLab(article)}
-                                                        className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-emerald-400"
-                                                        title="Keyword Lab"
-                                                    >
-                                                        <span className="text-[11px] font-semibold">KW</span>
-                                                    </button>
-                                                )}
                                             </div>
                                         </div>
                                     )
