@@ -917,19 +917,19 @@ export const MyArticles: React.FC = () => {
                                             </span>
 
                                             <div className="min-w-0">
-                                                <p className="truncate text-sm font-medium text-foreground">
+                                                <p className="text-sm font-medium text-foreground break-words">
                                                     {article.Title || 'Untitled'}
                                                 </p>
                                                 {article.userDescription && (
-                                                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                                                    <p className="mt-0.5 text-xs text-muted-foreground break-words">
                                                         {article.userDescription}
                                                     </p>
                                                 )}
-                                                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                                                <p className="mt-0.5 text-[11px] text-muted-foreground">
                                                     {keywordEstimated ? 'Needs Keyword Refresh' : 'Exact Keyword Metrics'} · {metricSource}
                                                 </p>
                                                 {getKeywordTelemetryLabel(article) && (
-                                                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                                                    <p className="mt-0.5 text-[11px] text-muted-foreground">
                                                         {getKeywordTelemetryLabel(article)}
                                                     </p>
                                                 )}

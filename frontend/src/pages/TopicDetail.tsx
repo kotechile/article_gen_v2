@@ -566,7 +566,7 @@ export function TopicDetail() {
                                                             ? 'text-emerald-500 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
                                                             : 'text-muted-foreground border-border bg-muted/50 hover:bg-muted'
                                                     }`}
-                                                    title="Mark subtopic as researched"
+                                                    title="Mark subtopic as completed"
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
                                                     <input
@@ -579,7 +579,7 @@ export function TopicDetail() {
                                                         }}
                                                         className="h-3 w-3 accent-emerald-500"
                                                     />
-                                                    Researched
+                                                    Completed
                                                 </label>
                                                 {hasCachedIdeas && (
                                                     <span className="text-xs px-2 py-1 rounded-full border flex-shrink-0 text-indigo-300 border-indigo-500/30 bg-indigo-500/10">
