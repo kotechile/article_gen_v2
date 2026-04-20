@@ -241,7 +241,6 @@ export function Research() {
                                                     const inLibraryCount = Number(topic.in_library_count || 0)
                                                     const isFullyResearched = Boolean(topic.all_subtopics_researched)
                                                     const hasAnyProgress = subtopicsCount > 0 || ideasCount > 0 || inLibraryCount > 0 || Boolean(topic.has_underlying_data)
-                                                    const isResearching = hasAnyProgress && !isFullyResearched
                                                     const isNotStarted = !hasAnyProgress && !isFullyResearched
                                                     const chipBase =
                                                         "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-1 text-xs font-medium leading-none"
@@ -256,11 +255,6 @@ export function Research() {
                                                             {isFullyResearched && (
                                                                 <span className={`${chipBase} border-emerald-500/30 bg-emerald-500/10 text-emerald-300`}>
                                                                     Researched
-                                                                </span>
-                                                            )}
-                                                            {isResearching && (
-                                                                <span className={`${chipBase} border-amber-500/30 bg-amber-500/10 text-amber-300`}>
-                                                                    Researching
                                                                 </span>
                                                             )}
                                                             {isNotStarted && (
