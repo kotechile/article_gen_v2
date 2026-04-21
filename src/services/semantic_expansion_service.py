@@ -149,9 +149,10 @@ class SemanticExpansionService:
         if not context_lines:
             return ""
 
+        joined_context = "\n".join(context_lines)
         return f"""
         ADDITIONAL DECOMPOSITION CONTEXT:
-        {'\n'.join(context_lines)}
+        {joined_context}
 
         Use this context to interpret the seed topic "{topic}".
         Prefer subtopics that help the user make a concrete decision, compare options, quantify tradeoffs, or surface hidden costs.

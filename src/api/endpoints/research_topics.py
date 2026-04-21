@@ -1171,6 +1171,7 @@ def generate_subtopics(topic_id):
     """
     import asyncio
 
+    request_id = str(uuid4())
     try:
         supabase = get_supabase_client()
         request_user_id = _resolve_user_id_from_request(supabase)
@@ -1203,6 +1204,14 @@ def generate_subtopics(topic_id):
         topic = topic_res.data
         topic_title = topic['title']
         user_id     = topic['user_id']
+        logger.info(
+            "Subtopic generation started request_id=%s topic_id=%s request_user_id=%s owner_user_id=%s title=%r",
+            request_id,
+            topic_id,
+            request_user_id,
+            user_id,
+            topic_title
+        )
         if user_id != request_user_id:
             return jsonify(ErrorResponse(
                 error="forbidden",
@@ -1263,12 +1272,20 @@ def generate_subtopics(topic_id):
                 max_subtopics=12,
                 decomposition_context=decomposition_context,
             )
+            logger.info(
+                "Enhanced decomposition finished request_id=%s success=%s subtopic_count=%s message=%r methods=%s",
+                request_id,
+                result.get("success"),
+                len(result.get("subtopics") or []),
+                result.get("message"),
+                result.get("enhancement_methods")
+            )
 
             if not result.get("success"):
                 warning_message = result.get("message", "Decomposition failed")
                 logger.warning(
-                    "Decomposition returned unsuccessful result for topic %s. "
-                    "Returning empty subtopic set instead of raising 500. Message=%s",
+                    "Decomposition unsuccessful request_id=%s topic=%s. Returning empty set. Message=%s",
+                    request_id,
                     topic_id,
                     warning_message
                 )
@@ -1281,6 +1298,13 @@ def generate_subtopics(topic_id):
 
             enhanced_subtopics_data = result.get("subtopics", [])
             saved_subtopics = []
+            failed_subtopics = []
+            logger.info(
+                "Persisting generated subtopics request_id=%s generated_count=%s titles=%s",
+                request_id,
+                len(enhanced_subtopics_data),
+                [item.get("title") for item in enhanced_subtopics_data[:12]]
+            )
 
             for sub_data in enhanced_subtopics_data:
                 # Debug logging to trace metrics
@@ -1316,6 +1340,17 @@ def generate_subtopics(topic_id):
                 if saved:
                     logger.info(f"DEBUG saved subtopic: {saved.get('name')}, vol={saved.get('search_volume')}, cpc={saved.get('cpc')}")
                     saved_subtopics.append(saved)
+                else:
+                    failed_subtopics.append(sub_data.get("title"))
+
+            logger.info(
+                "Subtopic persistence summary request_id=%s attempted=%s saved=%s failed=%s failed_titles=%s",
+                request_id,
+                len(enhanced_subtopics_data),
+                len(saved_subtopics),
+                len(failed_subtopics),
+                failed_subtopics
+            )
 
             return saved_subtopics, {
                 "success": True,
@@ -1325,6 +1360,13 @@ def generate_subtopics(topic_id):
             }
 
         saved_subtopics, result = asyncio.run(_run())
+        logger.info(
+            "Subtopic generation response request_id=%s total=%s success=%s message=%r",
+            request_id,
+            len(saved_subtopics),
+            result.get("success"),
+            result.get("message")
+        )
 
         return jsonify({
             "items": saved_subtopics,
@@ -1338,7 +1380,7 @@ def generate_subtopics(topic_id):
         }), 200
 
     except Exception as e:
-        logger.error(f"Error generating subtopics: {e}", exc_info=True)
+        logger.error(f"Error generating subtopics request_id={request_id}: {e}", exc_info=True)
         return jsonify(ErrorResponse(
             error="internal_error",
             message=str(e),
