@@ -30,30 +30,50 @@ export interface SubtopicsResponse {
 }
 
 class SubtopicsService {
+    private sleep(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms))
+    }
+
+    private isRetryableFetchError(error: any): boolean {
+        const status = error?.response?.status ?? error?.status
+        const message = String(error?.message || '').toLowerCase()
+        return status === 504 || status === 502 || message.includes('timeout') || message.includes('network error')
+    }
+
     /**
      * Get subtopics for a research topic
      */
     async getSubtopics(topicId: string): Promise<Subtopic[]> {
-        try {
-            const response = await apiClient.get<SubtopicsResponse>(
-                `/research-topics/${topicId}/subtopics`
-            );
+        const maxAttempts = 4
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            try {
+                const response = await apiClient.get<SubtopicsResponse>(
+                    `/research-topics/${topicId}/subtopics`,
+                    { timeout: 45000 }
+                );
 
-            // Handle both old nested format and new flat format for backward compatibility during migration
-            if ((response as any).data && (response as any).data.subtopics) {
-                return (response as any).data.subtopics;
+                // Handle both old nested format and new flat format for backward compatibility during migration
+                if ((response as any).data && (response as any).data.subtopics) {
+                    return (response as any).data.subtopics;
+                }
+
+                if (response && Array.isArray(response.items)) {
+                    return response.items;
+                }
+
+                console.warn('Unexpected response format from subtopics API:', response);
+                return [];
+            } catch (error) {
+                const retryable = this.isRetryableFetchError(error)
+                const lastAttempt = attempt === maxAttempts
+                console.error(`Failed to fetch subtopics (attempt ${attempt}/${maxAttempts}):`, error);
+                if (!retryable || lastAttempt) {
+                    return [];
+                }
+                await this.sleep(800 * attempt)
             }
-
-            if (response && Array.isArray(response.items)) {
-                return response.items;
-            }
-
-            console.warn('Unexpected response format from subtopics API:', response);
-            return [];
-        } catch (error) {
-            console.error('Failed to fetch subtopics:', error);
-            return [];
         }
+        return []
     }
 
     /**
