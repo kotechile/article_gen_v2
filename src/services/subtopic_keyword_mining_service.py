@@ -108,6 +108,17 @@ Objective:
 - Keep each keyword 1-3 words, plain language.
 - Prefer terms with commercial or decision intent.
 
+Required reasoning constraints:
+1) Deconstruction Rule:
+- Do NOT optimize for the full technical phrase.
+- Break the topic into component concepts and generate keywords per component.
+- Prefer component terms that people actually search for over precise technical jargon.
+
+2) "2 AM Stress" Rule:
+- Assume the user is stressed and searching for immediate clarity.
+- Favor pain/outcome language such as cost, risk, failure, repair, inspection, tax, legal, ROI.
+- If a phrase sounds like a consultant report title instead of a search query, discard it.
+
 Task:
 1) Problem Keywords: 10
 2) Object Keywords: 10
