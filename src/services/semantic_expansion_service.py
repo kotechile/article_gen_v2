@@ -245,8 +245,12 @@ class SemanticExpansionService:
                     intent_label = "GENERAL_INTENT"
                     keyword_text = clean_line
                 if keyword_text:
-                    seeds.append(keyword_text)
-                    seed_intent_map[keyword_text.lower()] = intent_label
+                    normalized_seed = self._compact_keyword_for_metrics(keyword_text)
+                    # DataForSEO performs better with concise, query-like seeds.
+                    if len(normalized_seed.split()) < 2:
+                        continue
+                    seeds.append(normalized_seed)
+                    seed_intent_map[normalized_seed.lower()] = intent_label
 
             # Deduplicate while preserving order
             deduped_seeds = []
@@ -259,7 +263,12 @@ class SemanticExpansionService:
                 deduped_seeds.append(seed)
             seeds = deduped_seeds
 
-            logger.info(f"Generated {len(seeds)} unique seeds for topic '{topic}'")
+            logger.info(
+                "Generated %s unique compact seeds for topic %r. Sample=%s",
+                len(seeds),
+                topic,
+                seeds[:8]
+            )
             return {
                 "seeds": seeds,
                 "seed_intent_map": {seed.lower(): seed_intent_map.get(seed.lower(), "GENERAL_INTENT") for seed in seeds}
