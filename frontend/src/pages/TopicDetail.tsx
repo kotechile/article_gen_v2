@@ -28,6 +28,8 @@ export function TopicDetail() {
     const [subtopics, setSubtopics] = React.useState<Subtopic[]>([])
     const [loading, setLoading] = React.useState(true)
     const [decomposing, setDecomposing] = React.useState(false)
+    const [decomposeStartedAt, setDecomposeStartedAt] = React.useState<number | null>(null)
+    const [decomposeElapsedSec, setDecomposeElapsedSec] = React.useState(0)
     const [error, setError] = React.useState<string | null>(null)
     const [selectedSubtopic, setSelectedSubtopic] = React.useState<Subtopic | null>(null)
     const [showIdeaModal, setShowIdeaModal] = React.useState(false)
@@ -35,6 +37,7 @@ export function TopicDetail() {
     const [hasStoredIdeas, setHasStoredIdeas] = React.useState(false)
     const [subtopicsWithSavedIdeas, setSubtopicsWithSavedIdeas] = React.useState<Set<string>>(new Set())
     const [subtopicsReadyForContent, setSubtopicsReadyForContent] = React.useState<Set<string>>(new Set())
+    const decomposeToastIdRef = React.useRef<string | number | null>(null)
 
     React.useEffect(() => {
         if (!authLoading && user && id) {
@@ -100,16 +103,71 @@ export function TopicDetail() {
         if (!id) return
         try {
             setDecomposing(true)
+            setDecomposeStartedAt(Date.now())
+            setDecomposeElapsedSec(0)
+            decomposeToastIdRef.current = toast.loading('Generating sub-topics. This can take 30-90 seconds while SEO evidence is collected.')
             // Call the generation endpoint
             const newSubtopics = await subtopicsService.generateSubtopics(id)
             setSubtopics(newSubtopics)
+            toast.success(`Generated ${newSubtopics.length} sub-topic${newSubtopics.length === 1 ? '' : 's'}.`, {
+                id: decomposeToastIdRef.current ?? undefined,
+            })
         } catch (err) {
             console.error('Failed to decompose topic:', err)
             setError('Failed to decompose topic. Please try again.')
+            toast.error('Sub-topic generation failed. Please try again.', {
+                id: decomposeToastIdRef.current ?? undefined,
+            })
         } finally {
             setDecomposing(false)
+            setDecomposeStartedAt(null)
+            setDecomposeElapsedSec(0)
+            decomposeToastIdRef.current = null
         }
     }
+
+    React.useEffect(() => {
+        if (!decomposing || !decomposeStartedAt) {
+            return
+        }
+
+        const interval = window.setInterval(() => {
+            const sec = Math.max(0, Math.floor((Date.now() - decomposeStartedAt) / 1000))
+            setDecomposeElapsedSec(sec)
+        }, 1000)
+
+        return () => {
+            window.clearInterval(interval)
+        }
+    }, [decomposing, decomposeStartedAt])
+
+    const decomposeStatus = React.useMemo(() => {
+        if (!decomposing) {
+            return ''
+        }
+        if (decomposeElapsedSec < 15) {
+            return 'Preparing editorial sub-topics...'
+        }
+        if (decomposeElapsedSec < 35) {
+            return 'Mining keyword evidence for each sub-topic...'
+        }
+        if (decomposeElapsedSec < 70) {
+            return 'Validating SEO metrics. Processing is healthy, this run is just heavier than usual...'
+        }
+        return 'Still working and waiting on upstream data providers. You can keep this page open.'
+    }, [decomposing, decomposeElapsedSec])
+
+    const decomposeElapsedLabel = React.useMemo(() => {
+        if (!decomposing) {
+            return ''
+        }
+        if (decomposeElapsedSec < 60) {
+            return `${decomposeElapsedSec}s elapsed`
+        }
+        const min = Math.floor(decomposeElapsedSec / 60)
+        const sec = decomposeElapsedSec % 60
+        return `${min}m ${sec}s elapsed`
+    }, [decomposing, decomposeElapsedSec])
 
     const handleSubtopicClick = (sub: Subtopic) => {
         setSelectedSubtopic(sub)
@@ -542,6 +600,21 @@ export function TopicDetail() {
                             )}
                         </div>
 
+                        {decomposing && (
+                            <div className="mb-5 rounded-xl border border-blue-500/20 bg-blue-500/10 p-4">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2">
+                                        <RefreshCw className="h-4 w-4 animate-spin text-blue-400" />
+                                        <span className="text-sm font-medium text-blue-100">{decomposeStatus}</span>
+                                    </div>
+                                    <span className="text-xs text-blue-200/80">{decomposeElapsedLabel}</span>
+                                </div>
+                                <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-blue-500/20">
+                                    <div className="h-full w-1/3 animate-pulse rounded-full bg-blue-400/70" />
+                                </div>
+                            </div>
+                        )}
+
                         {subtopics.length === 0 ? (
                             <motion.div
                                 initial={{ opacity: 0, scale: 0.95 }}
@@ -574,6 +647,11 @@ export function TopicDetail() {
                                             </>
                                         )}
                                     </Button>
+                                    {decomposing && (
+                                        <p className="mt-4 text-sm text-muted-foreground">
+                                            This can take longer when keyword sources are busy. Please keep this tab open.
+                                        </p>
+                                    )}
                                 </div>
                             </motion.div>
                         ) : (
