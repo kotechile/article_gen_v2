@@ -541,39 +541,48 @@ class DataForSEOAPI:
                 results = []
                 for t in completed_results:
                     if t.get("result"):
-                        # 'result' for search_volume is a list of results (one per item or task).
-                        # Based on debug script: result is list, items are dicts directly?
-                        # Debug output: RAW RESULT TYPE: <class 'dict'>. First item keys: ['keyword', 'search_volume', ...]
-                        # Wait, the debug output said: RAW RESULT TYPE: <class 'dict'>
-                        # RESULT KEYS: ['keyword', 'search_volume', ...]
-                        # So t['result'] is a LIST of these dicts?
-                        # Let's handle both cases.
-                        
                         raw_result_list = t["result"]
-                        if not raw_result_list: continue
+                        if not raw_result_list:
+                            continue
+
+                        def _normalize_metric_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+                            if not isinstance(row, dict):
+                                return None
+                            keyword = row.get("keyword")
+                            if not keyword:
+                                return None
+
+                            keyword_info = row.get("keyword_info") if isinstance(row.get("keyword_info"), dict) else {}
+                            keyword_data = row.get("keyword_data") if isinstance(row.get("keyword_data"), dict) else {}
+
+                            return {
+                                "keyword": keyword,
+                                "search_volume": row.get("search_volume", keyword_info.get("search_volume", 0)),
+                                "cpc": row.get("cpc", keyword_data.get("cpc", 0)),
+                                "competition": row.get("competition", keyword_info.get("competition", "UNKNOWN")),
+                                "keyword_difficulty": row.get("keyword_difficulty", keyword_data.get("keyword_difficulty", 0)),
+                            }
 
                         for item in raw_result_list:
-                            # Case 1: Item is the keyword object directly (common in some endpoints)
-                            if isinstance(item, dict) and 'search_volume' in item:
-                                if len(results) == 0:
-                                    logger.info(f"DEBUG: Bulk Vol Item Keys: {list(item.keys())}")
-                                    logger.info(f"DEBUG: Bulk Vol 1st Item Val: {item}")
-                                results.append({
-                                    "keyword": item.get("keyword"),
-                                    "search_volume": item.get("search_volume", 0),
-                                    "cpc": item.get("cpc", 0),
-                                    "competition": item.get("competition", "UNKNOWN")
-                                })
-                            # Case 2: Item has nested 'items' (common in keywords_for_keywords)
-                            elif isinstance(item, dict) and 'items' in item:
-                                for sub in item['items']:
-                                    if isinstance(sub, dict):
-                                         results.append({
-                                             "keyword": sub.get("keyword"),
-                                             "search_volume": sub.get("search_volume", 0),
-                                             "cpc": sub.get("cpc", 0),
-                                             "competition": sub.get("competition", "UNKNOWN")
-                                         })
+                            # Case 1: direct row.
+                            normalized = _normalize_metric_row(item) if isinstance(item, dict) else None
+                            if normalized:
+                                results.append(normalized)
+                                continue
+
+                            # Case 2: nested rows under "items".
+                            if isinstance(item, dict) and "items" in item:
+                                for sub in item["items"] or []:
+                                    normalized = _normalize_metric_row(sub) if isinstance(sub, dict) else None
+                                    if normalized:
+                                        results.append(normalized)
+
+                if results:
+                    non_zero = sum(
+                        1 for r in results
+                        if (r.get("search_volume") or 0) > 0 or (r.get("cpc") or 0) > 0 or (r.get("keyword_difficulty") or 0) > 0
+                    )
+                    logger.info("Bulk volume parsed keywords=%s non_zero_metrics=%s", len(results), non_zero)
                 return results
 
         except Exception as e:

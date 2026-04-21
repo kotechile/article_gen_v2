@@ -26,6 +26,9 @@ TOPIC BRIEF
 - Project: {brief.get("project_name")}
 - Project Description: {brief.get("project_description")}
 - Category Lens: {brief.get("category_path")}
+- Primary Category Description: {brief.get("primary_category_description")}
+- Sub-Category Description: {brief.get("secondary_category_description")}
+- Category Strategy Hint: {brief.get("category_strategy_hint")}
 - Intent Bucket: {brief.get("intent_bucket")}
 - Decision Focus: {brief.get("decision_focus")}
 - Angle Question: {brief.get("angle_question")}
@@ -36,6 +39,8 @@ TOPIC BRIEF
 TASK
 Generate exactly {max_subtopics} editorial subtopics. These are decision/problem frameworks, not keyword strings.
 Use concrete types: comparison, framework, checklist, audit, calculator, scenario, decision, or problem.
+Keep every idea tightly aligned with the category lens and sub-category strategy.
+SEED_PHRASES must be short search-style phrases (2-5 words), plain language, without symbols or meta-text.
 
 OUTPUT FORMAT
 Return only repeated blocks in this format:
@@ -138,4 +143,3 @@ COMMERCIAL_PATHS: <path 1>, <path 2>
 
 
 editorial_subtopic_service = EditorialSubtopicService()
-

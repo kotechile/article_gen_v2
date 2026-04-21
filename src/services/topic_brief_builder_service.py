@@ -40,6 +40,11 @@ class TopicBriefBuilderService:
                 or ""
             ),
             "category_path": category_path or "",
+            "primary_category_name": decomposition_context.get("primary_category_name") or "",
+            "secondary_category_name": decomposition_context.get("secondary_category_name") or "",
+            "primary_category_description": decomposition_context.get("primary_category_description") or "",
+            "secondary_category_description": decomposition_context.get("secondary_category_description") or "",
+            "category_strategy_hint": decomposition_context.get("category_strategy_hint") or "",
             "intent_bucket": topic.get("intent_bucket") or decomposition_context.get("intent_bucket") or "informational_decision",
             "decision_focus": topic.get("decision_focus") or decomposition_context.get("decision_focus") or "",
             "angle_question": topic.get("angle_question") or decomposition_context.get("angle_question") or "",
@@ -53,4 +58,3 @@ class TopicBriefBuilderService:
 
 
 topic_brief_builder_service = TopicBriefBuilderService()
-

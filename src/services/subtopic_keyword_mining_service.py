@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 class SubtopicKeywordMiningService:
     """Mine keyword evidence per subtopic."""
 
+    _NOISE_TOKENS = {
+        "words", "word", "vs", "and", "the", "for", "with", "without", "using",
+        "guide", "framework", "checklist", "audit", "calculator", "scenario",
+        "comparison", "decision", "problem",
+    }
+
     def _clean(self, text: str) -> str:
         cleaned = re.sub(r"[^a-zA-Z0-9&'/%\-\s]", " ", (text or "").strip())
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
@@ -27,11 +33,49 @@ class SubtopicKeywordMiningService:
             return cleaned
         return " ".join(words[:n])
 
+    def _tokenize(self, text: str) -> List[str]:
+        cleaned = self._clean(text).lower()
+        tokens = [t for t in cleaned.split() if t and len(t) > 1 and t not in self._NOISE_TOKENS]
+        return tokens
+
+    def _build_anchor_phrases(self, brief: Dict[str, Any]) -> List[str]:
+        primary = brief.get("primary_category_name") or ""
+        secondary = brief.get("secondary_category_name") or ""
+        category_path = brief.get("category_path") or ""
+        path_tokens = self._tokenize(category_path)
+
+        anchors = []
+        if primary:
+            anchors.append(self._compact(primary, 3))
+        if secondary:
+            anchors.append(self._compact(secondary, 3))
+        if len(path_tokens) >= 2:
+            anchors.append(" ".join(path_tokens[:3]))
+
+        return [self._clean(a) for a in anchors if self._clean(a)]
+
+    def _compress_title_seed(self, title: str) -> List[str]:
+        tokens = self._tokenize(title)
+        if not tokens:
+            return []
+
+        out = []
+        if len(tokens) >= 2:
+            out.append(" ".join(tokens[:2]))
+        if len(tokens) >= 3:
+            out.append(" ".join(tokens[:3]))
+        if len(tokens) >= 4:
+            out.append(" ".join(tokens[:4]))
+        return out
+
     def _build_variants(self, subtopic: Dict[str, Any], brief: Dict[str, Any]) -> List[str]:
         title = subtopic.get("title", "")
         summary = subtopic.get("summary", "")
         seeds = subtopic.get("seed_phrases") or []
         category = brief.get("category_path", "")
+        anchors = self._build_anchor_phrases(brief)
+        short_title_seeds = self._compress_title_seed(title)
+
         variants = [
             title,
             self._compact(title, 4),
@@ -41,7 +85,19 @@ class SubtopicKeywordMiningService:
             category,
             self._compact(f"{title} {category}", 4),
         ]
-        variants.extend(seeds)
+        variants.extend(short_title_seeds)
+        variants.extend(anchors)
+
+        for seed in seeds:
+            variants.append(seed)
+            variants.append(self._compact(seed, 4))
+            variants.append(self._compact(seed, 3))
+
+        # Add short category-anchored mixes to improve DataForSEO recall.
+        for base in short_title_seeds[:2]:
+            for anchor in anchors[:2]:
+                variants.append(self._compact(f"{base} {anchor}", 5))
+                variants.append(self._compact(f"{anchor} {base}", 5))
 
         deduped: List[str] = []
         seen = set()
@@ -56,7 +112,7 @@ class SubtopicKeywordMiningService:
                 continue
             seen.add(key)
             deduped.append(c)
-        return deduped[:8]
+        return deduped[:14]
 
     def _competition_rank(self, competition: str) -> int:
         comp = (competition or "").upper()
@@ -113,11 +169,25 @@ class SubtopicKeywordMiningService:
         expansion_seeds = variants[:3]
         expanded_keywords = await dataforseo_api.get_related_keywords_standard(expansion_seeds, limit_per_seed=15)
 
+        idea_keywords: List[Dict[str, Any]] = []
+        for seed in variants[:2]:
+            try:
+                ideas = await dataforseo_api.get_keyword_ideas(seed, limit=30, filters=[])
+                for idea in (ideas or []):
+                    if idea.get("keyword"):
+                        idea["source"] = "keyword_ideas_relaxed"
+                        idea_keywords.append(idea)
+            except Exception as e:
+                logger.debug("Keyword ideas lookup failed seed=%r err=%s", seed, e)
+
         combined: List[Dict[str, Any]] = []
         for kw in (expanded_keywords or []):
             if kw.get("keyword"):
                 kw["source"] = "related_keywords"
                 combined.append(kw)
+
+        for kw in idea_keywords:
+            combined.append(kw)
 
         for term in variants:
             metric = direct_by_keyword.get(term.lower())
@@ -129,19 +199,43 @@ class SubtopicKeywordMiningService:
                     "search_volume": metric.get("search_volume", 0),
                     "cpc": metric.get("cpc", 0),
                     "competition": metric.get("competition", "UNKNOWN"),
-                    "keyword_difficulty": 0,
+                    "keyword_difficulty": metric.get("keyword_difficulty", 0),
                     "source": "direct_metrics",
                 }
             )
 
+        # Enrich keyword difficulty and missing competition/cpc for top candidates.
+        kd_seeds = [item.get("keyword") for item in combined[:8] if item.get("keyword")]
+        if kd_seeds:
+            kd_rows = await dataforseo_api.get_keyword_difficulty(kd_seeds)
+            kd_by_keyword = {
+                (row.get("keyword") or "").lower(): row
+                for row in (kd_rows or [])
+                if row.get("keyword")
+            }
+            for item in combined:
+                key = (item.get("keyword") or "").lower()
+                kd_row = kd_by_keyword.get(key)
+                if not kd_row:
+                    continue
+                item["keyword_difficulty"] = kd_row.get("keyword_difficulty", item.get("keyword_difficulty", 0))
+                if (item.get("competition") in [None, "", "UNKNOWN"]) and kd_row.get("competition"):
+                    item["competition"] = kd_row.get("competition")
+                if not item.get("search_volume") and kd_row.get("search_volume"):
+                    item["search_volume"] = kd_row.get("search_volume")
+                if not item.get("cpc") and kd_row.get("cpc"):
+                    item["cpc"] = kd_row.get("cpc")
+
         selected = self._select_best_keywords(combined)
         primary = selected[0]["keyword"] if selected else None
+        non_zero_count = len([k for k in selected if (k.get("search_volume") or 0) > 0 or (k.get("cpc") or 0) > 0])
 
         logger.info(
-            "Keyword mining subtopic=%r variants=%s selected=%s primary=%r",
+            "Keyword mining subtopic=%r variants=%s selected=%s non_zero=%s primary=%r",
             subtopic.get("title"),
             len(variants),
             len(selected),
+            non_zero_count,
             primary,
         )
         return {
@@ -152,4 +246,3 @@ class SubtopicKeywordMiningService:
 
 
 subtopic_keyword_mining_service = SubtopicKeywordMiningService()
-

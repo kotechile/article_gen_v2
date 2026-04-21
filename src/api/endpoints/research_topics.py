@@ -112,7 +112,10 @@ def _enrich_research_topics(supabase, topics):
         }
 
     if category_ids:
-        category_response = supabase.table('project_categories').select('id, name').in_('id', category_ids).execute()
+        try:
+            category_response = supabase.table('project_categories').select('id, name, description').in_('id', category_ids).execute()
+        except Exception:
+            category_response = supabase.table('project_categories').select('id, name').in_('id', category_ids).execute()
         categories_by_id = {
             category['id']: category.get('name')
             for category in (category_response.data or [])
@@ -470,7 +473,33 @@ def _build_decision_focus(topic, primary_category_name, secondary_category_name)
     return f"Use {title} to help the user evaluate options, compare tradeoffs, and choose an action."
 
 
-def _build_decomposition_context(topic, project, primary_category_name=None, secondary_category_name=None):
+def _build_category_strategy_hint(
+    primary_category_name,
+    secondary_category_name,
+    primary_category_description=None,
+    secondary_category_description=None,
+):
+    """Build a compact sentence that anchors decomposition to category strategy."""
+    parts = []
+    if _safe_string(primary_category_name):
+        parts.append(f"Primary category: {_safe_string(primary_category_name)}.")
+    if _safe_string(primary_category_description):
+        parts.append(f"Primary category context: {_safe_string(primary_category_description)}")
+    if _safe_string(secondary_category_name):
+        parts.append(f"Sub-category: {_safe_string(secondary_category_name)}.")
+    if _safe_string(secondary_category_description):
+        parts.append(f"Sub-category context: {_safe_string(secondary_category_description)}")
+    return " ".join(parts).strip()
+
+
+def _build_decomposition_context(
+    topic,
+    project,
+    primary_category_name=None,
+    secondary_category_name=None,
+    primary_category_description=None,
+    secondary_category_description=None,
+):
     """Build a richer topic packet for downstream decomposition prompts."""
     project_description = _safe_string(
         (project or {}).get('site_description')
@@ -495,6 +524,7 @@ def _build_decomposition_context(topic, project, primary_category_name=None, sec
         "Prefer concrete decision angles, comparison paths, scorecards, frameworks, audits, calculators, or scenario-based topics.",
         "Stay tightly aligned to the website niche and selected category lens.",
         "Avoid generic interpretations of the topic if the site context points to a narrower intent.",
+        "Honor primary/sub-category strategy context when choosing examples, terminology, and audience framing.",
     ]
 
     return {
@@ -502,6 +532,16 @@ def _build_decomposition_context(topic, project, primary_category_name=None, sec
         "project_description": project_description,
         "topic_description": topic_description,
         "category_path": category_path,
+        "primary_category_name": _safe_string(primary_category_name),
+        "secondary_category_name": _safe_string(secondary_category_name),
+        "primary_category_description": _safe_string(primary_category_description),
+        "secondary_category_description": _safe_string(secondary_category_description),
+        "category_strategy_hint": _build_category_strategy_hint(
+            primary_category_name=primary_category_name,
+            secondary_category_name=secondary_category_name,
+            primary_category_description=primary_category_description,
+            secondary_category_description=secondary_category_description,
+        ),
         "intent_bucket": _safe_string(topic.get('intent_bucket')),
         "decision_focus": _build_decision_focus(topic, primary_category_name, secondary_category_name),
         "angle_question": _safe_string(topic.get('angle_question')),
@@ -1243,25 +1283,42 @@ def generate_subtopics(topic_id):
         ]
         if category_ids:
             try:
-                category_res = (
-                    supabase
-                    .table('project_categories')
-                    .select('id, name')
-                    .in_('id', category_ids)
-                    .execute()
-                )
+                try:
+                    category_res = (
+                        supabase
+                        .table('project_categories')
+                        .select('id, name, description')
+                        .in_('id', category_ids)
+                        .execute()
+                    )
+                except Exception:
+                    category_res = (
+                        supabase
+                        .table('project_categories')
+                        .select('id, name')
+                        .in_('id', category_ids)
+                        .execute()
+                    )
+
                 category_names = {
-                    item['id']: item.get('name')
+                    item['id']: {
+                        "name": item.get('name'),
+                        "description": item.get('description'),
+                    }
                     for item in (category_res.data or [])
                 }
             except Exception as category_err:
                 logger.warning(f"Failed to load category names for decomposition: {category_err}")
 
+        primary_category = category_names.get(topic.get('primary_category_id')) or {}
+        secondary_category = category_names.get(topic.get('secondary_category_id')) or {}
         decomposition_context = _build_decomposition_context(
             topic,
             project,
-            primary_category_name=category_names.get(topic.get('primary_category_id')),
-            secondary_category_name=category_names.get(topic.get('secondary_category_id')),
+            primary_category_name=primary_category.get("name"),
+            secondary_category_name=secondary_category.get("name"),
+            primary_category_description=primary_category.get("description"),
+            secondary_category_description=secondary_category.get("description"),
         )
 
         # 2. Run the async decomposition pipeline synchronously
