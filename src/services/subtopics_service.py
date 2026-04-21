@@ -38,7 +38,8 @@ class SubtopicsService:
                     return None  # Skip duplicate
 
             data = {
-                "project_id": str(research_topic_id), # Mapped to project_id
+                "research_topic_id": str(research_topic_id),
+                "project_id": str(research_topic_id), # Legacy compatibility path
                 "user_id": str(user_id),
                 "name": name,
                 "created_at": datetime.utcnow().isoformat(),

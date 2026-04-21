@@ -40,8 +40,8 @@ class SupabaseService:
                         query = query.eq(filter_key, filter_value)
                 
                 # Add ordering
-                if "order_by" in kwargs:
-                    order_config = kwargs["order_by"]
+                order_config = kwargs.get("order_by")
+                if order_config is not None:
                     if isinstance(order_config, dict):
                         for field, direction in order_config.items():
                             query = query.order(field, desc=(direction == "desc"))
@@ -130,6 +130,7 @@ class SupabaseService:
                            limit: Optional[int] = None, 
                            offset: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get records by filters with user validation"""
+        filters = dict(filters)
         # Always include user_id filter for security
         filters["user_id"] = str(user_id)
         
