@@ -46,6 +46,17 @@ class SemanticExpansionService:
     def _normalize_keyword_key(self, text: Any) -> str:
         return self._sanitize_keyword_text(text).lower().strip()
 
+    def _compact_keyword_for_metrics(self, text: str) -> str:
+        """Create a shorter lookup variant to improve metric hit-rate on very long tails."""
+        cleaned = self._sanitize_keyword_text(text)
+        if not cleaned:
+            return ""
+        words = [w for w in cleaned.split() if w]
+        if len(words) <= 6:
+            return cleaned
+        # Keep a focused 6-word phrase, preserving common finance/investing acronyms if present.
+        return " ".join(words[:6])
+
     async def expand_and_verify(
         self,
         topic: str,
@@ -330,8 +341,19 @@ class SemanticExpansionService:
 
         if candidates_to_enrich:
             logger.info(f"Enriching Volume/CPC for {len(candidates_to_enrich)} keywords: {candidates_to_enrich[:5]}...")
-            # Use our new robust endpoint
-            bulk_metrics = await dataforseo_api.get_bulk_metrics_standard(candidates_to_enrich)
+            lookup_terms: List[str] = []
+            seen_terms = set()
+            for original in candidates_to_enrich:
+                compact = self._compact_keyword_for_metrics(original)
+                if original not in seen_terms:
+                    lookup_terms.append(original)
+                    seen_terms.add(original)
+                if compact and compact not in seen_terms:
+                    lookup_terms.append(compact)
+                    seen_terms.add(compact)
+
+            # Use robust standard endpoint with both original and compact fallback terms.
+            bulk_metrics = await dataforseo_api.get_bulk_metrics_standard(lookup_terms)
             
             # Map metrics back
             metrics_map = {m['keyword'].lower(): m for m in bulk_metrics if m.get('keyword')}
@@ -339,8 +361,10 @@ class SemanticExpansionService:
             
             for k in final_list:
                 k_norm = k['keyword'].lower()
-                if k_norm in metrics_map:
-                    m = metrics_map[k_norm]
+                direct_metric = metrics_map.get(k_norm)
+                compact_metric = metrics_map.get(self._compact_keyword_for_metrics(k['keyword']).lower())
+                m = direct_metric or compact_metric
+                if m:
                     k['search_volume'] = m.get('search_volume', 0)
                     k['cpc'] = m.get('cpc', 0)
                     if not k.get('seed_intent_group'):

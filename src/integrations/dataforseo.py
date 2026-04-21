@@ -78,6 +78,18 @@ class DataForSEOAPI:
             logger.error(f"Supabase fetch error: {e}")
             return None
 
+    def _extract_keyword_items(self, task: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Normalize DataForSEO task results that may be flat or nested under result[].items[]."""
+        extracted: List[Dict[str, Any]] = []
+        for result_entry in task.get("result") or []:
+            if isinstance(result_entry, dict) and isinstance(result_entry.get("items"), list):
+                for item in result_entry.get("items") or []:
+                    if isinstance(item, dict):
+                        extracted.append(item)
+            elif isinstance(result_entry, dict):
+                extracted.append(result_entry)
+        return extracted
+
     async def _make_request_with_retry(self, client, url, payload, headers, max_retries=5):
         """
         Make API request with retry logic for Rate Limits (40202)
@@ -426,14 +438,16 @@ class DataForSEOAPI:
                 all_keywords = []
                 for task in completed_results:
                     if task.get("result"):
-                        for item in task["result"]:
+                        for item in self._extract_keyword_items(task):
+                            keyword_info = item.get("keyword_info", {})
+                            keyword_data = item.get("keyword_data", {})
                             all_keywords.append({
                                 "keyword": item.get("keyword", ""),
-                                "search_volume": item.get("search_volume", 0),
-                                "competition": item.get("competition", "UNKNOWN"),
-                                "competition_level": item.get("competition_level", 0),
-                                "cpc": item.get("cpc", 0), # Can be null
-                                "keyword_difficulty": item.get("keyword_difficulty", 0),
+                                "search_volume": item.get("search_volume", keyword_info.get("search_volume", 0)),
+                                "competition": item.get("competition", keyword_info.get("competition", "UNKNOWN")),
+                                "competition_level": item.get("competition_level", keyword_info.get("competition_level", 0)),
+                                "cpc": item.get("cpc", keyword_data.get("cpc", 0)),
+                                "keyword_difficulty": item.get("keyword_difficulty", keyword_data.get("keyword_difficulty", 0)),
                                 "created_at": datetime.utcnow().isoformat()
                             })
                 return all_keywords
@@ -984,7 +998,7 @@ class DataForSEOAPI:
         if "tasks" in data and data["tasks"]:
             task = data["tasks"][0]
             if task.get("result"):
-                for item in task["result"]:
+                for item in self._extract_keyword_items(task):
                     keyword_info = item.get("keyword_info", {})
                     keyword_data = item.get("keyword_data", {})
                     
@@ -1101,7 +1115,7 @@ class DataForSEOAPI:
         if "tasks" in data and data["tasks"]:
             task = data["tasks"][0]
             if task.get("result"):
-                for item in task["result"]:
+                for item in self._extract_keyword_items(task):
                     keyword_info = item.get("keyword_info", {})
                     keyword_data = item.get("keyword_data", {})
                     
@@ -1175,4 +1189,3 @@ async def get_keyword_difficulty(keywords: List[str], language_code: str = "en",
 async def get_keyword_trends(keywords: List[str], language_code: str = "en", location_code: int = 2840, date_from: str = None, date_to: str = None) -> List[Dict[str, Any]]:
     """Get keyword trends"""
     return await dataforseo_api.get_keyword_trends(keywords, language_code, location_code, date_from, date_to)
-
