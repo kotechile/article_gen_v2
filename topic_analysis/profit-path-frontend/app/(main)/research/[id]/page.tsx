@@ -34,6 +34,7 @@ import { SubtopicsGrid } from "@/components/research/subtopics-grid"
 import { AllKeywordsTable } from "@/components/research/all-keywords-table"
 import { KeywordExpansionPanel } from "@/components/research/keyword-expansion-panel"
 import { ContentTopicsPanel } from "@/components/research/content-topics-panel"
+import { toast } from "sonner"
 
 export default function ResearchDetailPage() {
     const { id } = useParams() as { id: string }
@@ -76,11 +77,31 @@ export default function ResearchDetailPage() {
     const handleGenerateSubtopics = async () => {
         try {
             setGenerating(true)
+            toast.message("Generating subtopics...", {
+                description: "Running decomposition and persistence checks.",
+            })
             const newSubtopics = await subtopicsService.generateSubtopics(id)
             setSubtopics(newSubtopics)
+
+            if (newSubtopics.length > 0) {
+                toast.success("Subtopics generated", {
+                    description: `Loaded ${newSubtopics.length} subtopics.`,
+                })
+            } else {
+                toast.warning("No subtopics were returned", {
+                    description: "Check the backend logs for the new request trace.",
+                })
+            }
         } catch (err) {
             console.error("Failed to generate subtopics:", err)
-            // Optional: show toast error
+            const apiDetail =
+                (err as any)?.response?.data?.detail ||
+                (err as any)?.message ||
+                "Please try again."
+
+            toast.error("Failed to generate subtopics", {
+                description: String(apiDetail),
+            })
         } finally {
             setGenerating(false)
         }

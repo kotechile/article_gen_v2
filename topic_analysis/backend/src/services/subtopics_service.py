@@ -113,6 +113,14 @@ class SubtopicsService:
             # Use execute_query directly to get error details
             # Always include user_id for security
             data["user_id"] = str(user_id)
+            logger.info(
+                "SubtopicsService.create attempting insert name=%r research_topic_id=%s user_id=%s keys=%s keyword_count=%s",
+                name,
+                research_topic_id,
+                user_id,
+                sorted(data.keys()),
+                len(data.get("keywords") or [])
+            )
             
             result = await self.supabase.execute_query(
                 table=self.table_name,
@@ -126,8 +134,11 @@ class SubtopicsService:
                 fallback_data.pop("research_topic_id", None)
                 fallback_data["project_id"] = str(research_topic_id)
                 logger.warning(
-                    f"Insert with research_topic_id failed for '{name}', retrying with project_id. "
-                    f"error={result.get('error')}"
+                    "Insert with research_topic_id failed name=%r research_topic_id=%s retrying_project_id=%s error=%s",
+                    name,
+                    research_topic_id,
+                    research_topic_id,
+                    result.get("error")
                 )
                 result = await self.supabase.execute_query(
                     table=self.table_name,
@@ -142,14 +153,29 @@ class SubtopicsService:
                 error_msg = result.get("error")
                 with open("debug_db_insert_fail.txt", "w") as f:
                     f.write(f"Insert failed for {name}.\nError: {error_msg}\nData: {json.dumps(data, default=str)}")
+                logger.error(
+                    "SubtopicsService.create failed after fallback name=%r research_topic_id=%s error=%s data=%s",
+                    name,
+                    research_topic_id,
+                    error_msg,
+                    json.dumps(data, default=str)
+                )
                 return None
+
+            logger.info(
+                "SubtopicsService.create succeeded name=%r stored_id=%s stored_topic_id=%s project_id=%s",
+                name,
+                return_value.get("id") if return_value else None,
+                return_value.get("research_topic_id") if return_value else None,
+                return_value.get("project_id") if return_value else None
+            )
             
             return return_value
             
 
             
         except Exception as e:
-            logger.error(f"Error creating subtopic: {e}")
+            logger.error("Error creating subtopic name=%r research_topic_id=%s user_id=%s error=%s", name, research_topic_id, user_id, e)
             with open("debug_db_exception.txt", "w") as f:
                 f.write(f"DB Exception: {str(e)}")
             raise

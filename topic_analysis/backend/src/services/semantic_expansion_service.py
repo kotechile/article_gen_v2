@@ -28,22 +28,35 @@ class SemanticExpansionService:
         """
         Main entry point: Expands a central topic into verified, profitable clusters.
         """
-        logger.info(f"Starting semantic expansion for topic: {topic}")
+        logger.info("Starting semantic expansion topic=%r user_id=%s", topic, user_id)
 
         # Step 1: Semantic Explosion (LLM)
         seeds = await self.generate_seeds(topic)
+        logger.info("Semantic expansion seeds generated topic=%r count=%s sample=%s", topic, len(seeds or []), (seeds or [])[:8])
         if not seeds:
             logger.warning("No seeds generated. Aborting.")
             return []
         
         # Step 2: Bulk Data Retrieval (DataForSEO)
         raw_keywords = await self.fetch_bulk_keyword_data(seeds)
+        logger.info(
+            "Semantic expansion raw keywords topic=%r count=%s sample=%s",
+            topic,
+            len(raw_keywords or []),
+            [kw.get("keyword") for kw in (raw_keywords or [])[:8]]
+        )
         if not raw_keywords:
              logger.warning("No keyword data found. Aborting.")
              return []
 
         # Step 3: Profit Filtering (Math)
         filtered_keywords = self.filter_profitable_keywords(raw_keywords)
+        logger.info(
+            "Semantic expansion filtered keywords topic=%r count=%s sample=%s",
+            topic,
+            len(filtered_keywords or []),
+            [kw.get("keyword") for kw in (filtered_keywords or [])[:8]]
+        )
         if not filtered_keywords:
             logger.warning("No profitable keywords found after filtering. Aborting.")
             return []
@@ -62,16 +75,41 @@ class SemanticExpansionService:
             # Keep top 75 for clustering (Optimal per LLM context window)
             filtered_keywords = filtered_keywords[:75]
             
-            logger.info(f"Enrichment complete. Proceeding with {len(filtered_keywords)} validated keywords.")
+            logger.info(
+                "Keyword enrichment complete topic=%r validated_count=%s sample=%s",
+                topic,
+                len(filtered_keywords),
+                [
+                    {
+                        "keyword": kw.get("keyword"),
+                        "volume": kw.get("search_volume"),
+                        "cpc": kw.get("cpc"),
+                        "kd": kw.get("keyword_difficulty"),
+                    }
+                    for kw in filtered_keywords[:5]
+                ]
+            )
 
         # Step 4: Semantic Clustering (LLM)
         clusters = await self.cluster_keywords(filtered_keywords)
+        logger.info(
+            "Semantic expansion clusters topic=%r count=%s sample=%s",
+            topic,
+            len(clusters or []),
+            [cluster.get("cluster_title") for cluster in (clusters or [])[:8]]
+        )
         if not clusters:
              logger.warning("No clusters generated. Aborting.")
              return []
 
         # Step 5: Profitability Verification (Trends + LLM)
         verified_clusters = await self.verify_clusters(clusters)
+        logger.info(
+            "Semantic expansion verified clusters topic=%r count=%s sample=%s",
+            topic,
+            len(verified_clusters or []),
+            [cluster.get("cluster_title") for cluster in (verified_clusters or [])[:8]]
+        )
         
         return verified_clusters
 

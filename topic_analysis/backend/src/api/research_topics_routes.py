@@ -7,6 +7,7 @@ import logging
 import asyncio
 from typing import Optional, List, Dict, Any
 from uuid import UUID
+from uuid import uuid4
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Query, Path, Request, Body
 from fastapi.responses import JSONResponse
@@ -249,13 +250,21 @@ async def generate_subtopics(
     user_id: UUID = Depends(get_user_id)
 ):
     """Generate subtopics using LLM + Search and save to normalized table"""
+    request_id = str(uuid4())
     try:
         # 1. Get the research topic
         topic = await research_topic_service.get_by_id(topic_id, user_id)
         if not topic:
             raise HTTPException(status_code=404, detail="Research topic not found")
             
-        logger.info(f"Generating subtopics for: {topic.title} (User: {user_id})")
+        logger.info(
+            "Subtopic generation started request_id=%s topic_id=%s user_id=%s topic_title=%r payload_type=%s",
+            request_id,
+            topic_id,
+            user_id,
+            topic.title,
+            type(payload).__name__
+        )
 
         # --- FEEDBACK MECHANISM: Create Status Subtopic ---
         status_subtopic_name = " ⏳ Generating Topic Ideas (Please Wait)..."
@@ -266,6 +275,12 @@ async def generate_subtopics(
             trend_data={"trend_direction": "stable"} # Dummy data
         )
         status_id = status_sub["id"] if status_sub else None
+        logger.info(
+            "Status subtopic prepared request_id=%s status_id=%s created=%s",
+            request_id,
+            status_id,
+            bool(status_sub)
+        )
         
         # 2. Call EnhancedDecompositionService
         service = get_enhanced_decomposition_service()
@@ -276,12 +291,28 @@ async def generate_subtopics(
             use_autocomplete=False, # Disable autocomplete to ensure pure LLM subtopics
             use_llm=True
         )
+        logger.info(
+            "Enhanced decomposition finished request_id=%s success=%s subtopic_count=%s processing_time=%s methods=%s warnings=%s message=%r",
+            request_id,
+            decomposition_result.get("success"),
+            len(decomposition_result.get("subtopics") or []),
+            decomposition_result.get("processing_time"),
+            decomposition_result.get("enhancement_methods"),
+            decomposition_result.get("warnings"),
+            decomposition_result.get("message")
+        )
         
         if not decomposition_result["success"]:
             raise HTTPException(status_code=500, detail=f"Failed to generate subtopics: {decomposition_result['message']}")
             
         # 3. Save to normalized table
         generated_subtopics = decomposition_result["subtopics"]
+        logger.info(
+            "Persisting generated subtopics request_id=%s generated_count=%s generated_titles=%s",
+            request_id,
+            len(generated_subtopics),
+            [item.get("title") for item in generated_subtopics[:8]]
+        )
         saved_subtopics = []
         
         # Collect seed keywords for mapping later
@@ -293,8 +324,17 @@ async def generate_subtopics(
             # Map enhanced subtopic to creation schema
             sub_name = item["title"]
             
-            # DEBUG: Log what metrics we are receiving from the service
-            logger.info(f"DEBUG Subtopic Item '{sub_name}': Vol={item.get('search_volume')}, CPC={item.get('cpc')}, KD={item.get('keyword_difficulty')}")
+            logger.info(
+                "Processing generated subtopic request_id=%s name=%r volume=%s cpc=%s kd=%s seed_count=%s trend_keys=%s monetization_keys=%s",
+                request_id,
+                sub_name,
+                item.get("search_volume"),
+                item.get("cpc"),
+                item.get("keyword_difficulty"),
+                len(item.get("seed_keywords") or []),
+                sorted((item.get("trend_analysis") or {}).keys()),
+                sorted((item.get("monetization_data") or {}).keys())
+            )
             
             # Initialize trend data structure with explicit None values
             # Initialize trend data structure using Pre-Verified Data if available
@@ -319,10 +359,26 @@ async def generate_subtopics(
                 user_id=user_id,
                 trend_data=trend_data
             )
+
+            if not new_subtopic:
+                logger.error(
+                    "Generated subtopic failed to persist request_id=%s name=%r trend_data_keys=%s",
+                    request_id,
+                    sub_name,
+                    sorted(trend_data.keys())
+                )
             
             if new_subtopic:
                 if "project_id" in new_subtopic and "research_topic_id" not in new_subtopic:
                     new_subtopic["research_topic_id"] = new_subtopic["project_id"]
+
+                logger.info(
+                    "Generated subtopic persisted request_id=%s name=%r subtopic_id=%s stored_topic_id=%s",
+                    request_id,
+                    sub_name,
+                    new_subtopic.get("id"),
+                    new_subtopic.get("research_topic_id")
+                )
                 
                 # Retrieve ID for mapping
                 sub_id_str = new_subtopic.get("id")
@@ -362,6 +418,19 @@ async def generate_subtopics(
         
         # Filter out None results (failed creations)
         saved_subtopics = [r for r in results if r is not None]
+        failed_titles = [
+            generated_subtopics[index].get("title")
+            for index, result in enumerate(results)
+            if result is None
+        ]
+        logger.info(
+            "Subtopic persistence summary request_id=%s attempted=%s saved=%s failed=%s failed_titles=%s",
+            request_id,
+            len(generated_subtopics),
+            len(saved_subtopics),
+            len(failed_titles),
+            failed_titles
+        )
         
         # Save Keywords Batch (New Efficient Method)
         if keywords_batch:
@@ -369,12 +438,22 @@ async def generate_subtopics(
                 from ..services.keywords_service import KeywordsService
                 keywords_persistence = KeywordsService()
                 await keywords_persistence.create_batch(keywords_batch)
-                logger.info(f"Persisted {len(keywords_batch)} detailed keywords to database directly.")
+                logger.info(
+                    "Keyword batch persisted request_id=%s keyword_rows=%s sample_keywords=%s",
+                    request_id,
+                    len(keywords_batch),
+                    [item.get("keyword") for item in keywords_batch[:5]]
+                )
             except Exception as e:
-                logger.error(f"Failed to persist batch keywords: {e}")
+                logger.error(
+                    "Keyword batch persistence failed request_id=%s keyword_rows=%s error=%s",
+                    request_id,
+                    len(keywords_batch),
+                    e
+                )
 
         test_count = len(saved_subtopics)
-        logger.info(f"Saved {test_count} generated subtopics to table")
+        logger.info("Saved generated subtopics request_id=%s count=%s", request_id, test_count)
         
         # DEBUG: Validate manually to catch 500 errors
         try:
@@ -382,18 +461,31 @@ async def generate_subtopics(
             if 'status_id' in locals() and status_id:
                 try:
                     await subtopics_service.delete(status_id, user_id)
+                    logger.info("Status subtopic cleaned up request_id=%s status_id=%s", request_id, status_id)
                 except Exception as cleanup_error:
-                    logger.warning(f"Failed to cleanup status subtopic: {cleanup_error}")
+                    logger.warning(
+                        "Failed to cleanup status subtopic request_id=%s status_id=%s error=%s",
+                        request_id,
+                        status_id,
+                        cleanup_error
+                    )
 
             # We must import this if not already imported, but it is imported as SubtopicListResponse
             # Re-validate to see error
             from src.models.subtopic import SubtopicListResponse
-            return SubtopicListResponse(items=saved_subtopics, total=len(saved_subtopics))
+            response = SubtopicListResponse(items=saved_subtopics, total=len(saved_subtopics))
+            logger.info(
+                "Subtopic generation response ready request_id=%s response_total=%s response_ids=%s",
+                request_id,
+                response.total,
+                [str(item.id) for item in response.items[:8]]
+            )
+            return response
         except Exception as val_error:
-            logger.error(f"CRITICAL: Pydantic Validation Error: {val_error}")
+            logger.error("CRITICAL: Pydantic Validation Error request_id=%s error=%s", request_id, val_error)
             # Identify the first item to see what's wrong
             if saved_subtopics:
-                logger.error(f"First item keys: {saved_subtopics[0].keys()}")
+                logger.error("Validation failure first item request_id=%s keys=%s", request_id, list(saved_subtopics[0].keys()))
             raise HTTPException(status_code=500, detail=f"Data validation error: {str(val_error)}")
 
     except ValueError as e:
@@ -403,7 +495,7 @@ async def generate_subtopics(
             
         # Catch strict quality policy errors
         error_msg = str(e)
-        logger.warning(f"Generation failed due to quality policy: {error_msg}")
+        logger.warning("Generation failed due to quality policy request_id=%s error=%s", request_id, error_msg)
         status_code = 503 if "service" in error_msg.lower() or "unavailable" in error_msg.lower() else 422
         raise HTTPException(status_code=status_code, detail=error_msg)
     except HTTPException as e:
@@ -414,8 +506,8 @@ async def generate_subtopics(
     except Exception as e:
         import traceback
         error_msg = str(e)
-        logger.error(f"Generate subtopics failed: {error_msg}")
-        logger.error(traceback.format_exc())
+        logger.error("Generate subtopics failed request_id=%s error=%s", request_id, error_msg)
+        logger.error("Generate subtopics traceback request_id=%s trace=%s", request_id, traceback.format_exc())
         
         if 'status_id' in locals() and status_id:
             try: await subtopics_service.delete(status_id, user_id)

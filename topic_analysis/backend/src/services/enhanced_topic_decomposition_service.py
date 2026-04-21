@@ -77,14 +77,32 @@ class EnhancedTopicDecompositionService:
             cache_key = f"{user_id}:{query}:{max_subtopics}"
             cached_result = self._get_cached_result(cache_key)
             if cached_result:
-                logger.info(f"Returning cached result for query: {query}")
+                logger.info(
+                    "Enhanced decomposition cache hit query=%r user_id=%s max_subtopics=%s cached_count=%s",
+                    query,
+                    user_id,
+                    max_subtopics,
+                    len(cached_result.get("subtopics") or [])
+                )
                 return cached_result
             
             # Use new Semantic Expansion Service
             from .semantic_expansion_service import semantic_expansion_service
             
-            logger.info("Calling SemanticExpansionService.expand_and_verify...")
+            logger.info(
+                "Calling SemanticExpansionService.expand_and_verify query=%r user_id=%s use_autocomplete=%s use_llm=%s",
+                query,
+                user_id,
+                use_autocomplete,
+                use_llm
+            )
             verified_clusters = await semantic_expansion_service.expand_and_verify(query, user_id)
+            logger.info(
+                "Semantic expansion completed query=%r verified_cluster_count=%s sample_titles=%s",
+                query,
+                len(verified_clusters or []),
+                [cluster.get("cluster_title") for cluster in (verified_clusters or [])[:5]]
+            )
             
             if not verified_clusters:
                  # Fallback/Error handling (strict policy says we should fail if no good data)
@@ -148,6 +166,12 @@ class EnhancedTopicDecompositionService:
             
             # Cache result
             self._cache_result(cache_key, result)
+            logger.info(
+                "Enhanced decomposition success query=%r subtopic_count=%s processing_time=%.2fs",
+                query,
+                len(result["subtopics"]),
+                processing_time
+            )
             
             return result
             
@@ -157,7 +181,7 @@ class EnhancedTopicDecompositionService:
             raise
             
         except Exception as e:
-            logger.error(f"Error in enhanced topic decomposition: {str(e)}")
+            logger.error("Error in enhanced topic decomposition query=%r user_id=%s error=%s", query, user_id, str(e))
             return {
                 "success": False,
                 "message": f"Quality Control Error: {str(e)}",
