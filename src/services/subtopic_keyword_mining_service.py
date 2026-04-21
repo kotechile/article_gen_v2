@@ -3,11 +3,13 @@ Subtopic keyword mining service.
 Mines DataForSEO evidence per editorial subtopic and selects best supporting keywords.
 """
 
+import asyncio
 import logging
 import re
 from typing import Any, Dict, List
 
 from ..integrations.dataforseo import dataforseo_api
+from .llm.llm_service import llm_service
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,20 @@ class SubtopicKeywordMiningService:
         cleaned = re.sub(r"[^a-zA-Z0-9&'/%\-\s]", " ", (text or "").strip())
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
         return cleaned
+
+    def _normalize_short_seed(self, text: str) -> str:
+        cleaned = self._clean(text)
+        if not cleaned:
+            return ""
+        words = [w for w in cleaned.split() if w]
+        if len(words) < 2:
+            return ""
+        if len(words) > 3:
+            words = words[:3]
+        normalized = " ".join(words)
+        if re.search(r"(framework|playbook|methodology|optimization|solutioning|enablement)", normalized.lower()):
+            return ""
+        return normalized
 
     def _compact(self, text: str, n: int) -> str:
         cleaned = self._clean(text)
@@ -68,13 +84,79 @@ class SubtopicKeywordMiningService:
             out.append(" ".join(tokens[:4]))
         return out
 
-    def _build_variants(self, subtopic: Dict[str, Any], brief: Dict[str, Any]) -> List[str]:
+    async def _generate_llm_short_seeds(self, subtopic: Dict[str, Any], brief: Dict[str, Any]) -> List[str]:
+        topic = brief.get("topic_title") or ""
+        category_path = brief.get("category_path") or ""
+        summary = subtopic.get("summary") or ""
+        title = subtopic.get("title") or ""
+        decision_type = subtopic.get("decision_type") or ""
+        seed_phrases = ", ".join((subtopic.get("seed_phrases") or [])[:8])
+        prompt = f"""
+You are a veteran SEO Researcher and Search Intent Specialist.
+Take a technical concept and reverse-engineer it into simple phrases real people type into Google.
+
+Core Topic: {topic}
+Subtopic Title: {title}
+Subtopic Summary: {summary}
+Decision Type: {decision_type}
+Category Context: {category_path}
+Existing Seed Hints: {seed_phrases}
+
+Objective:
+- Output only realistic search terms.
+- Avoid consultant-speak or marketing fluff.
+- Keep each keyword 1-3 words, plain language.
+- Prefer terms with commercial or decision intent.
+
+Task:
+1) Problem Keywords: 10
+2) Object Keywords: 10
+3) Action Keywords: 8
+4) Comparison Keywords: 5
+5) Semantic Cluster Seeds: choose best 12 short terms across all groups
+
+Output format:
+- Return ONLY one keyword per line.
+- No numbering, no bullets, no extra text.
+- Every line must be 1-3 words.
+"""
+        try:
+            response = await asyncio.wait_for(
+                llm_service.generate_text(prompt=prompt, max_tokens=700, temperature=0.2),
+                timeout=25.0,
+            )
+            lines = (response.content or "").splitlines()
+            seeds: List[str] = []
+            seen = set()
+            for raw in lines:
+                candidate = raw.strip().lstrip("-").strip()
+                normalized = self._normalize_short_seed(candidate)
+                if not normalized:
+                    continue
+                key = normalized.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                seeds.append(normalized)
+            logger.info(
+                "LLM short seed generation subtopic=%r generated=%s sample=%s",
+                title,
+                len(seeds),
+                seeds[:8],
+            )
+            return seeds[:20]
+        except Exception as e:
+            logger.warning("LLM short seed generation failed subtopic=%r err=%s", title, e)
+            return []
+
+    async def _build_variants(self, subtopic: Dict[str, Any], brief: Dict[str, Any]) -> List[str]:
         title = subtopic.get("title", "")
         summary = subtopic.get("summary", "")
         seeds = subtopic.get("seed_phrases") or []
         category = brief.get("category_path", "")
         anchors = self._build_anchor_phrases(brief)
         short_title_seeds = self._compress_title_seed(title)
+        llm_short_seeds = await self._generate_llm_short_seeds(subtopic, brief)
 
         variants = [
             title,
@@ -87,11 +169,13 @@ class SubtopicKeywordMiningService:
         ]
         variants.extend(short_title_seeds)
         variants.extend(anchors)
+        variants.extend(llm_short_seeds)
 
         for seed in seeds:
             variants.append(seed)
             variants.append(self._compact(seed, 4))
             variants.append(self._compact(seed, 3))
+            variants.append(self._normalize_short_seed(seed))
 
         # Add short category-anchored mixes to improve DataForSEO recall.
         for base in short_title_seeds[:2]:
@@ -112,7 +196,7 @@ class SubtopicKeywordMiningService:
                 continue
             seen.add(key)
             deduped.append(c)
-        return deduped[:14]
+        return deduped[:18]
 
     def _competition_rank(self, competition: str) -> int:
         comp = (competition or "").upper()
@@ -154,7 +238,7 @@ class SubtopicKeywordMiningService:
         return selected
 
     async def mine_for_subtopic(self, subtopic: Dict[str, Any], brief: Dict[str, Any]) -> Dict[str, Any]:
-        variants = self._build_variants(subtopic, brief)
+        variants = await self._build_variants(subtopic, brief)
         if not variants:
             return {"variants_tried": [], "keywords": [], "primary_keyword": None}
 
