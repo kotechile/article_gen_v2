@@ -944,7 +944,7 @@ def bulk_create_research_topics():
 @research_topics_bp.route('/<topic_id>', methods=['DELETE'])
 @require_api_key
 def delete_research_topic(topic_id):
-    """Delete a research topic."""
+    """Delete a research topic and best-effort cascade related records."""
     try:
         supabase = get_supabase_client()
         user_id = _resolve_user_id_from_request(supabase)
@@ -956,6 +956,94 @@ def delete_research_topic(topic_id):
                 status=401
             ).dict()), 401
 
+        # Verify topic ownership first.
+        topic_owner_res = (
+            supabase
+            .table('research_topics')
+            .select('id,user_id')
+            .eq('id', topic_id)
+            .limit(1)
+            .execute()
+        )
+        topic_owner_rows = topic_owner_res.data or []
+        if not topic_owner_rows or topic_owner_rows[0].get('user_id') != user_id:
+            return jsonify(ErrorResponse(
+                error="forbidden",
+                message="You do not have access to this research topic",
+                error_code="FORBIDDEN",
+                status=403
+            ).dict()), 403
+
+        # 1) Delete content ideas linked to this topic.
+        deleted_content_ideas = 0
+        try:
+            ideas_deleted = (
+                supabase
+                .table('content_ideas')
+                .delete()
+                .eq('topic_id', topic_id)
+                .eq('user_id', user_id)
+                .execute()
+            )
+            deleted_content_ideas = len(ideas_deleted.data or [])
+        except Exception as ideas_err:
+            logger.warning("Topic delete cascade: failed to delete content ideas topic_id=%s user_id=%s err=%s", topic_id, user_id, ideas_err)
+
+        # 2) Resolve subtopics for evidence cleanup.
+        subtopic_rows = []
+        try:
+            subtopic_res = (
+                supabase
+                .table('subtopics')
+                .select('id')
+                .eq('research_topic_id', topic_id)
+                .eq('user_id', user_id)
+                .execute()
+            )
+            subtopic_rows = subtopic_res.data or []
+        except Exception:
+            try:
+                subtopic_res = (
+                    supabase
+                    .table('subtopics')
+                    .select('id')
+                    .eq('project_id', topic_id)
+                    .eq('user_id', user_id)
+                    .execute()
+                )
+                subtopic_rows = subtopic_res.data or []
+            except Exception as subtopic_fetch_err:
+                logger.warning("Topic delete cascade: failed to load subtopics topic_id=%s user_id=%s err=%s", topic_id, user_id, subtopic_fetch_err)
+
+        subtopic_ids = [row.get('id') for row in subtopic_rows if row.get('id')]
+
+        # 3) Delete evidence rows (optional tables).
+        if subtopic_ids:
+            try:
+                supabase.table('subtopic_keyword_candidates').delete().eq('user_id', user_id).in_('subtopic_id', subtopic_ids).execute()
+            except Exception as e:
+                logger.debug("Topic delete cascade: keyword evidence cleanup skipped topic_id=%s err=%s", topic_id, e)
+            try:
+                supabase.table('subtopic_affiliate_evidence').delete().eq('user_id', user_id).in_('subtopic_id', subtopic_ids).execute()
+            except Exception as e:
+                logger.debug("Topic delete cascade: affiliate evidence cleanup skipped topic_id=%s err=%s", topic_id, e)
+
+        # 4) Delete subtopics (both new + legacy linkage).
+        deleted_subtopics = 0
+        try:
+            subtopics_deleted = (
+                supabase
+                .table('subtopics')
+                .delete()
+                .eq('user_id', user_id)
+                .or_(f"research_topic_id.eq.{topic_id},project_id.eq.{topic_id}")
+                .execute()
+            )
+            deleted_subtopics = len(subtopics_deleted.data or [])
+        except Exception as subtopic_delete_err:
+            logger.warning("Topic delete cascade: failed to delete subtopics topic_id=%s user_id=%s err=%s", topic_id, user_id, subtopic_delete_err)
+
+        # 5) Delete topic row.
         response = (
             supabase
             .table('research_topics')
@@ -964,15 +1052,168 @@ def delete_research_topic(topic_id):
             .eq('user_id', user_id)
             .execute()
         )
-        
-        # Note: delete() might return empty list if not found, but we can consider it success (idempotent)
-        return jsonify({"message": "Topic deleted successfully"}), 200
+
+        deleted_topics = len(response.data or [])
+        if deleted_topics == 0:
+            return jsonify(ErrorResponse(
+                error="not_found",
+                message="Research topic not found",
+                error_code="NOT_FOUND",
+                status=404
+            ).dict()), 404
+
+        logger.info(
+            "Topic delete cascade completed topic_id=%s user_id=%s deleted_topics=%s deleted_subtopics=%s deleted_content_ideas=%s",
+            topic_id,
+            user_id,
+            deleted_topics,
+            deleted_subtopics,
+            deleted_content_ideas,
+        )
+        return jsonify({
+            "message": "Topic deleted successfully",
+            "deleted_topics": deleted_topics,
+            "deleted_subtopics": deleted_subtopics,
+            "deleted_content_ideas": deleted_content_ideas,
+        }), 200
 
     except Exception as e:
         logger.error(f"Error deleting research topic: {str(e)}", exc_info=True)
         return jsonify(ErrorResponse(
             error="internal_error",
             message="An error occurred",
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@research_topics_bp.route('/<topic_id>/subtopics/<subtopic_id>', methods=['DELETE'])
+@require_api_key
+def delete_subtopic(topic_id, subtopic_id):
+    """Delete a subtopic and all related content ideas for that topic/subtopic."""
+    try:
+        supabase = get_supabase_client()
+        user_id = _resolve_user_id_from_request(supabase)
+        if not user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        # Verify topic ownership.
+        topic_owner_res = (
+            supabase
+            .table('research_topics')
+            .select('id,user_id')
+            .eq('id', topic_id)
+            .limit(1)
+            .execute()
+        )
+        topic_owner_rows = topic_owner_res.data or []
+        if not topic_owner_rows or topic_owner_rows[0].get('user_id') != user_id:
+            return jsonify(ErrorResponse(
+                error="forbidden",
+                message="You do not have access to this research topic",
+                error_code="FORBIDDEN",
+                status=403
+            ).dict()), 403
+
+        # Load subtopic name for content_ideas cleanup (ideas store subtopic name).
+        subtopic_res = (
+            supabase
+            .table('subtopics')
+            .select('id,name,research_topic_id,project_id')
+            .eq('id', subtopic_id)
+            .eq('user_id', user_id)
+            .or_(f"research_topic_id.eq.{topic_id},project_id.eq.{topic_id}")
+            .limit(1)
+            .execute()
+        )
+        subtopic_rows = subtopic_res.data or []
+        if not subtopic_rows:
+            return jsonify(ErrorResponse(
+                error="not_found",
+                message="Subtopic not found",
+                error_code="NOT_FOUND",
+                status=404
+            ).dict()), 404
+
+        subtopic_name = (subtopic_rows[0].get('name') or '').strip()
+        deleted_content_ideas = 0
+
+        # Delete content ideas linked by topic + subtopic name.
+        if subtopic_name:
+            try:
+                ideas_deleted = (
+                    supabase
+                    .table('content_ideas')
+                    .delete()
+                    .eq('topic_id', topic_id)
+                    .eq('subtopic', subtopic_name)
+                    .eq('user_id', user_id)
+                    .execute()
+                )
+                deleted_content_ideas += len(ideas_deleted.data or [])
+            except Exception as ideas_err:
+                logger.warning(
+                    "Subtopic delete cascade: failed to delete content ideas topic_id=%s subtopic_id=%s subtopic_name=%r user_id=%s err=%s",
+                    topic_id,
+                    subtopic_id,
+                    subtopic_name,
+                    user_id,
+                    ideas_err,
+                )
+
+        # Optional evidence tables cleanup.
+        try:
+            supabase.table('subtopic_keyword_candidates').delete().eq('user_id', user_id).eq('subtopic_id', subtopic_id).execute()
+        except Exception as e:
+            logger.debug("Subtopic delete cascade: keyword evidence cleanup skipped subtopic_id=%s err=%s", subtopic_id, e)
+        try:
+            supabase.table('subtopic_affiliate_evidence').delete().eq('user_id', user_id).eq('subtopic_id', subtopic_id).execute()
+        except Exception as e:
+            logger.debug("Subtopic delete cascade: affiliate evidence cleanup skipped subtopic_id=%s err=%s", subtopic_id, e)
+
+        subtopic_delete_res = (
+            supabase
+            .table('subtopics')
+            .delete()
+            .eq('id', subtopic_id)
+            .eq('user_id', user_id)
+            .or_(f"research_topic_id.eq.{topic_id},project_id.eq.{topic_id}")
+            .execute()
+        )
+        deleted_subtopics = len(subtopic_delete_res.data or [])
+        if deleted_subtopics == 0:
+            return jsonify(ErrorResponse(
+                error="not_found",
+                message="Subtopic not found",
+                error_code="NOT_FOUND",
+                status=404
+            ).dict()), 404
+
+        logger.info(
+            "Subtopic delete cascade completed topic_id=%s subtopic_id=%s subtopic_name=%r user_id=%s deleted_subtopics=%s deleted_content_ideas=%s",
+            topic_id,
+            subtopic_id,
+            subtopic_name,
+            user_id,
+            deleted_subtopics,
+            deleted_content_ideas,
+        )
+        return jsonify({
+            "message": "Subtopic deleted successfully",
+            "deleted_subtopics": deleted_subtopics,
+            "deleted_content_ideas": deleted_content_ideas,
+        }), 200
+
+    except Exception as e:
+        logger.error("Error deleting subtopic topic_id=%s subtopic_id=%s err=%s", topic_id, subtopic_id, e, exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message="Failed to delete subtopic",
             error_code="INTERNAL_ERROR",
             status=500
         ).dict()), 500

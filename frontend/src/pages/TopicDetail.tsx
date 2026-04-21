@@ -8,7 +8,7 @@ import { contentIdeasService } from "@/services/content-ideas.service"
 import type { ResearchTopic, Subtopic } from "@/types/research"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ArrowLeft, FileText, TrendingUp, DollarSign, Target, Sparkles, RefreshCw, Lightbulb } from "lucide-react"
+import { ArrowLeft, FileText, TrendingUp, DollarSign, Target, Sparkles, RefreshCw, Lightbulb, Trash2 } from "lucide-react"
 import { motion } from "framer-motion"
 import { IdeaBurstModal } from "@/components/IdeaBurstModal"
 import { toast } from "sonner"
@@ -31,6 +31,7 @@ export function TopicDetail() {
     const [error, setError] = React.useState<string | null>(null)
     const [selectedSubtopic, setSelectedSubtopic] = React.useState<Subtopic | null>(null)
     const [showIdeaModal, setShowIdeaModal] = React.useState(false)
+    const [deletingSubtopicId, setDeletingSubtopicId] = React.useState<string | null>(null)
     const [hasStoredIdeas, setHasStoredIdeas] = React.useState(false)
     const [subtopicsWithSavedIdeas, setSubtopicsWithSavedIdeas] = React.useState<Set<string>>(new Set())
     const [subtopicsReadyForContent, setSubtopicsReadyForContent] = React.useState<Set<string>>(new Set())
@@ -113,6 +114,37 @@ export function TopicDetail() {
     const handleSubtopicClick = (sub: Subtopic) => {
         setSelectedSubtopic(sub)
         setShowIdeaModal(true)
+    }
+
+    const handleDeleteSubtopic = async (subtopic: Subtopic) => {
+        if (!id || !subtopic?.id) return
+        const name = (subtopic.name || 'this sub-topic').trim()
+        const confirmed = window.confirm(
+            `Delete "${name}" and all associated content ideas? This cannot be undone.`
+        )
+        if (!confirmed) return
+
+        try {
+            setDeletingSubtopicId(subtopic.id)
+            await subtopicsService.deleteSubtopic(id, subtopic.id)
+            setSubtopics((prev) => prev.filter((item) => item.id !== subtopic.id))
+            setSubtopicsWithSavedIdeas((prev) => {
+                const next = new Set(prev)
+                next.delete(name.toLowerCase())
+                return next
+            })
+            setSubtopicsReadyForContent((prev) => {
+                const next = new Set(prev)
+                next.delete(name.toLowerCase())
+                return next
+            })
+            toast.success(`Deleted "${name}" and its content ideas`)
+        } catch (err) {
+            console.error('Failed to delete subtopic:', err)
+            toast.error('Failed to delete sub-topic')
+        } finally {
+            setDeletingSubtopicId(null)
+        }
     }
 
     const intentChipClass = (intent?: string | null) => {
@@ -565,6 +597,23 @@ export function TopicDetail() {
                                                 {sub.name}
                                             </h3>
                                             <div className="flex items-center gap-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+                                                    title="Delete sub-topic and related content ideas"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        handleDeleteSubtopic(sub)
+                                                    }}
+                                                    disabled={deletingSubtopicId === sub.id}
+                                                >
+                                                    {deletingSubtopicId === sub.id ? (
+                                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                    ) : (
+                                                        <Trash2 className="h-3.5 w-3.5" />
+                                                    )}
+                                                </Button>
                                                 <label
                                                     className={`text-xs px-2 py-1 rounded-full border transition-colors inline-flex items-center gap-1.5 ${
                                                         isSubtopicResearched(sub)
