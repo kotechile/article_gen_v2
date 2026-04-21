@@ -52,10 +52,58 @@ class SemanticExpansionService:
         if not cleaned:
             return ""
         words = [w for w in cleaned.split() if w]
-        if len(words) <= 4:
+        if len(words) <= 5:
             return cleaned
-        # Keep a focused 4-word phrase for better DataForSEO matchability.
-        return " ".join(words[:4])
+
+        leading_noise = {
+            "how", "what", "why", "when", "where", "should", "can", "is", "are",
+            "the", "a", "an", "to", "for", "in", "on", "of", "with"
+        }
+        removable_words = {
+            "the", "a", "an", "to", "for", "in", "on", "of", "with", "and", "or", "by"
+        }
+
+        # Strip question boilerplate so compaction keeps the decision/topic core.
+        trimmed = list(words)
+        while trimmed and trimmed[0].lower() in leading_noise:
+            trimmed.pop(0)
+        if not trimmed:
+            trimmed = list(words)
+
+        lowered = [w.lower() for w in trimmed]
+
+        # Preserve comparison intent for DataForSEO (e.g., "x vs y").
+        if "vs" in lowered or "versus" in lowered:
+            idx = lowered.index("vs") if "vs" in lowered else lowered.index("versus")
+            left = [w for w in trimmed[:idx] if w.lower() not in removable_words]
+            right = [w for w in trimmed[idx + 1:] if w.lower() not in removable_words]
+            compact_parts: List[str] = []
+            compact_parts.extend(left[-2:])
+            compact_parts.append("vs")
+            compact_parts.extend(right[:2])
+            compact = " ".join(compact_parts).strip()
+            if compact and len(compact.split()) >= 2:
+                return compact
+
+        core = [w for w in trimmed if w.lower() not in removable_words]
+        if len(core) <= 5:
+            return " ".join(core) if core else " ".join(trimmed[:5])
+
+        # Use front-loaded intent plus one tail discriminator instead of blunt truncation.
+        compact_parts = core[:3] + [core[-1]]
+        deduped_parts: List[str] = []
+        seen = set()
+        for part in compact_parts:
+            key = part.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped_parts.append(part)
+
+        compact = " ".join(deduped_parts[:5]).strip()
+        if compact and len(compact.split()) >= 2:
+            return compact
+        return " ".join(core[:5]) if core else " ".join(trimmed[:5])
 
     def _head_keyword_for_metrics(self, text: str) -> str:
         """Create a short head-term fallback when long-tail phrases return no metrics."""
@@ -212,32 +260,38 @@ class SemanticExpansionService:
         preferred_intent = (decomposition_context or {}).get("intent_bucket") or "informational_decision"
         context_block = self._format_decomposition_context(topic, decomposition_context)
         prompt = f"""
-        You are a Keyword Research Expert.
+        You are an expert SEO strategist specializing in search intent, keyword clustering, and content positioning.
         I have a central topic: "{topic}".
         {context_block}
         Preferred Intent Bucket: {preferred_intent}
 
-        Task:
-        Generate exactly 20 specific long-tail seed keywords grouped by intent profile:
-        - QUESTION_INTENT (5)
-        - COMPARISON_INTENT (5)
-        - ROI_INTENT (5)
-        - TOOL_INTENT (5)
+        Goal:
+        Produce seed keywords that can succeed in DataForSEO lookups and map to real Google behavior.
+        Translate technical/abstract ideas into practical phrases people actually search.
 
-        Constraints:
-        - DO NOT generate generic terms like "Best [Topic]" with no qualifier.
-        - Keywords must be 3-5 words long.
-        - Each keyword must be tightly tied to the angle question and decision focus.
-        - The seeds should reflect the selected category lens and website niche, not the broad internet interpretation.
-        - If the topic is broad or abstract, translate it into concrete decision angles, frameworks, audits, scorecards, comparisons, calculators, or scenario-based research paths.
-        - Favor the preferred intent bucket where possible, while still returning all 4 groups.
+        Required intent groups and counts (exactly 20 total):
+        - QUESTION_INTENT: 5 seeds (why/how/should/can phrasing)
+        - COMPARISON_INTENT: 5 seeds (X vs Y, option tradeoffs, alternative evaluation)
+        - ROI_INTENT: 5 seeds (returns, cost, upside/downside, optimization, framework outcomes)
+        - TOOL_INTENT: 5 seeds (calculator, checklist, model, scorecard, worksheet, framework utility)
 
-        Output Format:
-        Return ONLY lines in this exact format:
+        Quality rules:
+        - Each seed must be 3-5 words and readable as a normal search query.
+        - Avoid punctuation-heavy or symbolic phrases. No wildcards, regex-like patterns, arrows, or markdown.
+        - Avoid generic filler such as "best topic", "guide", "tips", "overview" without a concrete qualifier.
+        - Keep one clear concept per seed; avoid run-on clauses.
+        - Include practical, human wording alongside technical meaning (bridging terms).
+        - Keep seeds tightly tied to topic decision-focus, selected category lens, and intended audience.
+        - Favor the preferred intent bucket tone where reasonable while still covering all 4 groups.
+
+        Output contract (strict):
+        Return ONLY lines in this exact format, one seed per line:
         QUESTION_INTENT | keyword text
         COMPARISON_INTENT | keyword text
         ROI_INTENT | keyword text
         TOOL_INTENT | keyword text
+
+        Do not include numbering, bullets, headings, JSON, or commentary.
         """
         try:
             response = await asyncio.wait_for(
@@ -260,8 +314,20 @@ class SemanticExpansionService:
                     keyword_text = clean_line
                 if keyword_text:
                     normalized_seed = self._compact_keyword_for_metrics(keyword_text)
+                    logger.debug(
+                        "Seed compaction: intent=%s raw=%r compact=%r",
+                        intent_label,
+                        keyword_text,
+                        normalized_seed,
+                    )
                     # DataForSEO performs better with concise, query-like seeds.
                     if len(normalized_seed.split()) < 2:
+                        logger.debug(
+                            "Seed dropped after compaction (too short): intent=%s raw=%r compact=%r",
+                            intent_label,
+                            keyword_text,
+                            normalized_seed,
+                        )
                         continue
                     seeds.append(normalized_seed)
                     seed_intent_map[normalized_seed.lower()] = intent_label
@@ -272,6 +338,7 @@ class SemanticExpansionService:
             for seed in seeds:
                 normalized = seed.lower()
                 if normalized in seen:
+                    logger.debug("Seed deduplicated: %r", seed)
                     continue
                 seen.add(normalized)
                 deduped_seeds.append(seed)
@@ -308,6 +375,11 @@ class SemanticExpansionService:
         
         # Execute using Standard API (Queue-based, high volume)
         if seeds_to_process:
+            logger.info(
+                "DataForSEO expansion request: seed_count=%s sample=%s",
+                len(seeds_to_process),
+                seeds_to_process[:8],
+            )
             # 1. Try to get Related Keywords (Expansion)
             # Note: This endpoint often returns empty for specific long-tails.
             results = await dataforseo_api.get_related_keywords_standard(seeds_to_process, limit_per_seed=20)
@@ -380,7 +452,18 @@ class SemanticExpansionService:
                     seen_terms.add(head)
 
             # Use robust standard endpoint with both original and compact fallback terms.
+            logger.info(
+                "DataForSEO bulk metrics lookup: candidate_count=%s lookup_term_count=%s sample=%s",
+                len(candidates_to_enrich),
+                len(lookup_terms),
+                lookup_terms[:10],
+            )
             bulk_metrics = await dataforseo_api.get_bulk_metrics_standard(lookup_terms)
+            logger.info(
+                "DataForSEO bulk metrics response: metrics_count=%s sample=%s",
+                len(bulk_metrics or []),
+                [m.get('keyword') for m in (bulk_metrics or [])[:10]],
+            )
             
             # Map metrics back
             metrics_map = {m['keyword'].lower(): m for m in bulk_metrics if m.get('keyword')}
@@ -402,6 +485,19 @@ class SemanticExpansionService:
                     updated_vol_count += 1
             
             logger.info(f"Enriched Volume/CPC for {updated_vol_count} keywords.")
+
+        non_zero_volume = sum(1 for k in final_list if (k.get('search_volume') or 0) > 0)
+        non_zero_cpc = sum(1 for k in final_list if (k.get('cpc') or 0) > 0)
+        non_zero_kd = sum(1 for k in final_list if (k.get('keyword_difficulty') or 0) > 0)
+        unresolved_keywords = [k.get('keyword') for k in final_list if (k.get('search_volume') or 0) == 0][:10]
+        logger.info(
+            "Keyword enrichment summary: total=%s non_zero_volume=%s non_zero_cpc=%s non_zero_kd=%s unresolved_sample=%s",
+            len(final_list),
+            non_zero_volume,
+            non_zero_cpc,
+            non_zero_kd,
+            unresolved_keywords,
+        )
 
         return final_list
 
