@@ -24,6 +24,28 @@ class SemanticExpansionService:
     def __init__(self):
         pass
 
+    def _sanitize_keyword_text(self, text: Any) -> str:
+        """Normalize noisy LLM keyword strings into clean query text."""
+        if not isinstance(text, str):
+            return ""
+        cleaned = text.strip()
+        if not cleaned:
+            return ""
+        # Handle annotation-heavy patterns like: "Pivot.* (4 words) -> *Wait vs buy before pivot.* (5 words) - *"
+        if "->" in cleaned:
+            cleaned = cleaned.split("->")[-1]
+        # Remove markdown bullets/emphasis and noisy suffixes
+        cleaned = re.sub(r"[*`_#•]+", " ", cleaned)
+        cleaned = re.sub(r"\(\s*\d+\s+words?\s*\)", " ", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\bwords?\b", " ", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+-\s*$", " ", cleaned)
+        cleaned = re.sub(r"[^a-zA-Z0-9&'/%\-\s]", " ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+        return cleaned
+
+    def _normalize_keyword_key(self, text: Any) -> str:
+        return self._sanitize_keyword_text(text).lower().strip()
+
     async def expand_and_verify(
         self,
         topic: str,
@@ -576,7 +598,11 @@ class SemanticExpansionService:
                 return []
 
             # Create lookup map for keyword data
-            kw_map = {k['keyword'].lower(): k for k in keywords}
+            kw_map = {}
+            for kw in keywords:
+                key = self._normalize_keyword_key(kw.get("keyword"))
+                if key:
+                    kw_map[key] = kw
 
             enriched_clusters = []
             for cluster in subtopics:
@@ -600,7 +626,9 @@ class SemanticExpansionService:
                 # logger.info(f"DEBUG KW Map Keys: {list(kw_map.keys())[:10]}") # Sample keys
 
                 for k_str in raw_kws:
-                    k_clean = k_str.lower().strip()
+                    k_clean = self._normalize_keyword_key(k_str)
+                    if not k_clean:
+                        continue
                     if k_clean in kw_map:
                         kw_data = kw_map[k_clean]
                         vol = kw_data.get('search_volume') or 0
@@ -616,7 +644,7 @@ class SemanticExpansionService:
 
                         # Add full object to list
                         matched_kw_objects.append({
-                            "keyword": k_str, 
+                            "keyword": kw_data.get('keyword') or self._sanitize_keyword_text(k_str),
                             "search_volume": vol,
                             "cpc": cpc,
                             "keyword_difficulty": kd,
@@ -684,7 +712,11 @@ class SemanticExpansionService:
                 # CRITICAL: Store objects in BOTH keys for compatibility
                 cluster['keywords'] = matched_kw_objects if matched_kw_objects else raw_kws 
                 cluster['seed_keywords'] = matched_kw_objects if matched_kw_objects else raw_kws
-                cluster['primary_keyword'] = matched_kw_objects[0]['keyword'] if matched_kw_objects else (raw_kws[0] if raw_kws else title)
+                if matched_kw_objects:
+                    cluster['primary_keyword'] = self._sanitize_keyword_text(matched_kw_objects[0].get('keyword'))
+                else:
+                    fallback_kw = self._sanitize_keyword_text(raw_kws[0]) if raw_kws else ""
+                    cluster['primary_keyword'] = fallback_kw or self._sanitize_keyword_text(title)
                 cluster['search_volume'] = total_vol
                 cluster['cpc'] = round(avg_cpc, 2)
                 cluster['keyword_difficulty'] = max_kd
@@ -729,7 +761,7 @@ class SemanticExpansionService:
                 
                 # Ensure primary keyword is set validly
                 if not cluster.get('primary_keyword'):
-                     cluster['primary_keyword'] = title
+                     cluster['primary_keyword'] = self._sanitize_keyword_text(title)
 
                 enriched_clusters.append(cluster)
 
@@ -785,8 +817,16 @@ class SemanticExpansionService:
         async def verify_single_cluster(cluster):
             async with semaphore:
                 primary_kw = cluster.get('primary_keyword')
+                primary_kw = self._sanitize_keyword_text(primary_kw)
+                if not primary_kw:
+                    primary_kw = self._sanitize_keyword_text(cluster.get('cluster_title'))
                 if not primary_kw:
                     return None
+                logger.info(
+                    "Cluster verification keyword selected cluster=%r primary_keyword=%r",
+                    cluster.get('cluster_title'),
+                    primary_kw
+                )
                     
                 # Run Trend & Monetization in parallel for this cluster
                 trend_task = self.analyze_trend(primary_kw)

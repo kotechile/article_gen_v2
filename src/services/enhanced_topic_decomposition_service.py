@@ -155,6 +155,17 @@ class EnhancedTopicDecompositionService:
                 indicators = []
                 trend = cluster.get('trend_analysis') or {}
                 monetization = cluster.get('monetization') or {}
+                cluster_keywords = cluster.get('keywords', []) or []
+                keyword_strings = []
+                for item in cluster_keywords:
+                    if isinstance(item, dict):
+                        kw_text = (item.get("keyword") or "").strip()
+                        if kw_text:
+                            keyword_strings.append(kw_text)
+                    elif isinstance(item, str):
+                        kw_text = item.strip()
+                        if kw_text:
+                            keyword_strings.append(kw_text)
                 
                 if trend.get('label'):
                     indicators.append(f"Trend: {trend['label']}")
@@ -173,11 +184,11 @@ class EnhancedTopicDecompositionService:
                     id=str(uuid4()),
                     title=cluster.get('cluster_title', 'Unknown Cluster'),
                     search_volume_indicators=indicators if indicators else ["Verified Profitable"],
-                    autocomplete_suggestions=cluster.get('keywords', []),
+                    autocomplete_suggestions=keyword_strings,
                     relevance_score=0.95, # High confidence if it passed verification
                     source=SubtopicSource.HYBRID,
                     rationale=cluster.get('cluster_rationale') or f"Primary Keyword: {cluster.get('primary_keyword')}. {monetization.get('status')} Check.",
-                    seed_keywords=cluster.get('keywords', []),
+                    seed_keywords=keyword_strings,
                     target_audience="Niche Audience", # Placeholder or extract from LLM,
                     search_volume=cluster.get('search_volume'),
                     cpc=cluster.get('cpc'),
