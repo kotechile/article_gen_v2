@@ -38,6 +38,7 @@ export function TopicDetail() {
     const [subtopicsWithSavedIdeas, setSubtopicsWithSavedIdeas] = React.useState<Set<string>>(new Set())
     const [subtopicsReadyForContent, setSubtopicsReadyForContent] = React.useState<Set<string>>(new Set())
     const decomposeToastIdRef = React.useRef<string | number | null>(null)
+    const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
 
     React.useEffect(() => {
         if (!authLoading && user && id) {
@@ -102,16 +103,50 @@ export function TopicDetail() {
     const handleDecompose = async () => {
         if (!id) return
         try {
+            const preCount = subtopics.length
             setDecomposing(true)
             setDecomposeStartedAt(Date.now())
             setDecomposeElapsedSec(0)
             decomposeToastIdRef.current = toast.loading('Generating sub-topics. This can take 30-90 seconds while SEO evidence is collected.')
             // Call the generation endpoint
             const newSubtopics = await subtopicsService.generateSubtopics(id)
+            let finalSubtopics = newSubtopics
             setSubtopics(newSubtopics)
-            toast.success(`Generated ${newSubtopics.length} sub-topic${newSubtopics.length === 1 ? '' : 's'}.`, {
-                id: decomposeToastIdRef.current ?? undefined,
-            })
+
+            // Some deployments persist rows shortly after the generate response returns.
+            // Keep the "in progress" state while we reconcile the final list.
+            if (newSubtopics.length === 0) {
+                toast.loading('Finalizing sub-topics... waiting for persistence.', {
+                    id: decomposeToastIdRef.current ?? undefined,
+                })
+                const maxAttempts = 15
+                for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+                    await sleep(3000)
+                    const latest = await subtopicsService.getSubtopics(id)
+                    if ((latest || []).length > 0) {
+                        finalSubtopics = latest
+                        setSubtopics(latest)
+                        break
+                    }
+                    if (attempt % 5 === 0) {
+                        toast.loading('Still processing sub-topics... this run is taking longer than usual.', {
+                            id: decomposeToastIdRef.current ?? undefined,
+                        })
+                    }
+                }
+            }
+
+            if ((finalSubtopics || []).length > 0) {
+                const generatedDelta = Math.max(0, finalSubtopics.length - preCount)
+                const messageCount = generatedDelta > 0 ? generatedDelta : finalSubtopics.length
+                toast.success(`Generated ${messageCount} sub-topic${messageCount === 1 ? '' : 's'}.`, {
+                    id: decomposeToastIdRef.current ?? undefined,
+                })
+            } else {
+                toast.warning('Generation finished, but no sub-topics were returned yet. Try Refresh in a few seconds.', {
+                    id: decomposeToastIdRef.current ?? undefined,
+                })
+            }
         } catch (err) {
             console.error('Failed to decompose topic:', err)
             setError('Failed to decompose topic. Please try again.')
