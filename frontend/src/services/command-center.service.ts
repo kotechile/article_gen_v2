@@ -50,6 +50,18 @@ interface TrendTaskStatus {
 }
 
 class CommandCenterService {
+  private extractTrendTitles(project: Project): string[] {
+    const topics = project?.last_trend_report?.report_content?.topics
+    if (!Array.isArray(topics)) {
+      return []
+    }
+
+    return topics
+      .map((item) => (typeof item?.title === 'string' ? item.title.trim() : ''))
+      .filter(Boolean)
+      .slice(0, 8)
+  }
+
   async listCategories(projectId: string): Promise<ProjectCategory[]> {
     const { data, error } = await supabase
       .from('project_categories')
@@ -143,8 +155,13 @@ class CommandCenterService {
   }): Promise<TopicDraft[]> {
     const response = await apiClient.post<{ topics?: TopicDraft[] }>('/ai/propose-topics', {
       niche_description: this.buildContextDescription(params.project, params.primaryCategory, params.secondaryCategory),
+      project_name: params.project.domain || params.project.app_name || '',
+      project_description: params.project.site_description || params.project.websiteDescription || params.project.targetAudienceDescription || '',
       primary_category: params.primaryCategory.name,
+      primary_category_description: params.primaryCategory.description ?? null,
       secondary_category: params.secondaryCategory?.name ?? null,
+      secondary_category_description: params.secondaryCategory?.description ?? null,
+      trend_titles: this.extractTrendTitles(params.project),
       count: 20,
     })
 
@@ -256,7 +273,9 @@ class CommandCenterService {
       `Website: ${label}`,
       description ? `Website description: ${description}` : null,
       `Primary category: ${primaryCategory.name}`,
+      primaryCategory.description ? `Primary category context: ${primaryCategory.description}` : null,
       secondaryCategory ? `Subcategory: ${secondaryCategory.name}` : null,
+      secondaryCategory?.description ? `Subcategory context: ${secondaryCategory.description}` : null,
       'Suggest broad topics that are strong starting points for research and article planning.',
     ]
       .filter(Boolean)
