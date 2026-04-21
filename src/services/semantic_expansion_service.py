@@ -52,10 +52,24 @@ class SemanticExpansionService:
         if not cleaned:
             return ""
         words = [w for w in cleaned.split() if w]
-        if len(words) <= 6:
+        if len(words) <= 4:
             return cleaned
-        # Keep a focused 6-word phrase, preserving common finance/investing acronyms if present.
-        return " ".join(words[:6])
+        # Keep a focused 4-word phrase for better DataForSEO matchability.
+        return " ".join(words[:4])
+
+    def _head_keyword_for_metrics(self, text: str) -> str:
+        """Create a short head-term fallback when long-tail phrases return no metrics."""
+        cleaned = self._sanitize_keyword_text(text)
+        if not cleaned:
+            return ""
+        stopwords = {
+            "the", "a", "an", "and", "or", "to", "for", "of", "with", "without", "in",
+            "on", "at", "vs", "versus", "how", "what", "when", "where", "best"
+        }
+        words = [w for w in cleaned.split() if len(w) > 2 and w.lower() not in stopwords]
+        if not words:
+            return ""
+        return " ".join(words[:3])
 
     async def expand_and_verify(
         self,
@@ -354,12 +368,16 @@ class SemanticExpansionService:
             seen_terms = set()
             for original in candidates_to_enrich:
                 compact = self._compact_keyword_for_metrics(original)
+                head = self._head_keyword_for_metrics(original)
                 if original not in seen_terms:
                     lookup_terms.append(original)
                     seen_terms.add(original)
                 if compact and compact not in seen_terms:
                     lookup_terms.append(compact)
                     seen_terms.add(compact)
+                if head and head not in seen_terms:
+                    lookup_terms.append(head)
+                    seen_terms.add(head)
 
             # Use robust standard endpoint with both original and compact fallback terms.
             bulk_metrics = await dataforseo_api.get_bulk_metrics_standard(lookup_terms)
@@ -372,7 +390,8 @@ class SemanticExpansionService:
                 k_norm = k['keyword'].lower()
                 direct_metric = metrics_map.get(k_norm)
                 compact_metric = metrics_map.get(self._compact_keyword_for_metrics(k['keyword']).lower())
-                m = direct_metric or compact_metric
+                head_metric = metrics_map.get(self._head_keyword_for_metrics(k['keyword']).lower())
+                m = direct_metric or compact_metric or head_metric
                 if m:
                     k['search_volume'] = m.get('search_volume', 0)
                     k['cpc'] = m.get('cpc', 0)
@@ -426,6 +445,17 @@ class SemanticExpansionService:
         strict_mode = settings.get("strict_mode", True)
         
         logger.info(f"Filtering with thresholds: MinVol={min_vol}, MaxKD={max_kd}, Strict={strict_mode}")
+
+        # Adaptive relaxation: if most candidates have zero volume, avoid over-pruning on volume.
+        positive_volume_count = sum(1 for kw in keywords if (kw.get('search_volume') or 0) > 0)
+        if positive_volume_count < 10:
+            logger.warning(
+                "Low-volume candidate set detected (positive_volume=%s of %s). Relaxing volume gate.",
+                positive_volume_count,
+                len(keywords)
+            )
+            min_vol = 0
+            strict_mode = False
 
         for kw in keywords:
             vol = kw.get('search_volume', 0) or 0
