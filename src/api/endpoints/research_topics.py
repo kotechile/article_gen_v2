@@ -1873,9 +1873,11 @@ Generate 5 blog article ideas that:
 3. Are decision-relevant and outcome-oriented, not generic listicles
 4. Include monetization opportunities tied to the audience decision
 5. Provide internal linking hooks to related angle clusters/value layers
+6. Use plain, everyday language in titles (no consultant-speak or corporate jargon)
+7. Prefer words real users type in search bars over boardroom phrasing
 
 For each idea, provide:
-- Title: Specific, SEO-conscious title
+- Title: Specific, SEO-conscious title in simple language (clear, practical, non-technical unless necessary)
 - Description: 1-2 sentence angle summary
 - Primary Keywords: 2-3 keywords
 - Intent: informational/commercial/transactional
@@ -1969,6 +1971,11 @@ VIABILITY: [overall viability score 1-100]
 END_IDEA
 
 Generate 3 software tools/features to BUILD following this format.
+
+Critical naming and language rules:
+- Tool names must be plain-English and practical (what users would actually search)
+- Avoid consultant-speak and brochure language (no "framework", "paradigm", "value architecture", "strategic lens")
+- If a technical term is required, pair it with a simple phrase users understand
 """
 
             # Generate both in parallel
@@ -2068,6 +2075,33 @@ def parse_idea_response(text: str, content_type: str, topic_id: str, user_id: st
     import re
     from uuid import uuid4
 
+    def _normalize_idea_title(raw_title: str) -> str:
+        """Normalize LLM titles to plain language and reduce consultant-speak drift."""
+        if not raw_title:
+            return raw_title
+
+        title = re.sub(r"\s+", " ", raw_title.strip())
+
+        # Replace jargon-heavy words with simpler alternatives.
+        jargon_map = {
+            r"\bframework\b": "guide",
+            r"\bplaybook\b": "plan",
+            r"\bmethodology\b": "method",
+            r"\boptimization\b": "improvements",
+            r"\bscenario\b": "plan",
+            r"\bsolvency\b": "financial health",
+            r"\barbitrage\b": "price gap",
+            r"\bamortization\b": "paydown",
+            r"\bvaluation\b": "value",
+        }
+        for pattern, replacement in jargon_map.items():
+            title = re.sub(pattern, replacement, title, flags=re.IGNORECASE)
+
+        # Keep punctuation readable and avoid repeated separators.
+        title = re.sub(r"\s*[-–—]{2,}\s*", " - ", title)
+        title = re.sub(r"\s{2,}", " ", title).strip(" -")
+        return title
+
     ideas = []
     current_idea = {}
 
@@ -2085,7 +2119,8 @@ def parse_idea_response(text: str, content_type: str, topic_id: str, user_id: st
 
         # Parse fields
         elif line.upper().startswith('TITLE:'):
-            current_idea['title'] = line.split(':', 1)[1].strip()
+            raw_title = line.split(':', 1)[1].strip()
+            current_idea['title'] = _normalize_idea_title(raw_title)
         elif line.upper().startswith('DESCRIPTION:'):
             current_idea['description'] = line.split(':', 1)[1].strip()
         elif line.upper().startswith('KEYWORDS:'):
