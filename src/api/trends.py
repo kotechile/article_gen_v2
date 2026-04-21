@@ -14,18 +14,34 @@ def generate_trend_report_endpoint(site_id):
         body = request.get_json(silent=True) or {}
         primary_category_id = body.get('primary_category_id')
         secondary_category_id = body.get('secondary_category_id')
+        project_name = body.get('project_name')
+        project_description = body.get('project_description')
+        niche_description = body.get('niche_description')
+        primary_category = body.get('primary_category')
+        primary_category_description = body.get('primary_category_description')
+        secondary_category = body.get('secondary_category')
+        secondary_category_description = body.get('secondary_category_description')
 
         logger.info(
-            "trends: start site_id=%s primary_category_id=%s secondary_category_id=%s",
+            "trends: start site_id=%s primary_category_id=%s secondary_category_id=%s primary_category=%s secondary_category=%s",
             site_id,
             primary_category_id,
             secondary_category_id,
+            primary_category,
+            secondary_category,
         )
 
         task = process_trend_task.delay(
             site_id,
             primary_category_id=primary_category_id,
             secondary_category_id=secondary_category_id,
+            project_name=project_name,
+            project_description=project_description,
+            niche_description=niche_description,
+            primary_category_name=primary_category,
+            primary_category_description=primary_category_description,
+            secondary_category_name=secondary_category,
+            secondary_category_description=secondary_category_description,
         )
 
         return jsonify({

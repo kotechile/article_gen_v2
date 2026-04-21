@@ -181,6 +181,13 @@ class CommandCenterService {
     const start = await apiClient.post<TrendTaskResponse>(`/v1/trends/${params.project.id}`, {
       primary_category_id: params.primaryCategory.id,
       secondary_category_id: params.secondaryCategory?.id || null,
+      project_name: params.project.domain || params.project.app_name || '',
+      project_description: params.project.site_description || params.project.websiteDescription || params.project.targetAudienceDescription || '',
+      niche_description: this.buildContextDescription(params.project, params.primaryCategory, params.secondaryCategory),
+      primary_category: params.primaryCategory.name,
+      primary_category_description: params.primaryCategory.description ?? null,
+      secondary_category: params.secondaryCategory?.name ?? null,
+      secondary_category_description: params.secondaryCategory?.description ?? null,
     })
 
     if (!start.task_id) {

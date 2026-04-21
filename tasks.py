@@ -71,6 +71,7 @@ ARTICLE_MIN_GEO_SCORE = 45
 ARTICLE_MIN_AVG_CLAIM_CONFIDENCE = 0.40
 ARTICLE_MAX_WEAK_CLAIMS = 3
 ARTICLE_MIN_WORD_COUNT = 900
+DEFAULT_STRICT_KEYWORD_MODE = True
 
 _LOW_SUBSTANCE_PATTERNS = (
     r"\bthis section covers\b",
@@ -90,6 +91,164 @@ _CONTRADICTION_MARKERS = (
     "contrary", "disputed", "mixed", "unclear", "inconclusive", "no consensus",
 )
 _SOURCE_TYPES = ("expert", "primary", "secondary", "commercial", "community")
+
+
+def _load_keyword_gate_settings() -> Dict[str, Any]:
+    """Read generation keyword gate settings from application settings."""
+    settings = {
+        "strict_keyword_mode": DEFAULT_STRICT_KEYWORD_MODE,
+        "min_keyword_candidates": 1,
+        "allow_llm_fallback": False,
+    }
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return settings
+        response = supabase.table("application_settings").select("research_settings").limit(1).execute()
+        if not response.data:
+            return settings
+        research_settings = response.data[0].get("research_settings") or {}
+        strict_mode = research_settings.get("strict_keyword_mode", research_settings.get("strict_mode"))
+        if strict_mode is not None:
+            settings["strict_keyword_mode"] = bool(strict_mode)
+        if research_settings.get("min_keyword_candidates") is not None:
+            settings["min_keyword_candidates"] = max(1, int(research_settings.get("min_keyword_candidates") or 1))
+        if research_settings.get("allow_llm_keyword_fallback") is not None:
+            settings["allow_llm_fallback"] = bool(research_settings.get("allow_llm_keyword_fallback"))
+    except Exception as settings_error:
+        logger.warning("Failed to load keyword gate settings, using defaults: %s", settings_error)
+    return settings
+
+
+def _build_selected_keyword_metrics(
+    primary_keyword: str,
+    secondary_keywords: List[str],
+    search_volume: Any,
+    difficulty: Any,
+    intent: str,
+    keyword_source: str,
+    candidate_keywords: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Create an auditable keyword metrics payload for UI and downstream stages."""
+    try:
+        search_volume_value = int(search_volume or 0)
+    except Exception:
+        search_volume_value = 0
+    try:
+        difficulty_value = float(difficulty or 0.0)
+    except Exception:
+        difficulty_value = 0.0
+
+    normalized_source = str(keyword_source or "").strip().lower() or "unknown"
+    primary = str(primary_keyword or "").strip()
+    secondary = [str(x).strip() for x in (secondary_keywords or []) if str(x).strip()]
+    candidates = [str(x).strip() for x in (candidate_keywords or []) if str(x).strip()]
+    is_estimated = normalized_source not in {"dataforseo", "hybrid"}
+
+    return {
+        "primary": {
+            "keyword": primary,
+            "search_volume": search_volume_value,
+            "keyword_difficulty": difficulty_value,
+            "intent": str(intent or "").strip().lower() or "informational",
+            "metric_source": "aggregate_idea_metrics" if is_estimated else "research_keyword_dossier",
+            "is_estimated": is_estimated,
+        },
+        "secondary": [
+            {
+                "keyword": keyword,
+                "metric_source": "unscored_secondary_keyword",
+                "is_estimated": True,
+            }
+            for keyword in secondary
+        ],
+        "candidate_count": len(candidates) or len([x for x in [primary] + secondary if x]),
+        "source": normalized_source,
+        "generated_at": datetime.utcnow().isoformat(),
+    }
+
+
+def _hydrate_selected_keyword_metrics_from_map(
+    keyword_metrics_map: Dict[str, Any],
+    primary_keyword: str,
+    secondary_keywords: List[str],
+    target_intent: str,
+    keyword_source: str,
+) -> Dict[str, Any]:
+    """Build exact selected keyword metrics from a keyword -> metric map."""
+    normalized_map = {}
+    for key, value in (keyword_metrics_map or {}).items():
+        if not key:
+            continue
+        normalized_map[str(key).strip().lower()] = value or {}
+
+    def _row(keyword: str) -> Dict[str, Any]:
+        metric = normalized_map.get(str(keyword or "").strip().lower(), {})
+        return {
+            "keyword": str(keyword or "").strip(),
+            "search_volume": int(metric.get("search_volume") or 0),
+            "keyword_difficulty": float(metric.get("keyword_difficulty") or 0.0),
+            "cpc": float(metric.get("cpc") or 0.0),
+            "metric_source": "research_keyword_dossier",
+            "is_estimated": False,
+        }
+
+    primary = _row(primary_keyword)
+    return {
+        "primary": {
+            **primary,
+            "intent": str(target_intent or "").strip().lower() or "informational",
+        },
+        "secondary": [_row(keyword) for keyword in (secondary_keywords or []) if str(keyword).strip()],
+        "candidate_count": len(([primary_keyword] if primary_keyword else []) + [k for k in (secondary_keywords or []) if str(k).strip()]),
+        "source": str(keyword_source or "").strip().lower() or "dataforseo",
+        "generated_at": datetime.utcnow().isoformat(),
+    }
+
+
+def _normalize_keyword_metric_map(keyword_metrics_map: Dict[str, Any]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
+    for key, value in (keyword_metrics_map or {}).items():
+        keyword = str(key or "").strip().lower()
+        if not keyword:
+            continue
+        normalized[keyword] = value or {}
+    return normalized
+
+
+def _validate_keyword_strategy_for_generation(research_data: Dict[str, Any]) -> None:
+    """Fail generation early when keyword strategy is too weak for production mode."""
+    settings = _load_keyword_gate_settings()
+    if not settings.get("strict_keyword_mode", DEFAULT_STRICT_KEYWORD_MODE):
+        return
+
+    keyword_candidates = research_data.get("keyword_candidates") or []
+    if isinstance(keyword_candidates, str):
+        keyword_candidates = [x.strip() for x in keyword_candidates.split(",") if x.strip()]
+    if not isinstance(keyword_candidates, list):
+        keyword_candidates = []
+    keyword_candidates = [str(x).strip() for x in keyword_candidates if str(x).strip()]
+
+    primary_keyword = str(research_data.get("primary_keyword") or "").strip()
+    keyword_source = str(research_data.get("keyword_research_source") or "").strip().lower()
+    keyword_status = str(research_data.get("keyword_research_status") or "").strip().lower()
+
+    failures: List[str] = []
+    if len(keyword_candidates) < int(settings.get("min_keyword_candidates") or 1):
+        failures.append("insufficient_keyword_candidates")
+    if not primary_keyword:
+        failures.append("missing_primary_keyword")
+    if keyword_status in {"fallback", "failed", "empty"}:
+        failures.append(f"keyword_status_{keyword_status}")
+    if keyword_source == "llm_fallback" and not settings.get("allow_llm_fallback", False):
+        failures.append("llm_fallback_not_allowed")
+
+    if failures:
+        raise ValueError(
+            "Keyword gate blocked generation: "
+            + ", ".join(failures)
+            + f" (source={keyword_source or 'unknown'}, candidates={len(keyword_candidates)})"
+        )
 
 
 def _normalize_claim_text(text: str) -> str:
@@ -675,24 +834,28 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     recovered_volume = int(title_row.get('selected_keyword_search_volume') or 0)
                     recovered_difficulty = float(title_row.get('selected_keyword_difficulty') or 0.0)
                     recovered_intent = str(title_row.get('selected_keyword_intent') or '').strip().lower()
+                    recovered_selected_keyword_metrics = title_row.get('selected_keyword_metrics_json') or {}
+                    recovered_keyword_metric_map = {}
 
                     if not keyword_candidates and source_idea_id:
                         try:
                             idea_response = (
                                 supabase.table('content_ideas')
-                                .select('primary_keywords,secondary_keywords,total_search_volume,average_difficulty,target_intent')
+                                .select('primary_keywords,secondary_keywords,keywords,keyword_metrics,total_search_volume,average_difficulty,target_intent,idea_metadata')
                                 .eq('id', source_idea_id)
                                 .limit(1)
                                 .execute()
                             )
                             if idea_response.data:
                                 idea_row = idea_response.data[0]
-                                primary_keywords = idea_row.get('primary_keywords') or []
+                                primary_keywords = idea_row.get('primary_keywords') or idea_row.get('keywords') or []
                                 secondary_keywords = idea_row.get('secondary_keywords') or []
                                 if isinstance(primary_keywords, str):
                                     primary_keywords = [k.strip() for k in primary_keywords.split(',') if k.strip()]
                                 if isinstance(secondary_keywords, str):
                                     secondary_keywords = [k.strip() for k in secondary_keywords.split(',') if k.strip()]
+                                if not secondary_keywords and len(primary_keywords) > 1:
+                                    secondary_keywords = primary_keywords[1:]
                                 keyword_candidates = []
                                 for kw in (primary_keywords + secondary_keywords):
                                     kw_text = str(kw).strip()
@@ -701,6 +864,23 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                                 recovered_volume = int(idea_row.get('total_search_volume') or recovered_volume or 0)
                                 recovered_difficulty = float(idea_row.get('average_difficulty') or recovered_difficulty or 0.0)
                                 recovered_intent = str(idea_row.get('target_intent') or recovered_intent or '').strip().lower()
+                                keyword_metrics_map = idea_row.get('keyword_metrics') or {}
+                                if not keyword_metrics_map:
+                                    seo_offer_enrichment = (idea_row.get('idea_metadata') or {}).get('seo_offer_enrichment') or {}
+                                    keyword_metrics_map = seo_offer_enrichment.get('keyword_metrics') or {}
+                                recovered_keyword_metric_map = _normalize_keyword_metric_map(keyword_metrics_map)
+                                primary_keyword_from_idea = primary_keywords[0] if primary_keywords else ""
+                                if keyword_metrics_map and primary_keyword_from_idea:
+                                    recovered_selected_keyword_metrics = _hydrate_selected_keyword_metrics_from_map(
+                                        keyword_metrics_map=keyword_metrics_map,
+                                        primary_keyword=primary_keyword_from_idea,
+                                        secondary_keywords=secondary_keywords,
+                                        target_intent=recovered_intent or "informational",
+                                        keyword_source='dataforseo',
+                                    )
+                                    primary_metric = (recovered_selected_keyword_metrics.get('primary') or {})
+                                    recovered_volume = int(primary_metric.get('search_volume') or recovered_volume or 0)
+                                    recovered_difficulty = float(primary_metric.get('keyword_difficulty') or recovered_difficulty or 0.0)
                                 logger.info(
                                     "Recovered keyword dossier from content_ideas for article %s (source_idea_id=%s, candidates=%s)",
                                     article_id,
@@ -723,6 +903,9 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         research_data['keyword_research_status'] = title_row.get('keyword_research_status') or 'ready'
                         research_data['keyword_research_source'] = title_row.get('keyword_research_source') or 'research_dossier_reused'
                         research_data['keyword_research_confidence'] = float(title_row.get('keyword_research_confidence') or 0.75)
+                        research_data['selected_keyword_metrics_json'] = recovered_selected_keyword_metrics
+                        if recovered_keyword_metric_map:
+                            research_data['keyword_metrics_map'] = recovered_keyword_metric_map
 
                         # Best-effort persistence back to Titles so downstream UI sees it.
                         keyword_updates = {
@@ -735,6 +918,7 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                             'selected_keyword_search_volume': recovered_volume,
                             'selected_keyword_difficulty': recovered_difficulty,
                             'selected_keyword_intent': research_data['target_intent'],
+                            'selected_keyword_metrics_json': recovered_selected_keyword_metrics,
                         }
                         try:
                             supabase.table('Titles').update(keyword_updates).eq('id', article_id).execute()
@@ -955,6 +1139,7 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         'selected_keyword_search_volume': final_content.get('selected_keyword_search_volume', 0),
                         'selected_keyword_difficulty': final_content.get('selected_keyword_difficulty', 0.0),
                         'selected_keyword_intent': final_content.get('selected_keyword_intent', ''),
+                        'selected_keyword_metrics_json': final_content.get('selected_keyword_metrics_json', {}),
                         'keyword_selection_reason': final_content.get('keyword_selection_reason', ''),
                         'keyword_strategy_version': final_content.get('keyword_strategy_version', ''),
                         'keyword_selection_source': final_content.get('keyword_selection_source', ''),
@@ -1007,6 +1192,7 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                             'selected_keyword_search_volume',
                             'selected_keyword_difficulty',
                             'selected_keyword_intent',
+                            'selected_keyword_metrics_json',
                             'keyword_selection_reason',
                             'keyword_strategy_version',
                             'keyword_selection_source',
@@ -1296,20 +1482,31 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
                 merged_candidates.append(kw)
 
         target_intent = str(research_data.get('target_intent') or '').strip().lower() or "informational"
+        keyword_metrics_map = _normalize_keyword_metric_map(research_data.get('keyword_metrics_map') or {})
 
         # Simple deterministic ranking:
-        # - Prefer moderate-length phrases (3-6 tokens)
-        # - Prefer terms that appear in draft title (if provided)
-        # - Keep stable ordering otherwise
+        # Prefer exact keyword metrics when we have them.
+        # Fall back to phrase-shape heuristics to stay resilient on older rows.
         draft_title = str(research_data.get('draft_title') or '').lower()
         scored = []
         for idx, kw in enumerate(merged_candidates):
             kw_l = kw.lower()
+            metric = keyword_metrics_map.get(kw_l, {})
             token_count = len([p for p in kw_l.split() if p.strip()])
             length_score = 1.0 if 3 <= token_count <= 6 else (0.6 if 2 <= token_count <= 8 else 0.3)
             title_bonus = 0.8 if draft_title and kw_l in draft_title else 0.0
+            volume = float(metric.get('search_volume') or 0.0)
+            difficulty = float(metric.get('keyword_difficulty') or 0.0)
+            cpc = float(metric.get('cpc') or 0.0)
+            metric_bonus = 0.0
+            if volume > 0:
+                metric_bonus += min(volume / 250.0, 3.0)
+            if difficulty > 0:
+                metric_bonus += max(0.0, (65.0 - difficulty) / 25.0)
+            if cpc > 0:
+                metric_bonus += min(cpc / 3.0, 1.5)
             stable_penalty = idx * 0.0001
-            scored.append((length_score + title_bonus - stable_penalty, kw))
+            scored.append((length_score + title_bonus + metric_bonus - stable_penalty, kw))
         scored.sort(key=lambda x: x[0], reverse=True)
         ranked_keywords = [kw for _, kw in scored]
 
@@ -1369,6 +1566,30 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
         research_data['keyword_selection_reason'] = 'Keyword intelligence selected best-fit candidates from dossier + brief.'
         research_data['keyword_strategy_version'] = 'phase1_v2'
         research_data['selected_keyword_intent'] = target_intent
+        if keyword_metrics_map and selected_primary.lower() in keyword_metrics_map:
+            selected_keyword_metrics = _hydrate_selected_keyword_metrics_from_map(
+                keyword_metrics_map=keyword_metrics_map,
+                primary_keyword=selected_primary,
+                secondary_keywords=selected_secondary,
+                target_intent=target_intent,
+                keyword_source=research_data.get('keyword_research_source') or 'unknown',
+            )
+        else:
+            selected_keyword_metrics = _build_selected_keyword_metrics(
+                primary_keyword=selected_primary,
+                secondary_keywords=selected_secondary,
+                search_volume=research_data.get('total_search_volume'),
+                difficulty=research_data.get('avg_keyword_difficulty'),
+                intent=target_intent,
+                keyword_source=research_data.get('keyword_research_source') or 'unknown',
+                candidate_keywords=merged_candidates,
+            )
+        research_data['selected_keyword_metrics_json'] = selected_keyword_metrics
+        primary_metric = selected_keyword_metrics.get('primary') or {}
+        research_data['total_search_volume'] = int(primary_metric.get('search_volume') or research_data.get('total_search_volume') or 0)
+        research_data['avg_keyword_difficulty'] = float(primary_metric.get('keyword_difficulty') or research_data.get('avg_keyword_difficulty') or 0.0)
+
+        _validate_keyword_strategy_for_generation(research_data)
 
         # Best-effort early persistence for visibility while task is running.
         article_id = research_data.get('article_id')
@@ -1389,6 +1610,7 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
                         'selected_keyword_search_volume': int(research_data.get('total_search_volume') or 0),
                         'selected_keyword_difficulty': float(research_data.get('avg_keyword_difficulty') or 0.0),
                         'selected_keyword_intent': target_intent,
+                        'selected_keyword_metrics_json': selected_keyword_metrics,
                         'keyword_selection_reason': research_data['keyword_selection_reason'],
                         'keyword_strategy_version': research_data['keyword_strategy_version'],
                         'keyword_selection_source': research_data['keyword_selection_source'],
@@ -3650,6 +3872,15 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         if not isinstance(derived_priority_questions, list):
             derived_priority_questions = []
         derived_priority_questions = [str(x).strip() for x in derived_priority_questions if str(x).strip()][:12]
+        selected_keyword_metrics = research_data.get('selected_keyword_metrics_json') or _build_selected_keyword_metrics(
+            primary_keyword=selected_primary_keyword,
+            secondary_keywords=selected_secondary_keywords,
+            search_volume=research_data.get('total_search_volume'),
+            difficulty=research_data.get('avg_keyword_difficulty'),
+            intent=selected_intent,
+            keyword_source=research_data.get('keyword_research_source') or 'unknown',
+            candidate_keywords=keyword_candidates,
+        )
         final_article = {
             'title': title,
             'hook': hook,
@@ -3703,6 +3934,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             'selected_keyword_search_volume': int(research_data.get('total_search_volume') or 0),
             'selected_keyword_difficulty': float(research_data.get('avg_keyword_difficulty') or 0.0),
             'selected_keyword_intent': selected_intent,
+            'selected_keyword_metrics_json': selected_keyword_metrics,
             'keyword_selection_reason': 'Baseline selection from structure + brief keywords.',
             'keyword_strategy_version': 'phase1_v1',
             'keyword_selection_source': 'research_dossier_reused',
@@ -3942,7 +4174,19 @@ def cancel_task(task_id: str) -> bool:
 # -----------------------------------------------------------------------------
 
 @celery.task(bind=True, name='content_generator_v2.tasks.trends.process_trend_task')
-def process_trend_task(self, site_id: str, primary_category_id: Optional[str] = None, secondary_category_id: Optional[str] = None) -> Dict[str, Any]:
+def process_trend_task(
+    self,
+    site_id: str,
+    primary_category_id: Optional[str] = None,
+    secondary_category_id: Optional[str] = None,
+    project_name: Optional[str] = None,
+    project_description: Optional[str] = None,
+    niche_description: Optional[str] = None,
+    primary_category_name: Optional[str] = None,
+    primary_category_description: Optional[str] = None,
+    secondary_category_name: Optional[str] = None,
+    secondary_category_description: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Process trend analysis for a specific site.
 
@@ -3955,10 +4199,12 @@ def process_trend_task(self, site_id: str, primary_category_id: Optional[str] = 
         Dictionary containing the trend report
     """
     logger.info(
-        "trend_task: start site_id=%s primary_category_id=%s secondary_category_id=%s task_id=%s",
+        "trend_task: start site_id=%s primary_category_id=%s secondary_category_id=%s primary_category_name=%s secondary_category_name=%s task_id=%s",
         site_id,
         primary_category_id,
         secondary_category_id,
+        primary_category_name,
+        secondary_category_name,
         getattr(self.request, "id", None),
     )
 
@@ -3982,6 +4228,13 @@ def process_trend_task(self, site_id: str, primary_category_id: Optional[str] = 
                     site_id,
                     primary_category_id=primary_category_id,
                     secondary_category_id=secondary_category_id,
+                    project_name=project_name,
+                    project_description=project_description,
+                    niche_description=niche_description,
+                    primary_category_name=primary_category_name,
+                    primary_category_description=primary_category_description,
+                    secondary_category_name=secondary_category_name,
+                    secondary_category_description=secondary_category_description,
                 )
             )
 

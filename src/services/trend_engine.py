@@ -33,15 +33,29 @@ class TrendEngine:
             base_url=base_url,
         )
 
-    async def get_whats_trending(self, site_id: str, primary_category_id: Optional[str] = None, secondary_category_id: Optional[str] = None) -> Dict[str, Any]:
+    async def get_whats_trending(
+        self,
+        site_id: str,
+        primary_category_id: Optional[str] = None,
+        secondary_category_id: Optional[str] = None,
+        project_name: Optional[str] = None,
+        project_description: Optional[str] = None,
+        niche_description: Optional[str] = None,
+        primary_category_name: Optional[str] = None,
+        primary_category_description: Optional[str] = None,
+        secondary_category_name: Optional[str] = None,
+        secondary_category_description: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Generates a "Trend Report" for a specific site ID.
         """
         logger.info(
-            "trend_engine: generating site_id=%s primary_category_id=%s secondary_category_id=%s",
+            "trend_engine: generating site_id=%s primary_category_id=%s secondary_category_id=%s primary_category_name=%s secondary_category_name=%s",
             site_id,
             primary_category_id,
             secondary_category_id,
+            primary_category_name,
+            secondary_category_name,
         )
 
         # 1. Database Extraction
@@ -50,13 +64,19 @@ class TrendEngine:
             logger.error(f"Site/Project ID {site_id} not found in projects or wordPress_details")
             raise ValueError(f"Site ID {site_id} not found")
 
-        # Resolve selected category/subcategory names from project_categories table
-        primary_category_name = None
-        secondary_category_name = None
-        if primary_category_id or secondary_category_id:
-            resolved = self._resolve_category_names(primary_category_id, secondary_category_id)
-            primary_category_name = resolved.get('primary_category_name')
-            secondary_category_name = resolved.get('secondary_category_name')
+        # Resolve selected category/subcategory context from request payload and/or project_categories table
+        category_context = self._resolve_category_context(
+            primary_category_id=primary_category_id,
+            secondary_category_id=secondary_category_id,
+            primary_category_name=primary_category_name,
+            primary_category_description=primary_category_description,
+            secondary_category_name=secondary_category_name,
+            secondary_category_description=secondary_category_description,
+        )
+        primary_category_name = category_context.get('primary_category_name')
+        secondary_category_name = category_context.get('secondary_category_name')
+        primary_category_description = category_context.get('primary_category_description')
+        secondary_category_description = category_context.get('secondary_category_description')
 
         # 'categories' might be a JSON array or text list. Assuming JSON array or comma-separated string.
         raw_categories = site.get('categories')
@@ -70,13 +90,24 @@ class TrendEngine:
                 categories = [c.strip() for c in raw_categories.split(',')]
 
         site_description = (
-            site.get('site_description')
+            project_description
+            or niche_description
+            or site.get('site_description')
             or site.get('websiteDescription')
             or "A general interest website."
         )
-        focus_topics = self._build_focus_topics(site, categories, site_description, primary_category_name=primary_category_name, secondary_category_name=secondary_category_name)
+        focus_topics = self._build_focus_topics(
+            site,
+            categories,
+            site_description,
+            primary_category_name=primary_category_name,
+            secondary_category_name=secondary_category_name,
+            primary_category_description=primary_category_description,
+            secondary_category_description=secondary_category_description,
+        )
         logger.info(
-            "trend_engine: scope primary_category=%s secondary_category=%s focus_topics=%s",
+            "trend_engine: scope project=%s primary_category=%s secondary_category=%s focus_topics=%s",
+            project_name or site.get('domain') or site.get('app_name'),
             primary_category_name,
             secondary_category_name,
             focus_topics,
@@ -175,6 +206,8 @@ class TrendEngine:
             recent_posts=recent_posts,
             primary_category_name=primary_category_name,
             secondary_category_name=secondary_category_name,
+            primary_category_description=primary_category_description,
+            secondary_category_description=secondary_category_description,
         )
         
         full_report = {
@@ -247,23 +280,42 @@ class TrendEngine:
             logger.error(f"Failed to fetch site details for {site_id}: {e}")
             return None
 
-    def _resolve_category_names(self, primary_category_id: Optional[str], secondary_category_id: Optional[str]) -> Dict[str, Optional[str]]:
-        """Resolve category UUIDs to names from project_categories table."""
-        result = {'primary_category_name': None, 'secondary_category_name': None}
+    def _resolve_category_context(
+        self,
+        primary_category_id: Optional[str],
+        secondary_category_id: Optional[str],
+        primary_category_name: Optional[str],
+        primary_category_description: Optional[str],
+        secondary_category_name: Optional[str],
+        secondary_category_description: Optional[str],
+    ) -> Dict[str, Optional[str]]:
+        """Resolve category UUIDs to names/descriptions from project_categories table, while honoring request-provided context."""
+        result = {
+            'primary_category_name': primary_category_name.strip() if isinstance(primary_category_name, str) and primary_category_name.strip() else None,
+            'secondary_category_name': secondary_category_name.strip() if isinstance(secondary_category_name, str) and secondary_category_name.strip() else None,
+            'primary_category_description': primary_category_description.strip() if isinstance(primary_category_description, str) and primary_category_description.strip() else None,
+            'secondary_category_description': secondary_category_description.strip() if isinstance(secondary_category_description, str) and secondary_category_description.strip() else None,
+        }
         try:
             category_ids = [cid for cid in [primary_category_id, secondary_category_id] if cid]
             if not category_ids:
                 return result
 
-            resp = self.supabase.table('project_categories').select('id, name').in_('id', category_ids).execute()
+            resp = self.supabase.table('project_categories').select('id, name, description').in_('id', category_ids).execute()
             if resp.data:
                 for cat in resp.data:
                     if cat['id'] == primary_category_id:
-                        result['primary_category_name'] = cat['name']
+                        if not result.get('primary_category_name'):
+                            result['primary_category_name'] = cat.get('name')
+                        if not result.get('primary_category_description'):
+                            result['primary_category_description'] = cat.get('description')
                     if cat['id'] == secondary_category_id:
-                        result['secondary_category_name'] = cat['name']
+                        if not result.get('secondary_category_name'):
+                            result['secondary_category_name'] = cat.get('name')
+                        if not result.get('secondary_category_description'):
+                            result['secondary_category_description'] = cat.get('description')
         except Exception as e:
-            logger.warning(f"Failed to resolve category names: {e}")
+            logger.warning(f"Failed to resolve category context: {e}")
         return result
 
     def _process_keywords_for_growth(self, keyword_ideas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -320,7 +372,16 @@ class TrendEngine:
 
         return [kw for kw in processed_keywords if (kw.get("growth_pct") or 0) >= 0]
 
-    def _build_focus_topics(self, site: Dict[str, Any], categories: List[str], site_description: str, primary_category_name: Optional[str] = None, secondary_category_name: Optional[str] = None) -> List[str]:
+    def _build_focus_topics(
+        self,
+        site: Dict[str, Any],
+        categories: List[str],
+        site_description: str,
+        primary_category_name: Optional[str] = None,
+        secondary_category_name: Optional[str] = None,
+        primary_category_description: Optional[str] = None,
+        secondary_category_description: Optional[str] = None,
+    ) -> List[str]:
         """
         Build niche-specific topics from saved project metadata so external queries
         stay anchored to the actual site instead of drifting into generic trends.
@@ -332,6 +393,10 @@ class TrendEngine:
             candidates.append(secondary_category_name.strip())
         if primary_category_name:
             candidates.append(primary_category_name.strip())
+        if secondary_category_description:
+            candidates.extend(self._extract_simple_phrases(secondary_category_description))
+        if primary_category_description:
+            candidates.extend(self._extract_simple_phrases(primary_category_description))
 
         target_keywords = site.get('target_keywords') or []
         if isinstance(target_keywords, str):
@@ -383,6 +448,26 @@ class TrendEngine:
                 break
 
         return focus_topics
+
+    def _extract_simple_phrases(self, text: str, max_phrases: int = 4) -> List[str]:
+        """Extract short, search-like phrases from descriptive text."""
+        if not text:
+            return []
+        cleaned = re.sub(r'\s+', ' ', str(text)).strip()
+        if not cleaned:
+            return []
+        chunks = re.split(r'[.;:|]|\band\b', cleaned, flags=re.IGNORECASE)
+        phrases: List[str] = []
+        for chunk in chunks:
+            phrase = chunk.strip(" ,-")
+            if not phrase:
+                continue
+            words = phrase.split()
+            if 2 <= len(words) <= 6:
+                phrases.append(" ".join(words))
+            if len(phrases) >= max_phrases:
+                break
+        return phrases
     
     # ... (helper methods) ...
 
@@ -398,6 +483,8 @@ class TrendEngine:
         recent_posts: List[str] = [],
         primary_category_name: Optional[str] = None,
         secondary_category_name: Optional[str] = None,
+        primary_category_description: Optional[str] = None,
+        secondary_category_description: Optional[str] = None,
     ) -> Any:
 
         # Build the selected category line for the prompt
@@ -407,14 +494,19 @@ class TrendEngine:
                 selected_category_line = f"Selected Category: {primary_category_name} / {secondary_category_name}"
             else:
                 selected_category_line = f"Selected Category: {primary_category_name}"
+        selected_category_description_lines = []
+        if primary_category_description:
+            selected_category_description_lines.append(f"Primary Category Description: {primary_category_description}")
+        if secondary_category_description:
+            selected_category_description_lines.append(f"Sub-Category Description: {secondary_category_description}")
 
         # Build dynamic instruction #4 based on selected category
         category_instruction = ""
         if primary_category_name:
             if secondary_category_name:
-                category_instruction = f"Favor topics tightly aligned with the selected category ({primary_category_name} / {secondary_category_name}) when the data supports them."
+                category_instruction = f"Favor topics tightly aligned with the selected category ({primary_category_name} / {secondary_category_name}) and descriptions when the data supports them."
             else:
-                category_instruction = f"Favor topics tightly aligned with the selected category ({primary_category_name}) when the data supports them."
+                category_instruction = f"Favor topics tightly aligned with the selected category ({primary_category_name}) and description when the data supports them."
         else:
             category_instruction = "Favor topics that are tightly aligned with the site's core niche and categories when the data supports them."
 
@@ -426,6 +518,7 @@ Description: {site_description}
 Categories: {', '.join(categories)}
 Core Focus Topics: {', '.join(focus_topics)}
 {selected_category_line}
+{chr(10).join(selected_category_description_lines)}
 
 We are in the FIRST stage of a research workflow. We need BROAD TREND THEMES (seed topics),
 not SEO-optimized blog post titles. These seed topics will be expanded later into specific
@@ -453,12 +546,15 @@ Instructions:
 1. Infer the site's niche from the description and focus topics.
 2. Reject any signal that is not clearly related to the niche.
 3. {category_instruction}
-4. Do NOT output article headlines; do NOT output "how to ..." titles unless the theme truly demands it.
-5. Synthesize 8–12 seed topics. Each seed topic should be a short 2–6 word theme label.
-6. Each seed topic must be broad enough to generate many long-tail keywords later.
-7. Include brief rationale and cite which sources contributed (News / Pinterest / Reddit / Quora / LinkedIn / Search).
-8. If the signals are weak, stay on-niche and propose evergreen-but-timely themes that match the niche anyway.
-9. Respond in strictly valid JSON with this structure:
+4. Hard scope guard: every topic MUST pass this test:
+   - Explicitly relevant to the selected category/sub-category descriptions.
+   - If unsure, discard and replace with a safer in-scope topic.
+5. Do NOT output article headlines; do NOT output "how to ..." titles unless the theme truly demands it.
+6. Synthesize 8–12 seed topics. Each seed topic should be a short 2–6 word theme label.
+7. Each seed topic must be broad enough to generate many long-tail keywords later.
+8. Include brief rationale and cite which sources contributed (News / Pinterest / Reddit / Quora / LinkedIn / Search).
+9. If the signals are weak, stay on-niche and propose evergreen-but-timely themes that match the niche anyway.
+10. Respond in strictly valid JSON with this structure:
 {{
   "topics": [
     {{
