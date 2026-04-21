@@ -102,8 +102,8 @@ export function TopicDetail() {
 
     const handleDecompose = async () => {
         if (!id) return
+        const preCount = subtopics.length
         try {
-            const preCount = subtopics.length
             setDecomposing(true)
             setDecomposeStartedAt(Date.now())
             setDecomposeElapsedSec(0)
@@ -149,10 +149,57 @@ export function TopicDetail() {
             }
         } catch (err) {
             console.error('Failed to decompose topic:', err)
-            setError('Failed to decompose topic. Please try again.')
-            toast.error('Sub-topic generation failed. Please try again.', {
-                id: decomposeToastIdRef.current ?? undefined,
-            })
+            const status =
+                (err as any)?.response?.status ??
+                (err as any)?.status ??
+                null
+            const isGatewayTimeout =
+                status === 504 ||
+                String((err as any)?.message || '').includes('504')
+
+            // Recovery path: backend may still complete after proxy timeout.
+            if (isGatewayTimeout) {
+                toast.loading('Request timed out at gateway, but processing may still be running. Checking for new sub-topics...', {
+                    id: decomposeToastIdRef.current ?? undefined,
+                })
+
+                let recoveredSubtopics: Subtopic[] = []
+                const maxAttempts = 24 // ~72s
+                for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+                    await sleep(3000)
+                    const latest = await subtopicsService.getSubtopics(id)
+                    const grew = (latest || []).length > preCount
+                    if (grew || (latest || []).length > 0) {
+                        recoveredSubtopics = latest
+                        setSubtopics(latest)
+                        break
+                    }
+                    if (attempt % 6 === 0) {
+                        toast.loading('Still checking background generation... please keep this page open.', {
+                            id: decomposeToastIdRef.current ?? undefined,
+                        })
+                    }
+                }
+
+                if (recoveredSubtopics.length > 0) {
+                    const generatedDelta = Math.max(0, recoveredSubtopics.length - preCount)
+                    const messageCount = generatedDelta > 0 ? generatedDelta : recoveredSubtopics.length
+                    toast.success(`Background generation completed: ${messageCount} sub-topic${messageCount === 1 ? '' : 's'} ready.`, {
+                        id: decomposeToastIdRef.current ?? undefined,
+                    })
+                    setError(null)
+                } else {
+                    setError('Generation is still processing in the background. Click Refresh in ~30 seconds.')
+                    toast.warning('Still no sub-topics visible yet. Processing may still be in progress.', {
+                        id: decomposeToastIdRef.current ?? undefined,
+                    })
+                }
+            } else {
+                setError('Failed to decompose topic. Please try again.')
+                toast.error('Sub-topic generation failed. Please try again.', {
+                    id: decomposeToastIdRef.current ?? undefined,
+                })
+            }
         } finally {
             setDecomposing(false)
             setDecomposeStartedAt(null)
