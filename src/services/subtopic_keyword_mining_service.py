@@ -33,7 +33,7 @@ class SubtopicKeywordMiningService:
         if not cleaned:
             return ""
         words = [w for w in cleaned.split() if w]
-        if len(words) < 2:
+        if len(words) < 1:
             return ""
         if len(words) > 3:
             words = words[:3]
@@ -41,6 +41,24 @@ class SubtopicKeywordMiningService:
         if re.search(r"(framework|playbook|methodology|optimization|solutioning|enablement)", normalized.lower()):
             return ""
         return normalized
+
+    def _extract_seed_candidates(self, content: str) -> List[str]:
+        if not content:
+            return []
+        candidates: List[str] = []
+        lines = [l.strip() for l in content.splitlines() if l.strip()]
+        for line in lines:
+            lowered = line.lower()
+            if lowered.startswith(("step ", "task ", "output ", "role:", "constraints:", "examples:", "final filter")):
+                continue
+            line = re.sub(r"^[\-\*\d\.\)\s]+", "", line).strip()
+            # If model returns comma-separated terms in a single line, split them.
+            parts = [p.strip() for p in re.split(r",|;|\|", line) if p.strip()]
+            if parts:
+                candidates.extend(parts)
+            else:
+                candidates.append(line)
+        return candidates
 
     def _compact(self, text: str, n: int) -> str:
         cleaned = self._clean(text)
@@ -92,8 +110,8 @@ class SubtopicKeywordMiningService:
         decision_type = subtopic.get("decision_type") or ""
         seed_phrases = ", ".join((subtopic.get("seed_phrases") or [])[:8])
         prompt = f"""
-You are a veteran SEO Researcher and Search Intent Specialist.
-Take a technical concept and reverse-engineer it into simple phrases real people type into Google.
+Role: You are a veteran SEO Researcher and Search Intent Specialist.
+Goal: take a complex concept and reverse-engineer it into simple 1-3 word phrases that real people type into Google.
 
 Core Topic: {topic}
 Subtopic Title: {title}
@@ -103,40 +121,33 @@ Category Context: {category_path}
 Existing Seed Hints: {seed_phrases}
 
 Objective:
-- Output only realistic search terms.
-- Avoid consultant-speak or marketing fluff.
+- Generate keywords that exist in the real world.
+- Avoid consultant-speak and marketing fluff.
 - Keep each keyword 1-3 words, plain language.
-- Prefer terms with commercial or decision intent.
 
-Required reasoning constraints:
-1) Deconstruction Rule:
-- Do NOT optimize for the full technical phrase.
-- Break the topic into component concepts and generate keywords per component.
-- Prefer component terms that people actually search for over precise technical jargon.
+Constraints:
+1) Deconstruction: do NOT optimize for the full technical phrase; break into components and map to practical searches.
+2) 2 AM Test: think like a stressed buyer searching for clarity now (cost, delays, risk, inspection, legal, ROI).
+3) Verification mindset: include only terms a real person would reasonably search.
 
-2) "2 AM Stress" Rule:
-- Assume the user is stressed and searching for immediate clarity.
-- Favor pain/outcome language such as cost, risk, failure, repair, inspection, tax, legal, ROI.
-- If a phrase sounds like a consultant report title instead of a search query, discard it.
+Task Instructions:
+Step 1: Problem keywords (10)
+Step 2: Object/noun keywords (10)
+Step 3: Action/solution keywords (8)
+Step 4: Comparison keywords (5)
+Step 5: Select the best final terms for SEO seed lookup
 
-Task:
-1) Problem Keywords: 10
-2) Object Keywords: 10
-3) Action Keywords: 8
-4) Comparison Keywords: 5
-5) Semantic Cluster Seeds: choose best 12 short terms across all groups
-
-Output format:
-- Return ONLY one keyword per line.
-- No numbering, no bullets, no extra text.
-- Every line must be 1-3 words.
+Final output rule (critical):
+- Output as a single flat list only.
+- No titles, no subtitles, no grouping, no explanations.
+- One keyword phrase per line, each 1-3 words.
 """
         try:
             response = await asyncio.wait_for(
                 llm_service.generate_text(prompt=prompt, max_tokens=700, temperature=0.2),
                 timeout=25.0,
             )
-            lines = (response.content or "").splitlines()
+            lines = self._extract_seed_candidates(response.content or "")
             seeds: List[str] = []
             seen = set()
             for raw in lines:
@@ -170,6 +181,8 @@ Output format:
         llm_short_seeds = await self._generate_llm_short_seeds(subtopic, brief)
 
         variants = [
+            # Put LLM short seeds first so they are never pushed out by the cap.
+            *llm_short_seeds,
             title,
             self._compact(title, 4),
             self._compact(title, 3),
@@ -180,7 +193,6 @@ Output format:
         ]
         variants.extend(short_title_seeds)
         variants.extend(anchors)
-        variants.extend(llm_short_seeds)
 
         for seed in seeds:
             variants.append(seed)
@@ -207,7 +219,7 @@ Output format:
                 continue
             seen.add(key)
             deduped.append(c)
-        return deduped[:18]
+        return deduped[:24]
 
     def _competition_rank(self, competition: str) -> int:
         comp = (competition or "").upper()
@@ -298,6 +310,48 @@ Output format:
                     "source": "direct_metrics",
                 }
             )
+
+        # Mandatory metric enrichment pass over mined candidates.
+        metric_candidates: List[str] = []
+        seen_metric_terms = set()
+        for item in combined:
+            kw = (item.get("keyword") or "").strip()
+            if not kw:
+                continue
+            key = kw.lower()
+            if key in seen_metric_terms:
+                continue
+            seen_metric_terms.add(key)
+            metric_candidates.append(kw)
+            if len(metric_candidates) >= 80:
+                break
+        for v in variants[:24]:
+            key = v.lower()
+            if key in seen_metric_terms:
+                continue
+            seen_metric_terms.add(key)
+            metric_candidates.append(v)
+            if len(metric_candidates) >= 100:
+                break
+
+        if metric_candidates:
+            bulk_metrics = await dataforseo_api.get_bulk_metrics_standard(metric_candidates)
+            bulk_map = {
+                (m.get("keyword") or "").lower(): m
+                for m in (bulk_metrics or [])
+                if m.get("keyword")
+            }
+            for item in combined:
+                key = (item.get("keyword") or "").lower()
+                m = bulk_map.get(key)
+                if not m:
+                    continue
+                item["search_volume"] = m.get("search_volume", item.get("search_volume", 0))
+                item["cpc"] = m.get("cpc", item.get("cpc", 0))
+                if m.get("competition"):
+                    item["competition"] = m.get("competition")
+                if m.get("keyword_difficulty"):
+                    item["keyword_difficulty"] = m.get("keyword_difficulty")
 
         # Enrich keyword difficulty and missing competition/cpc for top candidates.
         kd_seeds = [item.get("keyword") for item in combined[:8] if item.get("keyword")]
