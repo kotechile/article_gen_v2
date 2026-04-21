@@ -17,7 +17,37 @@ class SupabaseDatabase:
     
     def __init__(self):
         self.client = get_supabase_client()
+        self._affiliate_name_field: Optional[str] = None
         logger.info("Supabase database client initialized")
+
+    def _is_missing_column_error(self, error: Exception, column_name: str) -> bool:
+        return f"column affiliate_programs.{column_name} does not exist" in str(error).lower()
+
+    def _get_affiliate_name_field(self) -> str:
+        """Detect whether affiliate_programs uses `name` or `program_name`."""
+        if self._affiliate_name_field:
+            return self._affiliate_name_field
+        try:
+            self.client.table("affiliate_programs").select("program_name").limit(1).execute()
+            self._affiliate_name_field = "program_name"
+        except Exception:
+            self._affiliate_name_field = "name"
+        return self._affiliate_name_field
+
+    def _normalize_program_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize program rows across old/new affiliate_programs schemas."""
+        categories = record.get("categories")
+        normalized_category = record.get("category")
+        if not normalized_category and isinstance(categories, list):
+            normalized_category = ", ".join([c for c in categories if isinstance(c, str)])
+
+        normalized = dict(record)
+        normalized["name"] = record.get("name") or record.get("program_name")
+        normalized["commission_rate"] = record.get("commission_rate") or record.get("commission")
+        normalized["commission"] = record.get("commission") or record.get("commission_rate")
+        normalized["link"] = record.get("link") or record.get("website_url")
+        normalized["category"] = normalized_category
+        return normalized
     
     # User operations
     def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -220,14 +250,29 @@ class SupabaseDatabase:
             result = self.client.table("affiliate_programs").select("*").or_(
                 f"name.ilike.%{search_term}%,description.ilike.%{search_term}%,category.ilike.%{search_term}%"
             ).eq("is_active", True).order("usage_count", desc=True).limit(limit).execute()
-            return result.data or []
+            return [self._normalize_program_record(row) for row in (result.data or [])]
         except Exception as e:
+            if (
+                self._is_missing_column_error(e, "name")
+                or self._is_missing_column_error(e, "category")
+                or self._is_missing_column_error(e, "is_active")
+                or self._is_missing_column_error(e, "usage_count")
+            ):
+                try:
+                    result = self.client.table("affiliate_programs").select("*").or_(
+                        f"program_name.ilike.%{search_term}%,description.ilike.%{search_term}%"
+                    ).limit(limit).execute()
+                    return [self._normalize_program_record(row) for row in (result.data or [])]
+                except Exception as fallback_error:
+                    logger.error("Error searching programs", search_term=search_term, error=str(fallback_error))
+                    return []
             logger.error("Error searching programs", search_term=search_term, error=str(e))
             return []
     
     def save_programs(self, programs_data: List[Dict[str, Any]], search_term: str) -> List[Dict[str, Any]]:
         """Save affiliate programs to the database"""
         saved_programs = []
+        name_field = self._get_affiliate_name_field()
         for program_data in programs_data:
             program_name = program_data.get("name")
             if not program_name:
@@ -236,52 +281,57 @@ class SupabaseDatabase:
             
             try:
                 # Check if program already exists
-                existing = self.client.table("affiliate_programs").select("*").eq("name", program_name).execute()
+                existing = self.client.table("affiliate_programs").select("*").eq(name_field, program_name).execute()
                 
                 if existing.data:
-                    # Update existing program
-                    program_id = existing.data[0]["id"]
-                    search_terms = existing.data[0].get("search_terms", [])
-                    if search_term not in search_terms:
-                        search_terms.append(search_term)
-                    
-                    update_data = {
-                        "search_terms": search_terms,
-                        "usage_count": existing.data[0].get("usage_count", 0) + 1,
-                        "last_used": datetime.utcnow().isoformat()
-                    }
-                    
-                    result = self.client.table("affiliate_programs").update(update_data).eq("id", program_id).execute()
-                    if result.data:
-                        saved_programs.append(result.data[0])
-                        logger.info("Updated existing program", program_id=program_id, name=program_name)
+                    existing_program = self._normalize_program_record(existing.data[0])
+                    saved_programs.append(existing_program)
+                    logger.info("Program already exists", program_id=existing_program.get("id"), name=program_name)
                 else:
-                    # Create new program
-                    new_program = {
-                        "name": program_name,
-                        "description": program_data.get("description"),
-                        "commission": program_data.get("commission"),
-                        "cookie_duration": program_data.get("cookie_duration"),
-                        "payment_terms": program_data.get("payment_terms"),
-                        "min_payout": program_data.get("min_payout"),
-                        "category": program_data.get("category"),
-                        "rating": program_data.get("rating", 0.0),
-                        "estimated_earnings": program_data.get("estimated_earnings"),
-                        "difficulty": program_data.get("difficulty"),
-                        "affiliate_network": program_data.get("affiliate_network"),
-                        "tracking_method": program_data.get("tracking_method"),
-                        "payment_methods": program_data.get("payment_methods"),
-                        "support_level": program_data.get("support_level"),
-                        "promotional_materials": program_data.get("promotional_materials"),
-                        "restrictions": program_data.get("restrictions"),
-                        "source": program_data.get("source", "web_search"),
-                        "search_terms": [search_term],
-                        "is_verified": program_data.get("is_verified", False)
-                    }
-                    
+                    if name_field == "program_name":
+                        category_value = program_data.get("category")
+                        categories = category_value if isinstance(category_value, list) else [category_value] if category_value else []
+                        new_program = {
+                            "program_name": program_name,
+                            "description": program_data.get("description"),
+                            "commission_rate": program_data.get("commission_rate") or program_data.get("commission"),
+                            "cookie_duration": program_data.get("cookie_duration"),
+                            "website_url": program_data.get("link") or program_data.get("website_url"),
+                            "categories": categories,
+                            "network": program_data.get("affiliate_network") or program_data.get("network"),
+                            "metadata": {
+                                "source": program_data.get("source", "web_search"),
+                                "difficulty": program_data.get("difficulty"),
+                                "estimated_traffic": program_data.get("estimated_traffic"),
+                                "search_term": search_term,
+                            },
+                        }
+                    else:
+                        new_program = {
+                            "name": program_name,
+                            "description": program_data.get("description"),
+                            "commission": program_data.get("commission"),
+                            "cookie_duration": program_data.get("cookie_duration"),
+                            "payment_terms": program_data.get("payment_terms"),
+                            "min_payout": program_data.get("min_payout"),
+                            "category": program_data.get("category"),
+                            "rating": program_data.get("rating", 0.0),
+                            "estimated_earnings": program_data.get("estimated_earnings"),
+                            "difficulty": program_data.get("difficulty"),
+                            "affiliate_network": program_data.get("affiliate_network"),
+                            "tracking_method": program_data.get("tracking_method"),
+                            "payment_methods": program_data.get("payment_methods"),
+                            "support_level": program_data.get("support_level"),
+                            "promotional_materials": program_data.get("promotional_materials"),
+                            "restrictions": program_data.get("restrictions"),
+                            "source": program_data.get("source", "web_search"),
+                            "search_terms": [search_term],
+                            "is_verified": program_data.get("is_verified", False)
+                        }
+
                     result = self.client.table("affiliate_programs").insert(new_program).execute()
                     if result.data:
-                        saved_programs.append(result.data[0])
+                        saved_programs.append(self._normalize_program_record(result.data[0]))
                         logger.info("Saved new program", program_id=result.data[0]["id"], name=program_name)
                         
             except Exception as e:
@@ -307,6 +357,9 @@ class SupabaseDatabase:
                 self.client.table("affiliate_programs").update(update_data).eq("id", program_id).execute()
                 logger.info("Updated program usage", program_id=program_id, usage_count=current_count + 1)
         except Exception as e:
+            # Compatibility: newer schema may not include usage_count.
+            if self._is_missing_column_error(e, "usage_count"):
+                return
             logger.error("Failed to update program usage", program_id=program_id, error=str(e))
 
 # Global database instance
