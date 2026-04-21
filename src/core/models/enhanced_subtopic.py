@@ -56,6 +56,11 @@ class EnhancedSubtopic(BaseModel):
     primary_user_outcome: Optional[str] = Field(None, description="Primary outcome users seek")
     serp_intent_match: Optional[str] = Field(None, description="How well cluster matches SERP intent")
     tool_potential_score: Optional[int] = Field(None, description="0-100 software/tool potential score")
+    validation_state: Optional[str] = Field(None, description="validated | weak_seo_support | editorial_only")
+    seo_readiness_score: Optional[float] = Field(None, description="SEO support score (0-1)")
+    geo_readiness_score: Optional[float] = Field(None, description="GEO readiness score (0-1)")
+    editorial_value_score: Optional[float] = Field(None, description="Editorial value score (0-1)")
+    keyword_evidence: List[Dict[str, Any]] = Field(default_factory=list, description="Per-subtopic keyword evidence candidates")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
     
@@ -165,6 +170,11 @@ class EnhancedSubtopic(BaseModel):
             'primary_user_outcome': self.primary_user_outcome,
             'serp_intent_match': self.serp_intent_match,
             'tool_potential_score': self.tool_potential_score,
+            'validation_state': self.validation_state,
+            'seo_readiness_score': self.seo_readiness_score,
+            'geo_readiness_score': self.geo_readiness_score,
+            'editorial_value_score': self.editorial_value_score,
+            'keyword_evidence': self.keyword_evidence,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
         }
@@ -195,6 +205,11 @@ class EnhancedSubtopic(BaseModel):
             primary_user_outcome=data.get('primary_user_outcome'),
             serp_intent_match=data.get('serp_intent_match'),
             tool_potential_score=data.get('tool_potential_score'),
+            validation_state=data.get('validation_state'),
+            seo_readiness_score=data.get('seo_readiness_score'),
+            geo_readiness_score=data.get('geo_readiness_score'),
+            editorial_value_score=data.get('editorial_value_score'),
+            keyword_evidence=data.get('keyword_evidence', []),
             created_at=datetime.fromisoformat(data['created_at']),
             updated_at=datetime.fromisoformat(data['updated_at'])
         )

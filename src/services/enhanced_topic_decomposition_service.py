@@ -18,6 +18,10 @@ from ..core.models.comparison_metrics import ComparisonMetrics
 from ..core.models.search_volume_indicator import SearchVolumeIndicator, IndicatorType
 from ..integrations.google_autocomplete import GoogleAutocompleteService
 from .llm.llm_service import llm_service
+from .topic_brief_builder_service import topic_brief_builder_service
+from .editorial_subtopic_service import editorial_subtopic_service
+from .subtopic_keyword_mining_service import subtopic_keyword_mining_service
+from .subtopic_scoring_service import subtopic_scoring_service
 
 logger = logging.getLogger(__name__)
 
@@ -134,77 +138,132 @@ class EnhancedTopicDecompositionService:
                 logger.info(f"Returning cached result for query: {query}")
                 return cached_result
             
-            # Use new Semantic Expansion Service
-            from .semantic_expansion_service import semantic_expansion_service
-            
-            logger.info("Calling SemanticExpansionService.expand_and_verify...")
-            verified_clusters = await semantic_expansion_service.expand_and_verify(
-                query,
-                user_id,
-                decomposition_context=decomposition_context,
+            # New subtopics-first flow:
+            # 1) build editorial subtopics, 2) mine keywords per subtopic, 3) score evidence.
+            brief = topic_brief_builder_service.build(
+                topic={"title": query, **(decomposition_context or {})},
+                project={},
+                decomposition_context=decomposition_context or {},
             )
-            
-            if not verified_clusters:
-                 # Fallback/Error handling (strict policy says we should fail if no good data)
-                 raise ValueError("Strict Quality Policy: Semantic Expansion failed to generate verified profitable clusters.")
+            editorial_subtopics = await editorial_subtopic_service.generate(
+                brief=brief,
+                max_subtopics=max_subtopics,
+            )
 
-            # Map to EnhancedSubtopic
-            enhanced_subtopics = []
-            for cluster in verified_clusters[:max_subtopics]:
-                # Format indicators
+            enhanced_subtopics: List[EnhancedSubtopic] = []
+            for item in editorial_subtopics[:max_subtopics]:
+                evidence = await subtopic_keyword_mining_service.mine_for_subtopic(item, brief)
+                selected_keywords = evidence.get("keywords", [])
+                score = subtopic_scoring_service.score(item, selected_keywords)
+
+                keyword_strings = [k.get("keyword") for k in selected_keywords if k.get("keyword")]
+                primary = evidence.get("primary_keyword")
+                primary_row = next((k for k in selected_keywords if k.get("keyword") == primary), None)
+                vol = int((primary_row or {}).get("search_volume") or 0)
+                cpc = float((primary_row or {}).get("cpc") or 0.0)
+                kd = int((primary_row or {}).get("keyword_difficulty") or 0)
+
                 indicators = []
-                trend = cluster.get('trend_analysis') or {}
-                monetization = cluster.get('monetization') or {}
-                cluster_keywords = cluster.get('keywords', []) or []
-                keyword_strings = []
-                for item in cluster_keywords:
-                    if isinstance(item, dict):
-                        kw_text = (item.get("keyword") or "").strip()
-                        if kw_text:
-                            keyword_strings.append(kw_text)
-                    elif isinstance(item, str):
-                        kw_text = item.strip()
-                        if kw_text:
-                            keyword_strings.append(kw_text)
-                
-                if trend.get('label'):
-                    indicators.append(f"Trend: {trend['label']}")
-                
-                # Safely get details
-                details = monetization.get('details') or {}
-                
-                if details.get('intent'):
-                    indicators.append(f"Intent: {details['intent']}")
-                    
-                price = details.get('price_range')
-                if price:
-                    indicators.append(f"Price: {price}")
+                if vol > 0:
+                    indicators.append(f"Volume: {vol}")
+                if kd > 0:
+                    indicators.append(f"KD: {kd}")
+                if cpc > 0:
+                    indicators.append(f"CPC: {cpc}")
+                indicators.append(f"State: {score.get('validation_state')}")
+
+                trend_analysis = {
+                    "state": score.get("validation_state"),
+                    "editorial_value_score": score.get("editorial_value_score"),
+                    "seo_support_score": score.get("seo_support_score"),
+                    "geo_readiness_score": score.get("geo_readiness_score"),
+                    "final_subtopic_score": score.get("final_subtopic_score"),
+                    "keywords_mined": len(selected_keywords),
+                    "variants_tried": evidence.get("variants_tried", []),
+                }
+                monetization_data = {
+                    "status": "pending",
+                    "offers": [],
+                    "keyword_evidence": selected_keywords,
+                    "primary_keyword": primary,
+                    "commercial_paths": item.get("commercial_paths", []),
+                }
 
                 subtopic = EnhancedSubtopic(
                     id=str(uuid4()),
-                    title=cluster.get('cluster_title', 'Unknown Cluster'),
-                    search_volume_indicators=indicators if indicators else ["Verified Profitable"],
+                    title=item.get("title", "Untitled Subtopic"),
+                    search_volume_indicators=indicators if indicators else ["Editorial candidate"],
                     autocomplete_suggestions=keyword_strings,
-                    relevance_score=0.95, # High confidence if it passed verification
+                    relevance_score=float(score.get("final_subtopic_score") or 0.5),
                     source=SubtopicSource.HYBRID,
-                    rationale=cluster.get('cluster_rationale') or f"Primary Keyword: {cluster.get('primary_keyword')}. {monetization.get('status')} Check.",
-                    seed_keywords=keyword_strings,
-                    target_audience="Niche Audience", # Placeholder or extract from LLM,
-                    search_volume=cluster.get('search_volume'),
-                    cpc=cluster.get('cpc'),
-                    keyword_difficulty=cluster.get('keyword_difficulty'),
-                    trend_analysis=cluster.get('trend_analysis'),
-                    monetization_data=cluster.get('monetization'),
-                    intent_bucket=cluster.get('intent_bucket'),
-                    decision_focus=cluster.get('decision_focus'),
-                    angle_question=cluster.get('angle_question'),
-                    value_layer_tags=cluster.get('value_layer_tags') or [],
-                    cluster_type=cluster.get('cluster_type'),
-                    primary_user_outcome=cluster.get('primary_user_outcome'),
-                    serp_intent_match=cluster.get('serp_intent_match'),
-                    tool_potential_score=cluster.get('tool_potential_score'),
+                    rationale=item.get("summary") or item.get("user_problem") or "Generated from editorial subtopic pipeline.",
+                    seed_keywords=keyword_strings or (item.get("seed_phrases") or []),
+                    target_audience=item.get("target_audience") or brief.get("target_audience") or "Niche Audience",
+                    search_volume=vol,
+                    cpc=cpc,
+                    keyword_difficulty=kd,
+                    trend_analysis=trend_analysis,
+                    monetization_data=monetization_data,
+                    intent_bucket=brief.get("intent_bucket"),
+                    decision_focus=brief.get("decision_focus"),
+                    angle_question=brief.get("angle_question"),
+                    value_layer_tags=brief.get("value_layer_tags") or [],
+                    cluster_type=item.get("decision_type") or "decision",
+                    primary_user_outcome=item.get("user_problem") or item.get("summary") or "",
+                    serp_intent_match="high" if score.get("seo_support_score", 0) >= 0.45 else "medium",
+                    tool_potential_score=int((score.get("seo_support_score", 0) * 100)),
+                    validation_state=score.get("validation_state"),
+                    seo_readiness_score=score.get("seo_support_score"),
+                    geo_readiness_score=score.get("geo_readiness_score"),
+                    editorial_value_score=score.get("editorial_value_score"),
+                    keyword_evidence=selected_keywords,
                 )
                 enhanced_subtopics.append(subtopic)
+
+            if not enhanced_subtopics:
+                # Fallback to legacy semantic expansion if editorial path fails unexpectedly.
+                from .semantic_expansion_service import semantic_expansion_service
+                logger.warning("Editorial subtopic path produced no results. Falling back to semantic expansion.")
+                verified_clusters = await semantic_expansion_service.expand_and_verify(
+                    query,
+                    user_id,
+                    decomposition_context=decomposition_context,
+                )
+                for cluster in (verified_clusters or [])[:max_subtopics]:
+                    cluster_keywords = cluster.get('keywords', []) or []
+                    keyword_strings = []
+                    for kw in cluster_keywords:
+                        if isinstance(kw, dict):
+                            value = (kw.get("keyword") or "").strip()
+                            if value:
+                                keyword_strings.append(value)
+                        elif isinstance(kw, str) and kw.strip():
+                            keyword_strings.append(kw.strip())
+                    subtopic = EnhancedSubtopic(
+                        id=str(uuid4()),
+                        title=cluster.get('cluster_title', 'Unknown Cluster'),
+                        search_volume_indicators=["Legacy fallback"],
+                        autocomplete_suggestions=keyword_strings,
+                        relevance_score=0.7,
+                        source=SubtopicSource.HYBRID,
+                        rationale=cluster.get('cluster_rationale') or "Generated via legacy fallback",
+                        seed_keywords=keyword_strings,
+                        target_audience="Niche Audience",
+                        search_volume=cluster.get('search_volume'),
+                        cpc=cluster.get('cpc'),
+                        keyword_difficulty=cluster.get('keyword_difficulty'),
+                        trend_analysis=cluster.get('trend_analysis'),
+                        monetization_data=cluster.get('monetization'),
+                        intent_bucket=cluster.get('intent_bucket'),
+                        decision_focus=cluster.get('decision_focus'),
+                        angle_question=cluster.get('angle_question'),
+                        value_layer_tags=cluster.get('value_layer_tags') or [],
+                        cluster_type=cluster.get('cluster_type'),
+                        primary_user_outcome=cluster.get('primary_user_outcome'),
+                        serp_intent_match=cluster.get('serp_intent_match'),
+                        tool_potential_score=cluster.get('tool_potential_score'),
+                    )
+                    enhanced_subtopics.append(subtopic)
             
             # Prepare response
             processing_time = time.time() - start_time

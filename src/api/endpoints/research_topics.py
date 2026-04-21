@@ -1329,6 +1329,22 @@ def generate_subtopics(topic_id):
                     "serp_intent_match": sub_data.get("serp_intent_match"),
                     "tool_potential_score": sub_data.get("tool_potential_score"),
                 }
+                # Preserve new evidence/scoring metadata in existing JSON fields for backward compatibility.
+                trend_analysis_payload = trend_data.get("trend_analysis") or {}
+                trend_analysis_payload["validation_state"] = sub_data.get("validation_state")
+                trend_analysis_payload["seo_readiness_score"] = sub_data.get("seo_readiness_score")
+                trend_analysis_payload["geo_readiness_score"] = sub_data.get("geo_readiness_score")
+                trend_analysis_payload["editorial_value_score"] = sub_data.get("editorial_value_score")
+                trend_data["trend_analysis"] = trend_analysis_payload
+
+                monetization_payload = trend_data.get("monetization") or {}
+                monetization_payload["keyword_evidence"] = sub_data.get("keyword_evidence", [])
+                monetization_payload["primary_keyword"] = (
+                    (sub_data.get("keyword_evidence") or [{}])[0].get("keyword")
+                    if sub_data.get("keyword_evidence")
+                    else None
+                )
+                trend_data["monetization"] = monetization_payload
                 logger.info(f"DEBUG trend_data: {trend_data}")
 
                 saved = await subtopics_service.create(
@@ -1339,6 +1355,33 @@ def generate_subtopics(topic_id):
                 )
                 if saved:
                     logger.info(f"DEBUG saved subtopic: {saved.get('name')}, vol={saved.get('search_volume')}, cpc={saved.get('cpc')}")
+                    # Persist keyword evidence into dedicated table when available.
+                    keyword_evidence = sub_data.get("keyword_evidence") or []
+                    if keyword_evidence:
+                        try:
+                            keyword_rows = []
+                            for idx, kw in enumerate(keyword_evidence):
+                                keyword_rows.append({
+                                    "subtopic_id": saved.get("id"),
+                                    "research_topic_id": topic_id,
+                                    "user_id": user_id,
+                                    "keyword": kw.get("keyword"),
+                                    "variant_type": kw.get("source"),
+                                    "search_volume": int(kw.get("search_volume") or 0),
+                                    "cpc": float(kw.get("cpc") or 0.0),
+                                    "keyword_difficulty": int(kw.get("keyword_difficulty") or 0),
+                                    "competition": kw.get("competition"),
+                                    "is_selected_primary": bool(idx == 0),
+                                    "selection_reason": kw.get("selection_reason"),
+                                })
+                            supabase.table("subtopic_keyword_candidates").insert(keyword_rows).execute()
+                        except Exception as keyword_evidence_err:
+                            logger.warning(
+                                "Keyword evidence persistence skipped topic_id=%s subtopic_id=%s error=%s",
+                                topic_id,
+                                saved.get("id"),
+                                keyword_evidence_err,
+                            )
                     saved_subtopics.append(saved)
                 else:
                     failed_subtopics.append(sub_data.get("title"))
