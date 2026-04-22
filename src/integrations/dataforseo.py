@@ -505,6 +505,8 @@ class DataForSEOAPI:
         language_name: str = "English",
         location_code: int = 2840,
         limit_per_seed: int = 20,
+        depth: int = 1,
+        include_seed_keyword: bool = True,
         return_raw: bool = False,
     ) -> List[Dict[str, Any]]:
         """
@@ -547,6 +549,13 @@ class DataForSEOAPI:
                         "keyword": seed,
                         "language_name": language_name,
                         "location_code": location_code,
+                        "depth": max(0, min(int(depth), 4)),
+                        "include_seed_keyword": bool(include_seed_keyword),
+                        "include_serp_info": False,
+                        "include_clickstream_data": False,
+                        "replace_with_core_keyword": False,
+                        "ignore_synonyms": False,
+                        "order_by": ["keyword_data.keyword_info.search_volume,desc"],
                         "limit": int(limit_per_seed),
                     }]
                     data = await self._make_request_with_retry(client, url, payload, headers)
@@ -1300,17 +1309,24 @@ class DataForSEOAPI:
         if "tasks" in data and data["tasks"]:
             task = data["tasks"][0]
             if task.get("result"):
-                for item in self._extract_keyword_items(task):
-                    keyword_info = item.get("keyword_info", {})
-                    keyword_data = item.get("keyword_data", {})
+                seen_keywords = set()
+
+                def _append_keyword_row(item: Dict[str, Any]) -> None:
+                    keyword_info = item.get("keyword_info", {}) if isinstance(item, dict) else {}
+                    keyword_data = item.get("keyword_data", item) if isinstance(item, dict) else {}
                     # Labs related_keywords/live returns nested keyword_data.keyword_info/keyword_properties.
                     nested_keyword_info = keyword_data.get("keyword_info", {}) if isinstance(keyword_data, dict) else {}
                     nested_keyword_properties = keyword_data.get("keyword_properties", {}) if isinstance(keyword_data, dict) else {}
                     keyword_text = (
-                        item.get("keyword")
-                        or keyword_data.get("keyword")
+                        (item.get("keyword") if isinstance(item, dict) else None)
+                        or (keyword_data.get("keyword") if isinstance(keyword_data, dict) else None)
                         or ""
                     )
+                    keyword_norm = str(keyword_text or "").strip().lower()
+                    if not keyword_norm or keyword_norm in seen_keywords:
+                        return
+                    seen_keywords.add(keyword_norm)
+
                     search_volume = self._optional_number(item, "search_volume", keyword_info)
                     if search_volume is None:
                         search_volume = self._optional_number(keyword_data, "search_volume", nested_keyword_info)
@@ -1320,16 +1336,34 @@ class DataForSEOAPI:
                     keyword_difficulty = self._optional_number(item, "keyword_difficulty", keyword_data)
                     if keyword_difficulty is None:
                         keyword_difficulty = self._optional_number(keyword_data, "keyword_difficulty", nested_keyword_properties)
-                    
+
                     keywords.append({
                         "keyword": keyword_text,
                         "search_volume": int(search_volume) if search_volume is not None else None,
-                        "competition": keyword_info.get("competition", "UNKNOWN"),
-                        "competition_level": keyword_info.get("competition_level", 0),
+                        "competition": keyword_info.get("competition", nested_keyword_info.get("competition", "UNKNOWN")),
+                        "competition_level": keyword_info.get("competition_level", nested_keyword_info.get("competition_level", 0)),
                         "cpc": float(cpc) if cpc is not None else None,
                         "keyword_difficulty": float(keyword_difficulty) if keyword_difficulty is not None else None,
                         "created_at": datetime.utcnow().isoformat()
                     })
+
+                for result_entry in task.get("result") or []:
+                    if not isinstance(result_entry, dict):
+                        continue
+
+                    # 1) Include seed keyword metrics when available.
+                    seed_keyword_data = result_entry.get("seed_keyword_data")
+                    if isinstance(seed_keyword_data, dict):
+                        _append_keyword_row(seed_keyword_data)
+                    elif isinstance(seed_keyword_data, list):
+                        for seed_item in seed_keyword_data:
+                            if isinstance(seed_item, dict):
+                                _append_keyword_row(seed_item)
+
+                    # 2) Include returned related keyword items.
+                    for item in result_entry.get("items") or []:
+                        if isinstance(item, dict):
+                            _append_keyword_row(item)
         
         return keywords
     
