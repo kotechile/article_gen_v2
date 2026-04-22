@@ -128,6 +128,61 @@ function extractIdeaKeywordMetricsMap(idea: ContentIdea): Map<string, KeywordMet
     return map;
 }
 
+function extractKeywordMetricsMapFromUnknown(value: unknown): Map<string, KeywordMetricRow> {
+    const map = new Map<string, KeywordMetricRow>();
+    const parsed = parseJsonLike<unknown>(value, []);
+
+    const ingestMetric = (keywordInput: unknown, metricInput: unknown) => {
+        const keyword = String(keywordInput || "").trim();
+        if (!keyword) return;
+        const metric = parseJsonLike<Record<string, unknown>>(metricInput, {});
+        const searchVolumeRaw = metric.search_volume ?? metric.volume;
+        const keywordDifficultyRaw = metric.keyword_difficulty ?? metric.difficulty ?? metric.seo_difficulty;
+        const cpcRaw = metric.cpc;
+        const searchVolume =
+            typeof searchVolumeRaw === "number"
+                ? searchVolumeRaw
+                : (typeof searchVolumeRaw === "string" && searchVolumeRaw.trim() ? Number(searchVolumeRaw) : null);
+        const keywordDifficulty =
+            typeof keywordDifficultyRaw === "number"
+                ? keywordDifficultyRaw
+                : (typeof keywordDifficultyRaw === "string" && keywordDifficultyRaw.trim() ? Number(keywordDifficultyRaw) : null);
+        const cpc =
+            typeof cpcRaw === "number"
+                ? cpcRaw
+                : (typeof cpcRaw === "string" && cpcRaw.trim() ? Number(cpcRaw) : null);
+
+        map.set(normalizeKeywordKey(keyword), {
+            keyword,
+            search_volume: Number.isFinite(searchVolume as number) ? (searchVolume as number) : null,
+            keyword_difficulty: Number.isFinite(keywordDifficulty as number) ? (keywordDifficulty as number) : null,
+            cpc: Number.isFinite(cpc as number) ? (cpc as number) : null,
+        });
+    };
+
+    if (Array.isArray(parsed)) {
+        parsed.forEach((row) => {
+            if (!row) return;
+            if (typeof row === "string") {
+                ingestMetric(row, { keyword: row });
+                return;
+            }
+            if (typeof row === "object") {
+                ingestMetric((row as any).keyword || (row as any).term || (row as any).seed_keyword, row);
+            }
+        });
+        return map;
+    }
+
+    if (parsed && typeof parsed === "object") {
+        Object.entries(parsed as Record<string, unknown>).forEach(([rawKeyword, rawMetric]) => {
+            ingestMetric(rawKeyword, rawMetric);
+        });
+    }
+
+    return map;
+}
+
 function resolveKeywordMetricRow(
     keyword: string,
     ideaMap: Map<string, KeywordMetricRow>,
@@ -370,26 +425,31 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
     }, [subtopic]);
 
     const subtopicKeywordMetrics = React.useMemo(() => {
-        const map = new Map<string, KeywordMetricRow>();
-        if (!subtopic) return map;
-        const rawKeywords = (subtopic as any).keywords;
-        if (!Array.isArray(rawKeywords)) return map;
+        if (!subtopic) return new Map<string, KeywordMetricRow>();
 
-        rawKeywords.forEach((entry: any) => {
-            if (!entry || typeof entry === "string") return;
-            const keyword = String(entry.keyword || entry.term || "").trim();
-            if (!keyword) return;
-            map.set(normalizeKeywordKey(keyword), {
-                keyword,
-                search_volume: typeof entry.search_volume === "number" ? entry.search_volume : null,
-                keyword_difficulty:
-                    typeof entry.keyword_difficulty === "number"
-                        ? entry.keyword_difficulty
-                        : (typeof entry.difficulty === "number" ? entry.difficulty : null),
-                cpc: typeof entry.cpc === "number" ? entry.cpc : null,
+        const merged = new Map<string, KeywordMetricRow>();
+        [
+            (subtopic as any).keywords,
+            (subtopic as any)?.trend_analysis?.keyword_evidence,
+            (subtopic as any)?.monetization_data?.keyword_evidence,
+        ].forEach((source) => {
+            const sourceMap = extractKeywordMetricsMapFromUnknown(source);
+            sourceMap.forEach((value, key) => {
+                const existing = merged.get(key);
+                if (!existing) {
+                    merged.set(key, value);
+                    return;
+                }
+                merged.set(key, {
+                    keyword: existing.keyword || value.keyword,
+                    search_volume: existing.search_volume ?? value.search_volume,
+                    keyword_difficulty: existing.keyword_difficulty ?? value.keyword_difficulty,
+                    cpc: existing.cpc ?? value.cpc,
+                });
             });
         });
-        return map;
+
+        return merged;
     }, [subtopic]);
 
     const generateIdeas = async () => {
@@ -408,10 +468,15 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         setEnrichResultMessage(null);
 
         try {
-            const keywords = subtopic.keywords || [];
-            const keywordStrings = Array.isArray(keywords)
-                ? keywords.map((k: any) => typeof k === 'string' ? k : k.keyword || '').filter(Boolean)
-                : [];
+            const rawKeywords = parseJsonLike<any[]>((subtopic as any).keywords, []);
+            const keywordPayload = Array.isArray(rawKeywords) && rawKeywords.length > 0
+                ? rawKeywords
+                : Array.from(subtopicKeywordMetrics.values()).map((row) => ({
+                    keyword: row.keyword,
+                    search_volume: row.search_volume ?? 0,
+                    keyword_difficulty: row.keyword_difficulty ?? 0,
+                    cpc: row.cpc ?? 0,
+                }));
 
             const monetizationData = subtopic.monetization_data || {};
             const affiliateOffers = monetizationData.details?.affiliate_categories || [];
@@ -419,7 +484,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             const result = await contentIdeasService.generateBurst({
                 topicId,
                 subtopicName: subtopic.name,
-                keywords: keywordStrings,
+                keywords: keywordPayload,
                 affiliateOffers,
                 userId: user.id,
                 intentBucket: subtopic.intent_bucket,

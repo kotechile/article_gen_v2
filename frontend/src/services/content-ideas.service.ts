@@ -25,7 +25,14 @@ class ContentIdeasService {
     async generateBurst(request: {
         topicId: string;
         subtopicName: string;
-        keywords: string[];
+        keywords: Array<string | {
+            keyword?: string;
+            term?: string;
+            search_volume?: number | null;
+            keyword_difficulty?: number | null;
+            difficulty?: number | null;
+            cpc?: number | null;
+        }>;
         affiliateOffers: string[];
         userId: string;
         intentBucket?: string | null;

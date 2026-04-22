@@ -5,6 +5,7 @@ This module provides endpoints for managing research topics.
 """
 
 import logging
+import json
 import re
 from datetime import datetime
 from uuid import uuid4
@@ -86,6 +87,152 @@ def _get_admin_supabase_client(default_client):
     except Exception as admin_err:
         logger.error(f"Failed to initialize admin Supabase client: {admin_err}")
         return default_client
+
+
+def _normalize_keyword_metric_term(term) -> str:
+    cleaned = re.sub(r"\s+", " ", str(term or "").strip().lower())
+    cleaned = cleaned.replace("&", " and ")
+    cleaned = re.sub(r"[^a-z0-9]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _coerce_keyword_metric_entries(raw_keywords) -> list[dict]:
+    """
+    Normalize mixed keyword payloads into a list of keyword objects.
+    Accepts strings, dicts, and JSON-stringified arrays/objects.
+    """
+    if raw_keywords is None:
+        return []
+
+    if isinstance(raw_keywords, str):
+        raw = raw_keywords.strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+            return _coerce_keyword_metric_entries(parsed)
+        except Exception:
+            return [{"keyword": part.strip()} for part in re.split(r"[\n,]+", raw) if part.strip()]
+
+    if not isinstance(raw_keywords, list):
+        return []
+
+    entries: list[dict] = []
+    for item in raw_keywords:
+        if isinstance(item, str):
+            keyword = item.strip()
+            if keyword:
+                entries.append({"keyword": keyword})
+            continue
+        if not isinstance(item, dict):
+            continue
+
+        keyword = str(item.get("keyword") or item.get("term") or item.get("seed_keyword") or "").strip()
+        if not keyword:
+            continue
+
+        try:
+            search_volume = int(float(item.get("search_volume") or item.get("volume") or 0))
+        except Exception:
+            search_volume = 0
+        try:
+            cpc = float(item.get("cpc") or 0.0)
+        except Exception:
+            cpc = 0.0
+        try:
+            keyword_difficulty = float(
+                item.get("keyword_difficulty")
+                or item.get("difficulty")
+                or item.get("seo_difficulty")
+                or 0.0
+            )
+        except Exception:
+            keyword_difficulty = 0.0
+
+        entries.append({
+            "keyword": keyword,
+            "search_volume": max(0, search_volume),
+            "cpc": max(0.0, cpc),
+            "keyword_difficulty": max(0.0, keyword_difficulty),
+        })
+    return entries
+
+
+def _build_keyword_metrics_map(raw_keywords) -> dict:
+    metrics_map: dict = {}
+    for item in _coerce_keyword_metric_entries(raw_keywords):
+        keyword = str(item.get("keyword") or "").strip()
+        normalized = _normalize_keyword_metric_term(keyword)
+        if not normalized:
+            continue
+        metrics_map[normalized] = {
+            "keyword": keyword,
+            "search_volume": int(item.get("search_volume") or 0),
+            "cpc": round(float(item.get("cpc") or 0.0), 2),
+            "keyword_difficulty": round(float(item.get("keyword_difficulty") or 0.0), 1),
+        }
+    return metrics_map
+
+
+def _build_idea_keyword_metrics_payload(idea: dict, source_metrics_map: dict) -> tuple[dict, dict]:
+    """
+    Match idea keywords against available keyword metrics and compute exact aggregates.
+    Returns:
+    - keyword_metrics map keyed by display keyword for UI compatibility
+    - aggregate metrics summary
+    """
+    keyword_candidates = []
+    for field in ("primary_keywords", "keywords", "secondary_keywords"):
+        value = idea.get(field)
+        if isinstance(value, list):
+            keyword_candidates.extend([str(item).strip() for item in value if str(item).strip()])
+        elif isinstance(value, str) and value.strip():
+            keyword_candidates.extend([part.strip() for part in re.split(r"[\n,]+", value) if part.strip()])
+
+    keyword_metrics: dict = {}
+    volumes = []
+    difficulties = []
+    cpcs = []
+
+    seen = set()
+    for keyword in keyword_candidates:
+        normalized = _normalize_keyword_metric_term(keyword)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+
+        row = source_metrics_map.get(normalized)
+        if not row:
+            for candidate_key, candidate_row in source_metrics_map.items():
+                if candidate_key == normalized or candidate_key in normalized or normalized in candidate_key:
+                    row = candidate_row
+                    break
+        if not row:
+            continue
+
+        search_volume = int(row.get("search_volume") or 0)
+        cpc = float(row.get("cpc") or 0.0)
+        keyword_difficulty = float(row.get("keyword_difficulty") or 0.0)
+        keyword_metrics[keyword] = {
+            "search_volume": search_volume,
+            "cpc": round(cpc, 2),
+            "keyword_difficulty": round(keyword_difficulty, 1),
+        }
+        if search_volume > 0:
+            volumes.append(search_volume)
+        if cpc > 0:
+            cpcs.append(cpc)
+        if keyword_difficulty > 0:
+            difficulties.append(keyword_difficulty)
+
+    aggregates = {
+        "total_search_volume": int(sum(volumes)) if volumes else int(idea.get("total_search_volume") or 0),
+        "average_cpc": round((sum(cpcs) / len(cpcs)) if cpcs else float(idea.get("average_cpc") or 0.0), 2),
+        "average_difficulty": round((sum(difficulties) / len(difficulties)) if difficulties else float(idea.get("average_difficulty") or 0.0), 1),
+        "keywords_used": list(keyword_metrics.keys()),
+    }
+    return keyword_metrics, aggregates
 
 
 def _enrich_research_topics(supabase, topics):
@@ -1760,7 +1907,7 @@ def idea_burst():
         user_id = data.get('user_id') or request_user_id
         topic_id = data.get('topic_id')
         subtopic_name = data.get('subtopic')
-        keywords = data.get('keywords', [])
+        raw_keywords = data.get('keywords', [])
         affiliate_offers = data.get('affiliate_offers', [])
         context_intent_bucket = data.get('intent_bucket')
         context_decision_focus = data.get('decision_focus')
@@ -1839,6 +1986,14 @@ def idea_burst():
             effective_tool_potential_score = int(context_tool_potential_score) if context_tool_potential_score is not None else 50
         except Exception:
             effective_tool_potential_score = 50
+        subtopic_keyword_metrics_map = _build_keyword_metrics_map(raw_keywords)
+        prompt_keywords = [
+            str(item.get("keyword") or "").strip()
+            for item in _coerce_keyword_metric_entries(raw_keywords)
+            if str(item.get("keyword") or "").strip()
+        ]
+        if not prompt_keywords and isinstance(raw_keywords, list):
+            prompt_keywords = [str(item).strip() for item in raw_keywords if str(item).strip()]
 
         def _clip_prompt_text(value: str, limit: int = 180) -> str:
             text = " ".join(str(value or "").split())
@@ -1847,7 +2002,7 @@ def idea_burst():
             return f"{text[:limit - 3].rstrip()}..."
 
         def _build_compact_context_pack() -> str:
-            selected_keywords = [str(k).strip() for k in (keywords or []) if str(k).strip()][:8]
+            selected_keywords = [str(k).strip() for k in (prompt_keywords or []) if str(k).strip()][:8]
             top_keywords = ", ".join(selected_keywords) if selected_keywords else "N/A"
             value_tags = ", ".join(
                 [str(tag).strip() for tag in (effective_value_layer_tags or []) if str(tag).strip()][:6]
@@ -2028,6 +2183,61 @@ Critical naming and language rules:
             context_serp_intent_match=effective_serp_intent_match,
         )
 
+        def _attach_keyword_metrics(ideas: list[dict]) -> list[dict]:
+            enriched_ideas = []
+            for idea in ideas or []:
+                idea_copy = dict(idea)
+                idea_metadata = idea_copy.get("idea_metadata") or {}
+                if not isinstance(idea_metadata, dict):
+                    idea_metadata = {}
+
+                keyword_metrics, aggregates = _build_idea_keyword_metrics_payload(
+                    idea_copy,
+                    subtopic_keyword_metrics_map,
+                )
+
+                if keyword_metrics:
+                    idea_copy["keyword_metrics"] = keyword_metrics
+                    idea_copy["keywords"] = aggregates["keywords_used"] or idea_copy.get("keywords") or []
+                    idea_copy["primary_keywords"] = aggregates["keywords_used"] or idea_copy.get("primary_keywords") or []
+                    if not idea_copy.get("secondary_keywords"):
+                        idea_copy["secondary_keywords"] = (aggregates["keywords_used"] or [])[1:]
+                    idea_copy["total_search_volume"] = aggregates["total_search_volume"]
+                    idea_copy["average_cpc"] = aggregates["average_cpc"]
+                    idea_copy["average_difficulty"] = aggregates["average_difficulty"]
+                    idea_metadata["seo_offer_enrichment"] = {
+                        **(idea_metadata.get("seo_offer_enrichment") or {}),
+                        "keywords_used": aggregates["keywords_used"],
+                        "keyword_metrics": keyword_metrics,
+                        "source": "subtopic_keyword_metrics",
+                        "enriched_at": datetime.utcnow().isoformat(),
+                    }
+                elif prompt_keywords:
+                    idea_metadata["seo_offer_enrichment"] = {
+                        **(idea_metadata.get("seo_offer_enrichment") or {}),
+                        "keywords_used": idea_copy.get("primary_keywords") or idea_copy.get("keywords") or prompt_keywords,
+                        "source": "llm_estimate_only",
+                    }
+
+                idea_copy["idea_metadata"] = idea_metadata
+                enriched_ideas.append(idea_copy)
+            return enriched_ideas
+
+        blog_ideas = _rank_ideas(
+            ideas=_attach_keyword_metrics(blog_ideas),
+            content_type="blog",
+            context_target_intent=effective_intent_bucket,
+            context_tool_potential_score=effective_tool_potential_score,
+            context_serp_intent_match=effective_serp_intent_match,
+        )
+        software_ideas = _rank_ideas(
+            ideas=_attach_keyword_metrics(software_ideas),
+            content_type="software",
+            context_target_intent=effective_intent_bucket,
+            context_tool_potential_score=effective_tool_potential_score,
+            context_serp_intent_match=effective_serp_intent_match,
+        )
+
         # Persist burst ideas so they appear in Content Library and Software Ideas screens.
         all_ideas = (blog_ideas or []) + (software_ideas or [])
         if all_ideas:
@@ -2093,6 +2303,7 @@ Critical naming and language rules:
                     "output_result": idea.get("output_result") or "",
                     "build_complexity": idea.get("build_complexity") or "",
                     "distribution_angle": idea.get("distribution_angle") or "",
+                    "keyword_metrics": idea.get("keyword_metrics") or {},
                     "idea_metadata": idea_metadata,
                     "status": idea.get("status") or "draft",
                     "created_at": idea.get("created_at") or datetime.utcnow().isoformat(),
