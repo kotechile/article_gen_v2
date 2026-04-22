@@ -57,6 +57,32 @@ function resolveKeywordMetricRow(
     return ideaMap.get(key) || subtopicMap.get(key);
 }
 
+function buildAggregateFallbackKeywordRow(
+    keyword: string,
+    idea: ContentIdea,
+    keywordCount: number,
+): KeywordMetricRow | undefined {
+    const totalVolume = Number(idea.total_search_volume || 0);
+    const avgDifficulty = Number(idea.average_difficulty || 0);
+    const avgCpc = Number(idea.average_cpc || 0);
+
+    if (totalVolume <= 0 && avgDifficulty <= 0 && avgCpc <= 0) {
+        return undefined;
+    }
+
+    const safeKeywordCount = Math.max(1, keywordCount || 1);
+    const estVolume = totalVolume > 0 ? Math.round(totalVolume / safeKeywordCount) : null;
+    const estDifficulty = avgDifficulty > 0 ? Number(avgDifficulty.toFixed(1)) : null;
+    const estCpc = avgCpc > 0 ? Number(avgCpc.toFixed(2)) : null;
+
+    return {
+        keyword,
+        search_volume: estVolume,
+        keyword_difficulty: estDifficulty,
+        cpc: estCpc,
+    };
+}
+
 interface CachedIdeaBurst {
     blogIdeas: ContentIdea[];
     softwareIdeas: ContentIdea[];
@@ -928,6 +954,11 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
         const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
         return Boolean((row?.search_volume || 0) > 0 || (row?.keyword_difficulty || 0) > 0 || (row?.cpc || 0) > 0);
     });
+    const hasAggregateFallbackMetrics = Boolean(
+        Number(idea.total_search_volume || 0) > 0 ||
+        Number(idea.average_difficulty || 0) > 0 ||
+        Number(idea.average_cpc || 0) > 0
+    );
 
     return (
         <motion.div
@@ -1141,7 +1172,8 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
                                             <tbody>
                                                 {keywords.map((kw, idx) => (
                                                     (() => {
-                                                        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
+                                                        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap)
+                                                            || buildAggregateFallbackKeywordRow(kw, idea, keywords.length);
                                                         const rowVolume = row?.search_volume ?? null;
                                                         const rowKD = row?.keyword_difficulty ?? null;
                                                         const rowCPC = row?.cpc ?? null;
@@ -1169,7 +1201,9 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
                                     <p className="text-[10px] text-slate-500 mt-2 text-center">
                                         {hasAnyRealKeywordMetrics
                                             ? "Note: Keyword rows show exact per-keyword metrics when available."
-                                            : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
+                                            : hasAggregateFallbackMetrics
+                                                ? "Note: Keyword rows are estimated from aggregate idea metrics; run SEO/Offers for exact per-keyword values."
+                                                : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
                                     </p>
                                 </div>
                             </motion.div>
@@ -1206,6 +1240,11 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
         const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
         return Boolean((row?.search_volume || 0) > 0 || (row?.keyword_difficulty || 0) > 0 || (row?.cpc || 0) > 0);
     });
+    const hasAggregateFallbackMetrics = Boolean(
+        Number(idea.total_search_volume || 0) > 0 ||
+        Number(idea.average_difficulty || 0) > 0 ||
+        Number(idea.average_cpc || 0) > 0
+    );
 
     return (
         <motion.div
@@ -1424,7 +1463,8 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                                             <tbody>
                                                 {keywords.map((kw, idx) => (
                                                     (() => {
-                                                        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
+                                                        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap)
+                                                            || buildAggregateFallbackKeywordRow(kw, idea, keywords.length);
                                                         const rowVolume = row?.search_volume ?? null;
                                                         const rowKD = row?.keyword_difficulty ?? null;
                                                         const rowCPC = row?.cpc ?? null;
@@ -1452,7 +1492,9 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                                     <p className="text-[10px] text-slate-500 mt-2 text-center">
                                         {hasAnyRealKeywordMetrics
                                             ? "Note: Keyword rows show exact per-keyword metrics when available."
-                                            : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
+                                            : hasAggregateFallbackMetrics
+                                                ? "Note: Keyword rows are estimated from aggregate idea metrics; run SEO/Offers for exact per-keyword values."
+                                                : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
                                     </p>
                                 </div>
                             </motion.div>
