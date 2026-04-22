@@ -228,6 +228,13 @@ def _extract_keywords_for_enrichment(idea: dict) -> list[str]:
             # Handle comma-separated fallback shapes.
             candidates.extend([part.strip() for part in value.split(",") if part.strip()])
 
+    # Pass-1 seed keywords are stored in metadata and should feed DataForSEO related expansion.
+    idea_metadata = idea.get("idea_metadata") or {}
+    if isinstance(idea_metadata, dict):
+        seed_inputs = idea_metadata.get("input_keywords")
+        if isinstance(seed_inputs, list):
+            candidates.extend([str(item).strip() for item in seed_inputs if str(item).strip()])
+
     if not candidates:
         # Fallback: derive a few keyword-like tokens from title.
         title = str(idea.get("title") or "").strip().lower()
@@ -371,8 +378,16 @@ def _rank_keywords_by_opportunity(candidates: list[str], metrics_map: dict) -> l
             "opportunity": round(opp, 2),
         })
     ranked.sort(
-        key=lambda x: (x["search_volume"] > 0, x["opportunity"], x["search_volume"], -x["keyword_difficulty"]),
-        reverse=True,
+        # Selection rule v2: prefer measurable keywords with lowest KD, then highest volume.
+        # Unknown KD (0) is treated as low confidence and ranked after known KD.
+        key=lambda x: (
+            x["search_volume"] <= 0,
+            (x["keyword_difficulty"] <= 0),
+            x["keyword_difficulty"] if x["keyword_difficulty"] > 0 else 999.0,
+            -x["search_volume"],
+            -x["cpc"],
+            -x["opportunity"],
+        ),
     )
     return ranked
 
@@ -384,7 +399,29 @@ def _keyword_quality_summary(ranked_candidates: list[dict]) -> dict:
         "non_zero_count": len(non_zero),
         "best_volume": int(best.get("search_volume") or 0),
         "best_opportunity": float(best.get("opportunity") or 0.0),
+        "best_keyword": str(best.get("keyword") or ""),
+        "best_keyword_difficulty": float(best.get("keyword_difficulty") or 0.0),
     }
+
+
+def _normalize_title_keyword_term(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9\s-]", " ", str(value or "").lower())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _restate_title_with_primary_keyword(title: str, primary_keyword: str) -> tuple[str, bool]:
+    base_title = str(title or "").strip()
+    keyword = str(primary_keyword or "").strip().lower()
+    if not base_title or not keyword:
+        return base_title, False
+
+    normalized_title = _normalize_title_keyword_term(base_title)
+    normalized_keyword = _normalize_title_keyword_term(keyword)
+    if normalized_keyword and normalized_keyword in normalized_title:
+        return base_title, False
+
+    return f"{keyword}: {base_title}", True
 
 
 def _quality_gate_passed(summary: dict) -> bool:
@@ -1128,10 +1165,17 @@ def enrich_content_ideas():
                 for keyword in (enrichment.get("keywords_used") or [])
                 if str(keyword).strip()
             ]
+            selected_primary_keyword = keywords_used[0] if keywords_used else ""
+            original_title = str(idea.get("title") or "").strip()
+            restated_title, title_restated = _restate_title_with_primary_keyword(
+                original_title,
+                selected_primary_keyword,
+            )
             keyword_projection_payload = {
                 "keywords": keywords_used,
                 "primary_keywords": keywords_used,
                 "secondary_keywords": keywords_used[1:],
+                "search_phrase": selected_primary_keyword,
             }
             update_payload = {
                 "total_search_volume": enrichment["total_search_volume"],
@@ -1140,6 +1184,7 @@ def enrich_content_ideas():
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
                 "status": "in_progress",
                 "updated_at": now,
+                "title": restated_title or original_title,
             }
             enrichment_metadata = {
                 **(idea.get("idea_metadata") or {}),
@@ -1152,6 +1197,16 @@ def enrich_content_ideas():
                     "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
                     "affiliate_offers_preview": enrichment["affiliate_offers"],
                     "enriched_at": now,
+                },
+                "keyword_pass_2": {
+                    "selected_primary_keyword": selected_primary_keyword,
+                    "selection_rule_version": "kd_asc_volume_desc_v1",
+                    "keyword_ranked_candidates": enrichment.get("keyword_ranked_candidates") or [],
+                    "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
+                    "title_restated": title_restated,
+                    "restated_title": restated_title or original_title,
+                    "original_title": original_title,
+                    "restated_at": now,
                 },
             }
 
@@ -1211,6 +1266,9 @@ def enrich_content_ideas():
                 results.append({
                     "idea_id": idea_id,
                     "status": "enriched",
+                    "selected_primary_keyword": selected_primary_keyword,
+                    "restated_title": restated_title or original_title,
+                    "title_restated": title_restated,
                     "metrics": {
                         "total_search_volume": enrichment["total_search_volume"],
                         "average_cpc": enrichment["average_cpc"],

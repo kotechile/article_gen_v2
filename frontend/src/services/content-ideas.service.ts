@@ -217,6 +217,9 @@ class ContentIdeasService {
                 affiliate_offer_count: number;
             };
             keywords_used?: string[];
+            selected_primary_keyword?: string;
+            restated_title?: string;
+            title_restated?: boolean;
             keyword_metrics_map?: Record<string, {
                 search_volume?: number;
                 keyword_difficulty?: number;

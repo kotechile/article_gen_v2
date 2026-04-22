@@ -64,6 +64,7 @@ export interface ContentIdea {
     output_result?: string;
     build_complexity?: string;
     distribution_angle?: string;
+    search_phrase?: string;
     idea_metadata?: {
         target_intent?: string;
         article_format?: string;

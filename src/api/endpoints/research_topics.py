@@ -2002,8 +2002,6 @@ def idea_burst():
             return f"{text[:limit - 3].rstrip()}..."
 
         def _build_compact_context_pack() -> str:
-            selected_keywords = [str(k).strip() for k in (prompt_keywords or []) if str(k).strip()][:8]
-            top_keywords = ", ".join(selected_keywords) if selected_keywords else "N/A"
             value_tags = ", ".join(
                 [str(tag).strip() for tag in (effective_value_layer_tags or []) if str(tag).strip()][:6]
             ) or "N/A"
@@ -2018,7 +2016,6 @@ def idea_burst():
                 f"- Angle Question: {_clip_prompt_text(effective_angle_question, 220)}\n"
                 f"- Cluster Type: {_clip_prompt_text(effective_cluster_type, 80)}\n"
                 f"- Value Tags: {_clip_prompt_text(value_tags, 140)}\n"
-                f"- Top Candidate Keywords: {_clip_prompt_text(top_keywords, 180)}\n"
             )
 
         compact_context_pack = _build_compact_context_pack()
@@ -2050,36 +2047,36 @@ Hard constraints:
 2. Avoid consultant/corporate jargon in titles and search phrases (framework, paradigm, architecture, lens, methodology, optimization strategy).
 3. Each idea MUST include SEARCH_PHRASE (2-5 words, lowercase) that looks like a real query and can be sent to keyword tools.
 4. TITLE must include SEARCH_PHRASE verbatim.
-5. Keep SEARCH_PHRASE and keywords tightly aligned to subtopic + decision focus + primary outcome.
+5. Keep SEARCH_PHRASE and INPUT_KEYWORDS tightly aligned to subtopic + decision focus + primary outcome.
 6. Avoid topic drift and generic listicles.
 7. DESCRIPTION is required and cannot be empty.
 8. Prioritize decision/action intent over abstract commentary.
+9. INPUT_KEYWORDS must be short, human, and literal search language for DataForSEO related keyword mining.
+10. INPUT_KEYWORDS must be 3-5 items, each 2-4 words max, no punctuation-heavy phrases, no jargon.
 
 For each idea, provide:
 - Title: SEO-conscious title in plain language
 - Description: 1-2 sentence angle summary
 - Search Phrase: 2-5 words, plain language
-- Primary Keywords: 2-3 keywords
+- Input Keywords: 3-5 simple query-like seed phrases for keyword mining
 - Intent: informational/commercial/transactional
 - Format: comparison/checklist/framework/case-study/how-to/calculator-guide
 - User Decision Helped: What choice this article helps make
 - Internal Link Hook: Where this links in the topical graph
 - Monetization Hook: How to monetize
-- Estimated Metrics: search volume (number), difficulty (1-100), viability (1-100)
+- Viability: overall viability score 1-100
 
 Output format (use exactly this format):
 BLOG_IDEA: [number]
 TITLE: [title]
 DESCRIPTION: [description]
 SEARCH_PHRASE: [2-5 word query]
-KEYWORDS: [keyword1, keyword2, keyword3]
+INPUT_KEYWORDS: [keyword1, keyword2, keyword3, keyword4]
 INTENT: [informational/commercial/transactional]
 FORMAT: [comparison/checklist/framework/case-study/how-to/calculator-guide]
 USER_DECISION_HELPED: [decision]
 INTERNAL_LINK_HOOK: [internal link strategy]
 MONETIZATION: [monetization approach]
-VOLUME: [estimated monthly searches as number]
-DIFFICULTY: [SEO difficulty 1-100]
 VIABILITY: [overall viability score 1-100]
 END_IDEA
 
@@ -2119,7 +2116,7 @@ For each tool idea, provide:
 - Title: Name of the tool/feature to build and include SEARCH_PHRASE verbatim
 - Description: What the tool does and how users interact with it
 - Search Phrase: 2-5 words users would type to find this tool
-- Primary Keywords: Keywords people would search to find this tool
+- Input Keywords: 3-5 simple query-like seed phrases for DataForSEO related keyword mining
 - Product Type: calculator/planner/evaluator/comparison-tool/dashboard/workflow-helper
 - User Job To Be Done: the repeated decision/action this solves
 - Key Inputs: data users provide
@@ -2127,14 +2124,14 @@ For each tool idea, provide:
 - Monetization Hook: How to monetize the tool (lead gen, freemium, affiliate integration, etc.)
 - Build Complexity: low/medium/high
 - Distribution Angle: how this gets discovered (SEO/interactive tool pages/etc.)
-- Estimated Metrics: Search volume, Difficulty, Viability
+- Viability: overall viability score 1-100
 
 Output format (use exactly this format):
 SOFTWARE_IDEA: [number]
 TITLE: [tool name - NOT a review article title]
 DESCRIPTION: [what the tool does and user interaction]
 SEARCH_PHRASE: [2-5 word query]
-KEYWORDS: [keyword1, keyword2, keyword3]
+INPUT_KEYWORDS: [keyword1, keyword2, keyword3, keyword4]
 PRODUCT_TYPE: [calculator/planner/evaluator/comparison-tool/dashboard/workflow-helper]
 USER_JOB: [job to be done]
 KEY_INPUTS: [input1, input2, input3]
@@ -2142,8 +2139,6 @@ OUTPUT_RESULT: [result]
 MONETIZATION: [how to monetize the tool]
 BUILD_COMPLEXITY: [low/medium/high]
 DISTRIBUTION_ANGLE: [distribution strategy]
-VOLUME: [estimated monthly searches as number]
-DIFFICULTY: [SEO difficulty 1-100]
 VIABILITY: [overall viability score 1-100]
 END_IDEA
 
@@ -2436,6 +2431,9 @@ def parse_idea_response(text: str, content_type: str, topic_id: str, user_id: st
         elif line.upper().startswith('KEYWORDS:'):
             kw_text = line.split(':', 1)[1].strip()
             current_idea['keywords'] = [k.strip() for k in kw_text.split(',') if k.strip()]
+        elif line.upper().startswith('INPUT_KEYWORDS:'):
+            kw_text = line.split(':', 1)[1].strip()
+            current_idea['input_keywords'] = [k.strip() for k in kw_text.split(',') if k.strip()]
         elif line.upper().startswith('MONETIZATION:'):
             current_idea['monetization_hook'] = line.split(':', 1)[1].strip()
         elif line.upper().startswith('INTENT:'):
@@ -2526,10 +2524,17 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
         phrase_norm = re.sub(r"\s+", " ", str(phrase or "").lower()).strip()
         return bool(title_norm and phrase_norm and phrase_norm in title_norm)
 
+    input_keywords = idea_data.get('input_keywords', [])
+    if not isinstance(input_keywords, list):
+        input_keywords = []
+    input_keywords = [str(k).strip() for k in input_keywords if str(k).strip()]
+
     keywords = idea_data.get('keywords', [])
     if not isinstance(keywords, list):
         keywords = []
     keywords = [str(k).strip() for k in keywords if str(k).strip()]
+    if not keywords:
+        keywords = list(input_keywords)
 
     title = (idea_data.get('title') or 'Untitled Idea').strip()
     search_phrase = _normalize_search_phrase(idea_data.get('search_phrase', ''))
@@ -2598,6 +2603,7 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
         "distribution_angle": idea_data.get('distribution_angle', ''),
         "idea_metadata": {
             "search_phrase": search_phrase,
+            "input_keywords": input_keywords,
             "target_intent": idea_data.get('target_intent', ''),
             "article_format": idea_data.get('article_format', ''),
             "user_decision_helped": idea_data.get('user_decision_helped', ''),

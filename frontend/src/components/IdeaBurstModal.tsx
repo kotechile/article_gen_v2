@@ -602,7 +602,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         average_cpc: number;
         average_difficulty: number;
         affiliate_offer_count: number;
-    }, keywordMetricsMap?: Record<string, { search_volume?: number; keyword_difficulty?: number; cpc?: number }>, keywordsUsed?: string[]) => {
+    }, keywordMetricsMap?: Record<string, { search_volume?: number; keyword_difficulty?: number; cpc?: number }>, keywordsUsed?: string[], restatedTitle?: string, selectedPrimaryKeyword?: string) => {
         if (!metrics) return;
         setBlogIdeas((prev) => prev.map((idea) => (
             idea.id === ideaId
@@ -611,6 +611,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     total_search_volume: metrics.total_search_volume,
                     average_cpc: metrics.average_cpc,
                     average_difficulty: metrics.average_difficulty,
+                    ...(restatedTitle ? { title: restatedTitle } : {}),
+                    ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
                     ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? { keywords: keywordsUsed } : {}),
                     ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
                 }
@@ -623,6 +625,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     total_search_volume: metrics.total_search_volume,
                     average_cpc: metrics.average_cpc,
                     average_difficulty: metrics.average_difficulty,
+                    ...(restatedTitle ? { title: restatedTitle } : {}),
+                    ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
                     ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? { keywords: keywordsUsed } : {}),
                     ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
                 }
@@ -646,7 +650,14 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
 
             result.results.forEach((item) => {
                 if (item.status === "enriched") {
-                    applyEnrichedMetrics(item.idea_id, item.metrics, item.keyword_metrics_map, item.keywords_used);
+                    applyEnrichedMetrics(
+                        item.idea_id,
+                        item.metrics,
+                        item.keyword_metrics_map,
+                        item.keywords_used,
+                        item.restated_title,
+                        item.selected_primary_keyword
+                    );
                 }
             });
 
