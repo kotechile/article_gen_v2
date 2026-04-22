@@ -8,7 +8,7 @@ import { contentIdeasService } from "@/services/content-ideas.service"
 import type { ResearchTopic, Subtopic } from "@/types/research"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ArrowLeft, FileText, TrendingUp, DollarSign, Target, Sparkles, RefreshCw, Lightbulb, Trash2 } from "lucide-react"
+import { ArrowLeft, ListTree, CheckCircle2, LibraryBig, Sparkles, RefreshCw, Lightbulb, Trash2 } from "lucide-react"
 import { motion } from "framer-motion"
 import { IdeaBurstModal } from "@/components/IdeaBurstModal"
 import { toast } from "sonner"
@@ -303,20 +303,6 @@ export function TopicDetail() {
         return 'bg-slate-500/10 text-slate-300 border-slate-500/20'
     }
 
-    const hasSeoResearchSignals = (sub: Subtopic) => {
-        // Treat only SEO + monetization as "researched" for this screen.
-        // Trend/decomposition metadata can exist before SEO enrichment and should not flip the UI state.
-        const hasSeoSignal =
-            (sub.search_volume ?? 0) > 0 ||
-            (sub.seo_difficulty ?? 0) > 0 ||
-            (sub.cpc ?? 0) > 0
-        const hasMonetizationSignal =
-            (sub.affiliate_offer_count ?? 0) > 0 ||
-            (sub.monetization_data?.offers?.length ?? 0) > 0
-
-        return hasSeoSignal || hasMonetizationSignal
-    }
-
     const isSubtopicResearched = (sub: Subtopic) => {
         return Boolean((sub as any).researched || sub.trend_analysis?.manual_researched)
     }
@@ -380,50 +366,25 @@ export function TopicDetail() {
         return cachedCounts
     }, [id, user?.id, subtopics])
 
-    // Calculate metrics from subtopics
-    const metrics = React.useMemo(() => {
-        if (subtopics.length === 0) {
-            return {
-                totalVolume: 0,
-                totalOpportunities: 0,
-                avgDifficulty: 0,
-                potential: 'Low',
-                hasSeoResearchData: false,
-                hasResearchProgress: hasStoredIdeas
-            }
+    const summary = React.useMemo(() => {
+        const totalSubtopics = subtopics.length
+        const completedSubtopics = subtopics.filter(isSubtopicResearched).length
+        const inLibrarySubtopics = subtopicsReadyForContent.size
+        let totalIdeas = 0
+        for (const sub of subtopics) {
+            const normalizedName = (sub.name || '').trim().toLowerCase()
+            const persistedIdeasCount = savedIdeasCountBySubtopicName.get(normalizedName) || 0
+            const cachedIdeasCount = cachedIdeasCountBySubtopicId.get(sub.id) || 0
+            totalIdeas += Math.max(persistedIdeasCount, cachedIdeasCount)
         }
-
-        const researchedSubtopics = subtopics.filter(hasSeoResearchSignals)
-        const hasSeoResearchData = researchedSubtopics.length > 0
-
-        const totalVolume = hasSeoResearchData
-            ? researchedSubtopics.reduce((sum, sub) => sum + (sub.search_volume || 0), 0)
-            : 0
-        const totalOpportunities = hasSeoResearchData
-            ? researchedSubtopics.reduce((sum, sub) => sum + (sub.affiliate_offer_count || 0), 0)
-            : 0
-        const avgDifficulty = hasSeoResearchData
-            ? Math.round(
-                researchedSubtopics.reduce((sum, sub) => sum + (sub.seo_difficulty || 0), 0) / researchedSubtopics.length
-            )
-            : 0
-
-        // Calculate potential based on viability scores
-        const avgViability = subtopics.reduce((sum, sub) => sum + (sub.viability_score || 0), 0) / subtopics.length
-        let potential = 'Low'
-        if (avgViability >= 70) potential = 'High'
-        else if (avgViability >= 40) potential = 'Medium'
-
         return {
-            totalVolume,
-            totalOpportunities,
-            avgDifficulty,
-            potential,
-            hasSeoResearchData,
-            hasResearchProgress: hasSeoResearchData || hasStoredIdeas,
+            totalSubtopics,
+            completedSubtopics,
+            inLibrarySubtopics,
+            totalIdeas,
+            hasProgress: totalIdeas > 0 || hasStoredIdeas || inLibrarySubtopics > 0 || completedSubtopics > 0,
         }
-    }, [subtopics, hasStoredIdeas])
-    const enrichmentFailed = subtopics.length > 0 && !metrics.hasSeoResearchData
+    }, [subtopics, subtopicsReadyForContent, savedIdeasCountBySubtopicName, cachedIdeasCountBySubtopicId, hasStoredIdeas])
 
     React.useEffect(() => {
         if (!id) return
@@ -431,13 +392,12 @@ export function TopicDetail() {
             topicId: id,
             subtopics: subtopics.length,
             hasStoredIdeas,
-            hasSeoResearchData: metrics.hasSeoResearchData,
-            hasResearchProgress: metrics.hasResearchProgress,
-            totalVolume: metrics.totalVolume,
-            totalOpportunities: metrics.totalOpportunities,
-            avgDifficulty: metrics.avgDifficulty,
+            hasProgress: summary.hasProgress,
+            totalIdeas: summary.totalIdeas,
+            completedSubtopics: summary.completedSubtopics,
+            inLibrarySubtopics: summary.inLibrarySubtopics,
         })
-    }, [id, subtopics.length, hasStoredIdeas, metrics.hasSeoResearchData, metrics.hasResearchProgress, metrics.totalVolume, metrics.totalOpportunities, metrics.avgDifficulty])
+    }, [id, subtopics.length, hasStoredIdeas, summary.hasProgress, summary.totalIdeas, summary.completedSubtopics, summary.inLibrarySubtopics])
 
     if (authLoading || loading) {
         return (
@@ -507,10 +467,10 @@ export function TopicDetail() {
                     </div>
                 </div>
 
-                {/* Metrics Dashboard */}
+                {/* Sub-topic Summary */}
                 <div className="max-w-7xl mx-auto mb-8">
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {/* Total Volume */}
+                        {/* Total Sub-Topics */}
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -518,24 +478,18 @@ export function TopicDetail() {
                             className="bg-muted/30 backdrop-blur-md border border-border rounded-xl p-6"
                         >
                             <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm text-muted-foreground">Total Volume</span>
-                                <FileText className="h-4 w-4 text-muted-foreground" />
+                                <span className="text-sm text-muted-foreground">Sub-Topics</span>
+                                <ListTree className="h-4 w-4 text-muted-foreground" />
                             </div>
                             <div className="text-2xl font-bold text-foreground">
-                                {metrics.hasSeoResearchData ? metrics.totalVolume.toLocaleString() : '—'}
+                                {summary.totalSubtopics.toLocaleString()}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData
-                                    ? 'Monthly Searches'
-                                    : enrichmentFailed
-                                        ? 'Sub-topic metrics unavailable'
-                                        : metrics.hasResearchProgress
-                                            ? 'Idea candidates generated'
-                                            : 'SEO/Offer data pending'}
+                                Total generated clusters
                             </div>
                         </motion.div>
 
-                        {/* Total Sub-Topics */}
+                        {/* Completed */}
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -543,24 +497,18 @@ export function TopicDetail() {
                             className="bg-muted/30 backdrop-blur-md border border-border rounded-xl p-6"
                         >
                             <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm text-muted-foreground">Total Sub-Topics</span>
-                                <TrendingUp className="h-4 w-4 text-blue-500 dark:text-blue-400" />
+                                <span className="text-sm text-muted-foreground">Completed</span>
+                                <CheckCircle2 className="h-4 w-4 text-blue-500 dark:text-blue-400" />
                             </div>
                             <div className="text-2xl font-bold text-foreground">
-                                {metrics.hasSeoResearchData ? metrics.totalOpportunities : '—'}
+                                {summary.completedSubtopics.toLocaleString()}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData
-                                    ? 'Affiliate Offers'
-                                    : enrichmentFailed
-                                        ? 'Sub-topic metrics unavailable'
-                                        : metrics.hasResearchProgress
-                                            ? 'Use idea-level SEO/Offers'
-                                            : 'SEO/Offer data pending'}
+                                Marked as reviewed
                             </div>
                         </motion.div>
 
-                        {/* Avg. Difficulty */}
+                        {/* Ideas */}
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -568,24 +516,18 @@ export function TopicDetail() {
                             className="bg-muted/30 backdrop-blur-md border border-border rounded-xl p-6"
                         >
                             <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm text-muted-foreground">Avg. Difficulty</span>
-                                <DollarSign className="h-4 w-4 text-amber-500 dark:text-amber-400" />
+                                <span className="text-sm text-muted-foreground">Ideas</span>
+                                <Sparkles className="h-4 w-4 text-amber-500 dark:text-amber-400" />
                             </div>
                             <div className="text-2xl font-bold text-foreground">
-                                {metrics.hasSeoResearchData ? metrics.avgDifficulty : '—'}
+                                {summary.totalIdeas.toLocaleString()}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData
-                                    ? 'Keyword Difficulty'
-                                    : enrichmentFailed
-                                        ? 'Sub-topic metrics unavailable'
-                                        : metrics.hasResearchProgress
-                                            ? 'Use idea-level SEO/Offers'
-                                            : 'SEO/Offer data pending'}
+                                Saved content ideas
                             </div>
                         </motion.div>
 
-                        {/* Potential */}
+                        {/* In Library */}
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -593,23 +535,14 @@ export function TopicDetail() {
                             className="bg-muted/30 backdrop-blur-md border border-border rounded-xl p-6"
                         >
                             <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm text-muted-foreground">Potential</span>
-                                <Target className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
+                                <span className="text-sm text-muted-foreground">In Library</span>
+                                <LibraryBig className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
                             </div>
-                            <div className={`text-2xl font-bold ${metrics.potential === 'High' ? 'text-emerald-500 dark:text-emerald-400' :
-                                    metrics.potential === 'Medium' ? 'text-amber-500 dark:text-amber-400' :
-                                        'text-muted-foreground'
-                                }`}>
-                                {metrics.potential}
+                            <div className="text-2xl font-bold text-foreground">
+                                {summary.inLibrarySubtopics.toLocaleString()}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                {metrics.hasSeoResearchData
-                                    ? 'Overall Viability'
-                                    : enrichmentFailed
-                                        ? 'Sub-topic metrics unavailable'
-                                        : metrics.hasResearchProgress
-                                            ? 'Pre-SEO candidate quality'
-                                            : 'Estimated (pre-SEO)'}
+                                Sub-topics with published ideas
                             </div>
                         </motion.div>
                     </div>
@@ -743,7 +676,6 @@ export function TopicDetail() {
                                 {subtopics.map((sub, i) => {
                                     const normalizedSubtopicName = (sub.name || '').trim().toLowerCase()
                                     const persistedIdeasCount = savedIdeasCountBySubtopicName.get(normalizedSubtopicName) || 0
-                                    const hasSavedIdeas = persistedIdeasCount > 0
                                     const readyForContent = subtopicsReadyForContent.has((sub.name || '').trim().toLowerCase())
                                     const cachedIdeasCount = cachedIdeasCountBySubtopicId.get(sub.id) || 0
                                     // Cache can mirror persisted rows; avoid double-counting.
@@ -809,53 +741,14 @@ export function TopicDetail() {
                                                 <span className={`text-xs px-2 py-1 rounded-full border flex-shrink-0 ${
                                                     readyForContent
                                                         ? 'text-emerald-500 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-                                                        : hasSavedIdeas
-                                                            ? 'text-indigo-300 border-indigo-500/30 bg-indigo-500/10'
-                                                            : 'text-muted-foreground border-border bg-muted/50'
+                                                        : 'text-muted-foreground border-border bg-muted/50'
                                                 }`}>
                                                     {readyForContent
                                                         ? 'In Library'
-                                                        : hasSavedIdeas
-                                                            ? 'Ideas'
-                                                            : 'Empty'}
+                                                        : 'Empty'}
                                                 </span>
                                             </div>
                                         </div>
-
-                                        <div className="grid grid-cols-2 gap-3 text-xs">
-                                            <div>
-                                                <div className="text-muted-foreground mb-1">Volume</div>
-                                                <div className="text-foreground font-semibold">
-                                                    {hasSeoResearchSignals(sub) ? (sub.search_volume?.toLocaleString() || '0') : '—'}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="text-muted-foreground mb-1">CPC</div>
-                                                <div className="text-foreground font-semibold">
-                                                    {hasSeoResearchSignals(sub) ? `$${sub.cpc?.toFixed(2) || '0.00'}` : '—'}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="text-muted-foreground mb-1">Difficulty</div>
-                                                <div className={`font-semibold ${(sub.seo_difficulty || 0) > 60 ? 'text-red-500 dark:text-red-400' :
-                                                        (sub.seo_difficulty || 0) > 30 ? 'text-amber-500 dark:text-amber-400' :
-                                                            'text-emerald-500 dark:text-emerald-400'
-                                                    }`}>
-                                                    {hasSeoResearchSignals(sub) ? (sub.seo_difficulty || '0') : '—'}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="text-muted-foreground mb-1">Offers</div>
-                                                <div className="text-foreground font-semibold">
-                                                    {hasSeoResearchSignals(sub) ? (sub.affiliate_offer_count || 0) : '—'}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        {!hasSeoResearchSignals(sub) && hasSavedIdeas && (
-                                            <div className="mt-2 text-[11px] text-amber-400">
-                                                Metrics unavailable on sub-topic. Use idea-level SEO/Offers.
-                                            </div>
-                                        )}
 
                                         {(sub.intent_bucket || sub.cluster_type || sub.primary_user_outcome || sub.decision_focus) && (
                                             <div className="mt-3 pt-3 border-t border-white/5 space-y-2">
