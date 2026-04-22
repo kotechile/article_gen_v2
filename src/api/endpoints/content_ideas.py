@@ -373,6 +373,77 @@ def _build_keyword_candidates(seed_keywords: list[str], title: str = "") -> list
     return out[:40]
 
 
+def _simplify_seed_keyword(raw_term: str) -> str:
+    """
+    Convert arbitrary idea keyword text into a short, human-searchable seed phrase.
+    Target: 1-3 tokens, plain language.
+    """
+    normalized = _normalize_keyword_term(raw_term)
+    if not normalized:
+        return ""
+
+    tokens = [t for t in normalized.split(" ") if t]
+    if not tokens:
+        return ""
+
+    # Remove filler/function words that often create broken fragments.
+    stop_tokens = {
+        "the", "a", "an", "for", "to", "of", "in", "on", "with", "by",
+        "and", "or", "is", "are", "be", "you", "your", "my", "we", "our",
+        "how", "what", "when", "why", "which",
+    }
+    cleaned = [t for t in tokens if t not in stop_tokens]
+    if not cleaned:
+        cleaned = tokens
+
+    # Keep seed compact for DataForSEO related_keywords/live.
+    cleaned = cleaned[:3]
+    if not cleaned:
+        return ""
+    return " ".join(cleaned)
+
+
+def _looks_human_seed(seed: str) -> bool:
+    """Basic quality gate to avoid malformed seeds like single letters."""
+    if not seed:
+        return False
+    tokens = [t for t in seed.split(" ") if t]
+    if not tokens:
+        return False
+    if len(tokens) > 3:
+        return False
+    # Require at least one meaningful alpha token (3+ chars) or numeric signal.
+    has_meaningful = any((len(t) >= 3 and re.search(r"[a-z]", t)) for t in tokens)
+    has_numeric = any(re.search(r"\d", t) for t in tokens)
+    return has_meaningful or has_numeric
+
+
+def _select_primary_seed_keyword(keywords: list[str], title: str = "", search_phrase: str = "") -> str:
+    """
+    Choose one simple seed keyword per idea for DataForSEO.
+    Priority: explicit search phrase -> extracted keywords -> title-derived candidates.
+    """
+    ordered_inputs: list[str] = []
+    if search_phrase:
+        ordered_inputs.append(search_phrase)
+    ordered_inputs.extend(keywords or [])
+    ordered_inputs.extend(_build_keyword_candidates(keywords or [], title=title))
+
+    seen = set()
+    for raw in ordered_inputs:
+        seed = _simplify_seed_keyword(raw)
+        if not seed or seed in seen:
+            continue
+        seen.add(seed)
+        if _looks_human_seed(seed):
+            return seed
+
+    # Last resort fallback: short title fragment.
+    title_tokens = [t for t in _normalize_keyword_term(title).split(" ") if t][:3]
+    fallback = " ".join(title_tokens)
+    return fallback if _looks_human_seed(fallback) else ""
+
+
 async def _fetch_metrics_map_for_keywords(
     keywords: list[str],
     max_keywords_for_metrics: int = MAX_KEYWORDS_FOR_METRICS,
@@ -689,7 +760,12 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     cpc_count = 0
     kd_count = 0
 
-    working_candidates = list(candidates)
+    primary_seed_keyword = _select_primary_seed_keyword(
+        keywords=keywords,
+        title=str(idea.get("title") or ""),
+        search_phrase=str(idea.get("search_phrase") or ""),
+    )
+    working_candidates = [primary_seed_keyword] if primary_seed_keyword else list(candidates[:1])
     metrics_map: dict = {}
     ranked_candidates: list[dict] = []
     tier_diagnostics: list[dict] = []
@@ -700,6 +776,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     tier_diag = {
         "tier": "labs_related_keywords_live",
         "max_keywords_for_metrics": min(MAX_KEYWORDS_FOR_METRICS, len(working_candidates)),
+        "primary_seed_keyword": primary_seed_keyword,
     }
     metrics_map = await _fetch_metrics_map_for_keywords(
         working_candidates,
@@ -707,7 +784,12 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         diagnostics=tier_diag,
         raw_capture=tier_diag.setdefault("raw_dataforseo", {}),
     )
-    ranked_candidates = _rank_keywords_by_opportunity(working_candidates, metrics_map)
+    ranked_pool = list(dict.fromkeys(
+        [primary_seed_keyword] +
+        [str(k).strip().lower() for k in metrics_map.keys() if str(k).strip()] +
+        [str(k).strip().lower() for k in (keywords or []) if str(k).strip()]
+    ))
+    ranked_candidates = _rank_keywords_by_opportunity(ranked_pool, metrics_map)
     summary = _keyword_quality_summary(ranked_candidates)
     tier_diag["quality"] = summary
     tier_diag["calls"] = 1
