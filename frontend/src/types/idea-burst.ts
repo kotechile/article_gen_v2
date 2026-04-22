@@ -92,6 +92,7 @@ export interface ContentIdea {
         keyword_difficulty?: number;
         cpc?: number;
     }>;
+    raw_dataforseo_output?: Record<string, unknown> | null;
     raw_supabase_output?: Record<string, unknown> | null;
 }
 
@@ -128,6 +129,7 @@ export interface IdeaBurstResponse {
     software_ideas: ContentIdea[];
     generated_count?: number;
     persisted_count?: number;
+    persisted_idea_ids?: string[];
     persistence_warning?: string | null;
 }
 

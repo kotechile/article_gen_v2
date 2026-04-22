@@ -499,6 +499,71 @@ class DataForSEOAPI:
                 }
             return []
 
+    async def get_related_keywords_labs_live(
+        self,
+        seeds: List[str],
+        language_name: str = "English",
+        location_code: int = 2840,
+        limit_per_seed: int = 20,
+        return_raw: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get related keywords from DataForSEO Labs live endpoint.
+        Endpoint: /v3/dataforseo_labs/google/related_keywords/live
+        """
+        try:
+            if not seeds:
+                if return_raw:
+                    return {"items": [], "raw": {"error": "no_seeds"}}
+                return []
+
+            # Keep one request but avoid sending excessive tasks.
+            sanitized_seeds = []
+            seen = set()
+            for seed in seeds[:10]:
+                s = str(seed or "").strip().lower()
+                if not s or s in seen:
+                    continue
+                seen.add(s)
+                sanitized_seeds.append(s)
+
+            if not sanitized_seeds:
+                if return_raw:
+                    return {"items": [], "raw": {"error": "no_sanitized_seeds"}}
+                return []
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                url = f"{self.base_url}/dataforseo_labs/google/related_keywords/live"
+                payload = [
+                    {
+                        "keyword": seed,
+                        "language_name": language_name,
+                        "location_code": location_code,
+                        "limit": int(limit_per_seed),
+                    }
+                    for seed in sanitized_seeds
+                ]
+                headers = {
+                    "Authorization": self.auth_header,
+                    "Content-Type": "application/json"
+                }
+                data = await self._make_request_with_retry(client, url, payload, headers)
+                parsed = self._process_related_keywords(data)
+                if return_raw:
+                    return {"items": parsed, "raw": data}
+                return parsed
+        except Exception as e:
+            logger.error(f"DataForSEO Labs related keywords live error: {e}")
+            if return_raw:
+                return {
+                    "items": [],
+                    "raw": {
+                        "endpoint": "dataforseo_labs/google/related_keywords/live",
+                        "error": str(e),
+                    },
+                }
+            return []
+
     async def get_bulk_metrics_standard(
         self,
         keywords: List[str],
@@ -1221,14 +1286,31 @@ class DataForSEOAPI:
                 for item in self._extract_keyword_items(task):
                     keyword_info = item.get("keyword_info", {})
                     keyword_data = item.get("keyword_data", {})
+                    # Labs related_keywords/live returns nested keyword_data.keyword_info/keyword_properties.
+                    nested_keyword_info = keyword_data.get("keyword_info", {}) if isinstance(keyword_data, dict) else {}
+                    nested_keyword_properties = keyword_data.get("keyword_properties", {}) if isinstance(keyword_data, dict) else {}
+                    keyword_text = (
+                        item.get("keyword")
+                        or keyword_data.get("keyword")
+                        or ""
+                    )
+                    search_volume = self._optional_number(item, "search_volume", keyword_info)
+                    if search_volume is None:
+                        search_volume = self._optional_number(keyword_data, "search_volume", nested_keyword_info)
+                    cpc = self._optional_number(item, "cpc", keyword_data)
+                    if cpc is None:
+                        cpc = self._optional_number(keyword_info, "cpc", nested_keyword_info)
+                    keyword_difficulty = self._optional_number(item, "keyword_difficulty", keyword_data)
+                    if keyword_difficulty is None:
+                        keyword_difficulty = self._optional_number(keyword_data, "keyword_difficulty", nested_keyword_properties)
                     
                     keywords.append({
-                        "keyword": item.get("keyword", ""),
-                        "search_volume": keyword_info.get("search_volume", 0),
+                        "keyword": keyword_text,
+                        "search_volume": int(search_volume) if search_volume is not None else None,
                         "competition": keyword_info.get("competition", "UNKNOWN"),
                         "competition_level": keyword_info.get("competition_level", 0),
-                        "cpc": keyword_data.get("cpc", 0),
-                        "keyword_difficulty": keyword_data.get("keyword_difficulty", 0),
+                        "cpc": float(cpc) if cpc is not None else None,
+                        "keyword_difficulty": float(keyword_difficulty) if keyword_difficulty is not None else None,
                         "created_at": datetime.utcnow().isoformat()
                     })
         

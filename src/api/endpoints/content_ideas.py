@@ -379,7 +379,7 @@ async def _fetch_metrics_map_for_keywords(
     diagnostics: dict | None = None,
     raw_capture: dict | None = None,
 ) -> dict:
-    """Fetch search volume/cpc/kd and return normalized metrics map."""
+    """Fetch keyword metrics using DataForSEO Labs related_keywords/live and return normalized metrics map."""
     if not keywords:
         return {}
 
@@ -389,64 +389,43 @@ async def _fetch_metrics_map_for_keywords(
         diagnostics["scoped_keyword_count"] = len(scoped_keywords)
         diagnostics["scoped_keywords_sample"] = scoped_keywords[:10]
     try:
-        bulk_response = await asyncio.wait_for(
-            dataforseo_api.get_bulk_metrics_standard(scoped_keywords, return_raw=True),
+        related_response = await asyncio.wait_for(
+            dataforseo_api.get_related_keywords_labs_live(
+                scoped_keywords,
+                limit_per_seed=20,
+                return_raw=True,
+            ),
             timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS,
         )
-        if isinstance(bulk_response, dict):
-            bulk_metrics = bulk_response.get("items") or []
-            bulk_raw = bulk_response.get("raw")
+        if isinstance(related_response, dict):
+            related_rows = related_response.get("items") or []
+            related_raw = related_response.get("raw")
         else:
-            bulk_metrics = bulk_response or []
-            bulk_raw = None
-        if raw_capture is not None and bulk_raw is not None:
-            raw_capture["bulk_metrics"] = bulk_raw
+            related_rows = related_response or []
+            related_raw = None
+        if raw_capture is not None and related_raw is not None:
+            raw_capture["related_keywords_live"] = related_raw
         if diagnostics is not None:
-            diagnostics["bulk_rows_returned"] = len(bulk_metrics or [])
-        for item in (bulk_metrics or []):
+            diagnostics["related_rows_returned"] = len(related_rows or [])
+        for item in (related_rows or []):
             keyword = str(item.get("keyword") or "").strip().lower()
             if not keyword:
                 continue
             raw_search_volume = item.get("search_volume")
             raw_cpc = item.get("cpc")
+            raw_kd = item.get("keyword_difficulty")
             search_volume = int(raw_search_volume) if raw_search_volume is not None and str(raw_search_volume).strip() != "" else None
             cpc = float(raw_cpc) if raw_cpc is not None and str(raw_cpc).strip() != "" else None
+            keyword_difficulty = float(raw_kd) if raw_kd is not None and str(raw_kd).strip() != "" else None
             metrics_map[keyword] = {
                 "search_volume": search_volume,
                 "cpc": cpc,
+                "keyword_difficulty": keyword_difficulty,
             }
     except Exception:
-        logger.warning("Bulk metrics request failed for candidate batch", exc_info=True)
+        logger.warning("DataForSEO labs related_keywords request failed for candidate batch", exc_info=True)
         if diagnostics is not None:
-            diagnostics["bulk_error"] = "bulk_metrics_request_failed"
-
-    try:
-        kd_response = await asyncio.wait_for(
-            dataforseo_api.get_keyword_difficulty(scoped_keywords, return_raw=True),
-            timeout=DATAFORSEO_KD_TIMEOUT_SECONDS,
-        )
-        if isinstance(kd_response, dict):
-            kd_rows = kd_response.get("items") or []
-            kd_raw = kd_response.get("raw")
-        else:
-            kd_rows = kd_response or []
-            kd_raw = None
-        if raw_capture is not None and kd_raw is not None:
-            raw_capture["keyword_difficulty"] = kd_raw
-        if diagnostics is not None:
-            diagnostics["kd_rows_returned"] = len(kd_rows or [])
-        for item in (kd_rows or []):
-            keyword = str(item.get("keyword") or "").strip().lower()
-            if not keyword:
-                continue
-            existing = metrics_map.get(keyword, {})
-            raw_kd = item.get("keyword_difficulty")
-            existing["keyword_difficulty"] = float(raw_kd) if raw_kd is not None and str(raw_kd).strip() != "" else None
-            metrics_map[keyword] = existing
-    except Exception:
-        logger.warning("Keyword difficulty request failed for candidate batch", exc_info=True)
-        if diagnostics is not None:
-            diagnostics["kd_error"] = "keyword_difficulty_request_failed"
+            diagnostics["related_error"] = "related_keywords_request_failed"
 
     if diagnostics is not None:
         non_null_count = 0
@@ -694,7 +673,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
             "average_difficulty": 0.0,
             "affiliate_offer_count": 0,
             "affiliate_offers": [],
-            "raw_supabase_output": {
+            "raw_dataforseo_output": {
                 "idea_id": idea_id,
                 "captured_at": datetime.utcnow().isoformat(),
                 "tiers": [],
@@ -713,105 +692,37 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     working_candidates = list(candidates)
     metrics_map: dict = {}
     ranked_candidates: list[dict] = []
-    ladder_used = []
     tier_diagnostics: list[dict] = []
     dataforseo_calls = 0
-    raw_dataforseo_output: dict = {
-        "idea_id": idea_id,
-        "captured_at": datetime.utcnow().isoformat(),
-        "tiers": [],
+
+    # Single DataForSEO call path for content ideas:
+    # dataforseo_labs/google/related_keywords/live
+    tier_diag = {
+        "tier": "labs_related_keywords_live",
+        "max_keywords_for_metrics": min(MAX_KEYWORDS_FOR_METRICS, len(working_candidates)),
     }
+    metrics_map = await _fetch_metrics_map_for_keywords(
+        working_candidates,
+        max_keywords_for_metrics=MAX_KEYWORDS_FOR_METRICS,
+        diagnostics=tier_diag,
+        raw_capture=tier_diag.setdefault("raw_dataforseo", {}),
+    )
+    ranked_candidates = _rank_keywords_by_opportunity(working_candidates, metrics_map)
+    summary = _keyword_quality_summary(ranked_candidates)
+    tier_diag["quality"] = summary
+    tier_diag["calls"] = 1
+    tier_diagnostics.append(tier_diag)
+    dataforseo_calls = 1
 
-    for tier in KEYWORD_BUDGET_LADDER:
-        tier_name = tier["name"]
-        max_kws = int(tier["max_keywords_for_metrics"])
-        max_related_seeds = int(tier["max_related_seeds"])
-        max_related_per_seed = int(tier["max_related_per_seed"])
-
-        tier_calls = 0
-        tier_diag = {
-            "tier": tier_name,
-            "max_keywords_for_metrics": max_kws,
-            "max_related_seeds": max_related_seeds,
-            "max_related_per_seed": max_related_per_seed,
+    # Persist exact raw response from DataForSEO when present.
+    raw_dataforseo_output: dict = (
+        (tier_diag.get("raw_dataforseo") or {}).get("related_keywords_live")
+        or {
+            "idea_id": idea_id,
+            "captured_at": datetime.utcnow().isoformat(),
+            "tiers": [],
         }
-        metrics_map = await _fetch_metrics_map_for_keywords(
-            working_candidates,
-            max_keywords_for_metrics=max_kws,
-            diagnostics=tier_diag,
-            raw_capture=tier_diag.setdefault("raw_dataforseo", {}),
-        )
-        tier_calls += 2  # bulk metrics + keyword difficulty
-        ranked_candidates = _rank_keywords_by_opportunity(working_candidates, metrics_map)
-        summary = _keyword_quality_summary(ranked_candidates)
-
-        if _quality_gate_passed(summary):
-            ladder_used.append({**tier, "quality": summary, "calls": tier_calls, "expanded_related": 0})
-            dataforseo_calls += tier_calls
-            break
-
-        expanded_related_count = 0
-        if max_related_seeds > 0 and keywords:
-            seed_pool = working_candidates or keywords
-            rescue_seeds = [_shorten_keyword_term(k) or k for k in seed_pool[:max_related_seeds]]
-            rescue_seeds = [s for s in rescue_seeds if s]
-            tier_diag["rescue_seed_sample"] = rescue_seeds[:10]
-            try:
-                related_response = await asyncio.wait_for(
-                    dataforseo_api.get_related_keywords_standard(
-                        rescue_seeds,
-                        limit_per_seed=max_related_per_seed,
-                        return_raw=True,
-                    ),
-                    timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS,
-                )
-                if isinstance(related_response, dict):
-                    related_rows = related_response.get("items") or []
-                    related_raw = related_response.get("raw")
-                else:
-                    related_rows = related_response or []
-                    related_raw = None
-                if related_raw is not None:
-                    tier_diag.setdefault("raw_dataforseo", {})["related_keywords"] = related_raw
-                tier_calls += 1
-                tier_diag["related_rows_returned"] = len(related_rows or [])
-                related_keywords = []
-                seen_related = set()
-                for row in related_rows or []:
-                    kw = _normalize_keyword_term(row.get("keyword") or "")
-                    if not kw or kw in seen_related:
-                        continue
-                    seen_related.add(kw)
-                    related_keywords.append(kw)
-                expanded_related_count = len(related_keywords)
-                if related_keywords:
-                    existing = set(working_candidates)
-                    working_candidates.extend([kw for kw in related_keywords if kw not in existing])
-                    metrics_map = await _fetch_metrics_map_for_keywords(
-                        working_candidates,
-                        max_keywords_for_metrics=max_kws,
-                        diagnostics=tier_diag,
-                        raw_capture=tier_diag.setdefault("raw_dataforseo", {}),
-                    )
-                    tier_calls += 2
-                    ranked_candidates = _rank_keywords_by_opportunity(working_candidates, metrics_map)
-                    summary = _keyword_quality_summary(ranked_candidates)
-            except Exception:
-                logger.warning("Keyword rescue related-keyword expansion failed for idea_id=%s tier=%s", idea_id, tier_name, exc_info=True)
-                tier_diag["related_error"] = "related_keywords_request_failed"
-
-        ladder_used.append({**tier, "quality": summary, "calls": tier_calls, "expanded_related": expanded_related_count})
-        tier_diag["quality"] = summary
-        tier_diag["calls"] = tier_calls
-        tier_diag["expanded_related"] = expanded_related_count
-        tier_diagnostics.append(tier_diag)
-        raw_dataforseo_output["tiers"].append({
-            "tier": tier_name,
-            "raw_dataforseo": tier_diag.get("raw_dataforseo") or {},
-        })
-        dataforseo_calls += tier_calls
-        if _quality_gate_passed(summary):
-            break
+    )
 
     selected_keywords = [row["keyword"] for row in ranked_candidates[:5]]
     all_keywords_found = [row["keyword"] for row in ranked_candidates[:20] if str(row.get("keyword") or "").strip()]
@@ -896,7 +807,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         "keyword_metrics_map": metrics_map,
         "keyword_ranked_candidates": ranked_candidates[:10],
         "keyword_quality_summary": _keyword_quality_summary(ranked_candidates),
-        "keyword_budget_ladder_used": ladder_used,
+        "keyword_budget_ladder_used": [],
         "dataforseo_diagnostics": {
             "tier_diagnostics": tier_diagnostics,
             "initial_keyword_count": len(keywords),
@@ -905,7 +816,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
             "all_keywords_found_count": len(all_keywords_found),
             "has_exact_keyword_metrics": has_exact_keyword_metrics,
         },
-        "raw_supabase_output": raw_dataforseo_output,
+        "raw_dataforseo_output": raw_dataforseo_output,
         "dataforseo_call_count_estimate": dataforseo_calls,
         "affiliate_offer_count": affiliate_offer_count,
         "affiliate_offers": affiliate_offers_preview,
@@ -924,7 +835,7 @@ def _persist_raw_trace_for_idea(
 ) -> None:
     """
     Best-effort debug persistence for raw DataForSEO output, including failed enrichments.
-    Keeps output in both raw_supabase_output column and idea_metadata for backward compatibility.
+    Keeps output in both raw_dataforseo_output column and idea_metadata for backward compatibility.
     """
     safe_raw = raw_output or {}
     idea_metadata = dict(idea.get("idea_metadata") or {})
@@ -937,12 +848,12 @@ def _persist_raw_trace_for_idea(
 
     for payload in (
         {
-            "raw_supabase_output": safe_raw,
+            "raw_dataforseo_output": safe_raw,
             "idea_metadata": idea_metadata,
             "updated_at": now_iso,
         },
         {
-            "raw_supabase_output": safe_raw,
+            "raw_dataforseo_output": safe_raw,
             "updated_at": now_iso,
         },
         {
@@ -1354,7 +1265,7 @@ def enrich_content_ideas():
                     idea=idea,
                     user_id=user_id,
                     now_iso=now,
-                    raw_output=enrichment.get("raw_supabase_output") or {},
+                    raw_output=enrichment.get("raw_dataforseo_output") or {},
                     reason=enrichment.get("reason") or "enrichment_failed",
                 )
                 results.append({
@@ -1382,7 +1293,7 @@ def enrich_content_ideas():
                     idea=idea,
                     user_id=user_id,
                     now_iso=now,
-                    raw_output=enrichment.get("raw_supabase_output") or {},
+                    raw_output=enrichment.get("raw_dataforseo_output") or {},
                     reason="zero_metrics",
                 )
                 results.append({
@@ -1419,7 +1330,7 @@ def enrich_content_ideas():
                 "average_cpc": enrichment["average_cpc"],
                 "average_difficulty": enrichment["average_difficulty"],
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
-                "raw_supabase_output": enrichment.get("raw_supabase_output") or {},
+                "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
                 "status": "in_progress",
                 "updated_at": now,
                 "title": restated_title or original_title,
@@ -1433,7 +1344,7 @@ def enrich_content_ideas():
                     "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
                     "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
                     "dataforseo_diagnostics": enrichment.get("dataforseo_diagnostics") or {},
-                    "raw_dataforseo_output": enrichment.get("raw_supabase_output") or {},
+                    "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
                     "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
                     "affiliate_offers_preview": enrichment["affiliate_offers"],
                     "enriched_at": now,
@@ -1666,7 +1577,7 @@ def refresh_keywords_for_library():
                     idea=idea,
                     user_id=user_id,
                     now_iso=now,
-                    raw_output=enrichment.get("raw_supabase_output") or {},
+                    raw_output=enrichment.get("raw_dataforseo_output") or {},
                     reason=enrichment.get("reason") or "enrichment_failed",
                 )
                 results.append({"idea_id": idea_id, "status": "failed", "reason": enrichment.get("reason") or "Enrichment failed"})
@@ -1687,7 +1598,7 @@ def refresh_keywords_for_library():
                 "average_cpc": enrichment["average_cpc"],
                 "average_difficulty": enrichment["average_difficulty"],
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
-                "raw_supabase_output": enrichment.get("raw_supabase_output") or {},
+                "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
                 "status": "in_progress",
                 "updated_at": now,
             }
@@ -1705,7 +1616,7 @@ def refresh_keywords_for_library():
                             "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
                             "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
                             "dataforseo_diagnostics": enrichment.get("dataforseo_diagnostics") or {},
-                            "raw_dataforseo_output": enrichment.get("raw_supabase_output") or {},
+                            "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
                             "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
                             "affiliate_offers_preview": enrichment["affiliate_offers"],
                             "enriched_at": now,
@@ -1733,7 +1644,7 @@ def refresh_keywords_for_library():
                             "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
                             "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
                             "dataforseo_diagnostics": enrichment.get("dataforseo_diagnostics") or {},
-                            "raw_dataforseo_output": enrichment.get("raw_supabase_output") or {},
+                            "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
                             "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
                             "affiliate_offers_preview": enrichment["affiliate_offers"],
                             "enriched_at": now,
@@ -1910,12 +1821,20 @@ def keyword_lab_related():
         if not request_user_id:
             return jsonify({"error": "Authorization bearer token is required"}), 401
 
-        related_rows = asyncio.run(
+        related_rows_response = asyncio.run(
             asyncio.wait_for(
-                dataforseo_api.get_related_keywords_standard([seed], limit_per_seed=max(5, min(limit, 25))),
+                dataforseo_api.get_related_keywords_labs_live(
+                    [seed],
+                    limit_per_seed=max(5, min(limit, 25)),
+                    return_raw=True,
+                ),
                 timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS,
             )
         )
+        if isinstance(related_rows_response, dict):
+            related_rows = related_rows_response.get("items") or []
+        else:
+            related_rows = related_rows_response or []
         related_keywords = []
         seen = {seed}
         exclude_set = {_normalize_keyword_term(k) for k in exclude_keywords if _normalize_keyword_term(k)}

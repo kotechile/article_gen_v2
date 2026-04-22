@@ -2254,6 +2254,7 @@ Critical naming and language rules:
         # Persist burst ideas so they appear in Content Library and Software Ideas screens.
         all_ideas = (blog_ideas or []) + (software_ideas or [])
         saved_count = 0
+        persisted_idea_ids: list[str] = []
         if all_ideas:
             # Keep published ideas, replace only draft rows for this subtopic/topic/user.
             try:
@@ -2381,6 +2382,9 @@ Critical naming and language rules:
             for row in persisted_rows:
                 if _insert_with_schema_fallback(row):
                     saved_count += 1
+                    row_id = row.get("id")
+                    if row_id:
+                        persisted_idea_ids.append(str(row_id))
             logger.info(
                 "Idea burst persistence summary topic_id=%s subtopic=%s attempted=%s saved=%s",
                 topic_id,
@@ -2410,6 +2414,7 @@ Critical naming and language rules:
             "software_ideas": [idea.to_dict() if hasattr(idea, 'to_dict') else idea for idea in software_ideas],
             "generated_count": len(all_ideas),
             "persisted_count": saved_count,
+            "persisted_idea_ids": persisted_idea_ids,
             "persistence_warning": persistence_warning,
         }), 200
 

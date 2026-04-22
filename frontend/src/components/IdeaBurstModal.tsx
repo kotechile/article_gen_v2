@@ -259,7 +259,10 @@ function ideaHasExactKeywordMetrics(idea: ContentIdea): boolean {
 }
 
 function getRawDataforSeoTrace(idea: ContentIdea): Record<string, unknown> | null {
-    const direct = parseJsonLike<Record<string, unknown> | null>((idea as any).raw_supabase_output, null);
+    const direct = parseJsonLike<Record<string, unknown> | null>(
+        (idea as any).raw_dataforseo_output ?? (idea as any).raw_supabase_output,
+        null,
+    );
     if (direct && typeof direct === "object" && Object.keys(direct).length > 0) {
         return direct;
     }
@@ -549,6 +552,9 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             setSoftwareIdeas(nextSoftwareIdeas);
             const generatedCount = Number(result.generated_count ?? (nextBlogIdeas.length + nextSoftwareIdeas.length));
             const persistedCount = Number(result.persisted_count ?? generatedCount);
+            const persistedIdeaIds = Array.isArray(result.persisted_idea_ids)
+                ? result.persisted_idea_ids.filter((id): id is string => typeof id === "string" && id.length > 0)
+                : [];
 
             if (persistedCount <= 0 && generatedCount > 0) {
                 setError("Ideas were generated but were not saved to Supabase. Reloading will lose them until persistence is fixed.");
@@ -568,8 +574,11 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     console.warn("Failed to persist idea burst cache:", e);
                 }
             }
-            if (persistedCount === generatedCount) {
-                await autoEnrichIdeasWithoutKeywordMetrics([...nextBlogIdeas, ...nextSoftwareIdeas]);
+            const autoEnrichIds = persistedIdeaIds.length > 0
+                ? persistedIdeaIds
+                : [...nextBlogIdeas, ...nextSoftwareIdeas].map((idea) => idea.id).filter(Boolean);
+            if (autoEnrichIds.length > 0) {
+                await runEnrichment(autoEnrichIds, { silent: true });
             }
         } catch (err: any) {
             console.error("Failed to generate ideas:", err);
