@@ -9,6 +9,7 @@ import json
 import logging
 import re
 import time
+import ast
 from datetime import datetime
 from uuid import uuid4
 from flask import Blueprint, jsonify, request
@@ -85,6 +86,16 @@ def _coerce_json_field(value, default):
             parsed = json.loads(raw)
             return parsed if isinstance(parsed, type(default)) else default
         except Exception:
+            # Handle legacy python-literal strings and delimited lists.
+            try:
+                parsed = ast.literal_eval(raw)
+                if isinstance(parsed, type(default)):
+                    return parsed
+            except Exception:
+                pass
+            if isinstance(default, list):
+                normalized = raw.replace("{", "").replace("}", "")
+                return [part.strip() for part in re.split(r"[\n,]+", normalized) if part.strip()]
             return default
     return default
 

@@ -34,6 +34,30 @@ function normalizeKeywordKey(input: string): string {
         .trim();
 }
 
+function coerceKeywordList(value: unknown): string[] {
+    if (Array.isArray(value)) {
+        return value.map((v) => String(v || "").trim()).filter(Boolean);
+    }
+    if (typeof value === "string") {
+        const raw = value.trim();
+        if (!raw) return [];
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                return parsed.map((v) => String(v || "").trim()).filter(Boolean);
+            }
+        } catch {
+            // Fall through to delimited parsing.
+        }
+        return raw
+            .replace(/^\{|\}$/g, "")
+            .split(/[\n,]+/)
+            .map((v) => v.trim())
+            .filter(Boolean);
+    }
+    return [];
+}
+
 function parseJsonLike<T>(value: unknown, fallback: T): T {
     if (value === null || value === undefined) return fallback;
     if (typeof value === "string") {
@@ -128,35 +152,46 @@ function resolveKeywordMetricRow(
 }
 
 function resolveIdeaKeywords(idea: ContentIdea): string[] {
-    const enrichedKeywords = Array.isArray(idea.keywords) ? idea.keywords.filter(Boolean) : [];
-    if (enrichedKeywords.length > 0) return enrichedKeywords;
-    const primaryKeywords = Array.isArray(idea.primary_keywords) ? idea.primary_keywords.filter(Boolean) : [];
-    return primaryKeywords;
+    const metadata = parseJsonLike<Record<string, any>>((idea as any).idea_metadata, {});
+    const metadataKeywords = coerceKeywordList(metadata?.seo_offer_enrichment?.keywords_used);
+    const ideaKeywords = coerceKeywordList((idea as any).keywords);
+    const primaryKeywords = coerceKeywordList((idea as any).primary_keywords);
+    const secondaryKeywords = coerceKeywordList((idea as any).secondary_keywords);
+    const metricMapKeywords = Array.from(extractIdeaKeywordMetricsMap(idea).values()).map((row) => row.keyword);
+
+    const merged = [
+        ...ideaKeywords,
+        ...primaryKeywords,
+        ...secondaryKeywords,
+        ...metadataKeywords,
+        ...metricMapKeywords,
+    ];
+    const deduped: string[] = [];
+    const seen = new Set<string>();
+    merged.forEach((kw) => {
+        const norm = normalizeKeywordKey(kw);
+        if (!norm || seen.has(norm)) return;
+        seen.add(norm);
+        deduped.push(kw);
+    });
+    return deduped;
 }
 
-function buildAggregateFallbackKeywordRow(
-    keyword: string,
-    idea: ContentIdea,
-    keywordCount: number,
-): KeywordMetricRow | undefined {
-    const totalVolume = Number(idea.total_search_volume || 0);
-    const avgDifficulty = Number(idea.average_difficulty || 0);
-    const avgCpc = Number(idea.average_cpc || 0);
-
-    if (totalVolume <= 0 && avgDifficulty <= 0 && avgCpc <= 0) {
-        return undefined;
-    }
-
-    const safeKeywordCount = Math.max(1, keywordCount || 1);
-    const estVolume = totalVolume > 0 ? Math.round(totalVolume / safeKeywordCount) : null;
-    const estDifficulty = avgDifficulty > 0 ? Number(avgDifficulty.toFixed(1)) : null;
-    const estCpc = avgCpc > 0 ? Number(avgCpc.toFixed(2)) : null;
-
+function computeAggregateFromExactMap(
+    keywords: string[],
+    ideaMap: Map<string, KeywordMetricRow>,
+    subtopicMap: Map<string, KeywordMetricRow>,
+) {
+    const rows = keywords
+        .map((kw) => resolveKeywordMetricRow(kw, ideaMap, subtopicMap))
+        .filter((row): row is KeywordMetricRow => Boolean(row));
+    const totalVolume = rows.reduce((sum, row) => sum + Math.max(0, Number(row.search_volume || 0)), 0);
+    const kdValues = rows.map((row) => Number(row.keyword_difficulty || 0)).filter((v) => v > 0);
+    const cpcValues = rows.map((row) => Number(row.cpc || 0)).filter((v) => v > 0);
     return {
-        keyword,
-        search_volume: estVolume,
-        keyword_difficulty: estDifficulty,
-        cpc: estCpc,
+        totalVolume,
+        avgDifficulty: kdValues.length ? kdValues.reduce((s, v) => s + v, 0) / kdValues.length : 0,
+        avgCpc: cpcValues.length ? cpcValues.reduce((s, v) => s + v, 0) / cpcValues.length : 0,
     };
 }
 
@@ -1031,11 +1066,22 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
         const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
         return Boolean((row?.search_volume || 0) > 0 || (row?.keyword_difficulty || 0) > 0 || (row?.cpc || 0) > 0);
     });
-    const hasAggregateFallbackMetrics = Boolean(
-        Number(idea.total_search_volume || 0) > 0 ||
-        Number(idea.average_difficulty || 0) > 0 ||
-        Number(idea.average_cpc || 0) > 0
+    const exactAggregate = React.useMemo(
+        () => computeAggregateFromExactMap(keywords, ideaKeywordMetricsMap, keywordMetricsMap),
+        [keywords, ideaKeywordMetricsMap, keywordMetricsMap]
     );
+    const totalSearchVolume =
+        Number(idea.total_search_volume || 0) > 0
+            ? Number(idea.total_search_volume || 0)
+            : exactAggregate.totalVolume;
+    const averageDifficulty =
+        Number(idea.average_difficulty || 0) > 0
+            ? Number(idea.average_difficulty || 0)
+            : exactAggregate.avgDifficulty;
+    const averageCpc =
+        Number(idea.average_cpc || 0) > 0
+            ? Number(idea.average_cpc || 0)
+            : exactAggregate.avgCpc;
 
     return (
         <motion.div
@@ -1095,24 +1141,24 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
 
                         {/* Metrics */}
                         <div className="flex flex-wrap items-center gap-3 text-[11px]">
-                            {idea.total_search_volume > 0 && (
+                            {totalSearchVolume > 0 && (
                                 <span className="flex items-center gap-1">
                                     <span className="text-blue-400">Vol:</span>
-                                    <span className="text-slate-300">{idea.total_search_volume.toLocaleString()}</span>
+                                    <span className="text-slate-300">{Math.round(totalSearchVolume).toLocaleString()}</span>
                                 </span>
                             )}
-                            {idea.average_difficulty > 0 && (
+                            {averageDifficulty > 0 && (
                                 <span className="flex items-center gap-1">
-                                    <span className={idea.average_difficulty > 60 ? 'text-red-400' : idea.average_difficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
+                                    <span className={averageDifficulty > 60 ? 'text-red-400' : averageDifficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
                                         KD:
                                     </span>
-                                    <span className="text-slate-300">{Math.round(idea.average_difficulty)}</span>
+                                    <span className="text-slate-300">{Math.round(averageDifficulty)}</span>
                                 </span>
                             )}
-                            {idea.average_cpc > 0 && (
+                            {averageCpc > 0 && (
                                 <span className="flex items-center gap-1">
                                     <span className="text-emerald-400">CPC:</span>
-                                    <span className="text-slate-300">${idea.average_cpc.toFixed(2)}</span>
+                                    <span className="text-slate-300">${averageCpc.toFixed(2)}</span>
                                 </span>
                             )}
                             {(idea.viability_score || 0) > 0 && (
@@ -1249,8 +1295,7 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
                                             <tbody>
                                                 {keywords.map((kw, idx) => (
                                                     (() => {
-                                                        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap)
-                                                            || buildAggregateFallbackKeywordRow(kw, idea, keywords.length);
+                                                        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
                                                         const rowVolume = row?.search_volume ?? null;
                                                         const rowKD = row?.keyword_difficulty ?? null;
                                                         const rowCPC = row?.cpc ?? null;
@@ -1278,9 +1323,7 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
                                     <p className="text-[10px] text-slate-500 mt-2 text-center">
                                         {hasAnyRealKeywordMetrics
                                             ? "Note: Keyword rows show exact per-keyword metrics when available."
-                                            : hasAggregateFallbackMetrics
-                                                ? "Note: Keyword rows are estimated from aggregate idea metrics; run SEO/Offers for exact per-keyword values."
-                                                : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
+                                            : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
                                     </p>
                                 </div>
                             </motion.div>
@@ -1317,11 +1360,22 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
         const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
         return Boolean((row?.search_volume || 0) > 0 || (row?.keyword_difficulty || 0) > 0 || (row?.cpc || 0) > 0);
     });
-    const hasAggregateFallbackMetrics = Boolean(
-        Number(idea.total_search_volume || 0) > 0 ||
-        Number(idea.average_difficulty || 0) > 0 ||
-        Number(idea.average_cpc || 0) > 0
+    const exactAggregate = React.useMemo(
+        () => computeAggregateFromExactMap(keywords, ideaKeywordMetricsMap, keywordMetricsMap),
+        [keywords, ideaKeywordMetricsMap, keywordMetricsMap]
     );
+    const totalSearchVolume =
+        Number(idea.total_search_volume || 0) > 0
+            ? Number(idea.total_search_volume || 0)
+            : exactAggregate.totalVolume;
+    const averageDifficulty =
+        Number(idea.average_difficulty || 0) > 0
+            ? Number(idea.average_difficulty || 0)
+            : exactAggregate.avgDifficulty;
+    const averageCpc =
+        Number(idea.average_cpc || 0) > 0
+            ? Number(idea.average_cpc || 0)
+            : exactAggregate.avgCpc;
 
     return (
         <motion.div
@@ -1381,24 +1435,24 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
 
                         {/* Metrics */}
                         <div className="flex flex-wrap items-center gap-3 text-[11px]">
-                            {idea.total_search_volume > 0 && (
+                            {totalSearchVolume > 0 && (
                                 <span className="flex items-center gap-1">
                                     <span className="text-blue-400">Demand:</span>
-                                    <span className="text-slate-300">{idea.total_search_volume.toLocaleString()}/mo</span>
+                                    <span className="text-slate-300">{Math.round(totalSearchVolume).toLocaleString()}/mo</span>
                                 </span>
                             )}
-                            {idea.average_difficulty > 0 && (
+                            {averageDifficulty > 0 && (
                                 <span className="flex items-center gap-1">
-                                    <span className={idea.average_difficulty > 60 ? 'text-red-400' : idea.average_difficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
+                                    <span className={averageDifficulty > 60 ? 'text-red-400' : averageDifficulty > 30 ? 'text-yellow-400' : 'text-green-400'}>
                                         KD:
                                     </span>
-                                    <span className="text-slate-300">{Math.round(idea.average_difficulty)}</span>
+                                    <span className="text-slate-300">{Math.round(averageDifficulty)}</span>
                                 </span>
                             )}
-                            {idea.average_cpc > 0 && (
+                            {averageCpc > 0 && (
                                 <span className="flex items-center gap-1">
                                     <span className="text-emerald-400">CPC:</span>
-                                    <span className="text-slate-300">${idea.average_cpc.toFixed(2)}</span>
+                                    <span className="text-slate-300">${averageCpc.toFixed(2)}</span>
                                 </span>
                             )}
                             {(idea.viability_score || 0) > 0 && (
@@ -1540,8 +1594,7 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                                             <tbody>
                                                 {keywords.map((kw, idx) => (
                                                     (() => {
-                                                        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap)
-                                                            || buildAggregateFallbackKeywordRow(kw, idea, keywords.length);
+                                                        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
                                                         const rowVolume = row?.search_volume ?? null;
                                                         const rowKD = row?.keyword_difficulty ?? null;
                                                         const rowCPC = row?.cpc ?? null;
@@ -1569,9 +1622,7 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                                     <p className="text-[10px] text-slate-500 mt-2 text-center">
                                         {hasAnyRealKeywordMetrics
                                             ? "Note: Keyword rows show exact per-keyword metrics when available."
-                                            : hasAggregateFallbackMetrics
-                                                ? "Note: Keyword rows are estimated from aggregate idea metrics; run SEO/Offers for exact per-keyword values."
-                                                : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
+                                            : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
                                     </p>
                                 </div>
                             </motion.div>
