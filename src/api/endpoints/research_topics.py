@@ -2708,9 +2708,7 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
     if simplified_search_phrase:
         search_phrase = simplified_search_phrase
 
-    if search_phrase and not _title_contains_phrase(title, search_phrase):
-        logger.info("Rewriting idea title to include search phrase: '%s'", search_phrase)
-        title = f"{search_phrase}: {title}"
+    # Keep first-pass titles natural; do not force prefixing with search phrase.
 
     if search_phrase:
         existing_norm = {re.sub(r"\s+", " ", k.lower()).strip() for k in keywords}
@@ -2726,25 +2724,20 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
     keywords = [str(k).strip().lower() for k in keywords if str(k).strip()][:6]
     input_keywords = [str(k).strip().lower() for k in input_keywords if str(k).strip()][:5]
 
-    title_lower = title.lower()
-    contains_keyword = any(kw.lower() in title_lower for kw in keywords)
-    if keywords and not contains_keyword:
-        primary_kw = keywords[0]
-        clean_primary_kw = re.sub(r"\s+", " ", primary_kw).strip()
-        if clean_primary_kw:
-            logger.info("Prefixing idea title with keyword fallback: '%s'", clean_primary_kw)
-            title = f"{clean_primary_kw}: {title}"
+    # Do not force keyword prefixes in title; keep meaning and readability first.
 
     description = str(idea_data.get('description') or '').strip()
     if not description:
         if keywords:
             description = (
-                f"This article explains {keywords[0]} in plain language and helps the reader make a practical decision."
+                f"This article explains {keywords[0]} and helps the reader make a practical decision."
             )
         else:
             description = (
                 f"This article gives a practical breakdown of {title.lower()} and what action the reader should take next."
             )
+    description = re.sub(r"\bin plain language\b", "", description, flags=re.IGNORECASE)
+    description = re.sub(r"\s{2,}", " ", description).strip(" ,.-")
     # Keep description short and UI-friendly.
     if len(description) > 220:
         description = description[:217].rstrip() + "..."

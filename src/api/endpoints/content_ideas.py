@@ -687,17 +687,91 @@ def _normalize_title_keyword_term(value: str) -> str:
 
 
 def _restate_title_with_primary_keyword(title: str, primary_keyword: str) -> tuple[str, bool]:
+    # Keep titles authored by first-pass generation.
+    # Auto-prefixing with a keyword can produce awkward, non-human titles.
     base_title = str(title or "").strip()
-    keyword = str(primary_keyword or "").strip().lower()
-    if not base_title or not keyword:
-        return base_title, False
+    return base_title, False
 
-    normalized_title = _normalize_title_keyword_term(base_title)
-    normalized_keyword = _normalize_title_keyword_term(keyword)
-    if normalized_keyword and normalized_keyword in normalized_title:
-        return base_title, False
 
-    return f"{keyword}: {base_title}", True
+def _extract_keyword_metrics_from_dataforseo_raw(raw_payload: dict | None) -> dict:
+    """
+    Build a keyword->metrics map from raw DataForSEO related_keywords/live response.
+    Pulls metrics from:
+    - result[].seed_keyword_data
+    - result[].items[].keyword_data
+    """
+    if not isinstance(raw_payload, dict):
+        return {}
+
+    out: dict[str, dict] = {}
+
+    def _ingest_keyword_data(keyword_data: dict | None) -> None:
+        if not isinstance(keyword_data, dict):
+            return
+        keyword = str(keyword_data.get("keyword") or "").strip().lower()
+        if not keyword:
+            return
+
+        keyword_info = keyword_data.get("keyword_info") if isinstance(keyword_data.get("keyword_info"), dict) else {}
+        keyword_props = keyword_data.get("keyword_properties") if isinstance(keyword_data.get("keyword_properties"), dict) else {}
+
+        def _to_int(v):
+            try:
+                if v is None or str(v).strip() == "":
+                    return None
+                return int(float(v))
+            except Exception:
+                return None
+
+        def _to_float(v):
+            try:
+                if v is None or str(v).strip() == "":
+                    return None
+                return float(v)
+            except Exception:
+                return None
+
+        search_volume = _to_int(keyword_info.get("search_volume"))
+        cpc = _to_float(keyword_info.get("cpc"))
+        keyword_difficulty = _to_float(keyword_props.get("keyword_difficulty"))
+
+        existing = out.get(keyword) or {}
+        # Prefer rows that contain at least one exact metric.
+        existing_score = int(existing.get("search_volume") is not None) + int(existing.get("keyword_difficulty") is not None) + int(existing.get("cpc") is not None)
+        incoming_score = int(search_volume is not None) + int(keyword_difficulty is not None) + int(cpc is not None)
+        if incoming_score >= existing_score:
+            out[keyword] = {
+                "search_volume": search_volume,
+                "keyword_difficulty": keyword_difficulty,
+                "cpc": cpc,
+            }
+
+    tasks = raw_payload.get("tasks")
+    if not isinstance(tasks, list):
+        return out
+
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        for result in (task.get("result") or []):
+            if not isinstance(result, dict):
+                continue
+            seed_keyword_data = result.get("seed_keyword_data")
+            if isinstance(seed_keyword_data, dict):
+                _ingest_keyword_data(seed_keyword_data)
+            elif isinstance(seed_keyword_data, list):
+                for entry in seed_keyword_data:
+                    if isinstance(entry, dict):
+                        _ingest_keyword_data(entry)
+
+            for item in (result.get("items") or []):
+                if not isinstance(item, dict):
+                    continue
+                keyword_data = item.get("keyword_data")
+                if isinstance(keyword_data, dict):
+                    _ingest_keyword_data(keyword_data)
+
+    return out
 
 
 def _quality_gate_passed(summary: dict) -> bool:
@@ -990,6 +1064,26 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
             "tiers": [],
         }
     )
+    raw_metrics_map = _extract_keyword_metrics_from_dataforseo_raw(raw_dataforseo_output)
+    if raw_metrics_map:
+        merged = dict(metrics_map or {})
+        for kw, raw_row in raw_metrics_map.items():
+            existing = merged.get(kw) or {}
+            search_volume = existing.get("search_volume") if existing.get("search_volume") is not None else raw_row.get("search_volume")
+            keyword_difficulty = existing.get("keyword_difficulty") if existing.get("keyword_difficulty") is not None else raw_row.get("keyword_difficulty")
+            cpc = existing.get("cpc") if existing.get("cpc") is not None else raw_row.get("cpc")
+            merged[kw] = {
+                "search_volume": search_volume,
+                "keyword_difficulty": keyword_difficulty,
+                "cpc": cpc,
+            }
+        metrics_map = merged
+        logger.info(
+            "Merged raw DataForSEO metrics into map idea_id=%s raw_metric_keywords=%s merged_metric_keywords=%s",
+            idea_id,
+            len(raw_metrics_map),
+            len(metrics_map),
+        )
     logger.info(
         "Enrichment DataForSEO raw selected idea_id=%s seed=%r raw_summary=%s",
         idea_id,
@@ -997,7 +1091,13 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         _summarize_dataforseo_raw(raw_dataforseo_output),
     )
 
-    selected_keywords = [row["keyword"] for row in ranked_candidates[:5]]
+    ranked_with_metrics = [
+        row for row in ranked_candidates
+        if int(row.get("search_volume") or 0) > 0
+        or float(row.get("keyword_difficulty") or 0.0) > 0
+        or float(row.get("cpc") or 0.0) > 0
+    ]
+    selected_keywords = [row["keyword"] for row in (ranked_with_metrics[:12] or ranked_candidates[:5])]
     all_keywords_found = [row["keyword"] for row in ranked_candidates[:20] if str(row.get("keyword") or "").strip()]
     selected_metric_rows = [
         metrics_map.get(str(keyword).strip().lower(), {}) or {}
@@ -1709,16 +1809,18 @@ def enrich_content_ideas():
                 })
                 continue
 
+            keywords_used = [
+                str(keyword).strip()
+                for keyword in (enrichment.get("keywords_used") or [])
+                if str(keyword).strip()
+            ]
             all_keywords_found = [
                 str(keyword).strip()
                 for keyword in (enrichment.get("all_keywords_found") or [])
                 if str(keyword).strip()
             ]
-            keywords_used = all_keywords_found or [
-                str(keyword).strip()
-                for keyword in (enrichment.get("keywords_used") or [])
-                if str(keyword).strip()
-            ]
+            if not keywords_used:
+                keywords_used = all_keywords_found
             selected_primary_keyword = keywords_used[0] if keywords_used else ""
             original_title = str(idea.get("title") or "").strip()
             restated_title, title_restated = _restate_title_with_primary_keyword(

@@ -80,6 +80,10 @@ function extractIdeaKeywordMetricsMap(idea: ContentIdea): Map<string, KeywordMet
     const fromMetadata = parseJsonLike<unknown>((ideaMetadata as any)?.seo_offer_enrichment?.keyword_metrics, {});
     const rankedCandidates = parseJsonLike<unknown>((ideaMetadata as any)?.seo_offer_enrichment?.keyword_ranked_candidates, []);
     const pass2Candidates = parseJsonLike<unknown>((ideaMetadata as any)?.keyword_pass_2?.keyword_ranked_candidates, []);
+    const rawDfsOutput = parseJsonLike<unknown>(
+        (idea as any).raw_dataforseo_output ?? (idea as any).raw_supabase_output ?? (ideaMetadata as any)?.seo_offer_enrichment?.raw_dataforseo_output,
+        {},
+    );
 
     const ingestMetric = (keywordInput: unknown, metricInput: unknown) => {
         const keyword = String(keywordInput || "").trim();
@@ -125,10 +129,43 @@ function extractIdeaKeywordMetricsMap(idea: ContentIdea): Map<string, KeywordMet
         }
     };
 
+    const ingestRawDataforSeo = (source: unknown) => {
+        const parsed = parseJsonLike<any>(source, {});
+        const tasks = Array.isArray(parsed?.tasks) ? parsed.tasks : [];
+        tasks.forEach((task: any) => {
+            const results = Array.isArray(task?.result) ? task.result : [];
+            results.forEach((result: any) => {
+                const seedKeywordData = result?.seed_keyword_data;
+                if (seedKeywordData && typeof seedKeywordData === "object" && !Array.isArray(seedKeywordData)) {
+                    const keyword = String(seedKeywordData?.keyword || "").trim();
+                    if (keyword) {
+                        ingestMetric(keyword, {
+                            search_volume: seedKeywordData?.keyword_info?.search_volume,
+                            keyword_difficulty: seedKeywordData?.keyword_properties?.keyword_difficulty,
+                            cpc: seedKeywordData?.keyword_info?.cpc,
+                        });
+                    }
+                }
+                const items = Array.isArray(result?.items) ? result.items : [];
+                items.forEach((item: any) => {
+                    const keywordData = item?.keyword_data;
+                    const keyword = String(keywordData?.keyword || "").trim();
+                    if (!keyword) return;
+                    ingestMetric(keyword, {
+                        search_volume: keywordData?.keyword_info?.search_volume,
+                        keyword_difficulty: keywordData?.keyword_properties?.keyword_difficulty,
+                        cpc: keywordData?.keyword_info?.cpc,
+                    });
+                });
+            });
+        });
+    };
+
     ingestSource(fromMetadata);
     ingestSource(fromColumn);
     ingestSource(rankedCandidates);
     ingestSource(pass2Candidates);
+    ingestRawDataforSeo(rawDfsOutput);
     return map;
 }
 
@@ -227,6 +264,7 @@ function resolveIdeaKeywords(idea: ContentIdea): string[] {
     const metricMapKeywords = Array.from(extractIdeaKeywordMetricsMap(idea).values()).map((row) => row.keyword);
 
     const merged = [
+        ...metricMapKeywords,
         ...ideaKeywords,
         ...primaryKeywords,
         ...secondaryKeywords,
@@ -235,7 +273,6 @@ function resolveIdeaKeywords(idea: ContentIdea): string[] {
         ...seedPackKeywords,
         ...rankedCandidateKeywords,
         ...pass2CandidateKeywords,
-        ...metricMapKeywords,
     ];
     const deduped: string[] = [];
     const seen = new Set<string>();
