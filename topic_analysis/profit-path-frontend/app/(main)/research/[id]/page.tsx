@@ -15,10 +15,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {
     ArrowLeft,
     Sparkles,
-    BarChart3,
-    Target,
-    TrendingUp,
-    FileText,
     Activity,
     DollarSign,
     Loader2,
@@ -29,7 +25,6 @@ import {
 import { MarketIntelligenceDrawer } from "@/components/dashboard/market-intelligence-drawer"
 import { affiliateResearchService, AffiliateProgram, AffiliateAnalysis } from "@/lib/services/affiliate-research.service"
 import { subtopicsService } from "@/lib/services/subtopics.service"
-import { SubtopicsTable } from "@/components/research/subtopics-table"
 import { SubtopicsGrid } from "@/components/research/subtopics-grid"
 import { AllKeywordsTable } from "@/components/research/all-keywords-table"
 import { KeywordExpansionPanel } from "@/components/research/keyword-expansion-panel"
@@ -53,7 +48,6 @@ export default function ResearchDetailPage() {
     const [expanding, setExpanding] = React.useState(false)
     const [enriching, setEnriching] = React.useState(false)
     const [keywordsUpdated, setKeywordsUpdated] = React.useState<number>(0)
-    const [viewMode, setViewMode] = React.useState<"grid" | "table">("grid")
     const [selectedSubtopics, setSelectedSubtopics] = React.useState<Set<string>>(new Set())
 
     const toggleSelection = (id: string) => {
@@ -112,22 +106,6 @@ export default function ResearchDetailPage() {
             loadTopicData()
         }
     }, [id, user])
-
-    const stats = React.useMemo(() => {
-        if (!subtopics.length) return { volume: 0, difficulty: 0, offers: 0, potential: "Low" };
-        const vol = subtopics.reduce((acc, s) => acc + (s.search_volume || 0), 0);
-        const diff = subtopics.reduce((acc, s) => acc + (s.seo_difficulty || 0), 0) / subtopics.length;
-        const offers = subtopics.reduce((acc, s) => {
-            const count = s.monetization_data?.offers?.length ?? s.affiliate_offer_count ?? 0;
-            return acc + count;
-        }, 0);
-
-        let potential = "Low";
-        if (vol > 10000 && offers > 5) potential = "High";
-        else if (vol > 1000 || offers > 0) potential = "Medium";
-
-        return { volume: vol, difficulty: Math.round(diff), offers, potential };
-    }, [subtopics]);
 
     const handleDelete = async (subtopicId: string) => {
         try {
@@ -340,50 +318,6 @@ export default function ResearchDetailPage() {
                 </div>
             </div>
 
-            {/* Quick Stats */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Card className="border-zinc-200 dark:border-zinc-800 bg-background/50 backdrop-blur-sm">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Volume</CardTitle>
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{stats.volume.toLocaleString()}</div>
-                        <p className="text-xs text-muted-foreground mt-1">Monthly Searches</p>
-                    </CardContent>
-                </Card>
-                <Card className="border-zinc-200 dark:border-zinc-800 bg-background/50 backdrop-blur-sm">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Sub-Topics</CardTitle>
-                        <TrendingUp className="h-4 w-4 text-blue-500" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold font-mono">{stats.offers}</div>
-                        <p className="text-xs text-muted-foreground mt-1">Affiliate Offers</p>
-                    </CardContent>
-                </Card>
-                <Card className="border-zinc-200 dark:border-zinc-800 bg-background/50 backdrop-blur-sm">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Avg. Difficulty</CardTitle>
-                        <Target className="h-4 w-4 text-amber-500" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold font-mono">{stats.difficulty}</div>
-                        <p className="text-xs text-muted-foreground mt-1">Keyword Difficulty</p>
-                    </CardContent>
-                </Card>
-                <Card className="border-zinc-200 dark:border-zinc-800 bg-background/50 backdrop-blur-sm">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Potential</CardTitle>
-                        <BarChart3 className="h-4 w-4 text-green-500" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold font-mono">{stats.potential}</div>
-                        <p className="text-xs text-muted-foreground mt-1">Overall Viability</p>
-                    </CardContent>
-                </Card>
-            </div>
-
             {/* Unified Bulk Action Toolbar */}
             {selectedSubtopics.size > 0 && (
                 <div className="flex items-center gap-2 p-3 bg-purple-50 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-800 rounded-xl animate-in fade-in slide-in-from-top-2 shadow-sm">
@@ -428,93 +362,22 @@ export default function ResearchDetailPage() {
                             )}
                         </div>
                         {subtopics.length > 0 && (
-                            <div className="flex items-center gap-2">
-                                {/* Grid View Select All Trigger - optional if we want it explicit in header */}
-                                {viewMode === "grid" && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={toggleAll}
-                                        className="mr-2"
-                                    >
-                                        {selectedSubtopics.size === subtopics.length ? "Deselect All" : "Select All"}
-                                    </Button>
-                                )}
-
-                                <div className="flex items-center gap-2 border rounded-md p-1">
-                                    <Button
-                                        variant={viewMode === "grid" ? "secondary" : "ghost"}
-                                        size="sm"
-                                        onClick={() => setViewMode("grid")}
-                                        className="px-3"
-                                    >
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            width="16"
-                                            height="16"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            strokeWidth="2"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            className="mr-1.5"
-                                        >
-                                            <rect width="7" height="7" x="3" y="3" rx="1" />
-                                            <rect width="7" height="7" x="14" y="3" rx="1" />
-                                            <rect width="7" height="7" x="14" y="14" rx="1" />
-                                            <rect width="7" height="7" x="3" y="14" rx="1" />
-                                        </svg>
-                                        Grid
-                                    </Button>
-                                    <Button
-                                        variant={viewMode === "table" ? "secondary" : "ghost"}
-                                        size="sm"
-                                        onClick={() => setViewMode("table")}
-                                        className="px-3"
-                                    >
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            width="16"
-                                            height="16"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            strokeWidth="2"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            className="mr-1.5"
-                                        >
-                                            <path d="M12 3v18" />
-                                            <rect width="18" height="18" x="3" y="3" rx="2" />
-                                            <path d="M3 9h18" />
-                                            <path d="M3 15h18" />
-                                        </svg>
-                                        Table
-                                    </Button>
-                                </div>
-                            </div>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={toggleAll}
+                            >
+                                {selectedSubtopics.size === subtopics.length ? "Deselect All" : "Select All"}
+                            </Button>
                         )}
                     </div>
                 </CardHeader>
                 <CardContent>
-                    {viewMode === "grid" ? (
-                        <SubtopicsGrid
-                            subtopics={subtopics}
-                            selectedSubtopics={selectedSubtopics}
-                            onToggle={toggleSelection}
-                        />
-                    ) : (
-                        <SubtopicsTable
-                            subtopics={subtopics}
-                            topicId={id}
-                            selectedSubtopics={selectedSubtopics}
-                            onToggle={toggleSelection}
-                            onToggleAll={toggleAll}
-                            onDelete={handleDelete}
-                            onEnrich={handleEnrichSubtopic}
-                        />
-                    )}
+                    <SubtopicsGrid
+                        subtopics={subtopics}
+                        selectedSubtopics={selectedSubtopics}
+                        onToggle={toggleSelection}
+                    />
                 </CardContent>
             </Card>
 
