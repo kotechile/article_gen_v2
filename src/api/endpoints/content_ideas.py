@@ -1447,27 +1447,16 @@ def enrich_content_ideas():
                 "search_phrase": selected_primary_keyword,
             }
             update_payload = {
-                "total_search_volume": (
-                    enrichment["total_search_volume"]
-                    if enrichment.get("has_exact_keyword_metrics")
-                    else None
-                ),
-                "average_cpc": (
-                    enrichment["average_cpc"]
-                    if enrichment.get("has_exact_keyword_metrics")
-                    else None
-                ),
-                "average_difficulty": (
-                    enrichment["average_difficulty"]
-                    if enrichment.get("has_exact_keyword_metrics")
-                    else None
-                ),
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
                 "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
                 "status": "in_progress",
                 "updated_at": now,
                 "title": restated_title or original_title,
             }
+            if enrichment.get("has_exact_keyword_metrics"):
+                update_payload["total_search_volume"] = enrichment["total_search_volume"]
+                update_payload["average_cpc"] = enrichment["average_cpc"]
+                update_payload["average_difficulty"] = enrichment["average_difficulty"]
             enrichment_metadata = {
                 **(idea.get("idea_metadata") or {}),
                 "seo_offer_enrichment": {
@@ -1728,26 +1717,15 @@ def refresh_keywords_for_library():
                 "secondary_keywords": keywords_used[1:],
             }
             update_payload = {
-                "total_search_volume": (
-                    enrichment["total_search_volume"]
-                    if enrichment.get("has_exact_keyword_metrics")
-                    else None
-                ),
-                "average_cpc": (
-                    enrichment["average_cpc"]
-                    if enrichment.get("has_exact_keyword_metrics")
-                    else None
-                ),
-                "average_difficulty": (
-                    enrichment["average_difficulty"]
-                    if enrichment.get("has_exact_keyword_metrics")
-                    else None
-                ),
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
                 "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
                 "status": "in_progress",
                 "updated_at": now,
             }
+            if enrichment.get("has_exact_keyword_metrics"):
+                update_payload["total_search_volume"] = enrichment["total_search_volume"]
+                update_payload["average_cpc"] = enrichment["average_cpc"]
+                update_payload["average_difficulty"] = enrichment["average_difficulty"]
             payload_attempts = [
                 {
                     **update_payload,
