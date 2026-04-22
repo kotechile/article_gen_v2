@@ -340,6 +340,7 @@ function isSentToContentLibrary(idea: ContentIdea): boolean {
 
 export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle, projectName, categoryPath }: IdeaBurstModalProps) {
     const { user } = useAuth();
+    const ENABLE_IDEA_BURST_CACHE = false;
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
     const [blogIdeas, setBlogIdeas] = React.useState<ContentIdea[]>([]);
@@ -386,7 +387,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     setLoadedFromStored(true);
                     setLoadedFromCache(false);
 
-                    if (cacheKey) {
+                    if (ENABLE_IDEA_BURST_CACHE && cacheKey) {
                         try {
                             const payload: CachedIdeaBurst = {
                                 blogIdeas: nextBlogIdeas,
@@ -407,7 +408,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             }
 
             // 2) Fall back to local cache.
-            if (cacheKey) {
+            if (ENABLE_IDEA_BURST_CACHE && cacheKey) {
                 try {
                     const raw = localStorage.getItem(cacheKey);
                     if (raw) {
@@ -534,7 +535,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             setBlogIdeas(nextBlogIdeas);
             setSoftwareIdeas(nextSoftwareIdeas);
 
-            if (cacheKey) {
+            if (ENABLE_IDEA_BURST_CACHE && cacheKey) {
                 try {
                     const payload: CachedIdeaBurst = {
                         blogIdeas: nextBlogIdeas,
@@ -831,7 +832,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                 : "Candidates are generated for this subtopic"}
                     </div>
                     <div className="flex items-center gap-2">
-                        {cacheKey && (
+                        {ENABLE_IDEA_BURST_CACHE && cacheKey && (
                             <Button
                                 onClick={handleClearCachedIdeas}
                                 variant="ghost"
