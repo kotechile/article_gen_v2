@@ -20,7 +20,6 @@ from ..integrations.google_autocomplete import GoogleAutocompleteService
 from .llm.llm_service import llm_service
 from .topic_brief_builder_service import topic_brief_builder_service
 from .editorial_subtopic_service import editorial_subtopic_service
-from .subtopic_keyword_mining_service import subtopic_keyword_mining_service
 from .subtopic_scoring_service import subtopic_scoring_service
 
 logger = logging.getLogger(__name__)
@@ -138,8 +137,8 @@ class EnhancedTopicDecompositionService:
                 logger.info(f"Returning cached result for query: {query}")
                 return cached_result
             
-            # New subtopics-first flow:
-            # 1) build editorial subtopics, 2) mine keywords per subtopic, 3) score evidence.
+            # Subtopics-first flow (DataForSEO-free at subtopic stage):
+            # 1) build editorial subtopics, 2) score editorial evidence only.
             brief = topic_brief_builder_service.build(
                 topic={"title": query, **(decomposition_context or {})},
                 project={},
@@ -152,25 +151,18 @@ class EnhancedTopicDecompositionService:
 
             enhanced_subtopics: List[EnhancedSubtopic] = []
             for item in editorial_subtopics[:max_subtopics]:
-                evidence = await subtopic_keyword_mining_service.mine_for_subtopic(item, brief)
-                selected_keywords = evidence.get("keywords", [])
+                selected_keywords: List[Dict[str, Any]] = []
                 score = subtopic_scoring_service.score(item, selected_keywords)
 
-                keyword_strings = [k.get("keyword") for k in selected_keywords if k.get("keyword")]
-                primary = evidence.get("primary_keyword")
-                primary_row = next((k for k in selected_keywords if k.get("keyword") == primary), None)
-                vol = int((primary_row or {}).get("search_volume") or 0)
-                cpc = float((primary_row or {}).get("cpc") or 0.0)
-                kd = int((primary_row or {}).get("keyword_difficulty") or 0)
+                keyword_strings = [k.strip() for k in (item.get("seed_phrases") or []) if isinstance(k, str) and k.strip()]
+                vol = 0
+                cpc = 0.0
+                kd = 0
 
-                indicators = []
-                if vol > 0:
-                    indicators.append(f"Volume: {vol}")
-                if kd > 0:
-                    indicators.append(f"KD: {kd}")
-                if cpc > 0:
-                    indicators.append(f"CPC: {cpc}")
-                indicators.append(f"State: {score.get('validation_state')}")
+                indicators = [
+                    "Editorial candidate",
+                    f"State: {score.get('validation_state')}",
+                ]
 
                 trend_analysis = {
                     "state": score.get("validation_state"),
@@ -178,14 +170,14 @@ class EnhancedTopicDecompositionService:
                     "seo_support_score": score.get("seo_support_score"),
                     "geo_readiness_score": score.get("geo_readiness_score"),
                     "final_subtopic_score": score.get("final_subtopic_score"),
-                    "keywords_mined": len(selected_keywords),
-                    "variants_tried": evidence.get("variants_tried", []),
+                    "keywords_mined": 0,
+                    "variants_tried": [],
                 }
                 monetization_data = {
                     "status": "pending",
                     "offers": [],
                     "keyword_evidence": selected_keywords,
-                    "primary_keyword": primary,
+                    "primary_keyword": None,
                     "commercial_paths": item.get("commercial_paths", []),
                 }
 
@@ -221,55 +213,13 @@ class EnhancedTopicDecompositionService:
                 enhanced_subtopics.append(subtopic)
 
             if not enhanced_subtopics:
-                # Fallback to legacy semantic expansion if editorial path fails unexpectedly.
-                from .semantic_expansion_service import semantic_expansion_service
-                logger.warning("Editorial subtopic path produced no results. Falling back to semantic expansion.")
-                verified_clusters = await semantic_expansion_service.expand_and_verify(
-                    query,
-                    user_id,
-                    decomposition_context=decomposition_context,
-                )
-                for cluster in (verified_clusters or [])[:max_subtopics]:
-                    cluster_keywords = cluster.get('keywords', []) or []
-                    keyword_strings = []
-                    for kw in cluster_keywords:
-                        if isinstance(kw, dict):
-                            value = (kw.get("keyword") or "").strip()
-                            if value:
-                                keyword_strings.append(value)
-                        elif isinstance(kw, str) and kw.strip():
-                            keyword_strings.append(kw.strip())
-                    subtopic = EnhancedSubtopic(
-                        id=str(uuid4()),
-                        title=cluster.get('cluster_title', 'Unknown Cluster'),
-                        search_volume_indicators=["Legacy fallback"],
-                        autocomplete_suggestions=keyword_strings,
-                        relevance_score=0.7,
-                        source=SubtopicSource.HYBRID,
-                        rationale=cluster.get('cluster_rationale') or "Generated via legacy fallback",
-                        seed_keywords=keyword_strings,
-                        target_audience="Niche Audience",
-                        search_volume=cluster.get('search_volume'),
-                        cpc=cluster.get('cpc'),
-                        keyword_difficulty=cluster.get('keyword_difficulty'),
-                        trend_analysis=cluster.get('trend_analysis'),
-                        monetization_data=cluster.get('monetization'),
-                        intent_bucket=cluster.get('intent_bucket'),
-                        decision_focus=cluster.get('decision_focus'),
-                        angle_question=cluster.get('angle_question'),
-                        value_layer_tags=cluster.get('value_layer_tags') or [],
-                        cluster_type=cluster.get('cluster_type'),
-                        primary_user_outcome=cluster.get('primary_user_outcome'),
-                        serp_intent_match=cluster.get('serp_intent_match'),
-                        tool_potential_score=cluster.get('tool_potential_score'),
-                    )
-                    enhanced_subtopics.append(subtopic)
+                raise ValueError("Editorial subtopic generation produced no results.")
             
             # Prepare response
             processing_time = time.time() - start_time
             enhancement_methods = ["semantic_expansion", "profit_verification"]
             
-            message = f"Topic decomposed into {len(enhanced_subtopics)} verified profitable clusters"
+            message = f"Topic decomposed into {len(enhanced_subtopics)} editorial clusters"
             
             result = {
                 "success": True,
