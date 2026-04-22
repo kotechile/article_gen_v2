@@ -7,6 +7,7 @@ Provides list, publish, and delete actions used by the frontend Idea Burst flow.
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 import ast
@@ -138,6 +139,52 @@ def _coerce_json_field(value, default):
                 return [part.strip() for part in re.split(r"[\n,]+", normalized) if part.strip()]
             return default
     return default
+
+
+def _sanitize_for_json(value):
+    """Recursively sanitize values so PostgREST JSON encoding never fails."""
+    if isinstance(value, dict):
+        return {str(k): _sanitize_for_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_for_json(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_for_json(item) for item in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    return value
+
+
+def _summarize_dataforseo_raw(raw_payload: dict | None) -> dict:
+    """Extract high-signal diagnostics from raw DataForSEO response."""
+    if not isinstance(raw_payload, dict):
+        return {"raw_type": type(raw_payload).__name__}
+    tasks = raw_payload.get("tasks")
+    task_summaries = []
+    if isinstance(tasks, list):
+        for task in tasks[:5]:
+            if not isinstance(task, dict):
+                continue
+            result = task.get("result")
+            items_count = None
+            if isinstance(result, list) and result and isinstance(result[0], dict):
+                items_count = result[0].get("items_count")
+            task_summaries.append({
+                "task_status_code": task.get("status_code"),
+                "task_status_message": task.get("status_message"),
+                "result_count": task.get("result_count"),
+                "items_count": items_count,
+                "seed_keyword": ((task.get("data") or {}).get("keyword") if isinstance(task.get("data"), dict) else None),
+            })
+    return {
+        "status_code": raw_payload.get("status_code"),
+        "status_message": raw_payload.get("status_message"),
+        "tasks_count": raw_payload.get("tasks_count"),
+        "tasks_error": raw_payload.get("tasks_error"),
+        "cost": raw_payload.get("cost"),
+        "task_summaries": task_summaries,
+    }
 
 
 def _coerce_numeric(value, cast, default):
@@ -448,6 +495,41 @@ def _looks_human_seed(seed: str) -> bool:
     return has_meaningful or has_numeric
 
 
+def _score_seed_candidate(seed: str) -> int:
+    """Heuristic scoring to prefer simple, query-like seed phrases."""
+    tokens = [t for t in str(seed or "").split(" ") if t]
+    if not tokens:
+        return -999
+
+    score = 0
+    token_count = len(tokens)
+    if token_count == 2:
+        score += 6
+    elif token_count == 1:
+        score += 4
+    elif token_count == 3:
+        score += 3
+
+    common_query_terms = {
+        "mortgage", "stocks", "invest", "investment", "home", "equity",
+        "market", "crash", "retirement", "debt", "payoff", "portfolio",
+        "tax", "roi", "budget", "net", "worth", "cash", "rate",
+    }
+    score += sum(2 for t in tokens if t in common_query_terms)
+
+    jargon_penalties = {
+        "framework", "methodology", "architecture", "lens", "paradigm",
+        "deployment", "synthesis", "liquidity", "audit", "ratio",
+    }
+    score -= sum(2 for t in tokens if t in jargon_penalties)
+
+    if any(len(t) == 1 and t.isalpha() for t in tokens):
+        score -= 3
+    if any(t in QUERY_STOPWORDS for t in tokens):
+        score -= 1
+    return score
+
+
 def _select_primary_seed_keyword(keywords: list[str], title: str = "", search_phrase: str = "") -> str:
     """
     Choose one simple seed keyword per idea for DataForSEO.
@@ -460,13 +542,18 @@ def _select_primary_seed_keyword(keywords: list[str], title: str = "", search_ph
     ordered_inputs.extend(_build_keyword_candidates(keywords or [], title=title))
 
     seen = set()
+    ranked_candidates: list[tuple[int, str]] = []
     for raw in ordered_inputs:
         seed = _simplify_seed_keyword(raw)
         if not seed or seed in seen:
             continue
         seen.add(seed)
         if _looks_human_seed(seed):
-            return seed
+            ranked_candidates.append((_score_seed_candidate(seed), seed))
+
+    if ranked_candidates:
+        ranked_candidates.sort(key=lambda item: (-item[0], len(item[1]), item[1]))
+        return ranked_candidates[0][1]
 
     # Last resort fallback: short title fragment.
     title_tokens = [t for t in _normalize_keyword_term(title).split(" ") if t][:3]
@@ -506,8 +593,13 @@ async def _fetch_metrics_map_for_keywords(
             related_raw = None
         if raw_capture is not None and related_raw is not None:
             raw_capture["related_keywords_live"] = related_raw
+        logger.info(
+            "DataForSEO related_keywords raw summary: %s",
+            _summarize_dataforseo_raw(related_raw),
+        )
         if diagnostics is not None:
             diagnostics["related_rows_returned"] = len(related_rows or [])
+            diagnostics["dataforseo_raw_summary"] = _summarize_dataforseo_raw(related_raw)
         for item in (related_rows or []):
             keyword = str(item.get("keyword") or "").strip().lower()
             if not keyword:
@@ -796,6 +888,17 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         search_phrase=str(idea.get("search_phrase") or ""),
     )
     working_candidates = [primary_seed_keyword] if primary_seed_keyword else list(candidates[:1])
+
+    fallback_seed_candidates: list[str] = []
+    for raw_candidate in ([str(idea.get("search_phrase") or "")] + keywords + candidates):
+        seed_candidate = _simplify_seed_keyword(raw_candidate)
+        if not seed_candidate:
+            continue
+        if seed_candidate in working_candidates or seed_candidate in fallback_seed_candidates:
+            continue
+        if _looks_human_seed(seed_candidate):
+            fallback_seed_candidates.append(seed_candidate)
+    fallback_seed_candidates = fallback_seed_candidates[:5]
     metrics_map: dict = {}
     ranked_candidates: list[dict] = []
     tier_diagnostics: list[dict] = []
@@ -814,6 +917,56 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         diagnostics=tier_diag,
         raw_capture=tier_diag.setdefault("raw_dataforseo", {}),
     )
+    non_zero_metric_rows = sum(
+        1
+        for row in (metrics_map or {}).values()
+        if int(row.get("search_volume") or 0) > 0
+        or float(row.get("keyword_difficulty") or 0.0) > 0
+        or float(row.get("cpc") or 0.0) > 0
+    )
+
+    if non_zero_metric_rows == 0:
+        logger.warning(
+            "DataForSEO returned zero measurable metrics for primary seed idea_id=%s seed=%r; retrying fallback seeds=%s",
+            idea_id,
+            primary_seed_keyword,
+            fallback_seed_candidates,
+        )
+        for fallback_seed in fallback_seed_candidates:
+            retry_diag = {
+                "tier": "labs_related_keywords_live_retry",
+                "primary_seed_keyword": fallback_seed,
+                "max_keywords_for_metrics": 1,
+            }
+            retry_metrics = await _fetch_metrics_map_for_keywords(
+                [fallback_seed],
+                max_keywords_for_metrics=1,
+                diagnostics=retry_diag,
+                raw_capture=retry_diag.setdefault("raw_dataforseo", {}),
+            )
+            retry_non_zero = sum(
+                1
+                for row in (retry_metrics or {}).values()
+                if int(row.get("search_volume") or 0) > 0
+                or float(row.get("keyword_difficulty") or 0.0) > 0
+                or float(row.get("cpc") or 0.0) > 0
+            )
+            retry_diag["quality"] = {"non_zero_metric_rows": retry_non_zero}
+            retry_diag["calls"] = 1
+            tier_diagnostics.append(retry_diag)
+            dataforseo_calls += 1
+            if retry_non_zero > 0:
+                metrics_map = retry_metrics
+                working_candidates = [fallback_seed]
+                primary_seed_keyword = fallback_seed
+                tier_diag = retry_diag
+                logger.info(
+                    "DataForSEO fallback seed succeeded idea_id=%s seed=%r non_zero_metric_rows=%s",
+                    idea_id,
+                    fallback_seed,
+                    retry_non_zero,
+                )
+                break
     ranked_pool = list(dict.fromkeys(
         [primary_seed_keyword] +
         [str(k).strip().lower() for k in metrics_map.keys() if str(k).strip()] +
@@ -822,9 +975,11 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     ranked_candidates = _rank_keywords_by_opportunity(ranked_pool, metrics_map)
     summary = _keyword_quality_summary(ranked_candidates)
     tier_diag["quality"] = summary
-    tier_diag["calls"] = 1
-    tier_diagnostics.append(tier_diag)
-    dataforseo_calls = 1
+    tier_diag["calls"] = max(1, int(tier_diag.get("calls") or 1))
+    if not tier_diagnostics or tier_diagnostics[-1] is not tier_diag:
+        tier_diagnostics.append(tier_diag)
+    if dataforseo_calls <= 0:
+        dataforseo_calls = 1
 
     # Persist exact raw response from DataForSEO when present.
     raw_dataforseo_output: dict = (
@@ -834,6 +989,12 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
             "captured_at": datetime.utcnow().isoformat(),
             "tiers": [],
         }
+    )
+    logger.info(
+        "Enrichment DataForSEO raw selected idea_id=%s seed=%r raw_summary=%s",
+        idea_id,
+        primary_seed_keyword,
+        _summarize_dataforseo_raw(raw_dataforseo_output),
     )
 
     selected_keywords = [row["keyword"] for row in ranked_candidates[:5]]
@@ -949,7 +1110,7 @@ def _persist_raw_trace_for_idea(
     Best-effort debug persistence for raw DataForSEO output, including failed enrichments.
     Keeps output in both raw_dataforseo_output column and idea_metadata for backward compatibility.
     """
-    safe_raw = raw_output or {}
+    safe_raw = _sanitize_for_json(raw_output or {})
     idea_metadata = dict(idea.get("idea_metadata") or {})
     seo_offer = dict((idea_metadata.get("seo_offer_enrichment") or {}))
     seo_offer["raw_dataforseo_output"] = safe_raw
@@ -961,7 +1122,7 @@ def _persist_raw_trace_for_idea(
     for payload in (
         {
             "raw_dataforseo_output": safe_raw,
-            "idea_metadata": idea_metadata,
+            "idea_metadata": _sanitize_for_json(idea_metadata),
             "updated_at": now_iso,
         },
         {
@@ -969,15 +1130,21 @@ def _persist_raw_trace_for_idea(
             "updated_at": now_iso,
         },
         {
-            "idea_metadata": idea_metadata,
+            "idea_metadata": _sanitize_for_json(idea_metadata),
             "updated_at": now_iso,
         },
         {"updated_at": now_iso},
     ):
         try:
-            supabase.table("content_ideas").update(payload).eq("id", idea.get("id")).eq("user_id", user_id).execute()
+            supabase.table("content_ideas").update(_sanitize_for_json(payload)).eq("id", idea.get("id")).eq("user_id", user_id).execute()
             return
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "Raw trace persistence failed for idea_id=%s payload_keys=%s err=%s",
+                idea.get("id"),
+                sorted((payload or {}).keys()),
+                str(e)[:700],
+            )
             continue
 
 
@@ -1020,54 +1187,60 @@ def _apply_enrichment_update_with_fallback(
     expected_raw: dict,
 ) -> bool:
     for payload in payloads:
-        candidate_payload = dict(payload or {})
+        candidate_payload = _sanitize_for_json(dict(payload or {}))
         if not candidate_payload:
             continue
-        try:
-            supabase.table("content_ideas").update(candidate_payload).eq("id", idea_id).eq("user_id", user_id).execute()
-        except Exception as update_error:
-            err_text = str(update_error or "")
+        update_succeeded = False
+        while candidate_payload and not update_succeeded:
+            try:
+                supabase.table("content_ideas").update(candidate_payload).eq("id", idea_id).eq("user_id", user_id).execute()
+                update_succeeded = True
+            except Exception as update_error:
+                err_text = str(update_error or "")
 
-            missing_cols = re.findall(r"Could not find the '([^']+)' column", err_text)
-            if missing_cols:
-                for col in missing_cols:
-                    candidate_payload.pop(col, None)
-                if not candidate_payload:
-                    continue
-                try:
-                    supabase.table("content_ideas").update(candidate_payload).eq("id", idea_id).eq("user_id", user_id).execute()
-                except Exception:
-                    continue
-            else:
-                # Common production mismatch: enum/value constraints (e.g. status).
-                # Retry without high-risk fields while preserving raw DFS + keywords.
-                risky_fields = ("status", "title")
-                narrowed_payload = {
-                    k: v for k, v in candidate_payload.items()
-                    if k not in risky_fields
-                }
-                if narrowed_payload != candidate_payload and narrowed_payload:
-                    try:
-                        supabase.table("content_ideas").update(narrowed_payload).eq("id", idea_id).eq("user_id", user_id).execute()
-                        candidate_payload = narrowed_payload
-                    except Exception as narrowed_error:
-                        logger.warning(
-                            "Enrichment update failed for idea_id=%s payload_keys=%s narrowed_keys=%s err=%s narrowed_err=%s",
-                            idea_id,
-                            sorted(candidate_payload.keys()),
-                            sorted(narrowed_payload.keys()),
-                            err_text[:600],
-                            str(narrowed_error)[:600],
-                        )
-                        continue
-                else:
+                missing_cols = re.findall(r"Could not find the '([^']+)' column", err_text)
+                if missing_cols:
+                    removed_cols = []
+                    for col in missing_cols:
+                        if col in candidate_payload:
+                            candidate_payload.pop(col, None)
+                            removed_cols.append(col)
                     logger.warning(
-                        "Enrichment update failed for idea_id=%s payload_keys=%s err=%s",
+                        "Enrichment update retry after missing columns idea_id=%s removed=%s remaining_keys=%s err=%s",
                         idea_id,
+                        removed_cols,
                         sorted(candidate_payload.keys()),
                         err_text[:600],
                     )
                     continue
+
+                risky_fields = ("status", "title", "updated_at")
+                narrowed_payload = {
+                    k: v for k, v in candidate_payload.items()
+                    if k not in risky_fields
+                }
+                if narrowed_payload and narrowed_payload != candidate_payload:
+                    logger.warning(
+                        "Enrichment update retry with narrowed payload idea_id=%s dropped=%s keys=%s err=%s",
+                        idea_id,
+                        [k for k in risky_fields if k in candidate_payload],
+                        sorted(narrowed_payload.keys()),
+                        err_text[:600],
+                    )
+                    candidate_payload = narrowed_payload
+                    continue
+
+                logger.warning(
+                    "Enrichment update failed idea_id=%s payload_keys=%s err=%s",
+                    idea_id,
+                    sorted(candidate_payload.keys()),
+                    err_text[:700],
+                )
+                candidate_payload = {}
+                break
+
+        if not update_succeeded:
+            continue
 
         try:
             verify_resp = (
@@ -1086,6 +1259,44 @@ def _apply_enrichment_update_with_fallback(
         if _verify_enrichment_persistence(verify_row or {}, expected_keywords, expected_raw):
             return True
 
+    # Final minimal fallback: persist only raw output + keyword arrays.
+    final_raw = _sanitize_for_json(expected_raw or {})
+    final_keywords = [str(keyword).strip() for keyword in (expected_keywords or []) if str(keyword).strip()]
+    minimal_payload = {
+        "raw_dataforseo_output": final_raw,
+        "keywords": final_keywords,
+        "primary_keywords": final_keywords,
+        "secondary_keywords": final_keywords[1:],
+    }
+    try:
+        supabase.table("content_ideas").update(minimal_payload).eq("id", idea_id).eq("user_id", user_id).execute()
+        verify_resp = (
+            supabase
+            .table("content_ideas")
+            .select("id,keywords,primary_keywords,raw_dataforseo_output")
+            .eq("id", idea_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        verify_row = (verify_resp.data or [None])[0]
+        if _verify_enrichment_persistence(verify_row or {}, final_keywords, final_raw):
+            return True
+    except Exception as e:
+        logger.error(
+            "Final minimal enrichment persistence failed for idea_id=%s keywords=%s raw_summary=%s err=%s",
+            idea_id,
+            final_keywords,
+            _summarize_dataforseo_raw(final_raw),
+            str(e)[:700],
+        )
+
+    logger.error(
+        "Enrichment persistence exhausted all fallback payloads for idea_id=%s keywords=%s raw_summary=%s",
+        idea_id,
+        final_keywords,
+        _summarize_dataforseo_raw(final_raw),
+    )
     return False
 
 
@@ -1211,6 +1422,7 @@ def publish_content_ideas():
             ).dict()), 400
 
         supabase = get_supabase_client()
+        supabase_admin = _get_admin_supabase_client(supabase)
         request_user_id = _resolve_user_id_from_request(supabase, data)
         if not request_user_id:
             return jsonify(ErrorResponse(
@@ -1520,7 +1732,7 @@ def enrich_content_ideas():
             }
             update_payload = {
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
-                "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
+                "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
                 "updated_at": now,
                 "title": restated_title or original_title,
             }
@@ -1555,22 +1767,36 @@ def enrich_content_ideas():
             }
 
             # Try richest payload first; gracefully degrade for older schemas.
+            # Start with safe/minimal persistence so raw output + keywords are not blocked by optional fields.
+            safe_minimal_payload = {
+                "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
+                "keywords": _sanitize_for_json(keyword_projection_payload.get("keywords") or []),
+                "primary_keywords": _sanitize_for_json(keyword_projection_payload.get("primary_keywords") or []),
+                "secondary_keywords": _sanitize_for_json(keyword_projection_payload.get("secondary_keywords") or []),
+                "search_phrase": keyword_projection_payload.get("search_phrase") or "",
+                "updated_at": now,
+            }
             payload_attempts = [
+                safe_minimal_payload,
                 {
-                    **update_payload,
-                    **keyword_projection_payload,
-                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
-                    "idea_metadata": enrichment_metadata,
+                    **safe_minimal_payload,
+                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
                 },
                 {
                     **update_payload,
                     **keyword_projection_payload,
-                    "idea_metadata": enrichment_metadata,
+                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
+                    "idea_metadata": _sanitize_for_json(enrichment_metadata),
                 },
                 {
                     **update_payload,
                     **keyword_projection_payload,
-                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                    "idea_metadata": _sanitize_for_json(enrichment_metadata),
+                },
+                {
+                    **update_payload,
+                    **keyword_projection_payload,
+                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
                 },
                 {
                     **update_payload,
@@ -1578,16 +1804,16 @@ def enrich_content_ideas():
                 },
                 {
                     **update_payload,
-                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
-                    "idea_metadata": enrichment_metadata,
+                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
+                    "idea_metadata": _sanitize_for_json(enrichment_metadata),
                 },
                 {
                     **update_payload,
-                    "idea_metadata": enrichment_metadata,
+                    "idea_metadata": _sanitize_for_json(enrichment_metadata),
                 },
                 {
                     **update_payload,
-                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
                 },
                 update_payload,
             ]
@@ -1790,7 +2016,7 @@ def refresh_keywords_for_library():
             }
             update_payload = {
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
-                "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
+                "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
                 "updated_at": now,
             }
             if enrichment.get("has_exact_keyword_metrics"):
@@ -1799,19 +2025,26 @@ def refresh_keywords_for_library():
                 update_payload["average_difficulty"] = enrichment["average_difficulty"]
             payload_attempts = [
                 {
+                    "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
+                    "keywords": _sanitize_for_json(keyword_projection_payload.get("keywords") or []),
+                    "primary_keywords": _sanitize_for_json(keyword_projection_payload.get("primary_keywords") or []),
+                    "secondary_keywords": _sanitize_for_json(keyword_projection_payload.get("secondary_keywords") or []),
+                    "updated_at": now,
+                },
+                {
                     **update_payload,
                     **keyword_projection_payload,
-                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
                     "idea_metadata": {
                         **(idea.get("idea_metadata") or {}),
                         "seo_offer_enrichment": {
                             "keywords_used": enrichment["keywords_used"],
-                            "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                            "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
                             "keyword_ranked_candidates": enrichment.get("keyword_ranked_candidates") or [],
                             "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
                             "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
                             "dataforseo_diagnostics": enrichment.get("dataforseo_diagnostics") or {},
-                            "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
+                            "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
                             "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
                             "affiliate_offers_preview": enrichment["affiliate_offers"],
                             "enriched_at": now,
@@ -1821,7 +2054,7 @@ def refresh_keywords_for_library():
                 {
                     **update_payload,
                     **keyword_projection_payload,
-                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
                 },
                 {
                     **update_payload,
@@ -1829,17 +2062,17 @@ def refresh_keywords_for_library():
                 },
                 {
                     **update_payload,
-                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
                     "idea_metadata": {
                         **(idea.get("idea_metadata") or {}),
                         "seo_offer_enrichment": {
                             "keywords_used": enrichment["keywords_used"],
-                            "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                            "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
                             "keyword_ranked_candidates": enrichment.get("keyword_ranked_candidates") or [],
                             "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
                             "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
                             "dataforseo_diagnostics": enrichment.get("dataforseo_diagnostics") or {},
-                            "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
+                            "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
                             "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
                             "affiliate_offers_preview": enrichment["affiliate_offers"],
                             "enriched_at": now,

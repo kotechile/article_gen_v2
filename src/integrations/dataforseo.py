@@ -559,6 +559,19 @@ class DataForSEOAPI:
                         "limit": int(limit_per_seed),
                     }]
                     data = await self._make_request_with_retry(client, url, payload, headers)
+                    tasks = data.get("tasks") if isinstance(data, dict) else None
+                    first_task = tasks[0] if isinstance(tasks, list) and tasks else {}
+                    first_result = (first_task.get("result") or [None])[0] if isinstance(first_task, dict) else None
+                    items_count = first_result.get("items_count") if isinstance(first_result, dict) else None
+                    logger.info(
+                        "DataForSEO related_keywords/live seed=%r status=%s tasks_error=%s task_status=%s task_message=%r items_count=%s",
+                        seed,
+                        data.get("status_code") if isinstance(data, dict) else None,
+                        data.get("tasks_error") if isinstance(data, dict) else None,
+                        first_task.get("status_code") if isinstance(first_task, dict) else None,
+                        first_task.get("status_message") if isinstance(first_task, dict) else None,
+                        items_count,
+                    )
                     raw_responses.append({
                         "seed": seed,
                         "request_payload": payload,
