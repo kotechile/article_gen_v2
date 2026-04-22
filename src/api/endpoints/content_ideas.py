@@ -51,6 +51,18 @@ KEYWORD_BUDGET_LADDER = [
     {"name": "deep", "max_keywords_for_metrics": 35, "max_related_seeds": 4, "max_related_per_seed": 18},
 ]
 
+QUERY_STOPWORDS = {
+    "a", "an", "the", "to", "for", "of", "in", "on", "at", "with", "without",
+    "from", "into", "by", "my", "your", "our", "their", "is", "are", "be",
+    "what", "how", "when", "why", "can", "should", "could", "would", "do",
+    "does", "did", "and", "or", "vs", "versus",
+}
+
+JARGON_STOPWORDS = {
+    "framework", "paradigm", "architecture", "methodology", "optimization",
+    "strategic", "strategy", "lens", "playbook",
+}
+
 
 def _ensure_short_description(raw_description, title: str = "", keywords: list | None = None, subtopic: str = "") -> str:
     """Guarantee a short non-empty description for idea cards."""
@@ -219,36 +231,71 @@ def _resolve_user_id_from_request(supabase, data=None):
 
 def _extract_keywords_for_enrichment(idea: dict) -> list[str]:
     """Collect a normalized keyword list from idea payload fields."""
+    def _query_like_terms(raw: str) -> list[str]:
+        cleaned = re.sub(r"[^a-zA-Z0-9\s-]", " ", str(raw or "").lower())
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        if not cleaned:
+            return []
+
+        out = []
+        for part in re.split(r"\b(?:or|vs|versus|and)\b", cleaned):
+            part = re.sub(r"\s+", " ", part).strip()
+            if not part:
+                continue
+            tokens = [t for t in part.split(" ") if t and t not in QUERY_STOPWORDS and t not in JARGON_STOPWORDS]
+            if len(tokens) < 2:
+                continue
+            if len(tokens) > 4:
+                tokens = tokens[:4]
+            phrase = " ".join(tokens)
+            out.append(phrase)
+            if len(tokens) >= 3:
+                out.append(" ".join(tokens[:2]))
+                out.append(" ".join(tokens[-2:]))
+        return out
+
     candidates = []
     for field in ("primary_keywords", "keywords", "secondary_keywords"):
         value = idea.get(field)
         if isinstance(value, list):
-            candidates.extend([str(item).strip() for item in value if str(item).strip()])
+            for item in value:
+                candidates.extend(_query_like_terms(str(item)))
         elif isinstance(value, str) and value.strip():
             # Handle comma-separated fallback shapes.
-            candidates.extend([part.strip() for part in value.split(",") if part.strip()])
+            for part in value.split(","):
+                candidates.extend(_query_like_terms(part))
+
+    search_phrase = str(idea.get("search_phrase") or "").strip()
+    if search_phrase:
+        candidates.extend(_query_like_terms(search_phrase))
 
     # Pass-1 seed keywords are stored in metadata and should feed DataForSEO related expansion.
     idea_metadata = idea.get("idea_metadata") or {}
     if isinstance(idea_metadata, dict):
+        seed_pack = idea_metadata.get("keyword_seed_pack") or {}
+        if isinstance(seed_pack, dict):
+            for item in (seed_pack.get("input_keywords") or []):
+                candidates.extend(_query_like_terms(str(item)))
         seed_inputs = idea_metadata.get("input_keywords")
         if isinstance(seed_inputs, list):
-            candidates.extend([str(item).strip() for item in seed_inputs if str(item).strip()])
+            for item in seed_inputs:
+                candidates.extend(_query_like_terms(str(item)))
 
     if not candidates:
         # Fallback: derive a few keyword-like tokens from title.
-        title = str(idea.get("title") or "").strip().lower()
-        tokens = re.findall(r"[a-z0-9]{3,}", title)
-        candidates.extend(tokens[:8])
+        title = str(idea.get("title") or "").strip()
+        candidates.extend(_query_like_terms(title))
 
     seen = set()
     normalized = []
     for kw in candidates:
-        key = kw.lower()
+        key = _normalize_keyword_term(kw)
+        if not key:
+            continue
         if key in seen:
             continue
         seen.add(key)
-        normalized.append(kw)
+        normalized.append(key)
     return normalized[:20]
 
 
@@ -256,8 +303,14 @@ def _normalize_keyword_term(term: str) -> str:
     cleaned = re.sub(r"\s+", " ", str(term or "").strip().lower())
     cleaned = re.sub(r"[^\w\s-]", " ", cleaned)
     cleaned = re.sub(r"\b(202\d|203\d)\b", " ", cleaned)
+    cleaned = re.sub(r"\b(vs|versus|and|or)\b", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    return cleaned
+    tokens = [tok for tok in cleaned.split(" ") if tok and tok not in QUERY_STOPWORDS and tok not in JARGON_STOPWORDS]
+    if len(tokens) < 2:
+        return tokens[0] if tokens and len(tokens[0]) >= 4 else ""
+    if len(tokens) > 4:
+        tokens = tokens[:4]
+    return " ".join(tokens)
 
 
 def _shorten_keyword_term(term: str) -> str:

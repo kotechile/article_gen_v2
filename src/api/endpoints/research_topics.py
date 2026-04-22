@@ -2524,6 +2524,87 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
         phrase_norm = re.sub(r"\s+", " ", str(phrase or "").lower()).strip()
         return bool(title_norm and phrase_norm and phrase_norm in title_norm)
 
+    SIMPLE_STOPWORDS = {
+        "a", "an", "the", "to", "for", "of", "in", "on", "at", "with", "without",
+        "from", "into", "by", "my", "your", "our", "their", "is", "are", "be",
+        "what", "how", "when", "why", "can", "should", "could", "would", "do",
+        "does", "did", "or", "and", "vs", "versus",
+    }
+    JARGON_TOKENS = {
+        "framework", "paradigm", "architecture", "methodology", "optimization",
+        "strategic", "strategy", "lens", "playbook",
+    }
+
+    def _simplify_seed_phrase(raw_phrase: str) -> str:
+        cleaned = re.sub(r"[^a-zA-Z0-9\s-]", " ", str(raw_phrase or "").lower())
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+        if not cleaned:
+            return ""
+
+        # Prefer atomic user queries over comparison connectors.
+        parts = re.split(r"\b(?:or|vs|versus|and)\b", cleaned)
+        normalized_parts = []
+        for part in parts:
+            part = re.sub(r"\s+", " ", part).strip()
+            if not part:
+                continue
+            tokens = [t for t in part.split(" ") if t and t not in SIMPLE_STOPWORDS and t not in JARGON_TOKENS]
+            if len(tokens) < 2:
+                continue
+            if len(tokens) > 4:
+                tokens = tokens[:4]
+            normalized_parts.append(" ".join(tokens))
+
+        if normalized_parts:
+            return normalized_parts[0]
+
+        tokens = [t for t in cleaned.split(" ") if t and t not in SIMPLE_STOPWORDS and t not in JARGON_TOKENS]
+        if len(tokens) < 2:
+            return tokens[0] if tokens and len(tokens[0]) >= 4 else ""
+        if len(tokens) > 4:
+            tokens = tokens[:4]
+        return " ".join(tokens)
+
+    def _build_simple_keyword_seeds(title_value: str, subtopic_value: str, seeds: list[str]) -> list[str]:
+        raw_candidates = list(seeds or [])
+        raw_candidates.extend([title_value, subtopic_value])
+
+        expanded = []
+        for raw in raw_candidates:
+            phrase = str(raw or "").strip()
+            if not phrase:
+                continue
+            simple = _simplify_seed_phrase(phrase)
+            if simple:
+                expanded.append(simple)
+
+            # Add short n-gram alternatives to increase DataForSEO hit-rate.
+            tokens = [t for t in simple.split(" ") if t] if simple else []
+            if len(tokens) >= 3:
+                expanded.append(" ".join(tokens[:2]))
+                expanded.append(" ".join(tokens[-2:]))
+
+        seen = set()
+        scored = []
+        for item in expanded:
+            normalized = re.sub(r"\s+", " ", item.lower()).strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            token_count = len(normalized.split(" "))
+            # Rank simple query-like terms first (2-3 words ideal).
+            score = 0
+            if token_count in (2, 3):
+                score += 3
+            elif token_count == 4:
+                score += 1
+            if any(conn in normalized for conn in (" or ", " vs ", " versus ", " and ")):
+                score -= 3
+            scored.append((score, normalized))
+
+        scored.sort(key=lambda x: (-x[0], len(x[1])))
+        return [item for _, item in scored[:5]]
+
     input_keywords = idea_data.get('input_keywords', [])
     if not isinstance(input_keywords, list):
         input_keywords = []
@@ -2537,9 +2618,17 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
         keywords = list(input_keywords)
 
     title = (idea_data.get('title') or 'Untitled Idea').strip()
+    simple_seed_keywords = _build_simple_keyword_seeds(title, subtopic_name, input_keywords or keywords)
+    if simple_seed_keywords:
+        input_keywords = simple_seed_keywords
+        keywords = simple_seed_keywords
+
     search_phrase = _normalize_search_phrase(idea_data.get('search_phrase', ''))
     if not search_phrase:
-        search_phrase = _derive_search_phrase(title, keywords)
+        search_phrase = _derive_search_phrase(title, input_keywords or keywords)
+    simplified_search_phrase = _simplify_seed_phrase(search_phrase) or search_phrase
+    if simplified_search_phrase:
+        search_phrase = simplified_search_phrase
 
     if search_phrase and not _title_contains_phrase(title, search_phrase):
         logger.info("Rewriting idea title to include search phrase: '%s'", search_phrase)
@@ -2549,6 +2638,15 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
         existing_norm = {re.sub(r"\s+", " ", k.lower()).strip() for k in keywords}
         if search_phrase not in existing_norm:
             keywords.insert(0, search_phrase)
+    if input_keywords:
+        seed_norm = {re.sub(r"\s+", " ", k.lower()).strip() for k in keywords}
+        for seed in input_keywords:
+            norm = re.sub(r"\s+", " ", seed.lower()).strip()
+            if norm and norm not in seed_norm:
+                keywords.append(seed)
+                seed_norm.add(norm)
+    keywords = [str(k).strip().lower() for k in keywords if str(k).strip()][:6]
+    input_keywords = [str(k).strip().lower() for k in input_keywords if str(k).strip()][:5]
 
     title_lower = title.lower()
     contains_keyword = any(kw.lower() in title_lower for kw in keywords)
@@ -2604,6 +2702,11 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
         "idea_metadata": {
             "search_phrase": search_phrase,
             "input_keywords": input_keywords,
+            "keyword_seed_pack": {
+                "input_keywords": input_keywords,
+                "normalization_version": "simple_queries_v1",
+                "source": "idea_burst_first_pass",
+            },
             "target_intent": idea_data.get('target_intent', ''),
             "article_format": idea_data.get('article_format', ''),
             "user_decision_helped": idea_data.get('user_decision_helped', ''),
