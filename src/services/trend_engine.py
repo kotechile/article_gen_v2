@@ -113,25 +113,14 @@ class TrendEngine:
             focus_topics,
         )
         
-        # 2. DataForSEO Integration (Rising search signals - Standard Method)
-        # Use niche-specific focus topics first, then categories as fallback.
-        seed_keyword = focus_topics[0] if focus_topics else (categories[0] if categories else "trends")
-        
-        logger.info(f"Fetching keyword ideas (Standard/Queued) for seed: {seed_keyword}")
-        
-        # Fetch a broader set to derive "rising queries" signals.
-        keyword_ideas = await self.dfs.get_keyword_ideas_standard(
-            seed_keyword=seed_keyword,
-            limit=100,
-            filters=[["keyword_info.search_volume", ">", 50]],  # Keep broad, avoid tiny noise
-            order_by=["keyword_info.search_volume,desc"],
-        )
-        
-        # Rank for growth (do not treat as final SEO targets at this stage).
-        growing_keywords = self._process_keywords_for_growth(keyword_ideas)
-        top_growing = growing_keywords[:10]
-        
-        logger.info(f"Found {len(top_growing)} growing keywords.")
+        # 2. Discovery terms only (no topic-stage keyword survey/validation).
+        # Keep the trend path data-driven via news/social signals, but avoid
+        # spending DataForSEO credits on keyword surveys that are not reused
+        # downstream.
+        discovery_terms = [term for term in (focus_topics[:4] or categories[:4]) if str(term).strip()]
+        if not discovery_terms:
+            discovery_terms = ["market trends"]
+        seed_keyword = discovery_terms[0]
 
         # 3. News Aggregation (Standard Method)
         # Query should stay tightly aligned to the site's actual niche and selected category path.
@@ -143,9 +132,9 @@ class TrendEngine:
         
         # 4. Pinterest Context (via Apify)
         pinterest_trends = []
-        if top_growing:
-            search_terms = [k['keyword'] for k in top_growing]
-            logger.info(f"Fetching Pinterest trends for: {search_terms}")
+        if discovery_terms:
+            search_terms = discovery_terms[:3]
+            logger.info("Fetching Pinterest trends for discovery terms: %s", search_terms)
             pinterest_trends = await self.apify.get_pinterest_trends(search_terms)
 
         # 5. Social Pulse (Reddit/Quora/LinkedIn)
@@ -170,10 +159,10 @@ class TrendEngine:
         
         # LinkedIn using Apify
         linkedin_posts = []
-        if top_growing:
-             # Use top 1 keyword to save credits/time
-             li_keyword = top_growing[0]['keyword']
-             logger.info(f"Fetching LinkedIn posts (Apify) for: {li_keyword}")
+        if discovery_terms:
+             # Use first discovery term to keep requests lightweight.
+             li_keyword = discovery_terms[0]
+             logger.info("Fetching LinkedIn posts (Apify) for discovery term: %s", li_keyword)
              linkedin_posts = await self.apify.get_linkedin_posts([li_keyword], max_results=5)
              social_pulse.extend(linkedin_posts)
 
@@ -199,7 +188,7 @@ class TrendEngine:
             site_description=site_description,
             categories=categories,
             focus_topics=focus_topics,
-            keywords=top_growing,
+            discovery_terms=discovery_terms,
             news=news_articles,
             pinterest=pinterest_trends,
             social_pulse=social_pulse,
@@ -215,7 +204,8 @@ class TrendEngine:
             "site_id": site_id,
             "report_content": trend_report_content, 
             "raw_data": {
-                "keywords": top_growing,
+                "keywords": [],
+                "discovery_terms": discovery_terms,
                 "news": news_articles,
                 "pinterest": pinterest_trends,
                 "social_pulse": social_pulse
@@ -317,60 +307,6 @@ class TrendEngine:
         except Exception as e:
             logger.warning(f"Failed to resolve category context: {e}")
         return result
-
-    def _process_keywords_for_growth(self, keyword_ideas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Rank keyword ideas by year-over-year growth while lightly favoring lower competition.
-        These are used only as directional "rising query" signals for trend synthesis.
-        """
-        processed_keywords = []
-
-        competition_rank = {
-            "LOW": 0,
-            "MEDIUM": 1,
-            "HIGH": 2,
-            "UNKNOWN": 3,
-        }
-
-        for item in keyword_ideas or []:
-            monthly_searches = item.get("monthly_searches") or []
-            current_volume = item.get("search_volume") or 0
-            prior_volume = 0
-
-            if isinstance(monthly_searches, list) and len(monthly_searches) >= 12:
-                latest = monthly_searches[0] or {}
-                year_ago = monthly_searches[11] or {}
-                current_volume = latest.get("search_volume", current_volume) or current_volume
-                prior_volume = year_ago.get("search_volume", 0) or 0
-            elif isinstance(monthly_searches, list) and len(monthly_searches) >= 2:
-                latest = monthly_searches[0] or {}
-                previous = monthly_searches[-1] or {}
-                current_volume = latest.get("search_volume", current_volume) or current_volume
-                prior_volume = previous.get("search_volume", 0) or 0
-
-            if prior_volume > 0:
-                growth_pct = ((current_volume - prior_volume) / prior_volume) * 100
-            elif current_volume > 0:
-                growth_pct = 100.0
-            else:
-                growth_pct = 0.0
-
-            processed = {
-                **item,
-                "growth_pct": round(growth_pct, 1),
-                "growth_formatted": f"{growth_pct:+.1f}%",
-            }
-            processed_keywords.append(processed)
-
-        processed_keywords.sort(
-            key=lambda kw: (
-                competition_rank.get((kw.get("competition") or "UNKNOWN").upper(), 3),
-                -(kw.get("growth_pct") or 0),
-                -(kw.get("search_volume") or 0),
-            )
-        )
-
-        return [kw for kw in processed_keywords if (kw.get("growth_pct") or 0) >= 0]
 
     def _build_focus_topics(
         self,
@@ -495,7 +431,7 @@ class TrendEngine:
         site_description: str,
         categories: List[str],
         focus_topics: List[str],
-        keywords,
+        discovery_terms: List[str],
         news,
         pinterest,
         social_pulse,
@@ -549,8 +485,8 @@ We have already published articles on the following topics (avoid suggesting nea
 
 RAW TREND SIGNALS (use as evidence, not as final titles):
 
-RISING SEARCH QUERIES (directional signals, may include competitive terms):
-{json.dumps(keywords, indent=2)}
+DISCOVERY TERMS (category-aligned directional seeds, not validated keyword targets):
+{json.dumps(discovery_terms or [], indent=2)}
 
 RECENT NEWS RESULTS:
 {json.dumps(news, indent=2)}

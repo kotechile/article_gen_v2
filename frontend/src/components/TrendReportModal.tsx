@@ -30,6 +30,7 @@ interface TrendReport {
             search_volume?: number;
             competition?: string;
         }>;
+        discovery_terms?: string[];
         news: Array<{
             title: string;
             url: string;
@@ -68,6 +69,7 @@ export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, site
     const topics = report?.report_content?.topics || [];
     const painPoints = report?.report_content?.pain_points || report?.pain_points || [];
     const keywords = report?.raw_data?.keywords || [];
+    const discoveryTerms = report?.raw_data?.discovery_terms || [];
     const newsItems = report?.raw_data?.news || [];
     const synthesisError = report?.report_content?.error;
 
@@ -273,7 +275,7 @@ export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, site
                                 <section>
                                     <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-gray-900 dark:text-white">
                                         <ArrowUpRight className="w-5 h-5 text-green-500" />
-                                        Growing Search Terms
+                                        Trend Discovery Terms
                                     </h3>
                                     {keywords.length > 0 ? (
                                         <div className="space-y-3">
@@ -291,9 +293,25 @@ export const TrendReportModal: React.FC<TrendReportModalProps> = ({ siteId, site
                                             </div>
                                             ))}
                                         </div>
+                                    ) : discoveryTerms.length > 0 ? (
+                                        <div className="space-y-3">
+                                            {discoveryTerms.map((term, i) => (
+                                            <div key={i} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-700">
+                                                <div>
+                                                    <p className="font-medium text-gray-900 dark:text-gray-100">{term}</p>
+                                                    <p className="text-xs text-gray-500">Used to gather trend/news/forum signals</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <span className="inline-flex items-center px-2 py-1 rounded-md bg-blue-100 text-blue-700 text-xs font-bold">
+                                                        Discovery
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            ))}
+                                        </div>
                                     ) : (
                                         <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 p-4 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-400">
-                                            No growing search terms were found for this run. That usually means the keyword source returned sparse or off-niche data.
+                                            No discovery terms were available for this run.
                                         </div>
                                     )}
                                 </section>

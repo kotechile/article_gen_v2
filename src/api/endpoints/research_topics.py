@@ -1876,6 +1876,7 @@ Generate 5 blog article ideas that:
 6. Use plain, everyday language in titles (no consultant-speak or corporate jargon)
 7. Prefer words real users type in search bars over boardroom phrasing
 8. Ensure each title contains at least one Primary Keyword verbatim
+9. DESCRIPTION is required and cannot be empty
 
 For each idea, provide:
 - Title: Specific, SEO-conscious title in simple language (clear, practical, non-technical unless necessary)
@@ -1977,6 +1978,7 @@ Critical naming and language rules:
 - Tool names must be plain-English and practical (what users would actually search)
 - Avoid consultant-speak and brochure language (no "framework", "paradigm", "value architecture", "strategic lens")
 - If a technical term is required, pair it with a simple phrase users understand
+- DESCRIPTION is required and cannot be empty
 """
 
             # Generate both in parallel
@@ -2204,11 +2206,22 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
         if clean_primary_kw:
             title = f"{clean_primary_kw}: {title}"
 
+    description = str(idea_data.get('description') or '').strip()
+    if not description:
+        if keywords:
+            description = (
+                f"This article explains {keywords[0]} in plain language and helps the reader make a practical decision."
+            )
+        else:
+            description = (
+                f"This article gives a practical breakdown of {title.lower()} and what action the reader should take next."
+            )
+
     return {
         "id": idea_data.get('id', str(uuid4())),
         "title": title or 'Untitled Idea',
         "content_type": content_type,
-        "description": idea_data.get('description', ''),
+        "description": description,
         "primary_keywords": keywords,
         "secondary_keywords": [],
         "seo_optimization_score": 0,
