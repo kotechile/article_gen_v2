@@ -132,29 +132,31 @@ def _coerce_keyword_metric_entries(raw_keywords) -> list[dict]:
         if not keyword:
             continue
 
+        raw_search_volume = item.get("search_volume") if "search_volume" in item else item.get("volume")
+        raw_cpc = item.get("cpc")
+        raw_kd = item.get("keyword_difficulty")
+        if raw_kd is None:
+            raw_kd = item.get("difficulty")
+        if raw_kd is None:
+            raw_kd = item.get("seo_difficulty")
         try:
-            search_volume = int(float(item.get("search_volume") or item.get("volume") or 0))
+            search_volume = int(float(raw_search_volume)) if raw_search_volume is not None and str(raw_search_volume).strip() != "" else None
         except Exception:
-            search_volume = 0
+            search_volume = None
         try:
-            cpc = float(item.get("cpc") or 0.0)
+            cpc = float(raw_cpc) if raw_cpc is not None and str(raw_cpc).strip() != "" else None
         except Exception:
-            cpc = 0.0
+            cpc = None
         try:
-            keyword_difficulty = float(
-                item.get("keyword_difficulty")
-                or item.get("difficulty")
-                or item.get("seo_difficulty")
-                or 0.0
-            )
+            keyword_difficulty = float(raw_kd) if raw_kd is not None and str(raw_kd).strip() != "" else None
         except Exception:
-            keyword_difficulty = 0.0
+            keyword_difficulty = None
 
         entries.append({
             "keyword": keyword,
-            "search_volume": max(0, search_volume),
-            "cpc": max(0.0, cpc),
-            "keyword_difficulty": max(0.0, keyword_difficulty),
+            "search_volume": max(0, search_volume) if search_volume is not None else None,
+            "cpc": max(0.0, cpc) if cpc is not None else None,
+            "keyword_difficulty": max(0.0, keyword_difficulty) if keyword_difficulty is not None else None,
         })
     return entries
 
@@ -168,9 +170,9 @@ def _build_keyword_metrics_map(raw_keywords) -> dict:
             continue
         metrics_map[normalized] = {
             "keyword": keyword,
-            "search_volume": int(item.get("search_volume") or 0),
-            "cpc": round(float(item.get("cpc") or 0.0), 2),
-            "keyword_difficulty": round(float(item.get("keyword_difficulty") or 0.0), 1),
+            "search_volume": int(item.get("search_volume")) if item.get("search_volume") is not None else None,
+            "cpc": round(float(item.get("cpc")), 2) if item.get("cpc") is not None else None,
+            "keyword_difficulty": round(float(item.get("keyword_difficulty")), 1) if item.get("keyword_difficulty") is not None else None,
         }
     return metrics_map
 
@@ -220,25 +222,28 @@ def _build_idea_keyword_metrics_payload(idea: dict, source_metrics_map: dict) ->
         if not row:
             continue
 
-        search_volume = int(row.get("search_volume") or 0)
-        cpc = float(row.get("cpc") or 0.0)
-        keyword_difficulty = float(row.get("keyword_difficulty") or 0.0)
+        raw_search_volume = row.get("search_volume")
+        raw_cpc = row.get("cpc")
+        raw_keyword_difficulty = row.get("keyword_difficulty")
+        search_volume = int(raw_search_volume) if raw_search_volume is not None and str(raw_search_volume).strip() != "" else None
+        cpc = float(raw_cpc) if raw_cpc is not None and str(raw_cpc).strip() != "" else None
+        keyword_difficulty = float(raw_keyword_difficulty) if raw_keyword_difficulty is not None and str(raw_keyword_difficulty).strip() != "" else None
         keyword_metrics[keyword] = {
             "search_volume": search_volume,
-            "cpc": round(cpc, 2),
-            "keyword_difficulty": round(keyword_difficulty, 1),
+            "cpc": round(cpc, 2) if cpc is not None else None,
+            "keyword_difficulty": round(keyword_difficulty, 1) if keyword_difficulty is not None else None,
         }
-        if search_volume > 0:
+        if search_volume is not None and search_volume > 0:
             volumes.append(search_volume)
-        if cpc > 0:
+        if cpc is not None and cpc > 0:
             cpcs.append(cpc)
-        if keyword_difficulty > 0:
+        if keyword_difficulty is not None and keyword_difficulty > 0:
             difficulties.append(keyword_difficulty)
 
     aggregates = {
-        "total_search_volume": int(sum(volumes)) if volumes else 0,
-        "average_cpc": round((sum(cpcs) / len(cpcs)) if cpcs else 0.0, 2),
-        "average_difficulty": round((sum(difficulties) / len(difficulties)) if difficulties else 0.0, 1),
+        "total_search_volume": int(sum(volumes)) if volumes else None,
+        "average_cpc": round((sum(cpcs) / len(cpcs)) if cpcs else 0.0, 2) if cpcs else None,
+        "average_difficulty": round((sum(difficulties) / len(difficulties)) if difficulties else 0.0, 1) if difficulties else None,
         "keywords_used": list(keyword_metrics.keys()),
     }
     return keyword_metrics, aggregates

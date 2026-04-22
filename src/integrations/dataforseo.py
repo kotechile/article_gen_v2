@@ -90,6 +90,20 @@ class DataForSEOAPI:
                 extracted.append(result_entry)
         return extracted
 
+    def _optional_number(self, primary: Dict[str, Any], key: str, fallback: Optional[Dict[str, Any]] = None):
+        """Return numeric value only when field is explicitly present; otherwise None."""
+        value = None
+        if isinstance(primary, dict) and key in primary:
+            value = primary.get(key)
+        elif isinstance(fallback, dict) and key in fallback:
+            value = fallback.get(key)
+        if value is None or value == "":
+            return None
+        try:
+            return float(value)
+        except Exception:
+            return None
+
     async def _make_request_with_retry(self, client, url, payload, headers, max_retries=5):
         """
         Make API request with retry logic for Rate Limits (40202)
@@ -441,13 +455,16 @@ class DataForSEOAPI:
                         for item in self._extract_keyword_items(task):
                             keyword_info = item.get("keyword_info", {})
                             keyword_data = item.get("keyword_data", {})
+                            search_volume = self._optional_number(item, "search_volume", keyword_info)
+                            cpc = self._optional_number(item, "cpc", keyword_data)
+                            keyword_difficulty = self._optional_number(item, "keyword_difficulty", keyword_data)
                             all_keywords.append({
                                 "keyword": item.get("keyword", ""),
-                                "search_volume": item.get("search_volume", keyword_info.get("search_volume", 0)),
+                                "search_volume": int(search_volume) if search_volume is not None else None,
                                 "competition": item.get("competition", keyword_info.get("competition", "UNKNOWN")),
                                 "competition_level": item.get("competition_level", keyword_info.get("competition_level", 0)),
-                                "cpc": item.get("cpc", keyword_data.get("cpc", 0)),
-                                "keyword_difficulty": item.get("keyword_difficulty", keyword_data.get("keyword_difficulty", 0)),
+                                "cpc": float(cpc) if cpc is not None else None,
+                                "keyword_difficulty": float(keyword_difficulty) if keyword_difficulty is not None else None,
                                 "created_at": datetime.utcnow().isoformat()
                             })
                 return all_keywords
@@ -555,12 +572,15 @@ class DataForSEOAPI:
                             keyword_info = row.get("keyword_info") if isinstance(row.get("keyword_info"), dict) else {}
                             keyword_data = row.get("keyword_data") if isinstance(row.get("keyword_data"), dict) else {}
 
+                            search_volume = self._optional_number(row, "search_volume", keyword_info)
+                            cpc = self._optional_number(row, "cpc", keyword_data)
+                            keyword_difficulty = self._optional_number(row, "keyword_difficulty", keyword_data)
                             return {
                                 "keyword": keyword,
-                                "search_volume": row.get("search_volume", keyword_info.get("search_volume", 0)),
-                                "cpc": row.get("cpc", keyword_data.get("cpc", 0)),
+                                "search_volume": int(search_volume) if search_volume is not None else None,
+                                "cpc": float(cpc) if cpc is not None else None,
                                 "competition": row.get("competition", keyword_info.get("competition", "UNKNOWN")),
-                                "keyword_difficulty": row.get("keyword_difficulty", keyword_data.get("keyword_difficulty", 0)),
+                                "keyword_difficulty": float(keyword_difficulty) if keyword_difficulty is not None else None,
                             }
 
                         for item in raw_result_list:
@@ -1013,12 +1033,12 @@ class DataForSEOAPI:
                     
                     keywords.append({
                         "keyword": item.get("keyword", ""),
-                        "search_volume": keyword_info.get("search_volume", 0),
+                        "search_volume": keyword_info.get("search_volume"),
                         "competition": keyword_info.get("competition", "UNKNOWN"),
                         "competition_level": keyword_info.get("competition_level", 0),
-                        "cpc": keyword_data.get("cpc", 0),
+                        "cpc": keyword_data.get("cpc"),
                         "monthly_searches": keyword_data.get("monthly_searches", []),
-                        "keyword_difficulty": keyword_data.get("keyword_difficulty", 0),
+                        "keyword_difficulty": keyword_data.get("keyword_difficulty"),
                         "created_at": datetime.utcnow().isoformat()
                     })
         
@@ -1034,10 +1054,10 @@ class DataForSEOAPI:
                 for item in task["result"]:
                     metrics.append({
                         "keyword": item.get("keyword", ""),
-                        "search_volume": item.get("search_volume", 0),
+                        "search_volume": item.get("search_volume"),
                         "competition": item.get("competition", "UNKNOWN"),
                         "competition_level": item.get("competition_level", 0),
-                        "cpc": item.get("cpc", 0),
+                        "cpc": item.get("cpc"),
                         "monthly_searches": item.get("monthly_searches", []),
                         "created_at": datetime.utcnow().isoformat()
                     })
@@ -1161,11 +1181,11 @@ class DataForSEOAPI:
                 for item in items:
                     difficulties.append({
                         "keyword": item.get("keyword", ""),
-                        "keyword_difficulty": item.get("keyword_difficulty", 0),
+                        "keyword_difficulty": item.get("keyword_difficulty"),
                         "competition": item.get("competition", "UNKNOWN"),
                         "competition_level": item.get("competition_level", 0),
-                        "search_volume": item.get("search_volume", 0),
-                        "cpc": item.get("cpc", 0),
+                        "search_volume": item.get("search_volume"),
+                        "cpc": item.get("cpc"),
                         "created_at": datetime.utcnow().isoformat()
                     })
         

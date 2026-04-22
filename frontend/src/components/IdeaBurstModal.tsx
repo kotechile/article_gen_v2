@@ -505,9 +505,9 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                 ? rawKeywords
                 : Array.from(subtopicKeywordMetrics.values()).map((row) => ({
                     keyword: row.keyword,
-                    search_volume: row.search_volume ?? 0,
-                    keyword_difficulty: row.keyword_difficulty ?? 0,
-                    cpc: row.cpc ?? 0,
+                    ...(row.search_volume !== null && row.search_volume !== undefined ? { search_volume: row.search_volume } : {}),
+                    ...(row.keyword_difficulty !== null && row.keyword_difficulty !== undefined ? { keyword_difficulty: row.keyword_difficulty } : {}),
+                    ...(row.cpc !== null && row.cpc !== undefined ? { cpc: row.cpc } : {}),
                 }));
 
             const monetizationData = subtopic.monetization_data || {};

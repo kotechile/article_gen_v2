@@ -386,9 +386,13 @@ async def _fetch_metrics_map_for_keywords(keywords: list[str], max_keywords_for_
             keyword = str(item.get("keyword") or "").strip().lower()
             if not keyword:
                 continue
+            raw_search_volume = item.get("search_volume")
+            raw_cpc = item.get("cpc")
+            search_volume = int(raw_search_volume) if raw_search_volume is not None and str(raw_search_volume).strip() != "" else None
+            cpc = float(raw_cpc) if raw_cpc is not None and str(raw_cpc).strip() != "" else None
             metrics_map[keyword] = {
-                "search_volume": int(item.get("search_volume") or 0),
-                "cpc": float(item.get("cpc") or 0.0),
+                "search_volume": search_volume,
+                "cpc": cpc,
             }
     except Exception:
         logger.warning("Bulk metrics request failed for candidate batch", exc_info=True)
@@ -403,7 +407,8 @@ async def _fetch_metrics_map_for_keywords(keywords: list[str], max_keywords_for_
             if not keyword:
                 continue
             existing = metrics_map.get(keyword, {})
-            existing["keyword_difficulty"] = float(item.get("keyword_difficulty") or 0.0)
+            raw_kd = item.get("keyword_difficulty")
+            existing["keyword_difficulty"] = float(raw_kd) if raw_kd is not None and str(raw_kd).strip() != "" else None
             metrics_map[keyword] = existing
     except Exception:
         logger.warning("Keyword difficulty request failed for candidate batch", exc_info=True)
@@ -504,10 +509,13 @@ def _build_keyword_metrics_payload(
 
     def _row(keyword: str) -> dict:
         raw = normalized_map.get(str(keyword or "").strip().lower(), {})
-        search_volume = int(raw.get("search_volume") or 0)
-        keyword_difficulty = float(raw.get("keyword_difficulty") or 0.0)
-        cpc = float(raw.get("cpc") or 0.0)
-        has_exact_metrics = search_volume > 0 or keyword_difficulty > 0 or cpc > 0
+        raw_search_volume = raw.get("search_volume")
+        raw_keyword_difficulty = raw.get("keyword_difficulty")
+        raw_cpc = raw.get("cpc")
+        search_volume = int(raw_search_volume) if raw_search_volume is not None and str(raw_search_volume).strip() != "" else None
+        keyword_difficulty = float(raw_keyword_difficulty) if raw_keyword_difficulty is not None and str(raw_keyword_difficulty).strip() != "" else None
+        cpc = float(raw_cpc) if raw_cpc is not None and str(raw_cpc).strip() != "" else None
+        has_exact_metrics = search_volume is not None or keyword_difficulty is not None or cpc is not None
         is_estimated = is_fallback_source or not has_exact_metrics
         return {
             "keyword": str(keyword or "").strip(),
@@ -520,9 +528,9 @@ def _build_keyword_metrics_payload(
 
     primary = _row(primary_keyword) if primary_keyword else {
         "keyword": "",
-        "search_volume": 0,
-        "keyword_difficulty": 0.0,
-        "cpc": 0.0,
+        "search_volume": None,
+        "keyword_difficulty": None,
+        "cpc": None,
         "metric_source": default_metric_source,
         "is_estimated": True,
     }
@@ -717,6 +725,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
             break
 
     selected_keywords = [row["keyword"] for row in ranked_candidates[:5]]
+    all_keywords_found = [row["keyword"] for row in ranked_candidates[:20] if str(row.get("keyword") or "").strip()]
     selected_metric_rows = [
         metrics_map.get(str(keyword).strip().lower(), {}) or {}
         for keyword in selected_keywords
@@ -790,6 +799,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
 
     return {
         "keywords_used": selected_keywords or keywords,
+        "all_keywords_found": all_keywords_found or selected_keywords or keywords,
         "total_search_volume": int(total_search_volume),
         "average_cpc": average_cpc,
         "average_difficulty": average_difficulty,
@@ -1224,7 +1234,12 @@ def enrich_content_ideas():
                 })
                 continue
 
-            keywords_used = [
+            all_keywords_found = [
+                str(keyword).strip()
+                for keyword in (enrichment.get("all_keywords_found") or [])
+                if str(keyword).strip()
+            ]
+            keywords_used = all_keywords_found or [
                 str(keyword).strip()
                 for keyword in (enrichment.get("keywords_used") or [])
                 if str(keyword).strip()
