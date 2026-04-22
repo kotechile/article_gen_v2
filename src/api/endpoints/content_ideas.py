@@ -1039,7 +1039,35 @@ def _apply_enrichment_update_with_fallback(
                 except Exception:
                     continue
             else:
-                continue
+                # Common production mismatch: enum/value constraints (e.g. status).
+                # Retry without high-risk fields while preserving raw DFS + keywords.
+                risky_fields = ("status", "title")
+                narrowed_payload = {
+                    k: v for k, v in candidate_payload.items()
+                    if k not in risky_fields
+                }
+                if narrowed_payload != candidate_payload and narrowed_payload:
+                    try:
+                        supabase.table("content_ideas").update(narrowed_payload).eq("id", idea_id).eq("user_id", user_id).execute()
+                        candidate_payload = narrowed_payload
+                    except Exception as narrowed_error:
+                        logger.warning(
+                            "Enrichment update failed for idea_id=%s payload_keys=%s narrowed_keys=%s err=%s narrowed_err=%s",
+                            idea_id,
+                            sorted(candidate_payload.keys()),
+                            sorted(narrowed_payload.keys()),
+                            err_text[:600],
+                            str(narrowed_error)[:600],
+                        )
+                        continue
+                else:
+                    logger.warning(
+                        "Enrichment update failed for idea_id=%s payload_keys=%s err=%s",
+                        idea_id,
+                        sorted(candidate_payload.keys()),
+                        err_text[:600],
+                    )
+                    continue
 
         try:
             verify_resp = (
@@ -1493,7 +1521,6 @@ def enrich_content_ideas():
             update_payload = {
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
                 "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
-                "status": "in_progress",
                 "updated_at": now,
                 "title": restated_title or original_title,
             }
@@ -1764,7 +1791,6 @@ def refresh_keywords_for_library():
             update_payload = {
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
                 "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
-                "status": "in_progress",
                 "updated_at": now,
             }
             if enrichment.get("has_exact_keyword_metrics"):
