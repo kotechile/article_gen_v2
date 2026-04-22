@@ -232,6 +232,16 @@ function resolveIdeaKeywords(idea: ContentIdea): string[] {
     return deduped;
 }
 
+function ideaHasExactKeywordMetrics(idea: ContentIdea): boolean {
+    const map = extractIdeaKeywordMetricsMap(idea);
+    for (const row of map.values()) {
+        if ((row.search_volume || 0) > 0 || (row.keyword_difficulty || 0) > 0 || (row.cpc || 0) > 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function computeAggregateFromExactMap(
     keywords: string[],
     ideaMap: Map<string, KeywordMetricRow>,
@@ -330,6 +340,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
     const [loadedFromCache, setLoadedFromCache] = React.useState(false);
     const [loadedFromStored, setLoadedFromStored] = React.useState(false);
     const lastGeneratedKeyRef = React.useRef<string | null>(null);
+    const autoEnrichAttemptedRef = React.useRef<Set<string>>(new Set());
 
     const cacheKey = React.useMemo(() => {
         if (!subtopic || !user) return null;
@@ -372,6 +383,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                         }
                     }
                     lastGeneratedKeyRef.current = generationKey;
+                    autoEnrichIdeasWithoutKeywordMetrics([...nextBlogIdeas, ...nextSoftwareIdeas]);
                     return;
                 }
             } catch (e) {
@@ -385,12 +397,15 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     if (raw) {
                         const parsed = JSON.parse(raw) as CachedIdeaBurst;
                         if (Array.isArray(parsed.blogIdeas) || Array.isArray(parsed.softwareIdeas)) {
-                            setBlogIdeas(Array.isArray(parsed.blogIdeas) ? parsed.blogIdeas : []);
-                            setSoftwareIdeas(Array.isArray(parsed.softwareIdeas) ? parsed.softwareIdeas : []);
+                            const cachedBlogIdeas = Array.isArray(parsed.blogIdeas) ? parsed.blogIdeas : [];
+                            const cachedSoftwareIdeas = Array.isArray(parsed.softwareIdeas) ? parsed.softwareIdeas : [];
+                            setBlogIdeas(cachedBlogIdeas);
+                            setSoftwareIdeas(cachedSoftwareIdeas);
                             setError(null);
                             setLoadedFromCache(true);
                             setLoadedFromStored(false);
                             lastGeneratedKeyRef.current = generationKey;
+                            autoEnrichIdeasWithoutKeywordMetrics([...cachedBlogIdeas, ...cachedSoftwareIdeas]);
                             return;
                         }
                     }
@@ -415,6 +430,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
     React.useEffect(() => {
         if (!isOpen) {
             lastGeneratedKeyRef.current = null;
+            autoEnrichAttemptedRef.current.clear();
         }
     }, [isOpen]);
 
@@ -514,6 +530,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     console.warn("Failed to persist idea burst cache:", e);
                 }
             }
+            await autoEnrichIdeasWithoutKeywordMetrics([...nextBlogIdeas, ...nextSoftwareIdeas]);
         } catch (err: any) {
             console.error("Failed to generate ideas:", err);
             setError(err.message || "Failed to generate content ideas. Please try again.");
@@ -634,17 +651,22 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         )));
     };
 
-    const handleEnrichSelectedIdeas = async (ideaIds: string[]) => {
+    const runEnrichment = async (ideaIds: string[], options?: { silent?: boolean }) => {
         if (!user || ideaIds.length === 0) return;
+        const silent = Boolean(options?.silent);
 
         try {
             setEnrichingIdeas(true);
-            setEnrichResultMessage(null);
-            setError(null);
+            if (!silent) {
+                setEnrichResultMessage(null);
+                setError(null);
+            }
             const result = await contentIdeasService.enrichContentIdeas(ideaIds, user.id);
 
             if (!result.success || result.enrichedCount <= 0) {
-                setError("No ideas were enriched. Please try again.");
+                if (!silent) {
+                    setError("No ideas were enriched. Please try again.");
+                }
                 return;
             }
 
@@ -662,17 +684,40 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             });
 
             const failedCount = Math.max(0, result.requestedCount - result.enrichedCount);
-            setEnrichResultMessage(
-                failedCount > 0
-                    ? `Enriched ${result.enrichedCount} ideas (${failedCount} failed).`
-                    : `Enriched ${result.enrichedCount} ideas.`
-            );
+            if (!silent) {
+                setEnrichResultMessage(
+                    failedCount > 0
+                        ? `Enriched ${result.enrichedCount} ideas (${failedCount} failed).`
+                        : `Enriched ${result.enrichedCount} ideas.`
+                );
+            }
         } catch (err) {
             console.error("Failed to enrich selected ideas:", err);
-            setError("Failed to run SEO/Offers for selected ideas.");
+            if (!silent) {
+                setError("Failed to run SEO/Offers for selected ideas.");
+            }
         } finally {
             setEnrichingIdeas(false);
         }
+    };
+
+    const handleEnrichSelectedIdeas = async (ideaIds: string[]) => {
+        await runEnrichment(ideaIds, { silent: false });
+    };
+
+    const autoEnrichIdeasWithoutKeywordMetrics = async (ideas: ContentIdea[]) => {
+        if (!user || !subtopic) return;
+        const scopeKey = `${topicId}:${subtopic.id}:${user.id}`;
+        if (autoEnrichAttemptedRef.current.has(scopeKey)) return;
+
+        const missingIdeaIds = ideas
+            .filter((idea) => !ideaHasExactKeywordMetrics(idea))
+            .map((idea) => idea.id)
+            .filter(Boolean);
+
+        if (missingIdeaIds.length === 0) return;
+        autoEnrichAttemptedRef.current.add(scopeKey);
+        await runEnrichment(missingIdeaIds, { silent: true });
     };
 
     const handleClearCachedIdeas = () => {
