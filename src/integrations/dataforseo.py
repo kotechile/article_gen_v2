@@ -517,7 +517,7 @@ class DataForSEOAPI:
                     return {"items": [], "raw": {"error": "no_seeds"}}
                 return []
 
-            # Keep one request but avoid sending excessive tasks.
+            # DataForSEO Labs related_keywords/live supports only one task per request.
             sanitized_seeds = []
             seen = set()
             for seed in seeds[:10]:
@@ -534,24 +534,41 @@ class DataForSEOAPI:
 
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 url = f"{self.base_url}/dataforseo_labs/google/related_keywords/live"
-                payload = [
-                    {
-                        "keyword": seed,
-                        "language_name": language_name,
-                        "location_code": location_code,
-                        "limit": int(limit_per_seed),
-                    }
-                    for seed in sanitized_seeds
-                ]
                 headers = {
                     "Authorization": self.auth_header,
                     "Content-Type": "application/json"
                 }
-                data = await self._make_request_with_retry(client, url, payload, headers)
-                parsed = self._process_related_keywords(data)
+
+                aggregated_items: List[Dict[str, Any]] = []
+                raw_responses: List[Dict[str, Any]] = []
+
+                for seed in sanitized_seeds:
+                    payload = [{
+                        "keyword": seed,
+                        "language_name": language_name,
+                        "location_code": location_code,
+                        "limit": int(limit_per_seed),
+                    }]
+                    data = await self._make_request_with_retry(client, url, payload, headers)
+                    raw_responses.append({
+                        "seed": seed,
+                        "request_payload": payload,
+                        "response": data,
+                    })
+                    parsed = self._process_related_keywords(data)
+                    if parsed:
+                        aggregated_items.extend(parsed)
+
                 if return_raw:
-                    return {"items": parsed, "raw": data}
-                return parsed
+                    return {
+                        "items": aggregated_items,
+                        "raw": {
+                            "endpoint": "dataforseo_labs/google/related_keywords/live",
+                            "requests_count": len(sanitized_seeds),
+                            "responses": raw_responses,
+                        },
+                    }
+                return aggregated_items
         except Exception as e:
             logger.error(f"DataForSEO Labs related keywords live error: {e}")
             if return_raw:
