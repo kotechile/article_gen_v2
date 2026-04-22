@@ -530,7 +530,61 @@ def _score_seed_candidate(seed: str) -> int:
     return score
 
 
-def _select_primary_seed_keyword(keywords: list[str], title: str = "", search_phrase: str = "") -> str:
+def _context_tokens_for_seed_ranking(text: str) -> list[str]:
+    normalized = _normalize_keyword_term(text)
+    if not normalized:
+        return []
+    return [t for t in normalized.split(" ") if t]
+
+
+def _context_relevance_score(seed: str, title: str = "", description: str = "") -> int:
+    """
+    Score how tightly a seed keyword matches first-pass idea context.
+    High relevance requires overlap with title and/or description terms.
+    """
+    seed_tokens = [t for t in _normalize_keyword_term(seed).split(" ") if t]
+    if not seed_tokens:
+        return -999
+
+    title_norm = _normalize_keyword_term(title)
+    desc_norm = _normalize_keyword_term(description)
+    title_tokens = _context_tokens_for_seed_ranking(title)
+    desc_tokens = _context_tokens_for_seed_ranking(description)
+    context_tokens = set(title_tokens + desc_tokens)
+
+    seed_text = " ".join(seed_tokens)
+    score = 0
+
+    # Strong signal: exact seed phrase appears in title/description.
+    if title_norm and seed_text and seed_text in title_norm:
+        score += 14
+    if desc_norm and seed_text and seed_text in desc_norm:
+        score += 8
+
+    # Prefer candidates whose terms are present in idea context.
+    overlap = sum(1 for token in seed_tokens if token in context_tokens)
+    if overlap <= 0:
+        score -= 10
+    else:
+        score += overlap * 5
+        if overlap == len(seed_tokens):
+            score += 4
+
+    # Small bonus for alignment with title lead terms (usually main topic intent).
+    title_lead = set(title_tokens[:6])
+    if title_lead:
+        lead_overlap = sum(1 for token in seed_tokens if token in title_lead)
+        score += lead_overlap * 2
+
+    return score
+
+
+def _select_primary_seed_keyword(
+    keywords: list[str],
+    title: str = "",
+    description: str = "",
+    search_phrase: str = "",
+) -> str:
     """
     Choose one simple seed keyword per idea for DataForSEO.
     Priority: explicit search phrase -> extracted keywords -> title-derived candidates.
@@ -549,7 +603,13 @@ def _select_primary_seed_keyword(keywords: list[str], title: str = "", search_ph
             continue
         seen.add(seed)
         if _looks_human_seed(seed):
-            ranked_candidates.append((_score_seed_candidate(seed), seed))
+            base_score = _score_seed_candidate(seed)
+            relevance_score = _context_relevance_score(
+                seed,
+                title=title,
+                description=description,
+            )
+            ranked_candidates.append((base_score + relevance_score, seed))
 
     if ranked_candidates:
         ranked_candidates.sort(key=lambda item: (-item[0], len(item[1]), item[1]))
@@ -959,6 +1019,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     primary_seed_keyword = _select_primary_seed_keyword(
         keywords=keywords,
         title=str(idea.get("title") or ""),
+        description=str(idea.get("description") or ""),
         search_phrase=str(idea.get("search_phrase") or ""),
     )
     working_candidates = [primary_seed_keyword] if primary_seed_keyword else list(candidates[:1])
