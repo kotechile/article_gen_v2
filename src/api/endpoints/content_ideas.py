@@ -5,6 +5,7 @@ Provides list, publish, and delete actions used by the frontend Idea Burst flow.
 """
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -68,6 +69,24 @@ def _ensure_short_description(raw_description, title: str = "", keywords: list |
     if len(description) > 220:
         description = description[:217].rstrip() + "..."
     return description
+
+
+def _coerce_json_field(value, default):
+    """Normalize possibly-stringified JSON fields coming from legacy rows."""
+    if value is None:
+        return default
+    if isinstance(value, type(default)):
+        return value
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return default
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, type(default)) else default
+        except Exception:
+            return default
+    return default
 
 
 def _resolve_user_id_from_request(supabase, data=None):
@@ -630,6 +649,11 @@ def list_content_ideas():
         normalized_rows = []
         for row in rows:
             row_copy = dict(row)
+            row_copy["keyword_metrics"] = _coerce_json_field(row_copy.get("keyword_metrics"), {})
+            row_copy["idea_metadata"] = _coerce_json_field(row_copy.get("idea_metadata"), {})
+            row_copy["primary_keywords"] = _coerce_json_field(row_copy.get("primary_keywords"), [])
+            row_copy["secondary_keywords"] = _coerce_json_field(row_copy.get("secondary_keywords"), [])
+            row_copy["keywords"] = _coerce_json_field(row_copy.get("keywords"), [])
             normalized_description = _ensure_short_description(
                 raw_description=row_copy.get("description"),
                 title=row_copy.get("title") or "",

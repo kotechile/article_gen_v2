@@ -28,23 +28,73 @@ function normalizeKeywordKey(input: string): string {
     return (input || "").trim().toLowerCase();
 }
 
+function parseJsonLike<T>(value: unknown, fallback: T): T {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === "string") {
+        const raw = value.trim();
+        if (!raw) return fallback;
+        try {
+            const parsed = JSON.parse(raw);
+            return (parsed as T) ?? fallback;
+        } catch {
+            return fallback;
+        }
+    }
+    return value as T;
+}
+
 function extractIdeaKeywordMetricsMap(idea: ContentIdea): Map<string, KeywordMetricRow> {
     const map = new Map<string, KeywordMetricRow>();
-    const fromColumn = (idea as any).keyword_metrics || {};
-    const fromMetadata = (idea as any).idea_metadata?.seo_offer_enrichment?.keyword_metrics || {};
-    const merged = { ...fromMetadata, ...fromColumn };
+    const ideaMetadata = parseJsonLike<Record<string, unknown>>((idea as any).idea_metadata, {});
+    const fromColumn = parseJsonLike<unknown>((idea as any).keyword_metrics, {});
+    const fromMetadata = parseJsonLike<unknown>((ideaMetadata as any)?.seo_offer_enrichment?.keyword_metrics, {});
 
-    Object.entries(merged || {}).forEach(([rawKeyword, rawMetric]) => {
-        const keyword = String(rawKeyword || "").trim();
+    const ingestMetric = (keywordInput: unknown, metricInput: unknown) => {
+        const keyword = String(keywordInput || "").trim();
         if (!keyword) return;
-        const metric = (rawMetric || {}) as Record<string, unknown>;
+        const metric = parseJsonLike<Record<string, unknown>>(metricInput, {});
+        const searchVolumeRaw = metric.search_volume;
+        const keywordDifficultyRaw = metric.keyword_difficulty;
+        const cpcRaw = metric.cpc;
+        const searchVolume =
+            typeof searchVolumeRaw === "number"
+                ? searchVolumeRaw
+                : (typeof searchVolumeRaw === "string" && searchVolumeRaw.trim() ? Number(searchVolumeRaw) : null);
+        const keywordDifficulty =
+            typeof keywordDifficultyRaw === "number"
+                ? keywordDifficultyRaw
+                : (typeof keywordDifficultyRaw === "string" && keywordDifficultyRaw.trim() ? Number(keywordDifficultyRaw) : null);
+        const cpc =
+            typeof cpcRaw === "number"
+                ? cpcRaw
+                : (typeof cpcRaw === "string" && cpcRaw.trim() ? Number(cpcRaw) : null);
+
         map.set(normalizeKeywordKey(keyword), {
             keyword,
-            search_volume: typeof metric.search_volume === "number" ? metric.search_volume : null,
-            keyword_difficulty: typeof metric.keyword_difficulty === "number" ? metric.keyword_difficulty : null,
-            cpc: typeof metric.cpc === "number" ? metric.cpc : null,
+            search_volume: Number.isFinite(searchVolume as number) ? (searchVolume as number) : null,
+            keyword_difficulty: Number.isFinite(keywordDifficulty as number) ? (keywordDifficulty as number) : null,
+            cpc: Number.isFinite(cpc as number) ? (cpc as number) : null,
         });
-    });
+    };
+
+    const ingestSource = (source: unknown) => {
+        const parsedSource = parseJsonLike<unknown>(source, {});
+        if (Array.isArray(parsedSource)) {
+            parsedSource.forEach((row) => {
+                if (!row || typeof row !== "object") return;
+                ingestMetric((row as any).keyword || (row as any).term, row);
+            });
+            return;
+        }
+        if (parsedSource && typeof parsedSource === "object") {
+            Object.entries(parsedSource as Record<string, unknown>).forEach(([rawKeyword, rawMetric]) => {
+                ingestMetric(rawKeyword, rawMetric);
+            });
+        }
+    };
+
+    ingestSource(fromMetadata);
+    ingestSource(fromColumn);
     return map;
 }
 
