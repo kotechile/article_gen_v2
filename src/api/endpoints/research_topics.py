@@ -19,14 +19,21 @@ from ...api.middleware.auth import require_api_key
 from ...core.models.topic_analysis import Subtopic
 
 # Import supabase client
+# Prefer the strict service-role singleton used by backend endpoints.
 try:
-    from supabase_client import get_supabase_client
+    from src.core.supabase_singleton import get_supabase_client
 except ImportError:
-    # Fallback for when running in different context
-    import sys
-    import os
-    sys.path.append(os.getcwd())
-    from supabase_client import get_supabase_client
+    try:
+        from ...core.supabase_singleton import get_supabase_client
+    except ImportError:
+        # Legacy fallback for alternate runtime contexts.
+        try:
+            from supabase_client import get_supabase_client
+        except ImportError:
+            import sys
+            import os
+            sys.path.append(os.getcwd())
+            from supabase_client import get_supabase_client
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +76,7 @@ def _get_admin_supabase_client(default_client):
     import httpx
 
     sb_url = os.environ.get('SUPABASE_URL')
-    sb_key = os.environ.get('SUPABASE_SERVICE_KEY')
+    sb_key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY') or os.environ.get('SUPABASE_SERVICE_KEY')
 
     if not (sb_url and sb_key):
         return default_client
@@ -2335,6 +2342,7 @@ Critical naming and language rules:
                     "build_complexity": idea.get("build_complexity") or "",
                     "distribution_angle": idea.get("distribution_angle") or "",
                     "keyword_metrics": idea.get("keyword_metrics") or {},
+                    "raw_dataforseo_output": idea.get("raw_dataforseo_output") or {},
                     "idea_metadata": idea_metadata,
                     "status": idea.get("status") or "draft",
                     "created_at": idea.get("created_at") or datetime.utcnow().isoformat(),

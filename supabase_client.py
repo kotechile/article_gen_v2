@@ -30,8 +30,8 @@ def get_supabase_client() -> Optional[Client]:
     
     supabase_url = os.environ.get('SUPABASE_URL')
     
-    # Prioritize Service Key (Bypass RLS) -> Standard Key -> Anon Key
-    service_key = os.environ.get('SUPABASE_SERVICE_KEY')
+    # Prioritize Service Role Key (Bypass RLS) -> Service Key -> Standard Key -> Anon Key
+    service_key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY') or os.environ.get('SUPABASE_SERVICE_KEY')
     anon_key = os.environ.get('SUPABASE_ANON_KEY')
     common_key = os.environ.get('SUPABASE_KEY')
     
