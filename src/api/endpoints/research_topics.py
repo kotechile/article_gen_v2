@@ -2044,16 +2044,26 @@ Critical naming and language rules:
                 # Some schemas may not include status; skip cleanup in that case.
                 logger.warning("Skipping draft cleanup before idea burst save", exc_info=True)
 
-            persisted_rows = []
-            for idea in all_ideas:
-                keywords = idea.get("primary_keywords") or []
+            def _build_persist_row(idea: dict) -> dict:
+                keywords = idea.get("primary_keywords") or idea.get("keywords") or []
                 if not isinstance(keywords, list):
                     keywords = []
+                keywords = [str(k).strip() for k in keywords if str(k).strip()]
+
+                secondary_keywords = idea.get("secondary_keywords") or []
+                if not isinstance(secondary_keywords, list):
+                    secondary_keywords = []
+                secondary_keywords = [str(k).strip() for k in secondary_keywords if str(k).strip()]
+                if not secondary_keywords and len(keywords) > 1:
+                    secondary_keywords = keywords[1:]
 
                 content_type = (idea.get("content_type") or "blog").strip().lower()
                 category = "software_tool" if content_type == "software" else "seo_optimized"
+                idea_metadata = idea.get("idea_metadata") or {}
+                if not isinstance(idea_metadata, dict):
+                    idea_metadata = {}
 
-                row = {
+                return {
                     "id": idea.get("id"),
                     "title": idea.get("title") or "Untitled Idea",
                     "description": idea.get("description") or "",
@@ -2063,11 +2073,62 @@ Critical naming and language rules:
                     "topic_id": topic_id,
                     "user_id": user_id,
                     "keywords": keywords,
+                    "primary_keywords": keywords,
+                    "secondary_keywords": secondary_keywords,
+                    "search_phrase": idea.get("search_phrase") or "",
+                    "total_search_volume": int(idea.get("total_search_volume") or 0),
+                    "average_difficulty": float(idea.get("average_difficulty") or 0.0),
+                    "average_cpc": float(idea.get("average_cpc") or 0.0),
+                    "viability_score": int(idea.get("viability_score") or 0),
+                    "traffic_potential_score": int(idea.get("traffic_potential_score") or 0),
+                    "seo_optimization_score": int(idea.get("seo_optimization_score") or 0),
+                    "target_intent": idea.get("target_intent") or "",
+                    "article_format": idea.get("article_format") or "",
+                    "user_decision_helped": idea.get("user_decision_helped") or "",
+                    "internal_link_hook": idea.get("internal_link_hook") or "",
+                    "monetization_hook": idea.get("monetization_hook") or "",
+                    "product_type": idea.get("product_type") or "",
+                    "user_job_to_be_done": idea.get("user_job_to_be_done") or "",
+                    "key_inputs": idea.get("key_inputs") or [],
+                    "output_result": idea.get("output_result") or "",
+                    "build_complexity": idea.get("build_complexity") or "",
+                    "distribution_angle": idea.get("distribution_angle") or "",
+                    "idea_metadata": idea_metadata,
+                    "status": idea.get("status") or "draft",
+                    "created_at": idea.get("created_at") or datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat(),
                 }
-                persisted_rows.append(row)
 
-            # Use insert with guaranteed baseline columns for maximum schema compatibility.
-            supabase.table("content_ideas").insert(persisted_rows).execute()
+            def _insert_with_schema_fallback(row: dict) -> bool:
+                payload = dict(row)
+                for _ in range(6):
+                    try:
+                        supabase.table("content_ideas").insert(payload).execute()
+                        return True
+                    except Exception as insert_error:
+                        err = str(insert_error)
+                        missing_cols = re.findall(r"Could not find the '([^']+)' column", err)
+                        if not missing_cols:
+                            logger.warning("Idea burst insert failed without recoverable schema hint", exc_info=True)
+                            return False
+                        for col in missing_cols:
+                            payload.pop(col, None)
+                        if not payload:
+                            return False
+                return False
+
+            persisted_rows = [_build_persist_row(idea) for idea in all_ideas]
+            saved_count = 0
+            for row in persisted_rows:
+                if _insert_with_schema_fallback(row):
+                    saved_count += 1
+            logger.info(
+                "Idea burst persistence summary topic_id=%s subtopic=%s attempted=%s saved=%s",
+                topic_id,
+                subtopic_name,
+                len(persisted_rows),
+                saved_count,
+            )
 
             # Touch the parent topic to mark progress recency.
             try:

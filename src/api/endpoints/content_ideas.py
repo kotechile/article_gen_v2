@@ -100,6 +100,104 @@ def _coerce_json_field(value, default):
     return default
 
 
+def _coerce_numeric(value, cast, default):
+    try:
+        if value is None:
+            return default
+        return cast(value)
+    except Exception:
+        return default
+
+
+def _hydrate_legacy_idea_seo_fields(row_copy: dict) -> dict:
+    """
+    Backfill SEO fields for legacy rows that were persisted with minimal columns.
+    Prefers exact keyword-level data from `keyword_metrics`, then metadata payloads.
+    """
+    if not isinstance(row_copy, dict):
+        return row_copy
+
+    idea_metadata = _coerce_json_field(row_copy.get("idea_metadata"), {})
+    seo_offer = (idea_metadata.get("seo_offer_enrichment") or {}) if isinstance(idea_metadata, dict) else {}
+
+    # Normalize keyword metrics map from multiple possible payload locations.
+    keyword_metrics = _coerce_json_field(row_copy.get("keyword_metrics"), {})
+    if not isinstance(keyword_metrics, dict) or not keyword_metrics:
+        keyword_metrics = _coerce_json_field(
+            seo_offer.get("keyword_metrics") or seo_offer.get("keyword_metrics_map"),
+            {},
+        )
+    if not isinstance(keyword_metrics, dict):
+        keyword_metrics = {}
+    row_copy["keyword_metrics"] = keyword_metrics
+
+    # Reconstruct keyword arrays when missing.
+    keywords = _coerce_json_field(row_copy.get("keywords"), [])
+    primary_keywords = _coerce_json_field(row_copy.get("primary_keywords"), [])
+    secondary_keywords = _coerce_json_field(row_copy.get("secondary_keywords"), [])
+
+    if not keywords:
+        metadata_keywords = _coerce_json_field(
+            seo_offer.get("keywords_used") or idea_metadata.get("keywords_used"),
+            [],
+        )
+        if metadata_keywords:
+            keywords = metadata_keywords
+
+    if not keywords and keyword_metrics:
+        keywords = [str(key).strip() for key in keyword_metrics.keys() if str(key).strip()]
+
+    if not primary_keywords and keywords:
+        primary_keywords = list(keywords)
+    if not secondary_keywords and len(primary_keywords) > 1:
+        secondary_keywords = list(primary_keywords[1:])
+
+    row_copy["keywords"] = keywords
+    row_copy["primary_keywords"] = primary_keywords
+    row_copy["secondary_keywords"] = secondary_keywords
+
+    # Backfill aggregate metrics when not populated on the row.
+    total_search_volume = _coerce_numeric(row_copy.get("total_search_volume"), int, 0)
+    average_difficulty = _coerce_numeric(row_copy.get("average_difficulty"), float, 0.0)
+    average_cpc = _coerce_numeric(row_copy.get("average_cpc"), float, 0.0)
+
+    if total_search_volume <= 0:
+        total_search_volume = _coerce_numeric(seo_offer.get("total_search_volume"), int, 0)
+    if average_difficulty <= 0:
+        average_difficulty = _coerce_numeric(seo_offer.get("average_difficulty"), float, 0.0)
+    if average_cpc <= 0:
+        average_cpc = _coerce_numeric(seo_offer.get("average_cpc"), float, 0.0)
+
+    if (total_search_volume <= 0 or average_difficulty <= 0 or average_cpc <= 0) and keyword_metrics:
+        volumes = []
+        difficulties = []
+        cpcs = []
+        for value in keyword_metrics.values():
+            if not isinstance(value, dict):
+                continue
+            vol = _coerce_numeric(value.get("search_volume"), int, 0)
+            kd = _coerce_numeric(value.get("keyword_difficulty"), float, 0.0)
+            cpc = _coerce_numeric(value.get("cpc"), float, 0.0)
+            if vol > 0:
+                volumes.append(vol)
+            if kd > 0:
+                difficulties.append(kd)
+            if cpc > 0:
+                cpcs.append(cpc)
+
+        if total_search_volume <= 0 and volumes:
+            total_search_volume = int(sum(volumes))
+        if average_difficulty <= 0 and difficulties:
+            average_difficulty = round(sum(difficulties) / len(difficulties), 1)
+        if average_cpc <= 0 and cpcs:
+            average_cpc = round(sum(cpcs) / len(cpcs), 2)
+
+    row_copy["total_search_volume"] = max(0, int(total_search_volume or 0))
+    row_copy["average_difficulty"] = round(float(average_difficulty or 0.0), 1)
+    row_copy["average_cpc"] = round(float(average_cpc or 0.0), 2)
+    return row_copy
+
+
 def _resolve_user_id_from_request(supabase, data=None):
     auth_header = request.headers.get("Authorization")
     user_id = None
@@ -660,11 +758,12 @@ def list_content_ideas():
         normalized_rows = []
         for row in rows:
             row_copy = dict(row)
-            row_copy["keyword_metrics"] = _coerce_json_field(row_copy.get("keyword_metrics"), {})
             row_copy["idea_metadata"] = _coerce_json_field(row_copy.get("idea_metadata"), {})
+            row_copy["keyword_metrics"] = _coerce_json_field(row_copy.get("keyword_metrics"), {})
             row_copy["primary_keywords"] = _coerce_json_field(row_copy.get("primary_keywords"), [])
             row_copy["secondary_keywords"] = _coerce_json_field(row_copy.get("secondary_keywords"), [])
             row_copy["keywords"] = _coerce_json_field(row_copy.get("keywords"), [])
+            row_copy = _hydrate_legacy_idea_seo_fields(row_copy)
             normalized_description = _ensure_short_description(
                 raw_description=row_copy.get("description"),
                 title=row_copy.get("title") or "",
