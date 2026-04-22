@@ -694,6 +694,12 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
             "average_difficulty": 0.0,
             "affiliate_offer_count": 0,
             "affiliate_offers": [],
+            "raw_supabase_output": {
+                "idea_id": idea_id,
+                "captured_at": datetime.utcnow().isoformat(),
+                "tiers": [],
+                "error": "no_keywords_extracted",
+            },
             "status": "failed",
             "reason": "No usable keywords found on idea",
         }
@@ -906,6 +912,50 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         "status": "enriched",
         "reason": None,
     }
+
+
+def _persist_raw_trace_for_idea(
+    supabase,
+    idea: dict,
+    user_id: str,
+    now_iso: str,
+    raw_output: dict | None,
+    reason: str | None = None,
+) -> None:
+    """
+    Best-effort debug persistence for raw DataForSEO output, including failed enrichments.
+    Keeps output in both raw_supabase_output column and idea_metadata for backward compatibility.
+    """
+    safe_raw = raw_output or {}
+    idea_metadata = dict(idea.get("idea_metadata") or {})
+    seo_offer = dict((idea_metadata.get("seo_offer_enrichment") or {}))
+    seo_offer["raw_dataforseo_output"] = safe_raw
+    if reason:
+        seo_offer["raw_trace_reason"] = reason
+    seo_offer["raw_trace_updated_at"] = now_iso
+    idea_metadata["seo_offer_enrichment"] = seo_offer
+
+    for payload in (
+        {
+            "raw_supabase_output": safe_raw,
+            "idea_metadata": idea_metadata,
+            "updated_at": now_iso,
+        },
+        {
+            "raw_supabase_output": safe_raw,
+            "updated_at": now_iso,
+        },
+        {
+            "idea_metadata": idea_metadata,
+            "updated_at": now_iso,
+        },
+        {"updated_at": now_iso},
+    ):
+        try:
+            supabase.table("content_ideas").update(payload).eq("id", idea.get("id")).eq("user_id", user_id).execute()
+            return
+        except Exception:
+            continue
 
 
 @content_ideas_bp.route("/list", methods=["POST"])
@@ -1299,6 +1349,14 @@ def enrich_content_ideas():
                     idea_id,
                     enrichment.get("reason"),
                 )
+                _persist_raw_trace_for_idea(
+                    supabase=supabase,
+                    idea=idea,
+                    user_id=user_id,
+                    now_iso=now,
+                    raw_output=enrichment.get("raw_supabase_output") or {},
+                    reason=enrichment.get("reason") or "enrichment_failed",
+                )
                 results.append({
                     "idea_id": idea_id,
                     "status": "failed",
@@ -1318,6 +1376,14 @@ def enrich_content_ideas():
                     "Enrichment produced zero metrics for idea_id=%s keywords=%s",
                     idea_id,
                     enrichment.get("keywords_used") or [],
+                )
+                _persist_raw_trace_for_idea(
+                    supabase=supabase,
+                    idea=idea,
+                    user_id=user_id,
+                    now_iso=now,
+                    raw_output=enrichment.get("raw_supabase_output") or {},
+                    reason="zero_metrics",
                 )
                 results.append({
                     "idea_id": idea_id,
@@ -1595,6 +1661,14 @@ def refresh_keywords_for_library():
                 results.append({"idea_id": idea_id, "status": "failed", "reason": "Enrichment request failed"})
                 continue
             if enrichment.get("status") != "enriched":
+                _persist_raw_trace_for_idea(
+                    supabase=supabase,
+                    idea=idea,
+                    user_id=user_id,
+                    now_iso=now,
+                    raw_output=enrichment.get("raw_supabase_output") or {},
+                    reason=enrichment.get("reason") or "enrichment_failed",
+                )
                 results.append({"idea_id": idea_id, "status": "failed", "reason": enrichment.get("reason") or "Enrichment failed"})
                 continue
 
