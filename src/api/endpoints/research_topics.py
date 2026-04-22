@@ -2558,7 +2558,8 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
 
     SIMPLE_STOPWORDS = {
         "a", "an", "the", "to", "for", "of", "in", "on", "at", "with", "without",
-        "from", "into", "by", "my", "your", "our", "their", "is", "are", "be",
+        "from", "into", "by", "my", "your", "our", "their", "you", "is", "are", "be", "have", "has", "had",
+        "too", "much", "more", "less", "first", "second", "third", "best", "better",
         "what", "how", "when", "why", "can", "should", "could", "would", "do",
         "does", "did", "or", "and", "vs", "versus",
     }

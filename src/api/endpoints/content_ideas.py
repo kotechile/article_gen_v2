@@ -53,7 +53,8 @@ KEYWORD_BUDGET_LADDER = [
 
 QUERY_STOPWORDS = {
     "a", "an", "the", "to", "for", "of", "in", "on", "at", "with", "without",
-    "from", "into", "by", "my", "your", "our", "their", "is", "are", "be",
+    "from", "into", "by", "my", "your", "our", "their", "you", "is", "are", "be", "have", "has", "had",
+    "too", "much", "more", "less", "first", "second", "third", "best", "better",
     "what", "how", "when", "why", "can", "should", "could", "would", "do",
     "does", "did", "and", "or", "vs", "versus",
 }
