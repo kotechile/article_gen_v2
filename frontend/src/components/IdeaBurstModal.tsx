@@ -718,16 +718,54 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                 setEnrichResultMessage(null);
                 setError(null);
             }
-            const result = await contentIdeasService.enrichContentIdeas(ideaIds, user.id);
+            // Avoid gateway timeouts by enriching one idea per API request.
+            // This guarantees per-idea persistence even if one request fails.
+            const allResults: Array<{
+                idea_id: string;
+                status: "enriched" | "failed";
+                reason?: string;
+                metrics?: {
+                    total_search_volume: number;
+                    average_cpc: number;
+                    average_difficulty: number;
+                    affiliate_offer_count: number;
+                };
+                keywords_used?: string[];
+                selected_primary_keyword?: string;
+                restated_title?: string;
+                title_restated?: boolean;
+                keyword_metrics_map?: Record<string, {
+                    search_volume?: number;
+                    keyword_difficulty?: number;
+                    cpc?: number;
+                }>;
+            }> = [];
+            let enrichedCount = 0;
 
-            if (!result.success || result.enrichedCount <= 0) {
+            for (const ideaId of ideaIds) {
+                const singleResult = await contentIdeasService.enrichContentIdeas([ideaId], user.id);
+                if (singleResult.success && singleResult.enrichedCount > 0) {
+                    enrichedCount += singleResult.enrichedCount;
+                }
+                if (Array.isArray(singleResult.results) && singleResult.results.length > 0) {
+                    allResults.push(...singleResult.results);
+                } else {
+                    allResults.push({
+                        idea_id: ideaId,
+                        status: "failed",
+                        reason: "No response rows returned",
+                    });
+                }
+            }
+
+            if (enrichedCount <= 0) {
                 if (!silent) {
                     setError("No ideas were enriched. Please try again.");
                 }
                 return;
             }
 
-            result.results.forEach((item) => {
+            allResults.forEach((item) => {
                 if (item.status === "enriched") {
                     applyEnrichedMetrics(
                         item.idea_id,
@@ -740,12 +778,12 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                 }
             });
 
-            const failedCount = Math.max(0, result.requestedCount - result.enrichedCount);
+            const failedCount = Math.max(0, ideaIds.length - enrichedCount);
             if (!silent) {
                 setEnrichResultMessage(
                     failedCount > 0
-                        ? `Enriched ${result.enrichedCount} ideas (${failedCount} failed).`
-                        : `Enriched ${result.enrichedCount} ideas.`
+                        ? `Enriched ${enrichedCount} ideas (${failedCount} failed).`
+                        : `Enriched ${enrichedCount} ideas.`
                 );
             }
         } catch (err) {
