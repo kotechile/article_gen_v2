@@ -1840,6 +1840,34 @@ def idea_burst():
         except Exception:
             effective_tool_potential_score = 50
 
+        def _clip_prompt_text(value: str, limit: int = 180) -> str:
+            text = " ".join(str(value or "").split())
+            if len(text) <= limit:
+                return text
+            return f"{text[:limit - 3].rstrip()}..."
+
+        def _build_compact_context_pack() -> str:
+            selected_keywords = [str(k).strip() for k in (keywords or []) if str(k).strip()][:8]
+            top_keywords = ", ".join(selected_keywords) if selected_keywords else "N/A"
+            value_tags = ", ".join(
+                [str(tag).strip() for tag in (effective_value_layer_tags or []) if str(tag).strip()][:6]
+            ) or "N/A"
+
+            return (
+                f"- Topic: {_clip_prompt_text(topic_context.get('title') or 'N/A', 120)}\n"
+                f"- Category Path: {_clip_prompt_text(category_path or 'N/A', 120)}\n"
+                f"- Subtopic: {_clip_prompt_text(subtopic_name, 120)}\n"
+                f"- Intent Bucket: {_clip_prompt_text(effective_intent_bucket, 80)}\n"
+                f"- Decision Focus: {_clip_prompt_text(effective_decision_focus, 220)}\n"
+                f"- Primary Outcome: {_clip_prompt_text(effective_primary_user_outcome, 220)}\n"
+                f"- Angle Question: {_clip_prompt_text(effective_angle_question, 220)}\n"
+                f"- Cluster Type: {_clip_prompt_text(effective_cluster_type, 80)}\n"
+                f"- Value Tags: {_clip_prompt_text(value_tags, 140)}\n"
+                f"- Top Candidate Keywords: {_clip_prompt_text(top_keywords, 180)}\n"
+            )
+
+        compact_context_pack = _build_compact_context_pack()
+
         logger.info(f"Generating idea burst for subtopic: {subtopic_name}")
 
         # Generate ideas using LLM
@@ -1849,38 +1877,33 @@ def idea_burst():
         async def generate_ideas():
             # Generate blog ideas
             blog_prompt = f"""
-You are a senior content strategist creating highly actionable article ideas from an angle-cluster.
+You are a veteran SEO content strategist. Generate article ideas in plain, human language that sounds like real Google searches, not consultant-speak.
 
 Current Year: 2026
-Topic: {topic_context.get('title') or 'N/A'}
-Topic Description: {topic_context.get('description') or 'N/A'}
-Category Path: {category_path}
-Subtopic: {subtopic_name}
-Keywords: {', '.join(keywords[:10])}
+Topic Description: {_clip_prompt_text(topic_context.get('description') or 'N/A', 220)}
 Affiliate Categories: {', '.join(affiliate_offers[:5]) if affiliate_offers else 'General'}
-Intent Bucket: {effective_intent_bucket}
-Decision Focus: {effective_decision_focus}
-Angle Question: {effective_angle_question}
-Value Layer Tags: {', '.join(effective_value_layer_tags[:6])}
-Cluster Type: {effective_cluster_type}
-Primary User Outcome: {effective_primary_user_outcome}
 SERP Intent Match: {effective_serp_intent_match}
 Tool Potential Score: {effective_tool_potential_score}/100
 
-Generate 5 blog article ideas that:
-1. Stay tightly aligned to category path + angle question (no topic drift)
-2. Target specific long-tail keywords from this cluster
-3. Are decision-relevant and outcome-oriented, not generic listicles
-4. Include monetization opportunities tied to the audience decision
-5. Provide internal linking hooks to related angle clusters/value layers
-6. Use plain, everyday language in titles (no consultant-speak or corporate jargon)
-7. Prefer words real users type in search bars over boardroom phrasing
-8. Ensure each title contains at least one Primary Keyword verbatim
-9. DESCRIPTION is required and cannot be empty
+Compact Context Pack:
+{compact_context_pack}
+
+Generate 5 BLOG article ideas.
+
+Hard constraints:
+1. Use simple, practical language. Pass the "2 AM test": a stressed user should plausibly type these words.
+2. Avoid consultant/corporate jargon in titles and search phrases (framework, paradigm, architecture, lens, methodology, optimization strategy).
+3. Each idea MUST include SEARCH_PHRASE (2-5 words, lowercase) that looks like a real query and can be sent to keyword tools.
+4. TITLE must include SEARCH_PHRASE verbatim.
+5. Keep SEARCH_PHRASE and keywords tightly aligned to subtopic + decision focus + primary outcome.
+6. Avoid topic drift and generic listicles.
+7. DESCRIPTION is required and cannot be empty.
+8. Prioritize decision/action intent over abstract commentary.
 
 For each idea, provide:
-- Title: Specific, SEO-conscious title in simple language (clear, practical, non-technical unless necessary)
+- Title: SEO-conscious title in plain language
 - Description: 1-2 sentence angle summary
+- Search Phrase: 2-5 words, plain language
 - Primary Keywords: 2-3 keywords
 - Intent: informational/commercial/transactional
 - Format: comparison/checklist/framework/case-study/how-to/calculator-guide
@@ -1893,6 +1916,7 @@ Output format (use exactly this format):
 BLOG_IDEA: [number]
 TITLE: [title]
 DESCRIPTION: [description]
+SEARCH_PHRASE: [2-5 word query]
 KEYWORDS: [keyword1, keyword2, keyword3]
 INTENT: [informational/commercial/transactional]
 FORMAT: [comparison/checklist/framework/case-study/how-to/calculator-guide]
@@ -1909,22 +1933,16 @@ Generate 5 blog ideas following this format.
 
             # Generate software/commercial ideas
             software_prompt = f"""
-You are a product strategist generating software/application ideas from a validated angle-cluster.
+You are a product strategist generating software tools users can discover through search. Use plain language and practical naming.
 
 Current Year: 2026
 Topic: {topic_context.get('title') or 'N/A'}
-Category Path: {category_path}
-Subtopic: {subtopic_name}
-Keywords: {', '.join(keywords[:10])}
 Affiliate Categories: {', '.join(affiliate_offers[:5]) if affiliate_offers else 'General'}
-Intent Bucket: {effective_intent_bucket}
-Decision Focus: {effective_decision_focus}
-Angle Question: {effective_angle_question}
-Value Layer Tags: {', '.join(effective_value_layer_tags[:6])}
-Cluster Type: {effective_cluster_type}
-Primary User Outcome: {effective_primary_user_outcome}
 SERP Intent Match: {effective_serp_intent_match}
 Tool Potential Score: {effective_tool_potential_score}/100
+
+Compact Context Pack:
+{compact_context_pack}
 
 Generate 3 ACTUAL SOFTWARE TOOLS or FEATURES to BUILD for a website/app.
 
@@ -1943,8 +1961,9 @@ Examples of what NOT to generate:
 - "Software Comparison" (this is a comparison article)
 
 For each tool idea, provide:
-- Title: Name of the tool/feature to build (e.g., "RSU Tax Calculator", "Portfolio Rebalancing Tool") and include at least one Primary Keyword verbatim
+- Title: Name of the tool/feature to build and include SEARCH_PHRASE verbatim
 - Description: What the tool does and how users interact with it
+- Search Phrase: 2-5 words users would type to find this tool
 - Primary Keywords: Keywords people would search to find this tool
 - Product Type: calculator/planner/evaluator/comparison-tool/dashboard/workflow-helper
 - User Job To Be Done: the repeated decision/action this solves
@@ -1959,6 +1978,7 @@ Output format (use exactly this format):
 SOFTWARE_IDEA: [number]
 TITLE: [tool name - NOT a review article title]
 DESCRIPTION: [what the tool does and user interaction]
+SEARCH_PHRASE: [2-5 word query]
 KEYWORDS: [keyword1, keyword2, keyword3]
 PRODUCT_TYPE: [calculator/planner/evaluator/comparison-tool/dashboard/workflow-helper]
 USER_JOB: [job to be done]
@@ -1976,7 +1996,8 @@ Generate 3 software tools/features to BUILD following this format.
 
 Critical naming and language rules:
 - Tool names must be plain-English and practical (what users would actually search)
-- Avoid consultant-speak and brochure language (no "framework", "paradigm", "value architecture", "strategic lens")
+- Apply the "2 AM test": if a stressed user would not search it, rewrite it
+- Avoid consultant-speak and brochure language (no "framework", "paradigm", "value architecture", "strategic lens", "methodology")
 - If a technical term is required, pair it with a simple phrase users understand
 - DESCRIPTION is required and cannot be empty
 """
@@ -2078,6 +2099,18 @@ def parse_idea_response(text: str, content_type: str, topic_id: str, user_id: st
     import re
     from uuid import uuid4
 
+    def _normalize_search_phrase(raw_phrase: str) -> str:
+        phrase = re.sub(r"[^a-zA-Z0-9\s\-]", " ", str(raw_phrase or "")).lower()
+        phrase = re.sub(r"\s+", " ", phrase).strip(" -")
+        if not phrase:
+            return ""
+        tokens = [token for token in phrase.split(" ") if token]
+        if len(tokens) < 2:
+            return ""
+        if len(tokens) > 5:
+            tokens = tokens[:5]
+        return " ".join(tokens)
+
     def _normalize_idea_title(raw_title: str) -> str:
         """Normalize LLM titles to plain language and reduce consultant-speak drift."""
         if not raw_title:
@@ -2126,6 +2159,8 @@ def parse_idea_response(text: str, content_type: str, topic_id: str, user_id: st
             current_idea['title'] = _normalize_idea_title(raw_title)
         elif line.upper().startswith('DESCRIPTION:'):
             current_idea['description'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('SEARCH_PHRASE:'):
+            current_idea['search_phrase'] = _normalize_search_phrase(line.split(':', 1)[1].strip())
         elif line.upper().startswith('KEYWORDS:'):
             kw_text = line.split(':', 1)[1].strip()
             current_idea['keywords'] = [k.strip() for k in kw_text.split(',') if k.strip()]
@@ -2192,18 +2227,59 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
     from uuid import uuid4
     import re
 
+    def _normalize_search_phrase(raw_phrase: str) -> str:
+        phrase = re.sub(r"[^a-zA-Z0-9\s\-]", " ", str(raw_phrase or "")).lower()
+        phrase = re.sub(r"\s+", " ", phrase).strip(" -")
+        if not phrase:
+            return ""
+        tokens = [token for token in phrase.split(" ") if token]
+        if len(tokens) < 2:
+            return ""
+        if len(tokens) > 5:
+            tokens = tokens[:5]
+        return " ".join(tokens)
+
+    def _derive_search_phrase(raw_title: str, raw_keywords: list[str]) -> str:
+        for kw in raw_keywords:
+            normalized_kw = _normalize_search_phrase(kw)
+            if normalized_kw:
+                return normalized_kw
+        title_tokens = re.sub(r"[^a-zA-Z0-9\s\-]", " ", raw_title.lower()).split()
+        if len(title_tokens) >= 2:
+            return " ".join(title_tokens[: min(4, len(title_tokens))])
+        return ""
+
+    def _title_contains_phrase(raw_title: str, phrase: str) -> bool:
+        title_norm = re.sub(r"\s+", " ", str(raw_title or "").lower()).strip()
+        phrase_norm = re.sub(r"\s+", " ", str(phrase or "").lower()).strip()
+        return bool(title_norm and phrase_norm and phrase_norm in title_norm)
+
     keywords = idea_data.get('keywords', [])
     if not isinstance(keywords, list):
         keywords = []
     keywords = [str(k).strip() for k in keywords if str(k).strip()]
 
     title = (idea_data.get('title') or 'Untitled Idea').strip()
+    search_phrase = _normalize_search_phrase(idea_data.get('search_phrase', ''))
+    if not search_phrase:
+        search_phrase = _derive_search_phrase(title, keywords)
+
+    if search_phrase and not _title_contains_phrase(title, search_phrase):
+        logger.info("Rewriting idea title to include search phrase: '%s'", search_phrase)
+        title = f"{search_phrase}: {title}"
+
+    if search_phrase:
+        existing_norm = {re.sub(r"\s+", " ", k.lower()).strip() for k in keywords}
+        if search_phrase not in existing_norm:
+            keywords.insert(0, search_phrase)
+
     title_lower = title.lower()
     contains_keyword = any(kw.lower() in title_lower for kw in keywords)
     if keywords and not contains_keyword:
         primary_kw = keywords[0]
         clean_primary_kw = re.sub(r"\s+", " ", primary_kw).strip()
         if clean_primary_kw:
+            logger.info("Prefixing idea title with keyword fallback: '%s'", clean_primary_kw)
             title = f"{clean_primary_kw}: {title}"
 
     description = str(idea_data.get('description') or '').strip()
@@ -2225,6 +2301,7 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
         "title": title or 'Untitled Idea',
         "content_type": content_type,
         "description": description,
+        "search_phrase": search_phrase,
         "primary_keywords": keywords,
         "secondary_keywords": [],
         "seo_optimization_score": 0,
@@ -2248,6 +2325,7 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
         "build_complexity": idea_data.get('build_complexity', ''),
         "distribution_angle": idea_data.get('distribution_angle', ''),
         "idea_metadata": {
+            "search_phrase": search_phrase,
             "target_intent": idea_data.get('target_intent', ''),
             "article_format": idea_data.get('article_format', ''),
             "user_decision_helped": idea_data.get('user_decision_helped', ''),
