@@ -50,6 +50,26 @@ KEYWORD_BUDGET_LADDER = [
 ]
 
 
+def _ensure_short_description(raw_description, title: str = "", keywords: list | None = None, subtopic: str = "") -> str:
+    """Guarantee a short non-empty description for idea cards."""
+    description = str(raw_description or "").strip()
+    keyword_list = [str(k).strip() for k in (keywords or []) if str(k).strip()]
+
+    if not description:
+        if keyword_list:
+            description = f"Practical guide to {keyword_list[0]} with clear steps and decision-oriented takeaways."
+        elif subtopic:
+            description = f"Actionable breakdown of {subtopic} to help readers choose the right next move."
+        elif title:
+            description = f"Actionable breakdown of {title.lower()} with practical steps and clear outcomes."
+        else:
+            description = "Actionable, decision-focused article with practical steps readers can apply immediately."
+
+    if len(description) > 220:
+        description = description[:217].rstrip() + "..."
+    return description
+
+
 def _resolve_user_id_from_request(supabase, data=None):
     auth_header = request.headers.get("Authorization")
     user_id = None
@@ -604,7 +624,40 @@ def list_content_ideas():
             query = query.eq("content_type", content_type)
 
         response = query.order("created_at", desc=True).execute()
-        return jsonify(response.data or []), 200
+        rows = response.data or []
+
+        # Ensure every idea has a short description (including legacy rows).
+        normalized_rows = []
+        for row in rows:
+            row_copy = dict(row)
+            normalized_description = _ensure_short_description(
+                raw_description=row_copy.get("description"),
+                title=row_copy.get("title") or "",
+                keywords=(row_copy.get("primary_keywords") or row_copy.get("keywords") or []),
+                subtopic=row_copy.get("subtopic") or "",
+            )
+            row_copy["description"] = normalized_description
+            normalized_rows.append(row_copy)
+
+            # Best-effort backfill for legacy blanks.
+            if not str(row.get("description") or "").strip():
+                try:
+                    (
+                        supabase
+                        .table("content_ideas")
+                        .update({"description": normalized_description})
+                        .eq("id", row_copy.get("id"))
+                        .eq("user_id", user_id)
+                        .execute()
+                    )
+                except Exception:
+                    logger.warning(
+                        "Could not backfill description for content_idea id=%s",
+                        row_copy.get("id"),
+                        exc_info=True,
+                    )
+
+        return jsonify(normalized_rows), 200
 
     except Exception as e:
         logger.error(f"Error listing content ideas: {e}", exc_info=True)

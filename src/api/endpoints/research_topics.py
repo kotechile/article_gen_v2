@@ -2216,6 +2216,9 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
             description = (
                 f"This article gives a practical breakdown of {title.lower()} and what action the reader should take next."
             )
+    # Keep description short and UI-friendly.
+    if len(description) > 220:
+        description = description[:217].rstrip() + "..."
 
     return {
         "id": idea_data.get('id', str(uuid4())),
