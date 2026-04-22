@@ -1875,6 +1875,7 @@ Generate 5 blog article ideas that:
 5. Provide internal linking hooks to related angle clusters/value layers
 6. Use plain, everyday language in titles (no consultant-speak or corporate jargon)
 7. Prefer words real users type in search bars over boardroom phrasing
+8. Ensure each title contains at least one Primary Keyword verbatim
 
 For each idea, provide:
 - Title: Specific, SEO-conscious title in simple language (clear, practical, non-technical unless necessary)
@@ -1941,7 +1942,7 @@ Examples of what NOT to generate:
 - "Software Comparison" (this is a comparison article)
 
 For each tool idea, provide:
-- Title: Name of the tool/feature to build (e.g., "RSU Tax Calculator", "Portfolio Rebalancing Tool")
+- Title: Name of the tool/feature to build (e.g., "RSU Tax Calculator", "Portfolio Rebalancing Tool") and include at least one Primary Keyword verbatim
 - Description: What the tool does and how users interact with it
 - Primary Keywords: Keywords people would search to find this tool
 - Product Type: calculator/planner/evaluator/comparison-tool/dashboard/workflow-helper
@@ -2187,13 +2188,28 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
     """Create a standardized idea dictionary."""
     from datetime import datetime
     from uuid import uuid4
+    import re
+
+    keywords = idea_data.get('keywords', [])
+    if not isinstance(keywords, list):
+        keywords = []
+    keywords = [str(k).strip() for k in keywords if str(k).strip()]
+
+    title = (idea_data.get('title') or 'Untitled Idea').strip()
+    title_lower = title.lower()
+    contains_keyword = any(kw.lower() in title_lower for kw in keywords)
+    if keywords and not contains_keyword:
+        primary_kw = keywords[0]
+        clean_primary_kw = re.sub(r"\s+", " ", primary_kw).strip()
+        if clean_primary_kw:
+            title = f"{clean_primary_kw}: {title}"
 
     return {
         "id": idea_data.get('id', str(uuid4())),
-        "title": idea_data.get('title', 'Untitled Idea'),
+        "title": title or 'Untitled Idea',
         "content_type": content_type,
         "description": idea_data.get('description', ''),
-        "primary_keywords": idea_data.get('keywords', []),
+        "primary_keywords": keywords,
         "secondary_keywords": [],
         "seo_optimization_score": 0,
         "traffic_potential_score": 0,

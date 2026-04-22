@@ -16,6 +16,19 @@ logger = logging.getLogger(__name__)
 class EditorialTopicGenerationService:
     """Generate category-aware editorial research topics."""
 
+    _CONSULTANT_TERMS = {
+        "framework": "guide",
+        "audit": "checklist",
+        "arbitrage": "cost gap",
+        "scenario": "plan",
+        "optimization": "improvements",
+        "playbook": "step-by-step plan",
+        "operating model": "way of working",
+        "value chain": "cost chain",
+        "capital allocation": "money decisions",
+        "solvency": "financial stability",
+    }
+
     def _build_prompt(self, brief: Dict[str, Any]) -> str:
         count = int(brief.get("count") or 10)
         trend_titles = brief.get("trend_titles") or []
@@ -44,6 +57,9 @@ RULES
 - Prefer decision spaces, frameworks, acquisition timing, comparisons, audits, operating models, and recurring high-value user problems.
 - Avoid generic keyword buckets, vague lifestyle themes, and one-off article headlines.
 - Avoid overly broad topics that could belong to almost any website.
+- Write titles in plain, human language that real users would understand immediately.
+- Avoid consultant-speak and corporate brochure wording.
+- If a term sounds overly technical, replace it with a simpler equivalent.
 - Use recent trend themes only as supporting freshness signals, never as the main driver.
 
 OUTPUT FORMAT
@@ -61,6 +77,18 @@ SOURCE_SIGNALS: AI, Category Strategy
 [END]
 """
 
+    def _normalize_title_plain_language(self, title: str) -> str:
+        cleaned = re.sub(r"\s+", " ", str(title or "").strip())
+        if not cleaned:
+            return ""
+
+        normalized = cleaned
+        for jargon, simple in self._CONSULTANT_TERMS.items():
+            normalized = re.sub(rf"\b{re.escape(jargon)}\b", simple, normalized, flags=re.IGNORECASE)
+
+        normalized = re.sub(r"\s{2,}", " ", normalized).strip(" -:")
+        return normalized
+
     def _parse(self, text: str) -> List[Dict[str, Any]]:
         blocks = re.findall(r"\[TOPIC\](.*?)\[END\]", text, flags=re.DOTALL | re.IGNORECASE)
         parsed: List[Dict[str, Any]] = []
@@ -73,7 +101,7 @@ SOURCE_SIGNALS: AI, Category Strategy
                 key, val = line.split(":", 1)
                 fields[key.strip().upper()] = val.strip()
 
-            title = fields.get("TITLE", "").strip()
+            title = self._normalize_title_plain_language(fields.get("TITLE", ""))
             if not title:
                 continue
 
@@ -105,7 +133,7 @@ SOURCE_SIGNALS: AI, Category Strategy
         lane = " / ".join([part for part in [primary, secondary] if part]) or "this category"
         base_topics = [
             {
-                "title": f"{secondary or primary or 'Category'} Decision Frameworks",
+                "title": f"{secondary or primary or 'Category'} Decision Guide",
                 "rationale": f"A foundational research cluster for {project_name} that organizes how readers make high-value decisions within {lane}.",
                 "intent_bucket": "informational_decision",
                 "decision_focus": f"Help readers make better decisions within {lane}.",
@@ -115,7 +143,7 @@ SOURCE_SIGNALS: AI, Category Strategy
                 "source_signals": ["AI", "Category Strategy"],
             },
             {
-                "title": f"{secondary or primary or 'Category'} Cost vs Value Audits",
+                "title": f"{secondary or primary or 'Category'} Cost vs Value Checklist",
                 "rationale": f"A strong editorial lane for surfacing hidden costs, downside risk, and true value drivers inside {lane}.",
                 "intent_bucket": "commercial_evaluation",
                 "decision_focus": f"Help readers compare cost, risk, and upside before committing inside {lane}.",
@@ -125,7 +153,7 @@ SOURCE_SIGNALS: AI, Category Strategy
                 "source_signals": ["AI", "Category Strategy"],
             },
             {
-                "title": f"{secondary or primary or 'Category'} Timing and Entry Strategy",
+                "title": f"{secondary or primary or 'Category'} Timing and Entry Plan",
                 "rationale": f"A durable topic cluster for users deciding when to act, wait, buy, enter, or re-evaluate within {lane}.",
                 "intent_bucket": "decision_financial",
                 "decision_focus": f"Help readers time actions and commitments more effectively inside {lane}.",
@@ -135,7 +163,7 @@ SOURCE_SIGNALS: AI, Category Strategy
                 "source_signals": ["AI", "Category Strategy"],
             },
             {
-                "title": f"{secondary or primary or 'Category'} Comparison Models",
+                "title": f"{secondary or primary or 'Category'} Comparison Guide",
                 "rationale": f"A comparison-oriented cluster that can branch into multiple subtopics and article formats while staying aligned to {lane}.",
                 "intent_bucket": "commercial_evaluation",
                 "decision_focus": f"Help readers compare competing options and paths inside {lane}.",
@@ -149,7 +177,7 @@ SOURCE_SIGNALS: AI, Category Strategy
         if trend_hint:
             base_topics.append(
                 {
-                    "title": f"{secondary or primary or 'Category'} Plays Shaped by {trend_hint}",
+                    "title": f"{secondary or primary or 'Category'} Opportunities Shaped by {trend_hint}",
                     "rationale": f"A freshness-oriented cluster that uses recent trend signals while still staying grounded in {lane}.",
                     "intent_bucket": "solution_enablement",
                     "decision_focus": f"Help readers interpret how recent shifts affect strategy inside {lane}.",
@@ -164,6 +192,7 @@ SOURCE_SIGNALS: AI, Category Strategy
         normalized = []
         seen = set()
         for topic in base_topics:
+            topic["title"] = self._normalize_title_plain_language(topic.get("title", ""))
             title_key = (topic.get("title") or "").strip().lower()
             if not title_key or title_key in seen:
                 continue

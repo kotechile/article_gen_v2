@@ -40,6 +40,7 @@ export interface Article {
     selected_keyword_intent?: string;
     selected_keyword_search_volume?: number;
     selected_keyword_difficulty?: number;
+    selected_keyword_metrics_json?: any;
     keyword_selection_source?: string;
     viral_potential_score?: number;
     audience_alignment_score?: number;

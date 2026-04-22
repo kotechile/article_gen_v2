@@ -390,6 +390,7 @@ export const ArticleEditor: React.FC = () => {
                     selected_keyword_intent: d.selected_keyword_intent,
                     selected_keyword_search_volume: d.selected_keyword_search_volume ?? d.total_search_volume,
                     selected_keyword_difficulty: d.selected_keyword_difficulty ?? d.avg_keyword_difficulty,
+                    selected_keyword_metrics_json: d.selected_keyword_metrics_json,
                     secondary_keywords_json: d.secondary_keywords_json,
                     supporting_entities_json: d.supporting_entities_json,
                     priority_questions_json: d.priority_questions_json,
@@ -1512,6 +1513,14 @@ export const ArticleEditor: React.FC = () => {
                                     <div className="p-2 bg-muted/50 rounded-lg">
                                         <div className="text-[9px] text-muted-foreground uppercase">Difficulty</div>
                                         <div className="font-medium text-xs text-foreground">{metrics.selected_keyword_difficulty ?? '-'}</div>
+                                    </div>
+                                    <div className="p-2 bg-muted/50 rounded-lg">
+                                        <div className="text-[9px] text-muted-foreground uppercase">Metric Provenance</div>
+                                        <div className="font-medium text-xs text-foreground">
+                                            {metrics.selected_keyword_metrics_json?.primary?.is_estimated
+                                                ? 'Estimated aggregate carryover'
+                                                : (metrics.selected_keyword_metrics_json?.primary?.metric_source || 'Exact keyword dossier')}
+                                        </div>
                                     </div>
                                     <div className="p-2 bg-muted/50 rounded-lg">
                                         <div className="text-[9px] text-muted-foreground uppercase">Secondary Keywords</div>

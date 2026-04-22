@@ -24,6 +24,39 @@ interface KeywordMetricRow {
     cpc: number | null;
 }
 
+function normalizeKeywordKey(input: string): string {
+    return (input || "").trim().toLowerCase();
+}
+
+function extractIdeaKeywordMetricsMap(idea: ContentIdea): Map<string, KeywordMetricRow> {
+    const map = new Map<string, KeywordMetricRow>();
+    const fromColumn = (idea as any).keyword_metrics || {};
+    const fromMetadata = (idea as any).idea_metadata?.seo_offer_enrichment?.keyword_metrics || {};
+    const merged = { ...fromMetadata, ...fromColumn };
+
+    Object.entries(merged || {}).forEach(([rawKeyword, rawMetric]) => {
+        const keyword = String(rawKeyword || "").trim();
+        if (!keyword) return;
+        const metric = (rawMetric || {}) as Record<string, unknown>;
+        map.set(normalizeKeywordKey(keyword), {
+            keyword,
+            search_volume: typeof metric.search_volume === "number" ? metric.search_volume : null,
+            keyword_difficulty: typeof metric.keyword_difficulty === "number" ? metric.keyword_difficulty : null,
+            cpc: typeof metric.cpc === "number" ? metric.cpc : null,
+        });
+    });
+    return map;
+}
+
+function resolveKeywordMetricRow(
+    keyword: string,
+    ideaMap: Map<string, KeywordMetricRow>,
+    subtopicMap: Map<string, KeywordMetricRow>,
+): KeywordMetricRow | undefined {
+    const key = normalizeKeywordKey(keyword);
+    return ideaMap.get(key) || subtopicMap.get(key);
+}
+
 interface CachedIdeaBurst {
     blogIdeas: ContentIdea[];
     softwareIdeas: ContentIdea[];
@@ -208,7 +241,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             if (!entry || typeof entry === "string") return;
             const keyword = String(entry.keyword || entry.term || "").trim();
             if (!keyword) return;
-            map.set(keyword, {
+            map.set(normalizeKeywordKey(keyword), {
                 keyword,
                 search_volume: typeof entry.search_volume === "number" ? entry.search_volume : null,
                 keyword_difficulty:
@@ -366,7 +399,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         average_cpc: number;
         average_difficulty: number;
         affiliate_offer_count: number;
-    }) => {
+    }, keywordMetricsMap?: Record<string, { search_volume?: number; keyword_difficulty?: number; cpc?: number }>, keywordsUsed?: string[]) => {
         if (!metrics) return;
         setBlogIdeas((prev) => prev.map((idea) => (
             idea.id === ideaId
@@ -375,6 +408,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     total_search_volume: metrics.total_search_volume,
                     average_cpc: metrics.average_cpc,
                     average_difficulty: metrics.average_difficulty,
+                    ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? { keywords: keywordsUsed } : {}),
+                    ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
                 }
                 : idea
         )));
@@ -385,6 +420,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     total_search_volume: metrics.total_search_volume,
                     average_cpc: metrics.average_cpc,
                     average_difficulty: metrics.average_difficulty,
+                    ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? { keywords: keywordsUsed } : {}),
+                    ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
                 }
                 : idea
         )));
@@ -406,7 +443,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
 
             result.results.forEach((item) => {
                 if (item.status === "enriched") {
-                    applyEnrichedMetrics(item.idea_id, item.metrics);
+                    applyEnrichedMetrics(item.idea_id, item.metrics, item.keyword_metrics_map, item.keywords_used);
                 }
             });
 
@@ -886,11 +923,11 @@ interface BlogIdeaCardProps {
 function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics, mapContext, keywordMetricsMap }: BlogIdeaCardProps) {
     const keywords = idea.primary_keywords || idea.keywords || [];
     const rankFactors = getRankFactors(idea);
-
-    // Calculate per-keyword metrics (distribute aggregate values)
-    const keywordCount = keywords.length || 1;
-    const volumePerKeyword = idea.total_search_volume > 0 ? Math.round(idea.total_search_volume / keywordCount) : 0;
-    const hasAnyRealKeywordMetrics = keywords.some((kw: string) => keywordMetricsMap.has(kw));
+    const ideaKeywordMetricsMap = React.useMemo(() => extractIdeaKeywordMetricsMap(idea), [idea]);
+    const hasAnyRealKeywordMetrics = keywords.some((kw: string) => {
+        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
+        return Boolean((row?.search_volume || 0) > 0 || (row?.keyword_difficulty || 0) > 0 || (row?.cpc || 0) > 0);
+    });
 
     return (
         <motion.div
@@ -1104,10 +1141,10 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
                                             <tbody>
                                                 {keywords.map((kw, idx) => (
                                                     (() => {
-                                                        const row = keywordMetricsMap.get(kw);
-                                                        const rowVolume = row?.search_volume ?? (volumePerKeyword > 0 ? volumePerKeyword : null);
-                                                        const rowKD = row?.keyword_difficulty ?? (idea.average_difficulty > 0 ? Math.round(idea.average_difficulty) : null);
-                                                        const rowCPC = row?.cpc ?? (idea.average_cpc > 0 ? Number(idea.average_cpc.toFixed(2)) : null);
+                                                        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
+                                                        const rowVolume = row?.search_volume ?? null;
+                                                        const rowKD = row?.keyword_difficulty ?? null;
+                                                        const rowCPC = row?.cpc ?? null;
                                                         return (
                                                     <tr key={idx} className="border-b border-white/5 last:border-0">
                                                         <td className="px-3 py-2 text-slate-300 truncate max-w-[120px]">{kw}</td>
@@ -1131,8 +1168,8 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
                                     </div>
                                     <p className="text-[10px] text-slate-500 mt-2 text-center">
                                         {hasAnyRealKeywordMetrics
-                                            ? "Note: Keyword metrics use available keyword-level data, with estimated fallback where missing"
-                                            : "Note: Individual keyword metrics are estimated based on aggregate data"}
+                                            ? "Note: Keyword rows show exact per-keyword metrics when available."
+                                            : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
                                     </p>
                                 </div>
                             </motion.div>
@@ -1164,11 +1201,11 @@ interface SoftwareIdeaCardProps {
 function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics, mapContext, keywordMetricsMap }: SoftwareIdeaCardProps) {
     const keywords = idea.primary_keywords || idea.keywords || [];
     const rankFactors = getRankFactors(idea);
-
-    // Calculate per-keyword metrics (distribute aggregate values)
-    const keywordCount = keywords.length || 1;
-    const volumePerKeyword = idea.total_search_volume > 0 ? Math.round(idea.total_search_volume / keywordCount) : 0;
-    const hasAnyRealKeywordMetrics = keywords.some((kw: string) => keywordMetricsMap.has(kw));
+    const ideaKeywordMetricsMap = React.useMemo(() => extractIdeaKeywordMetricsMap(idea), [idea]);
+    const hasAnyRealKeywordMetrics = keywords.some((kw: string) => {
+        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
+        return Boolean((row?.search_volume || 0) > 0 || (row?.keyword_difficulty || 0) > 0 || (row?.cpc || 0) > 0);
+    });
 
     return (
         <motion.div
@@ -1387,10 +1424,10 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                                             <tbody>
                                                 {keywords.map((kw, idx) => (
                                                     (() => {
-                                                        const row = keywordMetricsMap.get(kw);
-                                                        const rowVolume = row?.search_volume ?? (volumePerKeyword > 0 ? volumePerKeyword : null);
-                                                        const rowKD = row?.keyword_difficulty ?? (idea.average_difficulty > 0 ? Math.round(idea.average_difficulty) : null);
-                                                        const rowCPC = row?.cpc ?? (idea.average_cpc > 0 ? Number(idea.average_cpc.toFixed(2)) : null);
+                                                        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
+                                                        const rowVolume = row?.search_volume ?? null;
+                                                        const rowKD = row?.keyword_difficulty ?? null;
+                                                        const rowCPC = row?.cpc ?? null;
                                                         return (
                                                     <tr key={idx} className="border-b border-white/5 last:border-0">
                                                         <td className="px-3 py-2 text-slate-300 truncate max-w-[120px]">{kw}</td>
@@ -1414,8 +1451,8 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                                     </div>
                                     <p className="text-[10px] text-slate-500 mt-2 text-center">
                                         {hasAnyRealKeywordMetrics
-                                            ? "Note: Keyword metrics use available keyword-level data, with estimated fallback where missing"
-                                            : "Note: Individual keyword metrics are estimated based on aggregate data"}
+                                            ? "Note: Keyword rows show exact per-keyword metrics when available."
+                                            : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
                                     </p>
                                 </div>
                             </motion.div>

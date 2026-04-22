@@ -468,6 +468,25 @@ class TrendEngine:
             if len(phrases) >= max_phrases:
                 break
         return phrases
+
+    def _normalize_topic_title_plain_language(self, title: str) -> str:
+        """Reduce consultant-speak in topic titles."""
+        if not title:
+            return ""
+        cleaned = re.sub(r"\s+", " ", str(title).strip())
+        replacements = {
+            r"\bframework\b": "guide",
+            r"\baudit\b": "checklist",
+            r"\bscenario\b": "plan",
+            r"\barbitrage\b": "cost gap",
+            r"\boptimization\b": "improvements",
+            r"\bplaybook\b": "step-by-step plan",
+            r"\bsolvency\b": "financial stability",
+        }
+        normalized = cleaned
+        for pattern, value in replacements.items():
+            normalized = re.sub(pattern, value, normalized, flags=re.IGNORECASE)
+        return re.sub(r"\s{2,}", " ", normalized).strip(" -:")
     
     # ... (helper methods) ...
 
@@ -552,9 +571,10 @@ Instructions:
 5. Do NOT output article headlines; do NOT output "how to ..." titles unless the theme truly demands it.
 6. Synthesize 8–12 seed topics. Each seed topic should be a short 2–6 word theme label.
 7. Each seed topic must be broad enough to generate many long-tail keywords later.
-8. Include brief rationale and cite which sources contributed (News / Pinterest / Reddit / Quora / LinkedIn / Search).
-9. If the signals are weak, stay on-niche and propose evergreen-but-timely themes that match the niche anyway.
-10. Respond in strictly valid JSON with this structure:
+8. Use plain language. Avoid consultant-speak/corporate wording in titles (e.g., avoid "framework", "operating model", "optimization" unless absolutely necessary).
+9. Include brief rationale and cite which sources contributed (News / Pinterest / Reddit / Quora / LinkedIn / Search).
+10. If the signals are weak, stay on-niche and propose evergreen-but-timely themes that match the niche anyway.
+11. Respond in strictly valid JSON with this structure:
 {{
   "topics": [
     {{
@@ -624,6 +644,11 @@ Instructions:
                 raise ValueError(f"LLM synthesis returned no topics (type={type(topics).__name__})")
             if not any(isinstance(t, dict) and str(t.get("title") or "").strip() for t in topics):
                 raise ValueError("LLM synthesis topics missing required 'title' fields")
+
+            for topic in topics:
+                if not isinstance(topic, dict):
+                    continue
+                topic["title"] = self._normalize_topic_title_plain_language(str(topic.get("title") or ""))
 
             return parsed
             

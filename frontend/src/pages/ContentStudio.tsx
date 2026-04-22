@@ -47,6 +47,7 @@ interface ArticleData {
     selected_keyword_intent?: string;
     selected_keyword_search_volume?: number;
     selected_keyword_difficulty?: number;
+    selected_keyword_metrics_json?: any;
     keyword_selection_source?: string;
     supporting_entities_json?: string[] | string;
     priority_questions_json?: string[] | string;
@@ -682,7 +683,15 @@ export const ContentStudio: React.FC = () => {
                                 </div>
                                 <div className="p-3 bg-muted/50 rounded-xl">
                                     <div className="text-[10px] text-muted-foreground uppercase mb-1">Difficulty</div>
-                                <div className="font-medium text-sm text-foreground">{article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? '-'}</div>
+                                        <div className="font-medium text-sm text-foreground">{article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? '-'}</div>
+                                </div>
+                                <div className="p-3 bg-muted/50 rounded-xl">
+                                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Metric Provenance</div>
+                                    <div className="font-medium text-sm text-foreground">
+                                        {article.selected_keyword_metrics_json?.primary?.is_estimated
+                                            ? 'Estimated aggregate carryover'
+                                            : (article.selected_keyword_metrics_json?.primary?.metric_source || 'Exact keyword dossier')}
+                                    </div>
                                 </div>
                                 <div className="p-3 bg-muted/50 rounded-xl">
                                     <div className="text-[10px] text-muted-foreground uppercase mb-1">Secondary Keywords</div>

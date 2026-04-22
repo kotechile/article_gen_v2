@@ -209,6 +209,12 @@ class ContentIdeasService {
                 average_difficulty: number;
                 affiliate_offer_count: number;
             };
+            keywords_used?: string[];
+            keyword_metrics_map?: Record<string, {
+                search_volume?: number;
+                keyword_difficulty?: number;
+                cpc?: number;
+            }>;
         }>;
     }> {
         try {

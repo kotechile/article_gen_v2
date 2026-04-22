@@ -86,6 +86,11 @@ export interface ContentIdea {
         seo_ease?: number;
         build_complexity_score?: number;
     };
+    keyword_metrics?: Record<string, {
+        search_volume?: number;
+        keyword_difficulty?: number;
+        cpc?: number;
+    }>;
 }
 
 export interface KeywordData {

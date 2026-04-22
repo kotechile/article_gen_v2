@@ -21,6 +21,29 @@ Target outcome:
 - [x] Switched generation-complete lifecycle status to `Written` while keeping quality gate decision in `quality_gate`.
 - [x] Updated Content Library/Generation modal status handling for `New` -> `Written` -> `WP Published`.
 - [x] Added keyword metric UI fallbacks (selected keyword metrics first, DataForSEO aggregate fallback second).
+- [x] Added strict generation-time keyword gate to block fallback-only dossiers in production mode.
+- [x] Added `selected_keyword_metrics_json` persistence to carry auditable keyword metric provenance.
+
+## Current Build Focus
+
+- [x] Phase A: Research -> Content handoff fields and status alignment.
+- [x] Phase B: Generation-time keyword intelligence stage.
+- [x] Phase C: UI exposure for selected keyword strategy basics.
+- [x] Phase D: Strict keyword gate before evidence collection.
+- [~] Phase E: Exact keyword-level metrics from DataForSEO rather than aggregate idea-level carryover.
+- [ ] Phase F: Dashboard surfacing of metric provenance and selected keyword opportunity.
+- [ ] Phase G: Backfill recent `Titles` rows with structured selected keyword metrics.
+
+Phase E status:
+- [x] Preserve per-keyword DataForSEO metrics in `content_ideas.idea_metadata.seo_offer_enrichment.keyword_metrics`.
+- [x] Publish exact primary-keyword metrics from Research into `Titles.selected_keyword_metrics_json`.
+- [x] Recover exact keyword metrics from `content_ideas` during generation fallback recovery.
+- [x] Re-rank and persist exact metrics for the final selected keyword after generation-time keyword intelligence.
+- [~] Backfill existing published ideas/articles that only have aggregate metrics today.
+
+Backfill status:
+- [x] Added `scripts/backfill_selected_keyword_metrics.py` for dry-run/apply upgrades on existing `Titles` rows.
+- [ ] Run backfill against production data and review dry-run output.
 
 ## Principles
 
@@ -47,8 +70,8 @@ Target outcome:
 
 ## Phase 2: Define Data Model
 
-- [ ] Add/confirm `Titles` columns for research-stage keyword dossier.
-- [ ] Add/confirm `Titles` columns for final selected article keyword strategy.
+- [x] Add/confirm `Titles` columns for research-stage keyword dossier.
+- [x] Add/confirm `Titles` columns for final selected article keyword strategy.
 - [ ] Proposed research-stage fields:
 - `keyword_candidates_json`
 - `keyword_clusters_json`
@@ -64,11 +87,12 @@ Target outcome:
 - `selected_keyword_search_volume`
 - `selected_keyword_difficulty`
 - `selected_keyword_intent`
+- `selected_keyword_metrics_json`
 - `keyword_selection_reason`
 - `keyword_strategy_version`
 - `keyword_selection_source`
-- [ ] Add migration SQL for any missing fields.
-- [ ] Ensure old fields remain backward-compatible during rollout.
+- [x] Add migration SQL for any missing fields.
+- [x] Ensure old fields remain backward-compatible during rollout.
 
 ## Phase 3: Research-Side Keyword Dossier
 
@@ -91,24 +115,25 @@ Target outcome:
 
 ## Phase 4: Content Generation Keyword Intelligence Stage
 
-- [ ] Add a new pipeline stage before deep research in `tasks.py`.
-- [ ] Name the stage something explicit, e.g. `KEYWORD_SELECTION` or `KEYWORD_INTELLIGENCE`.
-- [ ] Load:
+- [x] Add a new pipeline stage before deep research in `tasks.py`.
+- [x] Name the stage something explicit, e.g. `KEYWORD_SELECTION` or `KEYWORD_INTELLIGENCE`.
+- [x] Load:
 - article title
 - brief
 - topic/site context
 - research keyword dossier
-- [ ] Re-score candidate keywords for the exact article angle.
-- [ ] Select:
+- [x] Re-score candidate keywords for the exact article angle.
+- [x] Select:
 - one `primary_keyword`
 - several `secondary_keywords`
 - supporting entities
 - answerable search questions
-- [ ] Save final keyword strategy back to `Titles`.
-- [ ] Mark whether the selection was:
+- [x] Save final keyword strategy back to `Titles`.
+- [x] Mark whether the selection was:
 - `research_dossier_reused`
 - `re-ranked_with_dataforseo`
 - `llm_fallback`
+- [x] Block generation when strict mode is enabled and the dossier is fallback-only.
 
 ## Phase 5: Deep Research Integration
 
@@ -154,11 +179,11 @@ Target outcome:
 
 ## Phase 8: Failure Modes and Fallbacks
 
-- [ ] Define behavior when DataForSEO returns no useful keyword data.
+- [x] Define behavior when DataForSEO returns no useful keyword data.
 - [ ] Define behavior when Research has dossier data but Content Generation cannot re-score it.
-- [ ] Ensure fallback paths are visible in UI and logs.
-- [ ] Never present LLM-only keyword guesses as if they were validated by DataForSEO.
-- [ ] Add safe defaults so generation still works if keyword intelligence fails.
+- [x] Ensure fallback paths are visible in UI and logs.
+- [x] Never present LLM-only keyword guesses as if they were validated by DataForSEO.
+- [x] Add safe defaults so generation still works if keyword intelligence fails.
 
 ## Phase 9: QA and Verification
 

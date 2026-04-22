@@ -41,6 +41,9 @@ ALTER TABLE "Titles"
 ADD COLUMN IF NOT EXISTS "selected_keyword_intent" TEXT;
 
 ALTER TABLE "Titles"
+ADD COLUMN IF NOT EXISTS "selected_keyword_metrics_json" JSONB;
+
+ALTER TABLE "Titles"
 ADD COLUMN IF NOT EXISTS "keyword_selection_reason" TEXT;
 
 ALTER TABLE "Titles"
@@ -66,6 +69,9 @@ COMMENT ON COLUMN "Titles"."primary_keyword" IS
 
 COMMENT ON COLUMN "Titles"."secondary_keywords_json" IS
 'Final selected secondary keywords for this specific article.';
+
+COMMENT ON COLUMN "Titles"."selected_keyword_metrics_json" IS
+'Structured metrics payload for the selected keyword strategy, including source and estimated/exact status.';
 
 COMMENT ON COLUMN "Titles"."keyword_selection_source" IS
 'Source used for final keyword selection: research_dossier_reused, re-ranked_with_dataforseo, llm_fallback.';

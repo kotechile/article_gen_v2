@@ -35,7 +35,7 @@ export function TopicDetail() {
     const [showIdeaModal, setShowIdeaModal] = React.useState(false)
     const [deletingSubtopicId, setDeletingSubtopicId] = React.useState<string | null>(null)
     const [hasStoredIdeas, setHasStoredIdeas] = React.useState(false)
-    const [subtopicsWithSavedIdeas, setSubtopicsWithSavedIdeas] = React.useState<Set<string>>(new Set())
+    const [savedIdeasCountBySubtopicName, setSavedIdeasCountBySubtopicName] = React.useState<Map<string, number>>(new Map())
     const [subtopicsReadyForContent, setSubtopicsReadyForContent] = React.useState<Set<string>>(new Set())
     const decomposeToastIdRef = React.useRef<string | number | null>(null)
     const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
@@ -66,11 +66,12 @@ export function TopicDetail() {
                     software: storedIdeas.filter((idea) => idea.content_type === 'software').length,
                 })
                 setHasStoredIdeas(Array.isArray(storedIdeas) && storedIdeas.length > 0)
-                const savedSubtopicNames = new Set(
-                    (storedIdeas || [])
-                        .map((idea) => (idea.subtopic || '').trim().toLowerCase())
-                        .filter(Boolean)
-                )
+                const savedSubtopicCounts = new Map<string, number>()
+                for (const idea of storedIdeas || []) {
+                    const key = (idea.subtopic || '').trim().toLowerCase()
+                    if (!key) continue
+                    savedSubtopicCounts.set(key, (savedSubtopicCounts.get(key) || 0) + 1)
+                }
                 const readySubtopicNames = new Set(
                     (storedIdeas || [])
                         .filter((idea) =>
@@ -84,11 +85,11 @@ export function TopicDetail() {
                         .map((idea) => (idea.subtopic || '').trim().toLowerCase())
                         .filter(Boolean)
                 )
-                setSubtopicsWithSavedIdeas(savedSubtopicNames)
+                setSavedIdeasCountBySubtopicName(savedSubtopicCounts)
                 setSubtopicsReadyForContent(readySubtopicNames)
             } else {
                 setHasStoredIdeas(false)
-                setSubtopicsWithSavedIdeas(new Set())
+                setSavedIdeasCountBySubtopicName(new Map())
                 setSubtopicsReadyForContent(new Set())
             }
             setError(null)
@@ -268,8 +269,8 @@ export function TopicDetail() {
             setDeletingSubtopicId(subtopic.id)
             await subtopicsService.deleteSubtopic(id, subtopic.id)
             setSubtopics((prev) => prev.filter((item) => item.id !== subtopic.id))
-            setSubtopicsWithSavedIdeas((prev) => {
-                const next = new Set(prev)
+            setSavedIdeasCountBySubtopicName((prev) => {
+                const next = new Map(prev)
                 next.delete(name.toLowerCase())
                 return next
             })
@@ -356,9 +357,9 @@ export function TopicDetail() {
         }
     }
 
-    const cachedIdeasBySubtopic = React.useMemo(() => {
-        if (!id || !user || typeof window === 'undefined') return new Set<string>()
-        const cachedIds = new Set<string>()
+    const cachedIdeasCountBySubtopicId = React.useMemo(() => {
+        if (!id || !user || typeof window === 'undefined') return new Map<string, number>()
+        const cachedCounts = new Map<string, number>()
         for (const sub of subtopics) {
             if (!sub?.id) continue
             const key = `ideaBurstCache:${id}:${sub.id}:${user.id}`
@@ -368,14 +369,15 @@ export function TopicDetail() {
                 const parsed = JSON.parse(raw) as { blogIdeas?: unknown[]; softwareIdeas?: unknown[] }
                 const blogCount = Array.isArray(parsed.blogIdeas) ? parsed.blogIdeas.length : 0
                 const softwareCount = Array.isArray(parsed.softwareIdeas) ? parsed.softwareIdeas.length : 0
-                if (blogCount + softwareCount > 0) {
-                    cachedIds.add(sub.id)
+                const total = blogCount + softwareCount
+                if (total > 0) {
+                    cachedCounts.set(sub.id, total)
                 }
             } catch {
                 // ignore malformed cache entries
             }
         }
-        return cachedIds
+        return cachedCounts
     }, [id, user?.id, subtopics])
 
     // Calculate metrics from subtopics
@@ -739,9 +741,13 @@ export function TopicDetail() {
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {subtopics.map((sub, i) => {
-                                    const hasSavedIdeas = subtopicsWithSavedIdeas.has((sub.name || '').trim().toLowerCase())
+                                    const normalizedSubtopicName = (sub.name || '').trim().toLowerCase()
+                                    const persistedIdeasCount = savedIdeasCountBySubtopicName.get(normalizedSubtopicName) || 0
+                                    const hasSavedIdeas = persistedIdeasCount > 0
                                     const readyForContent = subtopicsReadyForContent.has((sub.name || '').trim().toLowerCase())
-                                    const hasCachedIdeas = cachedIdeasBySubtopic.has(sub.id)
+                                    const cachedIdeasCount = cachedIdeasCountBySubtopicId.get(sub.id) || 0
+                                    // Cache can mirror persisted rows; avoid double-counting.
+                                    const totalIdeasCount = Math.max(persistedIdeasCount, cachedIdeasCount)
                                     return (
                                     <motion.div
                                         key={sub.id || i}
@@ -795,9 +801,9 @@ export function TopicDetail() {
                                                     />
                                                     Completed
                                                 </label>
-                                                {hasCachedIdeas && (
+                                                {totalIdeasCount > 0 && (
                                                     <span className="text-xs px-2 py-1 rounded-full border flex-shrink-0 text-indigo-300 border-indigo-500/30 bg-indigo-500/10">
-                                                        Ideas
+                                                        {totalIdeasCount} {totalIdeasCount === 1 ? 'Idea' : 'Ideas'}
                                                     </span>
                                                 )}
                                                 <span className={`text-xs px-2 py-1 rounded-full border flex-shrink-0 ${

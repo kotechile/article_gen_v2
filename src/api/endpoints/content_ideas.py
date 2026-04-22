@@ -993,6 +993,7 @@ def enrich_content_ideas():
                         "affiliate_offer_count": enrichment["affiliate_offer_count"],
                     },
                     "keywords_used": enrichment["keywords_used"],
+                    "keyword_metrics_map": enrichment.get("keyword_metrics_map") or {},
                     "offers_preview": enrichment["affiliate_offers"],
                 })
             else:
