@@ -993,10 +993,26 @@ def _apply_enrichment_update_with_fallback(
     expected_raw: dict,
 ) -> bool:
     for payload in payloads:
-        try:
-            supabase.table("content_ideas").update(payload).eq("id", idea_id).eq("user_id", user_id).execute()
-        except Exception:
+        candidate_payload = dict(payload or {})
+        if not candidate_payload:
             continue
+        try:
+            supabase.table("content_ideas").update(candidate_payload).eq("id", idea_id).eq("user_id", user_id).execute()
+        except Exception as update_error:
+            err_text = str(update_error or "")
+
+            missing_cols = re.findall(r"Could not find the '([^']+)' column", err_text)
+            if missing_cols:
+                for col in missing_cols:
+                    candidate_payload.pop(col, None)
+                if not candidate_payload:
+                    continue
+                try:
+                    supabase.table("content_ideas").update(candidate_payload).eq("id", idea_id).eq("user_id", user_id).execute()
+                except Exception:
+                    continue
+            else:
+                continue
 
         try:
             verify_resp = (
