@@ -998,6 +998,19 @@ def enrich_content_ideas():
                 "status": "in_progress",
                 "updated_at": now,
             }
+            enrichment_metadata = {
+                **(idea.get("idea_metadata") or {}),
+                "seo_offer_enrichment": {
+                    "keywords_used": enrichment["keywords_used"],
+                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                    "keyword_ranked_candidates": enrichment.get("keyword_ranked_candidates") or [],
+                    "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
+                    "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
+                    "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
+                    "affiliate_offers_preview": enrichment["affiliate_offers"],
+                    "enriched_at": now,
+                },
+            }
 
             updated = False
             # Try richest payload first; gracefully degrade for older schemas.
@@ -1005,19 +1018,15 @@ def enrich_content_ideas():
                 {
                     **update_payload,
                     "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
-                    "idea_metadata": {
-                        **(idea.get("idea_metadata") or {}),
-                        "seo_offer_enrichment": {
-                            "keywords_used": enrichment["keywords_used"],
-                            "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
-                            "keyword_ranked_candidates": enrichment.get("keyword_ranked_candidates") or [],
-                            "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
-                            "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
-                            "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
-                            "affiliate_offers_preview": enrichment["affiliate_offers"],
-                            "enriched_at": now,
-                        },
-                    },
+                    "idea_metadata": enrichment_metadata,
+                },
+                {
+                    **update_payload,
+                    "idea_metadata": enrichment_metadata,
+                },
+                {
+                    **update_payload,
+                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
                 },
                 update_payload,
                 {"updated_at": now},
