@@ -377,6 +377,7 @@ async def _fetch_metrics_map_for_keywords(
     keywords: list[str],
     max_keywords_for_metrics: int = MAX_KEYWORDS_FOR_METRICS,
     diagnostics: dict | None = None,
+    raw_capture: dict | None = None,
 ) -> dict:
     """Fetch search volume/cpc/kd and return normalized metrics map."""
     if not keywords:
@@ -388,10 +389,18 @@ async def _fetch_metrics_map_for_keywords(
         diagnostics["scoped_keyword_count"] = len(scoped_keywords)
         diagnostics["scoped_keywords_sample"] = scoped_keywords[:10]
     try:
-        bulk_metrics = await asyncio.wait_for(
-            dataforseo_api.get_bulk_metrics_standard(scoped_keywords),
+        bulk_response = await asyncio.wait_for(
+            dataforseo_api.get_bulk_metrics_standard(scoped_keywords, return_raw=True),
             timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS,
         )
+        if isinstance(bulk_response, dict):
+            bulk_metrics = bulk_response.get("items") or []
+            bulk_raw = bulk_response.get("raw")
+        else:
+            bulk_metrics = bulk_response or []
+            bulk_raw = None
+        if raw_capture is not None and bulk_raw is not None:
+            raw_capture["bulk_metrics"] = bulk_raw
         if diagnostics is not None:
             diagnostics["bulk_rows_returned"] = len(bulk_metrics or [])
         for item in (bulk_metrics or []):
@@ -412,10 +421,18 @@ async def _fetch_metrics_map_for_keywords(
             diagnostics["bulk_error"] = "bulk_metrics_request_failed"
 
     try:
-        kd_rows = await asyncio.wait_for(
-            dataforseo_api.get_keyword_difficulty(scoped_keywords),
+        kd_response = await asyncio.wait_for(
+            dataforseo_api.get_keyword_difficulty(scoped_keywords, return_raw=True),
             timeout=DATAFORSEO_KD_TIMEOUT_SECONDS,
         )
+        if isinstance(kd_response, dict):
+            kd_rows = kd_response.get("items") or []
+            kd_raw = kd_response.get("raw")
+        else:
+            kd_rows = kd_response or []
+            kd_raw = None
+        if raw_capture is not None and kd_raw is not None:
+            raw_capture["keyword_difficulty"] = kd_raw
         if diagnostics is not None:
             diagnostics["kd_rows_returned"] = len(kd_rows or [])
         for item in (kd_rows or []):
@@ -693,6 +710,11 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     ladder_used = []
     tier_diagnostics: list[dict] = []
     dataforseo_calls = 0
+    raw_dataforseo_output: dict = {
+        "idea_id": idea_id,
+        "captured_at": datetime.utcnow().isoformat(),
+        "tiers": [],
+    }
 
     for tier in KEYWORD_BUDGET_LADDER:
         tier_name = tier["name"]
@@ -711,6 +733,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
             working_candidates,
             max_keywords_for_metrics=max_kws,
             diagnostics=tier_diag,
+            raw_capture=tier_diag.setdefault("raw_dataforseo", {}),
         )
         tier_calls += 2  # bulk metrics + keyword difficulty
         ranked_candidates = _rank_keywords_by_opportunity(working_candidates, metrics_map)
@@ -728,13 +751,22 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
             rescue_seeds = [s for s in rescue_seeds if s]
             tier_diag["rescue_seed_sample"] = rescue_seeds[:10]
             try:
-                related_rows = await asyncio.wait_for(
+                related_response = await asyncio.wait_for(
                     dataforseo_api.get_related_keywords_standard(
                         rescue_seeds,
                         limit_per_seed=max_related_per_seed,
+                        return_raw=True,
                     ),
                     timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS,
                 )
+                if isinstance(related_response, dict):
+                    related_rows = related_response.get("items") or []
+                    related_raw = related_response.get("raw")
+                else:
+                    related_rows = related_response or []
+                    related_raw = None
+                if related_raw is not None:
+                    tier_diag.setdefault("raw_dataforseo", {})["related_keywords"] = related_raw
                 tier_calls += 1
                 tier_diag["related_rows_returned"] = len(related_rows or [])
                 related_keywords = []
@@ -753,6 +785,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
                         working_candidates,
                         max_keywords_for_metrics=max_kws,
                         diagnostics=tier_diag,
+                        raw_capture=tier_diag.setdefault("raw_dataforseo", {}),
                     )
                     tier_calls += 2
                     ranked_candidates = _rank_keywords_by_opportunity(working_candidates, metrics_map)
@@ -766,6 +799,10 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         tier_diag["calls"] = tier_calls
         tier_diag["expanded_related"] = expanded_related_count
         tier_diagnostics.append(tier_diag)
+        raw_dataforseo_output["tiers"].append({
+            "tier": tier_name,
+            "raw_dataforseo": tier_diag.get("raw_dataforseo") or {},
+        })
         dataforseo_calls += tier_calls
         if _quality_gate_passed(summary):
             break
@@ -862,6 +899,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
             "all_keywords_found_count": len(all_keywords_found),
             "has_exact_keyword_metrics": has_exact_keyword_metrics,
         },
+        "raw_supabase_output": raw_dataforseo_output,
         "dataforseo_call_count_estimate": dataforseo_calls,
         "affiliate_offer_count": affiliate_offer_count,
         "affiliate_offers": affiliate_offers_preview,
@@ -1315,6 +1353,7 @@ def enrich_content_ideas():
                 "average_cpc": enrichment["average_cpc"],
                 "average_difficulty": enrichment["average_difficulty"],
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
+                "raw_supabase_output": enrichment.get("raw_supabase_output") or {},
                 "status": "in_progress",
                 "updated_at": now,
                 "title": restated_title or original_title,
@@ -1328,6 +1367,7 @@ def enrich_content_ideas():
                     "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
                     "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
                     "dataforseo_diagnostics": enrichment.get("dataforseo_diagnostics") or {},
+                    "raw_dataforseo_output": enrichment.get("raw_supabase_output") or {},
                     "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
                     "affiliate_offers_preview": enrichment["affiliate_offers"],
                     "enriched_at": now,
@@ -1573,6 +1613,7 @@ def refresh_keywords_for_library():
                 "average_cpc": enrichment["average_cpc"],
                 "average_difficulty": enrichment["average_difficulty"],
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
+                "raw_supabase_output": enrichment.get("raw_supabase_output") or {},
                 "status": "in_progress",
                 "updated_at": now,
             }
@@ -1590,6 +1631,7 @@ def refresh_keywords_for_library():
                             "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
                             "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
                             "dataforseo_diagnostics": enrichment.get("dataforseo_diagnostics") or {},
+                            "raw_dataforseo_output": enrichment.get("raw_supabase_output") or {},
                             "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
                             "affiliate_offers_preview": enrichment["affiliate_offers"],
                             "enriched_at": now,
@@ -1617,6 +1659,7 @@ def refresh_keywords_for_library():
                             "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
                             "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
                             "dataforseo_diagnostics": enrichment.get("dataforseo_diagnostics") or {},
+                            "raw_dataforseo_output": enrichment.get("raw_supabase_output") or {},
                             "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
                             "affiliate_offers_preview": enrichment["affiliate_offers"],
                             "enriched_at": now,

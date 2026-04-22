@@ -334,7 +334,8 @@ class DataForSEOAPI:
         seeds: List[str],
         language_code: str = "en",
         location_code: int = 2840,
-        limit_per_seed: int = 20
+        limit_per_seed: int = 20,
+        return_raw: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Get related keywords using the STANDARD (Queue-based) API.
@@ -381,6 +382,17 @@ class DataForSEOAPI:
                 response = await client.post(post_url, json=post_payload, headers=headers)
                 response.raise_for_status()
                 post_data = response.json()
+                raw_trace = {
+                    "endpoint": "keywords_data/google_ads/keywords_for_keywords",
+                    "request": {
+                        "post_url": post_url,
+                        "payload": post_payload,
+                    },
+                    "responses": {
+                        "post": post_data,
+                        "task_get": [],
+                    },
+                }
                 
                 if "tasks" in post_data:
                     for task in post_data["tasks"]:
@@ -420,6 +432,10 @@ class DataForSEOAPI:
                             res_get = await client.get(get_url, headers=headers)
                             res_get.raise_for_status()
                             res_data = res_get.json()
+                            raw_trace["responses"]["task_get"].append({
+                                "task_id": tid,
+                                "response": res_data,
+                            })
                             
                             if "tasks" in res_data and res_data["tasks"]:
                                 task_res = res_data["tasks"][0]
@@ -467,17 +483,28 @@ class DataForSEOAPI:
                                 "keyword_difficulty": float(keyword_difficulty) if keyword_difficulty is not None else None,
                                 "created_at": datetime.utcnow().isoformat()
                             })
+                if return_raw:
+                    return {"items": all_keywords, "raw": raw_trace}
                 return all_keywords
         
         except Exception as e:
             logger.error(f"DataForSEO Standard API error: {e}")
+            if return_raw:
+                return {
+                    "items": [],
+                    "raw": {
+                        "endpoint": "keywords_data/google_ads/keywords_for_keywords",
+                        "error": str(e),
+                    },
+                }
             return []
 
     async def get_bulk_metrics_standard(
         self,
         keywords: List[str],
         language_code: str = "en",
-        location_code: int = 2840
+        location_code: int = 2840,
+        return_raw: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Get Search Volume & CPC for a list of keywords using Standard (Queue) API.
@@ -513,6 +540,17 @@ class DataForSEOAPI:
                 response = await client.post(post_url, json=payload, headers=headers)
                 response.raise_for_status()
                 post_data = response.json()
+                raw_trace = {
+                    "endpoint": "keywords_data/google_ads/search_volume",
+                    "request": {
+                        "post_url": post_url,
+                        "payload": payload,
+                    },
+                    "responses": {
+                        "post": post_data,
+                        "task_get": [],
+                    },
+                }
                 
                 if "tasks" in post_data:
                      for t in post_data["tasks"]:
@@ -540,6 +578,10 @@ class DataForSEOAPI:
                         try:
                             res = await client.get(get_url, headers=headers)
                             data = res.json()
+                            raw_trace["responses"]["task_get"].append({
+                                "task_id": tid,
+                                "response": data,
+                            })
                             if "tasks" in data:
                                 t_res = data["tasks"][0]
                                 status = t_res.get("status_message")
@@ -603,17 +645,28 @@ class DataForSEOAPI:
                         if (r.get("search_volume") or 0) > 0 or (r.get("cpc") or 0) > 0 or (r.get("keyword_difficulty") or 0) > 0
                     )
                     logger.info("Bulk volume parsed keywords=%s non_zero_metrics=%s", len(results), non_zero)
+                if return_raw:
+                    return {"items": results, "raw": raw_trace}
                 return results
 
         except Exception as e:
             logger.error(f"Bulk Volume API error: {e}")
+            if return_raw:
+                return {
+                    "items": [],
+                    "raw": {
+                        "endpoint": "keywords_data/google_ads/search_volume",
+                        "error": str(e),
+                    },
+                }
             return []
     
     async def get_keyword_difficulty(
         self,
         keywords: List[str],
         language_code: str = "en",
-        location_code: int = 2840
+        location_code: int = 2840,
+        return_raw: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Get keyword difficulty scores
@@ -644,10 +697,31 @@ class DataForSEOAPI:
                 }
                 
                 data = await self._make_request_with_retry(client, url, payload, headers)
-                return self._process_keyword_difficulty(data)
-                
+                parsed = self._process_keyword_difficulty(data)
+                if return_raw:
+                    return {
+                        "items": parsed,
+                        "raw": {
+                            "endpoint": "dataforseo_labs/google/bulk_keyword_difficulty/live",
+                            "request": {
+                                "url": url,
+                                "payload": payload,
+                            },
+                            "response": data,
+                        },
+                    }
+                return parsed
+
         except Exception as e:
             logger.error(f"DataForSEO keyword difficulty API error: {e}")
+            if return_raw:
+                return {
+                    "items": [],
+                    "raw": {
+                        "endpoint": "dataforseo_labs/google/bulk_keyword_difficulty/live",
+                        "error": str(e),
+                    },
+                }
             return []
     
 
