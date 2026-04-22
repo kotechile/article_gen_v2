@@ -189,6 +189,15 @@ def _build_idea_keyword_metrics_payload(idea: dict, source_metrics_map: dict) ->
             keyword_candidates.extend([str(item).strip() for item in value if str(item).strip()])
         elif isinstance(value, str) and value.strip():
             keyword_candidates.extend([part.strip() for part in re.split(r"[\n,]+", value) if part.strip()])
+    idea_metadata = idea.get("idea_metadata") or {}
+    if isinstance(idea_metadata, dict):
+        seed_keywords = idea_metadata.get("input_keywords")
+        if isinstance(seed_keywords, list):
+            keyword_candidates.extend([str(item).strip() for item in seed_keywords if str(item).strip()])
+        seed_pack_keywords = ((idea_metadata.get("keyword_seed_pack") or {}).get("input_keywords")
+                             if isinstance(idea_metadata.get("keyword_seed_pack"), dict) else [])
+        if isinstance(seed_pack_keywords, list):
+            keyword_candidates.extend([str(item).strip() for item in seed_pack_keywords if str(item).strip()])
 
     keyword_metrics: dict = {}
     volumes = []
@@ -227,9 +236,9 @@ def _build_idea_keyword_metrics_payload(idea: dict, source_metrics_map: dict) ->
             difficulties.append(keyword_difficulty)
 
     aggregates = {
-        "total_search_volume": int(sum(volumes)) if volumes else int(idea.get("total_search_volume") or 0),
-        "average_cpc": round((sum(cpcs) / len(cpcs)) if cpcs else float(idea.get("average_cpc") or 0.0), 2),
-        "average_difficulty": round((sum(difficulties) / len(difficulties)) if difficulties else float(idea.get("average_difficulty") or 0.0), 1),
+        "total_search_volume": int(sum(volumes)) if volumes else 0,
+        "average_cpc": round((sum(cpcs) / len(cpcs)) if cpcs else 0.0, 2),
+        "average_difficulty": round((sum(difficulties) / len(difficulties)) if difficulties else 0.0, 1),
         "keywords_used": list(keyword_metrics.keys()),
     }
     return keyword_metrics, aggregates

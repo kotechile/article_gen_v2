@@ -717,6 +717,16 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
             break
 
     selected_keywords = [row["keyword"] for row in ranked_candidates[:5]]
+    selected_metric_rows = [
+        metrics_map.get(str(keyword).strip().lower(), {}) or {}
+        for keyword in selected_keywords
+    ]
+    has_exact_keyword_metrics = any(
+        (int(row.get("search_volume") or 0) > 0)
+        or (float(row.get("keyword_difficulty") or 0.0) > 0)
+        or (float(row.get("cpc") or 0.0) > 0)
+        for row in selected_metric_rows
+    )
 
     for keyword in selected_keywords:
         row = metrics_map.get(keyword.lower(), {})
@@ -783,6 +793,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         "total_search_volume": int(total_search_volume),
         "average_cpc": average_cpc,
         "average_difficulty": average_difficulty,
+        "has_exact_keyword_metrics": has_exact_keyword_metrics,
         "keyword_metrics_map": metrics_map,
         "keyword_ranked_candidates": ranked_candidates[:10],
         "keyword_quality_summary": _keyword_quality_summary(ranked_candidates),
@@ -1196,10 +1207,10 @@ def enrich_content_ideas():
             # If all enrichment metrics are zero, report this as a failed enrichment
             # so UI does not show a misleading "success" with no visible SEO stats.
             if (
-                int(enrichment.get("total_search_volume") or 0) == 0
+                not bool(enrichment.get("has_exact_keyword_metrics"))
+                and int(enrichment.get("total_search_volume") or 0) == 0
                 and float(enrichment.get("average_cpc") or 0.0) == 0.0
                 and float(enrichment.get("average_difficulty") or 0.0) == 0.0
-                and int(enrichment.get("affiliate_offer_count") or 0) == 0
             ):
                 logger.warning(
                     "Enrichment produced zero metrics for idea_id=%s keywords=%s",

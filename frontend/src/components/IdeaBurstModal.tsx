@@ -78,6 +78,8 @@ function extractIdeaKeywordMetricsMap(idea: ContentIdea): Map<string, KeywordMet
     const ideaMetadata = parseJsonLike<Record<string, unknown>>((idea as any).idea_metadata, {});
     const fromColumn = parseJsonLike<unknown>((idea as any).keyword_metrics, {});
     const fromMetadata = parseJsonLike<unknown>((ideaMetadata as any)?.seo_offer_enrichment?.keyword_metrics, {});
+    const rankedCandidates = parseJsonLike<unknown>((ideaMetadata as any)?.seo_offer_enrichment?.keyword_ranked_candidates, []);
+    const pass2Candidates = parseJsonLike<unknown>((ideaMetadata as any)?.keyword_pass_2?.keyword_ranked_candidates, []);
 
     const ingestMetric = (keywordInput: unknown, metricInput: unknown) => {
         const keyword = String(keywordInput || "").trim();
@@ -125,6 +127,8 @@ function extractIdeaKeywordMetricsMap(idea: ContentIdea): Map<string, KeywordMet
 
     ingestSource(fromMetadata);
     ingestSource(fromColumn);
+    ingestSource(rankedCandidates);
+    ingestSource(pass2Candidates);
     return map;
 }
 
@@ -209,9 +213,17 @@ function resolveKeywordMetricRow(
 function resolveIdeaKeywords(idea: ContentIdea): string[] {
     const metadata = parseJsonLike<Record<string, any>>((idea as any).idea_metadata, {});
     const metadataKeywords = coerceKeywordList(metadata?.seo_offer_enrichment?.keywords_used);
+    const metadataInputKeywords = coerceKeywordList(metadata?.input_keywords);
+    const seedPackKeywords = coerceKeywordList(metadata?.keyword_seed_pack?.input_keywords);
     const ideaKeywords = coerceKeywordList((idea as any).keywords);
     const primaryKeywords = coerceKeywordList((idea as any).primary_keywords);
     const secondaryKeywords = coerceKeywordList((idea as any).secondary_keywords);
+    const rankedCandidateKeywords = parseJsonLike<any[]>(metadata?.seo_offer_enrichment?.keyword_ranked_candidates, [])
+        .map((row) => String(row?.keyword || "").trim())
+        .filter(Boolean);
+    const pass2CandidateKeywords = parseJsonLike<any[]>(metadata?.keyword_pass_2?.keyword_ranked_candidates, [])
+        .map((row) => String(row?.keyword || "").trim())
+        .filter(Boolean);
     const metricMapKeywords = Array.from(extractIdeaKeywordMetricsMap(idea).values()).map((row) => row.keyword);
 
     const merged = [
@@ -219,6 +231,10 @@ function resolveIdeaKeywords(idea: ContentIdea): string[] {
         ...primaryKeywords,
         ...secondaryKeywords,
         ...metadataKeywords,
+        ...metadataInputKeywords,
+        ...seedPackKeywords,
+        ...rankedCandidateKeywords,
+        ...pass2CandidateKeywords,
         ...metricMapKeywords,
     ];
     const deduped: string[] = [];
@@ -630,7 +646,11 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     average_difficulty: metrics.average_difficulty,
                     ...(restatedTitle ? { title: restatedTitle } : {}),
                     ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
-                    ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? { keywords: keywordsUsed } : {}),
+                    ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
+                        keywords: keywordsUsed,
+                        primary_keywords: keywordsUsed,
+                        secondary_keywords: keywordsUsed.slice(1),
+                    } : {}),
                     ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
                 }
                 : idea
@@ -644,7 +664,11 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     average_difficulty: metrics.average_difficulty,
                     ...(restatedTitle ? { title: restatedTitle } : {}),
                     ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
-                    ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? { keywords: keywordsUsed } : {}),
+                    ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
+                        keywords: keywordsUsed,
+                        primary_keywords: keywordsUsed,
+                        secondary_keywords: keywordsUsed.slice(1),
+                    } : {}),
                     ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
                 }
                 : idea
@@ -1191,18 +1215,15 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
         () => computeAggregateFromExactMap(keywords, ideaKeywordMetricsMap, keywordMetricsMap),
         [keywords, ideaKeywordMetricsMap, keywordMetricsMap]
     );
-    const totalSearchVolume =
-        Number(idea.total_search_volume || 0) > 0
-            ? Number(idea.total_search_volume || 0)
-            : exactAggregate.totalVolume;
-    const averageDifficulty =
-        Number(idea.average_difficulty || 0) > 0
-            ? Number(idea.average_difficulty || 0)
-            : exactAggregate.avgDifficulty;
-    const averageCpc =
-        Number(idea.average_cpc || 0) > 0
-            ? Number(idea.average_cpc || 0)
-            : exactAggregate.avgCpc;
+    const totalSearchVolume = hasAnyRealKeywordMetrics
+        ? (Number(idea.total_search_volume || 0) > 0 ? Number(idea.total_search_volume || 0) : exactAggregate.totalVolume)
+        : exactAggregate.totalVolume;
+    const averageDifficulty = hasAnyRealKeywordMetrics
+        ? (Number(idea.average_difficulty || 0) > 0 ? Number(idea.average_difficulty || 0) : exactAggregate.avgDifficulty)
+        : exactAggregate.avgDifficulty;
+    const averageCpc = hasAnyRealKeywordMetrics
+        ? (Number(idea.average_cpc || 0) > 0 ? Number(idea.average_cpc || 0) : exactAggregate.avgCpc)
+        : exactAggregate.avgCpc;
 
     return (
         <motion.div
@@ -1485,18 +1506,15 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
         () => computeAggregateFromExactMap(keywords, ideaKeywordMetricsMap, keywordMetricsMap),
         [keywords, ideaKeywordMetricsMap, keywordMetricsMap]
     );
-    const totalSearchVolume =
-        Number(idea.total_search_volume || 0) > 0
-            ? Number(idea.total_search_volume || 0)
-            : exactAggregate.totalVolume;
-    const averageDifficulty =
-        Number(idea.average_difficulty || 0) > 0
-            ? Number(idea.average_difficulty || 0)
-            : exactAggregate.avgDifficulty;
-    const averageCpc =
-        Number(idea.average_cpc || 0) > 0
-            ? Number(idea.average_cpc || 0)
-            : exactAggregate.avgCpc;
+    const totalSearchVolume = hasAnyRealKeywordMetrics
+        ? (Number(idea.total_search_volume || 0) > 0 ? Number(idea.total_search_volume || 0) : exactAggregate.totalVolume)
+        : exactAggregate.totalVolume;
+    const averageDifficulty = hasAnyRealKeywordMetrics
+        ? (Number(idea.average_difficulty || 0) > 0 ? Number(idea.average_difficulty || 0) : exactAggregate.avgDifficulty)
+        : exactAggregate.avgDifficulty;
+    const averageCpc = hasAnyRealKeywordMetrics
+        ? (Number(idea.average_cpc || 0) > 0 ? Number(idea.average_cpc || 0) : exactAggregate.avgCpc)
+        : exactAggregate.avgCpc;
 
     return (
         <motion.div
