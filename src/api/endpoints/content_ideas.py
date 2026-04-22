@@ -1622,6 +1622,7 @@ def enrich_content_ideas():
             ).dict()), 400
 
         supabase = get_supabase_client()
+        supabase_admin = _get_admin_supabase_client(supabase)
         request_user_id = _resolve_user_id_from_request(supabase, data)
         if not request_user_id:
             return jsonify(ErrorResponse(
