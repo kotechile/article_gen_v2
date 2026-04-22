@@ -1,6 +1,7 @@
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Sparkles, Lightbulb, Loader2, Check, Save, BookOpen, Code, Info, BarChart3, ChevronDown, ChevronUp } from "lucide-react";
+import { X, Sparkles, Lightbulb, Loader2, Check, Save, BookOpen, Code, Info, BarChart3, ChevronDown, ChevronUp, Key } from "lucide-react";
+import { KeywordIntelligenceModal } from "./KeywordIntelligenceModal";
 import { Button } from "@/components/ui/button";
 import { contentIdeasService } from "@/services/content-ideas.service";
 import type { ContentIdea } from "@/types/idea-burst";
@@ -1100,6 +1101,9 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                                     topicTitle: topicTitle || undefined,
                                                 }}
                                                 keywordMetricsMap={subtopicKeywordMetrics}
+                                                onKeywordSaved={(ideaId, primary, secondary) => {
+                                                    applyEnrichedMetrics(ideaId, undefined, undefined, [primary, ...secondary], undefined, primary);
+                                                }}
                                             />
                                         ))}
                                     </div>
@@ -1309,9 +1313,11 @@ interface BlogIdeaCardProps {
         clusterName?: string;
     };
     keywordMetricsMap: Map<string, KeywordMetricRow>;
+    onKeywordSaved?: (ideaId: string, primary: string, secondary: string[]) => void;
 }
 
-function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics, mapContext, keywordMetricsMap }: BlogIdeaCardProps) {
+function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onToggleMetrics: _onToggleMetrics, mapContext, keywordMetricsMap, onKeywordSaved }: BlogIdeaCardProps) {
+    const [showKeywordModal, setShowKeywordModal] = React.useState(false);
     const keywords = resolveIdeaKeywords(idea);
     const rankFactors = getRankFactors(idea);
     const ideaKeywordMetricsMap = React.useMemo(() => extractIdeaKeywordMetricsMap(idea), [idea]);
@@ -1509,89 +1515,42 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
                 </div>
             </div>
 
-            {/* Expandable Metrics Section */}
-            {keywords.length > 0 && (
-                <div className="border-t border-white/5">
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onToggleMetrics();
-                        }}
-                        className="w-full px-4 py-2 flex items-center justify-center gap-2 text-[11px] text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/5 transition-colors"
-                    >
-                        <BarChart3 className="w-3 h-3" />
-                        {isExpanded ? 'Hide Keyword Metrics' : 'View Keyword Metrics'}
-                        {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                    </button>
+            {/* Keyword Intelligence Button */}
+            <div className="border-t border-white/5">
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setShowKeywordModal(true);
+                    }}
+                    className={`w-full px-4 py-2 flex items-center justify-center gap-2 text-[11px] transition-colors ${
+                        rawTraceAvailable
+                            ? 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/5'
+                            : 'text-slate-600 hover:text-slate-400 hover:bg-white/3'
+                    }`}
+                >
+                    <Key className="w-3 h-3" />
+                    Keyword Intelligence
+                    {rawTraceAvailable ? (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">Data available</span>
+                    ) : (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400">Needs enrichment</span>
+                    )}
+                </button>
+            </div>
 
-                    <AnimatePresence>
-                        {isExpanded && (
-                            <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: 'auto', opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                transition={{ duration: 0.2 }}
-                                className="overflow-hidden"
-                            >
-                                <div className="px-4 pb-4">
-                                    <div className="bg-slate-800/50 rounded-lg overflow-hidden border border-white/5">
-                                        <table className="w-full text-[11px]">
-                                            <thead>
-                                                <tr className="bg-slate-800/80 border-b border-white/5">
-                                                    <th className="text-left px-3 py-2 text-slate-400 font-medium">Keyword</th>
-                                                    <th className="text-right px-3 py-2 text-slate-400 font-medium">Volume</th>
-                                                    <th className="text-right px-3 py-2 text-slate-400 font-medium">KD</th>
-                                                    <th className="text-right px-3 py-2 text-slate-400 font-medium">CPC</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {keywords.map((kw, idx) => (
-                                                    (() => {
-                                                        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
-                                                        const rowVolume = row?.search_volume ?? null;
-                                                        const rowKD = row?.keyword_difficulty ?? null;
-                                                        const rowCPC = row?.cpc ?? null;
-                                                        return (
-                                                    <tr key={idx} className="border-b border-white/5 last:border-0">
-                                                        <td className="px-3 py-2 text-slate-300 truncate max-w-[120px]">{kw}</td>
-                                                        <td className="px-3 py-2 text-right text-slate-300">
-                                                            {rowVolume !== null ? rowVolume.toLocaleString() : '-'}
-                                                        </td>
-                                                        <td className="px-3 py-2 text-right">
-                                                            <span className={(rowKD || 0) > 60 ? 'text-red-400' : (rowKD || 0) > 30 ? 'text-yellow-400' : 'text-green-400'}>
-                                                                {rowKD !== null ? rowKD : '-'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-3 py-2 text-right text-slate-300">
-                                                            {rowCPC !== null ? `$${rowCPC.toFixed(2)}` : '-'}
-                                                        </td>
-                                                    </tr>
-                                                        );
-                                                    })()
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <p className="text-[10px] text-slate-500 mt-2 text-center">
-                                        {hasAnyRealKeywordMetrics
-                                            ? "Note: Keyword rows show exact per-keyword metrics when available."
-                                            : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
-                                    </p>
-                                    <div className="mt-1 flex justify-center">
-                                        <span className={`text-[10px] px-2 py-0.5 rounded border ${
-                                            rawTraceAvailable
-                                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                                                : "border-amber-500/30 bg-amber-500/10 text-amber-300"
-                                        }`}>
-                                            Raw DFS Trace: {rawTraceAvailable ? "Available" : "Missing"}
-                                        </span>
-                                    </div>
-                                </div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </div>
-            )}
+            {/* Keyword Intelligence Modal */}
+            <AnimatePresence>
+                {showKeywordModal && (
+                    <KeywordIntelligenceModal
+                        isOpen={showKeywordModal}
+                        onClose={() => setShowKeywordModal(false)}
+                        idea={idea}
+                        onSaved={(primary, secondary) => {
+                            onKeywordSaved?.(idea.id, primary, secondary);
+                        }}
+                    />
+                )}
+            </AnimatePresence>
         </motion.div>
     );
 }

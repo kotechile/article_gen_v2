@@ -250,6 +250,45 @@ class ContentIdeasService {
             };
         }
     }
+
+    /**
+     * Persist primary and secondary keyword selections for a content idea.
+     * Writes directly to Supabase so the update is instant and doesn't
+     * require a Flask API round-trip.
+     */
+    async updateKeywordSelection(
+        ideaId: string,
+        userId: string,
+        primaryKeyword: string,
+        secondaryKeywords: string[]
+    ): Promise<boolean> {
+        try {
+            const allKeywords = [primaryKeyword, ...secondaryKeywords.filter((k) => k !== primaryKeyword)];
+            const now = new Date().toISOString();
+
+            const { error } = await supabase
+                .from('content_ideas')
+                .update({
+                    primary_keywords: allKeywords,
+                    secondary_keywords: secondaryKeywords.filter((k) => k !== primaryKeyword),
+                    keywords: allKeywords,
+                    search_phrase: primaryKeyword,
+                    updated_at: now,
+                })
+                .eq('id', ideaId)
+                .eq('user_id', userId);
+
+            if (error) {
+                console.error('[ContentIdeas] updateKeywordSelection error:', error);
+                return false;
+            }
+            return true;
+        } catch (err) {
+            console.error('[ContentIdeas] updateKeywordSelection exception:', err);
+            return false;
+        }
+    }
 }
 
 export const contentIdeasService = new ContentIdeasService();
+

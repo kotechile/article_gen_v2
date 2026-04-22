@@ -1,0 +1,808 @@
+import * as React from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+    X,
+    TrendingUp,
+    TrendingDown,
+    Minus,
+    BarChart2,
+    ChevronUp,
+    Save,
+    Loader2,
+    Star,
+    Target,
+    AlertTriangle,
+    RefreshCw,
+    CheckCircle2,
+} from "lucide-react";
+import {
+    AreaChart,
+    Area,
+    XAxis,
+    YAxis,
+    Tooltip as RechartTooltip,
+    ResponsiveContainer,
+} from "recharts";
+import { Button } from "@/components/ui/button";
+import type { ContentIdea, DFSKeywordRow, DFSParsedOutput } from "@/types/idea-burst";
+import { contentIdeasService } from "@/services/content-ideas.service";
+import { useAuth } from "@/context/auth-context";
+
+// ─── Parser ─────────────────────────────────────────────────────────────────
+
+function safeJsonParse<T>(value: unknown, fallback: T): T {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === "object") return value as T;
+    if (typeof value !== "string") return fallback;
+    try {
+        return (JSON.parse(value) as T) ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function parseDataForSEOOutput(raw: unknown): DFSParsedOutput | null {
+    const parsed = safeJsonParse<any>(raw, null);
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const tasks: any[] = Array.isArray(parsed.tasks) ? parsed.tasks : [];
+    const task = tasks[0];
+    if (!task) return null;
+
+    const results: any[] = Array.isArray(task.result) ? task.result : [];
+    const result = results[0];
+    if (!result) return null;
+
+    const rows: DFSKeywordRow[] = [];
+
+    // Seed keyword
+    const seedData = result.seed_keyword_data;
+    if (seedData) {
+        rows.push(buildRow(seedData, "seed", 0, null));
+    }
+
+    // Related keywords (items[])
+    const items: any[] = Array.isArray(result.items) ? result.items : [];
+    items.forEach((item: any) => {
+        const kd = item?.keyword_data;
+        if (!kd) return;
+        // Skip the seed keyword if it appears again in items
+        if (kd.keyword === seedData?.keyword) return;
+        rows.push(buildRow(kd, "related", item.depth ?? 1, item.related_keywords ?? null));
+    });
+
+    return {
+        seed_keyword: result.seed_keyword ?? (seedData?.keyword ?? ""),
+        total_count: result.total_count ?? rows.length,
+        items_count: result.items_count ?? rows.length,
+        rows,
+    };
+}
+
+function buildRow(
+    kd: any,
+    type: "seed" | "related",
+    depth: number,
+    relatedKeywords: string[] | null
+): DFSKeywordRow {
+    const ki = kd?.keyword_info ?? {};
+    const kp = kd?.keyword_properties ?? {};
+    const si = kd?.search_intent_info ?? {};
+    const monthly: any[] = Array.isArray(ki.monthly_searches) ? ki.monthly_searches : [];
+
+    // Sort monthly_searches chronologically (oldest first)
+    const sortedMonthly = [...monthly].sort((a, b) => {
+        const da = a.year * 100 + a.month;
+        const db = b.year * 100 + b.month;
+        return da - db;
+    });
+
+    return {
+        keyword: kd?.keyword ?? "",
+        type,
+        depth,
+        search_volume: ki.search_volume ?? null,
+        competition: ki.competition ?? null,
+        competition_level: ki.competition_level ?? null,
+        cpc: ki.cpc ?? null,
+        keyword_difficulty: kp.keyword_difficulty ?? null,
+        main_intent: si.main_intent ?? null,
+        foreign_intents: Array.isArray(si.foreign_intent) ? si.foreign_intent : null,
+        monthly_searches: sortedMonthly,
+        search_volume_trend: ki.search_volume_trend ?? null,
+        low_top_of_page_bid: ki.low_top_of_page_bid ?? null,
+        high_top_of_page_bid: ki.high_top_of_page_bid ?? null,
+        se_results_count: kd?.serp_info?.se_results_count ?? null,
+        related_keywords: relatedKeywords,
+    };
+}
+
+// ─── UI helpers ─────────────────────────────────────────────────────────────
+
+function competitionPill(level: string | null) {
+    if (!level) return null;
+    const lc = level.toUpperCase();
+    if (lc === "HIGH") return "bg-red-500/20 text-red-300 border-red-500/30";
+    if (lc === "MEDIUM") return "bg-amber-500/20 text-amber-300 border-amber-500/30";
+    return "bg-emerald-500/20 text-emerald-300 border-emerald-500/30";
+}
+
+function intentPill(intent: string | null) {
+    if (!intent) return "bg-slate-500/20 text-slate-400 border-slate-500/30";
+    const lc = intent.toLowerCase();
+    if (lc.includes("commercial")) return "bg-amber-500/20 text-amber-300 border-amber-500/30";
+    if (lc.includes("transactional")) return "bg-emerald-500/20 text-emerald-300 border-emerald-500/30";
+    if (lc.includes("navigational")) return "bg-violet-500/20 text-violet-300 border-violet-500/30";
+    return "bg-blue-500/20 text-blue-300 border-blue-500/30";
+}
+
+function kdColor(kd: number | null) {
+    if (kd === null) return "text-slate-500";
+    if (kd >= 60) return "text-red-400";
+    if (kd >= 30) return "text-amber-400";
+    return "text-emerald-400";
+}
+
+function trendIcon(trend: number | null) {
+    if (trend === null || trend === 0) return <Minus className="w-3 h-3 text-slate-500" />;
+    if (trend > 0) return <TrendingUp className="w-3 h-3 text-emerald-400" />;
+    return <TrendingDown className="w-3 h-3 text-red-400" />;
+}
+
+function fmtVol(v: number | null) {
+    if (v === null) return "—";
+    if (v === 0) return "0";
+    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
+    return v.toString();
+}
+
+function fmtCpc(v: number | null) {
+    if (v === null) return "—";
+    return `$${v.toFixed(2)}`;
+}
+
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// ─── Trend Sparkline ─────────────────────────────────────────────────────────
+
+function TrendChart({ data, keyword }: { data: DFSKeywordRow["monthly_searches"]; keyword: string }) {
+    if (!data || data.length === 0) {
+        return (
+            <div className="flex items-center justify-center h-20 text-xs text-slate-500">
+                No trend data available
+            </div>
+        );
+    }
+
+    const chartData = data.map((d) => ({
+        name: `${MONTH_LABELS[d.month - 1]} ${d.year}`,
+        volume: d.search_volume ?? 0,
+    }));
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 120 }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+        >
+            <div className="px-2 pt-2 pb-1">
+                <p className="text-[10px] text-slate-400 mb-1 truncate">
+                    Monthly trend — <span className="text-indigo-300">{keyword}</span>
+                </p>
+                <ResponsiveContainer width="100%" height={84}>
+                    <AreaChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                        <defs>
+                            <linearGradient id={`grad-${keyword.replace(/\s+/g, "-")}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                                <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                            </linearGradient>
+                        </defs>
+                        <XAxis
+                            dataKey="name"
+                            tick={{ fill: "#64748b", fontSize: 8 }}
+                            tickLine={false}
+                            axisLine={false}
+                            interval="preserveStartEnd"
+                        />
+                        <YAxis hide />
+                        <RechartTooltip
+                            contentStyle={{
+                                background: "#1e293b",
+                                border: "1px solid rgba(255,255,255,0.1)",
+                                borderRadius: 6,
+                                fontSize: 11,
+                                color: "#e2e8f0",
+                            }}
+                            formatter={(val: unknown) => [
+                                typeof val === "number" ? val.toLocaleString() : String(val ?? ""),
+                                "Searches",
+                            ]}
+                            labelStyle={{ color: "#94a3b8", fontSize: 10 }}
+                        />
+                        <Area
+                            type="monotone"
+                            dataKey="volume"
+                            stroke="#6366f1"
+                            strokeWidth={1.5}
+                            fill={`url(#grad-${keyword.replace(/\s+/g, "-")})`}
+                            dot={false}
+                            activeDot={{ r: 3, fill: "#6366f1" }}
+                        />
+                    </AreaChart>
+                </ResponsiveContainer>
+            </div>
+        </motion.div>
+    );
+}
+
+// ─── Keyword Row ──────────────────────────────────────────────────────────────
+
+interface KeywordTableRowProps {
+    row: DFSKeywordRow;
+    isPrimary: boolean;
+    isSecondary: boolean;
+    onSelectPrimary: () => void;
+    onToggleSecondary: () => void;
+    showChart: boolean;
+    onToggleChart: () => void;
+    disabled: boolean;
+}
+
+function KeywordTableRow({
+    row,
+    isPrimary,
+    isSecondary,
+    onSelectPrimary,
+    onToggleSecondary,
+    showChart,
+    onToggleChart,
+    disabled,
+}: KeywordTableRowProps) {
+    const isSeed = row.type === "seed";
+    const hasVolume = (row.search_volume ?? 0) > 0;
+
+    const rowBg = isPrimary
+        ? "bg-emerald-500/10 border-l-2 border-emerald-500"
+        : isSecondary
+        ? "bg-sky-500/10 border-l-2 border-sky-500"
+        : isSeed
+        ? "bg-indigo-500/8 border-l-2 border-indigo-400"
+        : "border-l-2 border-transparent";
+
+    return (
+        <>
+            <tr
+                className={`border-b border-white/5 last:border-0 transition-colors ${rowBg} ${
+                    !hasVolume ? "opacity-50" : ""
+                }`}
+            >
+                {/* Primary radio */}
+                <td className="px-3 py-2.5 w-10">
+                    <button
+                        onClick={onSelectPrimary}
+                        disabled={disabled}
+                        title="Set as primary keyword"
+                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all ${
+                            isPrimary
+                                ? "border-emerald-400 bg-emerald-400"
+                                : "border-slate-500 hover:border-emerald-400"
+                        } disabled:opacity-40`}
+                    >
+                        {isPrimary && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                    </button>
+                </td>
+
+                {/* Secondary checkbox */}
+                <td className="px-2 py-2.5 w-10">
+                    <button
+                        onClick={onToggleSecondary}
+                        disabled={disabled || isPrimary}
+                        title="Add as secondary keyword"
+                        className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${
+                            isSecondary
+                                ? "border-sky-400 bg-sky-400"
+                                : "border-slate-500 hover:border-sky-400"
+                        } disabled:opacity-30`}
+                    >
+                        {isSecondary && (
+                            <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 10 10">
+                                <path d="M1.5 5L4 7.5 8.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                        )}
+                    </button>
+                </td>
+
+                {/* Keyword + badges */}
+                <td className="px-3 py-2.5 min-w-[180px] max-w-[240px]">
+                    <div className="flex flex-col gap-0.5">
+                        <span
+                            className={`text-xs font-medium leading-snug ${
+                                isSeed ? "text-indigo-200" : "text-slate-200"
+                            }`}
+                        >
+                            {row.keyword}
+                        </span>
+                        <div className="flex items-center gap-1 flex-wrap">
+                            {isSeed && (
+                                <span className="text-[9px] px-1 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-medium">
+                                    SEED
+                                </span>
+                            )}
+                            {row.depth > 0 && (
+                                <span className="text-[9px] text-slate-500">depth {row.depth}</span>
+                            )}
+                        </div>
+                    </div>
+                </td>
+
+                {/* Volume */}
+                <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                    <span className={`text-xs ${hasVolume ? "text-slate-200" : "text-slate-600"}`}>
+                        {fmtVol(row.search_volume)}
+                    </span>
+                </td>
+
+                {/* KD */}
+                <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                    <span className={`text-xs font-medium ${kdColor(row.keyword_difficulty)}`}>
+                        {row.keyword_difficulty !== null ? row.keyword_difficulty : "—"}
+                    </span>
+                </td>
+
+                {/* CPC */}
+                <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                    <span className="text-xs text-slate-300">{fmtCpc(row.cpc)}</span>
+                </td>
+
+                {/* Competition */}
+                <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                    {row.competition_level ? (
+                        <span
+                            className={`text-[9px] px-1.5 py-0.5 rounded border font-medium ${competitionPill(
+                                row.competition_level
+                            )}`}
+                        >
+                            {row.competition_level}
+                        </span>
+                    ) : (
+                        <span className="text-slate-600 text-xs">—</span>
+                    )}
+                </td>
+
+                {/* Intent */}
+                <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                    {row.main_intent ? (
+                        <span
+                            className={`text-[9px] px-1.5 py-0.5 rounded border font-medium ${intentPill(
+                                row.main_intent
+                            )}`}
+                        >
+                            {row.main_intent}
+                        </span>
+                    ) : (
+                        <span className="text-slate-600 text-xs">—</span>
+                    )}
+                </td>
+
+                {/* Monthly trend % */}
+                <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                    <div className="flex items-center justify-end gap-0.5">
+                        {trendIcon(row.search_volume_trend?.monthly ?? null)}
+                        {row.search_volume_trend?.monthly !== undefined && row.search_volume_trend.monthly !== 0 ? (
+                            <span
+                                className={`text-[10px] ${
+                                    row.search_volume_trend.monthly > 0 ? "text-emerald-400" : "text-red-400"
+                                }`}
+                            >
+                                {row.search_volume_trend.monthly > 0 ? "+" : ""}
+                                {row.search_volume_trend.monthly}%
+                            </span>
+                        ) : (
+                            <span className="text-slate-600 text-[10px]">0%</span>
+                        )}
+                    </div>
+                </td>
+
+                {/* Chart toggle */}
+                <td className="px-2 py-2.5 text-center w-10">
+                    {row.monthly_searches.length > 0 ? (
+                        <button
+                            onClick={onToggleChart}
+                            title="View monthly trend chart"
+                            className={`p-1 rounded transition-colors ${
+                                showChart ? "bg-indigo-500/20 text-indigo-300" : "text-slate-500 hover:text-indigo-300"
+                            }`}
+                        >
+                            {showChart ? <ChevronUp className="w-3.5 h-3.5" /> : <BarChart2 className="w-3.5 h-3.5" />}
+                        </button>
+                    ) : (
+                        <span className="text-slate-700 text-xs">—</span>
+                    )}
+                </td>
+            </tr>
+
+            {/* Trend chart row */}
+            <AnimatePresence>
+                {showChart && (
+                    <tr>
+                        <td colSpan={10} className="px-0 py-0 bg-slate-800/40">
+                            <TrendChart data={row.monthly_searches} keyword={row.keyword} />
+                        </td>
+                    </tr>
+                )}
+            </AnimatePresence>
+        </>
+    );
+}
+
+// ─── Modal Summary Bar ────────────────────────────────────────────────────────
+
+function SummaryBar({ data }: { data: DFSParsedOutput }) {
+    const rows = data.rows;
+    const volumeRows = rows.filter((r) => (r.search_volume ?? 0) > 0);
+    const totalVol = volumeRows.reduce((s, r) => s + (r.search_volume ?? 0), 0);
+    const kdRows = rows.filter((r) => r.keyword_difficulty !== null);
+    const avgKd = kdRows.length
+        ? kdRows.reduce((s, r) => s + (r.keyword_difficulty ?? 0), 0) / kdRows.length
+        : null;
+    const cpcRows = rows.filter((r) => r.cpc !== null && (r.cpc ?? 0) > 0);
+    const avgCpc = cpcRows.length
+        ? cpcRows.reduce((s, r) => s + (r.cpc ?? 0), 0) / cpcRows.length
+        : null;
+
+    const stats = [
+        { label: "Keywords", value: rows.length.toString(), color: "text-indigo-300" },
+        { label: "Total Volume", value: fmtVol(totalVol), color: "text-blue-300" },
+        { label: "Avg KD", value: avgKd !== null ? Math.round(avgKd).toString() : "—", color: kdColor(avgKd) },
+        { label: "Avg CPC", value: avgCpc !== null ? fmtCpc(avgCpc) : "—", color: "text-emerald-300" },
+    ];
+
+    return (
+        <div className="grid grid-cols-4 divide-x divide-white/10 bg-white/5 border-b border-white/10">
+            {stats.map((s) => (
+                <div key={s.label} className="flex flex-col items-center py-3 px-4">
+                    <span className={`text-lg font-bold ${s.color}`}>{s.value}</span>
+                    <span className="text-[10px] text-slate-500 uppercase tracking-wide mt-0.5">{s.label}</span>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+// ─── Footer ──────────────────────────────────────────────────────────────────
+
+interface FooterProps {
+    primaryKeyword: string | null;
+    secondaryKeywords: string[];
+    saving: boolean;
+    saved: boolean;
+    onSave: () => void;
+}
+
+function Footer({ primaryKeyword, secondaryKeywords, saving, saved, onSave }: FooterProps) {
+    return (
+        <div className="border-t border-white/10 p-4 bg-slate-900 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <div className="flex-1 flex flex-col gap-1 min-w-0">
+                <div className="flex items-center gap-2">
+                    <Star className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                    <span className="text-[11px] text-slate-400 flex-shrink-0">Primary:</span>
+                    {primaryKeyword ? (
+                        <span className="text-xs text-emerald-300 font-medium truncate">{primaryKeyword}</span>
+                    ) : (
+                        <span className="text-[11px] text-slate-600 italic">None selected</span>
+                    )}
+                </div>
+                {secondaryKeywords.length > 0 && (
+                    <div className="flex items-start gap-2">
+                        <Target className="w-3.5 h-3.5 text-sky-400 flex-shrink-0 mt-0.5" />
+                        <span className="text-[11px] text-slate-400 flex-shrink-0">Secondary:</span>
+                        <div className="flex flex-wrap gap-1">
+                            {secondaryKeywords.map((kw) => (
+                                <span
+                                    key={kw}
+                                    className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-500/30 text-sky-300"
+                                >
+                                    {kw}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <Button
+                onClick={onSave}
+                disabled={!primaryKeyword || saving}
+                className={`flex-shrink-0 h-9 px-4 text-sm font-medium transition-all ${
+                    saved
+                        ? "bg-emerald-600 hover:bg-emerald-600 text-white"
+                        : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                }`}
+            >
+                {saving ? (
+                    <>
+                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                        Saving…
+                    </>
+                ) : saved ? (
+                    <>
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                        Saved!
+                    </>
+                ) : (
+                    <>
+                        <Save className="w-3.5 h-3.5 mr-1.5" />
+                        Save Selections
+                    </>
+                )}
+            </Button>
+        </div>
+    );
+}
+
+// ─── Main Modal ───────────────────────────────────────────────────────────────
+
+export interface KeywordIntelligenceModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    idea: ContentIdea;
+    /** Called after a successful save so the parent can update local state */
+    onSaved?: (primary: string, secondary: string[]) => void;
+}
+
+export function KeywordIntelligenceModal({
+    isOpen,
+    onClose,
+    idea,
+    onSaved,
+}: KeywordIntelligenceModalProps) {
+    const { user } = useAuth();
+
+    // Parse the DataForSEO output once
+    const parsed = React.useMemo(() => {
+        const rawField =
+            (idea as any).raw_dataforseo_output ??
+            (idea as any).raw_supabase_output ??
+            (idea as any).idea_metadata?.seo_offer_enrichment?.raw_dataforseo_output;
+        return parseDataForSEOOutput(rawField);
+    }, [idea.id, (idea as any).raw_dataforseo_output]);
+
+    // Resolve initial selections from stored idea data
+    const initialPrimary = React.useMemo(() => {
+        const stored = (idea as any).primary_keywords ?? (idea as any).keywords ?? [];
+        const list = Array.isArray(stored)
+            ? stored
+            : typeof stored === "string"
+            ? [stored]
+            : [];
+        return (list[0] as string | undefined) ?? null;
+    }, [idea.id]);
+
+    const initialSecondary = React.useMemo(() => {
+        const raw = (idea as any).secondary_keywords;
+        if (Array.isArray(raw)) return raw as string[];
+        if (typeof raw === "string" && raw.trim()) return [raw];
+        // Fall back to keywords[1..] if secondary_keywords is empty
+        const stored = (idea as any).primary_keywords ?? (idea as any).keywords ?? [];
+        const list = Array.isArray(stored) ? (stored as string[]) : [];
+        return list.slice(1);
+    }, [idea.id]);
+
+    const [primaryKeyword, setPrimaryKeyword] = React.useState<string | null>(initialPrimary);
+    const [secondaryKeywords, setSecondaryKeywords] = React.useState<string[]>(initialSecondary);
+    const [expandedChart, setExpandedChart] = React.useState<string | null>(null);
+    const [saving, setSaving] = React.useState(false);
+    const [saved, setSaved] = React.useState(false);
+    const [saveError, setSaveError] = React.useState<string | null>(null);
+
+    // Re-sync selections when idea changes (e.g. re-opened for different idea)
+    React.useEffect(() => {
+        if (isOpen) {
+            setPrimaryKeyword(initialPrimary);
+            setSecondaryKeywords(initialSecondary);
+            setExpandedChart(null);
+            setSaved(false);
+            setSaveError(null);
+        }
+    }, [idea.id, isOpen]);
+
+    const handleSelectPrimary = (keyword: string) => {
+        setPrimaryKeyword(keyword);
+        // Remove from secondary if it was there
+        setSecondaryKeywords((prev) => prev.filter((k) => k !== keyword));
+        setSaved(false);
+    };
+
+    const handleToggleSecondary = (keyword: string) => {
+        if (keyword === primaryKeyword) return;
+        setSecondaryKeywords((prev) =>
+            prev.includes(keyword) ? prev.filter((k) => k !== keyword) : [...prev, keyword]
+        );
+        setSaved(false);
+    };
+
+    const handleToggleChart = (keyword: string) => {
+        setExpandedChart((prev) => (prev === keyword ? null : keyword));
+    };
+
+    const handleSave = async () => {
+        if (!primaryKeyword || !user) return;
+        setSaving(true);
+        setSaveError(null);
+        try {
+            const ok = await contentIdeasService.updateKeywordSelection(
+                idea.id,
+                user.id,
+                primaryKeyword,
+                secondaryKeywords
+            );
+            if (ok) {
+                setSaved(true);
+                onSaved?.(primaryKeyword, secondaryKeywords);
+                setTimeout(() => setSaved(false), 2500);
+            } else {
+                setSaveError("Save failed. Please try again.");
+            }
+        } catch (err) {
+            setSaveError("Unexpected error saving selections.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <div
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-3"
+            onClick={(e) => {
+                if (e.target === e.currentTarget) onClose();
+            }}
+        >
+            <motion.div
+                initial={{ opacity: 0, scale: 0.96, y: 12 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: 12 }}
+                transition={{ duration: 0.2 }}
+                className="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden"
+            >
+                {/* ── Header ── */}
+                <div className="flex items-start justify-between px-6 py-4 border-b border-white/10 flex-shrink-0">
+                    <div className="flex-1 min-w-0 pr-4">
+                        <div className="flex items-center gap-2 mb-0.5">
+                            <BarChart2 className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                            <h2 className="text-base font-bold text-white truncate">Keyword Intelligence</h2>
+                        </div>
+                        <p className="text-xs text-slate-400 truncate">{idea.title}</p>
+                        {parsed && (
+                            <p className="text-[11px] text-indigo-300 mt-0.5">
+                                Seed: <span className="font-medium">{parsed.seed_keyword}</span>
+                            </p>
+                        )}
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="text-slate-500 hover:text-white transition-colors flex-shrink-0 p-1 -mr-1 rounded-lg hover:bg-white/5"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
+
+                {/* ── No data state ── */}
+                {!parsed ? (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-4 p-12 text-center">
+                        <AlertTriangle className="w-12 h-12 text-amber-500/60" />
+                        <div>
+                            <p className="text-slate-300 font-medium mb-1">No keyword data available</p>
+                            <p className="text-xs text-slate-500 max-w-sm">
+                                Raw DataForSEO output is missing for this idea. Run{" "}
+                                <span className="text-sky-300">SEO/Offers enrichment</span> to populate keyword
+                                data.
+                            </p>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-white/10 text-slate-300 hover:text-white hover:border-white/20 text-sm transition-colors"
+                        >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            Close &amp; Re-enrich
+                        </button>
+                    </div>
+                ) : (
+                    <>
+                        {/* ── Summary bar ── */}
+                        <SummaryBar data={parsed} />
+
+                        {/* ── Column legend ── */}
+                        <div className="flex-1 overflow-auto">
+                            <table className="w-full text-xs border-collapse">
+                                <thead className="sticky top-0 bg-slate-900 border-b border-white/10 z-10">
+                                    <tr>
+                                        <th className="px-3 py-2.5 w-10">
+                                            <abbr title="Primary keyword">
+                                                <Star className="w-3 h-3 text-emerald-400 mx-auto" />
+                                            </abbr>
+                                        </th>
+                                        <th className="px-2 py-2.5 w-10">
+                                            <abbr title="Secondary keyword">
+                                                <Target className="w-3 h-3 text-sky-400 mx-auto" />
+                                            </abbr>
+                                        </th>
+                                        <th className="px-3 py-2.5 text-left text-slate-400 font-medium">Keyword</th>
+                                        <th className="px-3 py-2.5 text-right text-slate-400 font-medium whitespace-nowrap">
+                                            Volume
+                                        </th>
+                                        <th className="px-3 py-2.5 text-right text-slate-400 font-medium">KD</th>
+                                        <th className="px-3 py-2.5 text-right text-slate-400 font-medium">CPC</th>
+                                        <th className="px-3 py-2.5 text-center text-slate-400 font-medium whitespace-nowrap">
+                                            Competition
+                                        </th>
+                                        <th className="px-3 py-2.5 text-center text-slate-400 font-medium">Intent</th>
+                                        <th className="px-3 py-2.5 text-right text-slate-400 font-medium whitespace-nowrap">
+                                            MoM%
+                                        </th>
+                                        <th className="px-2 py-2.5 w-10 text-center text-slate-400 font-medium">
+                                            <BarChart2 className="w-3 h-3 mx-auto" />
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {parsed.rows.map((row) => (
+                                        <KeywordTableRow
+                                            key={row.keyword}
+                                            row={row}
+                                            isPrimary={primaryKeyword === row.keyword}
+                                            isSecondary={secondaryKeywords.includes(row.keyword)}
+                                            onSelectPrimary={() => handleSelectPrimary(row.keyword)}
+                                            onToggleSecondary={() => handleToggleSecondary(row.keyword)}
+                                            showChart={expandedChart === row.keyword}
+                                            onToggleChart={() => handleToggleChart(row.keyword)}
+                                            disabled={saving}
+                                        />
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* ── Save error ── */}
+                        {saveError && (
+                            <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-300 flex-shrink-0">
+                                {saveError}
+                            </div>
+                        )}
+
+                        {/* ── Legend ── */}
+                        <div className="px-6 py-2 flex flex-wrap items-center gap-3 border-t border-white/5 flex-shrink-0 bg-slate-900/50">
+                            <span className="text-[10px] text-slate-500">
+                                <Star className="w-2.5 h-2.5 text-emerald-400 inline mr-0.5" />
+                                Primary — radio (select one)
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                                <Target className="w-2.5 h-2.5 text-sky-400 inline mr-0.5" />
+                                Secondary — multi-select
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                                <BarChart2 className="w-2.5 h-2.5 text-indigo-400 inline mr-0.5" />
+                                12-month trend chart
+                            </span>
+                            <span className="text-[10px] text-slate-500">KD = Keyword Difficulty (0–100)</span>
+                            <span className="text-[10px] text-slate-500">MoM% = monthly search trend</span>
+                        </div>
+
+                        {/* ── Footer ── */}
+                        <Footer
+                            primaryKeyword={primaryKeyword}
+                            secondaryKeywords={secondaryKeywords}
+                            saving={saving}
+                            saved={saved}
+                            onSave={handleSave}
+                        />
+                    </>
+                )}
+            </motion.div>
+        </div>
+    );
+}

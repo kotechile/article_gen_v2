@@ -141,3 +141,37 @@ export interface ContentIdeaGenerationResponse {
     software_ideas: number;
     ideas: ContentIdea[];
 }
+
+// ─── DataForSEO Keyword Intelligence Types ──────────────────────────────────
+
+export interface DFSMonthlySearch {
+    year: number;
+    month: number;
+    search_volume: number;
+}
+
+export interface DFSKeywordRow {
+    keyword: string;
+    type: 'seed' | 'related';
+    depth: number;
+    search_volume: number | null;
+    competition: number | null;
+    competition_level: 'LOW' | 'MEDIUM' | 'HIGH' | null;
+    cpc: number | null;
+    keyword_difficulty: number | null;
+    main_intent: string | null;
+    foreign_intents: string[] | null;
+    monthly_searches: DFSMonthlySearch[];
+    search_volume_trend: { monthly: number; quarterly: number; yearly: number } | null;
+    low_top_of_page_bid: number | null;
+    high_top_of_page_bid: number | null;
+    se_results_count: number | null;
+    related_keywords: string[] | null;
+}
+
+export interface DFSParsedOutput {
+    seed_keyword: string;
+    total_count: number;
+    items_count: number;
+    rows: DFSKeywordRow[];
+}
