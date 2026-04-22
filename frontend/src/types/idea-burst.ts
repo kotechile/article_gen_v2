@@ -92,6 +92,7 @@ export interface ContentIdea {
         keyword_difficulty?: number;
         cpc?: number;
     }>;
+    raw_supabase_output?: Record<string, unknown> | null;
 }
 
 export interface KeywordData {

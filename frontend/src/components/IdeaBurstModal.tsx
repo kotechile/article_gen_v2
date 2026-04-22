@@ -258,6 +258,19 @@ function ideaHasExactKeywordMetrics(idea: ContentIdea): boolean {
     return false;
 }
 
+function getRawDataforSeoTrace(idea: ContentIdea): Record<string, unknown> | null {
+    const direct = parseJsonLike<Record<string, unknown> | null>((idea as any).raw_supabase_output, null);
+    if (direct && typeof direct === "object" && Object.keys(direct).length > 0) {
+        return direct;
+    }
+    const metadata = parseJsonLike<Record<string, any>>((idea as any).idea_metadata, {});
+    const nested = parseJsonLike<Record<string, unknown> | null>(metadata?.seo_offer_enrichment?.raw_dataforseo_output, null);
+    if (nested && typeof nested === "object" && Object.keys(nested).length > 0) {
+        return nested;
+    }
+    return null;
+}
+
 function computeAggregateFromExactMap(
     keywords: string[],
     ideaMap: Map<string, KeywordMetricRow>,
@@ -1235,6 +1248,8 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
     const averageCpc = hasAnyRealKeywordMetrics
         ? (Number(idea.average_cpc || 0) > 0 ? Number(idea.average_cpc || 0) : exactAggregate.avgCpc)
         : exactAggregate.avgCpc;
+    const rawTrace = React.useMemo(() => getRawDataforSeoTrace(idea), [idea]);
+    const rawTraceAvailable = Boolean(rawTrace);
 
     return (
         <motion.div
@@ -1478,6 +1493,15 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics,
                                             ? "Note: Keyword rows show exact per-keyword metrics when available."
                                             : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
                                     </p>
+                                    <div className="mt-1 flex justify-center">
+                                        <span className={`text-[10px] px-2 py-0.5 rounded border ${
+                                            rawTraceAvailable
+                                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                                                : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                                        }`}>
+                                            Raw DFS Trace: {rawTraceAvailable ? "Available" : "Missing"}
+                                        </span>
+                                    </div>
                                 </div>
                             </motion.div>
                         )}
@@ -1526,6 +1550,8 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
     const averageCpc = hasAnyRealKeywordMetrics
         ? (Number(idea.average_cpc || 0) > 0 ? Number(idea.average_cpc || 0) : exactAggregate.avgCpc)
         : exactAggregate.avgCpc;
+    const rawTrace = React.useMemo(() => getRawDataforSeoTrace(idea), [idea]);
+    const rawTraceAvailable = Boolean(rawTrace);
 
     return (
         <motion.div
@@ -1774,6 +1800,15 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                                             ? "Note: Keyword rows show exact per-keyword metrics when available."
                                             : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
                                     </p>
+                                    <div className="mt-1 flex justify-center">
+                                        <span className={`text-[10px] px-2 py-0.5 rounded border ${
+                                            rawTraceAvailable
+                                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                                                : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                                        }`}>
+                                            Raw DFS Trace: {rawTraceAvailable ? "Available" : "Missing"}
+                                        </span>
+                                    </div>
                                 </div>
                             </motion.div>
                         )}
