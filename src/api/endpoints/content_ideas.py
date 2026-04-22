@@ -244,9 +244,11 @@ def _extract_keywords_for_enrichment(idea: dict) -> list[str]:
                 continue
             tokens = [t for t in part.split(" ") if t and t not in QUERY_STOPWORDS and t not in JARGON_STOPWORDS]
             if len(tokens) < 2:
+                if tokens and len(tokens[0]) >= 4:
+                    out.append(tokens[0])
                 continue
-            if len(tokens) > 4:
-                tokens = tokens[:4]
+            if len(tokens) > 3:
+                tokens = tokens[:3]
             phrase = " ".join(tokens)
             out.append(phrase)
             if len(tokens) >= 3:
@@ -308,8 +310,8 @@ def _normalize_keyword_term(term: str) -> str:
     tokens = [tok for tok in cleaned.split(" ") if tok and tok not in QUERY_STOPWORDS and tok not in JARGON_STOPWORDS]
     if len(tokens) < 2:
         return tokens[0] if tokens and len(tokens[0]) >= 4 else ""
-    if len(tokens) > 4:
-        tokens = tokens[:4]
+    if len(tokens) > 3:
+        tokens = tokens[:3]
     return " ".join(tokens)
 
 
@@ -686,7 +688,8 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
 
         expanded_related_count = 0
         if max_related_seeds > 0 and keywords:
-            rescue_seeds = [_shorten_keyword_term(k) or k for k in keywords[:max_related_seeds]]
+            seed_pool = working_candidates or keywords
+            rescue_seeds = [_shorten_keyword_term(k) or k for k in seed_pool[:max_related_seeds]]
             rescue_seeds = [s for s in rescue_seeds if s]
             try:
                 related_rows = await asyncio.wait_for(

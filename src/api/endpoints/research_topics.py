@@ -2044,6 +2044,7 @@ def idea_burst():
             # Generate blog ideas
             blog_prompt = f"""
 You are a veteran SEO content strategist. Generate article ideas in plain, human language that sounds like real Google searches, not consultant-speak.
+Also act as a Search Intent Specialist: reverse complex concepts into short query terms users actually type.
 
 Current Year: 2026
 Topic Description: {_clip_prompt_text(topic_context.get('description') or 'N/A', 220)}
@@ -2059,19 +2060,19 @@ Generate 5 BLOG article ideas.
 Hard constraints:
 1. Use simple, practical language. Pass the "2 AM test": a stressed user should plausibly type these words.
 2. Avoid consultant/corporate jargon in titles and search phrases (framework, paradigm, architecture, lens, methodology, optimization strategy).
-3. Each idea MUST include SEARCH_PHRASE (2-5 words, lowercase) that looks like a real query and can be sent to keyword tools.
+3. Each idea MUST include SEARCH_PHRASE (1-3 words, lowercase) that looks like a real query and can be sent to keyword tools.
 4. TITLE must include SEARCH_PHRASE verbatim.
 5. Keep SEARCH_PHRASE and INPUT_KEYWORDS tightly aligned to subtopic + decision focus + primary outcome.
 6. Avoid topic drift and generic listicles.
 7. DESCRIPTION is required and cannot be empty.
 8. Prioritize decision/action intent over abstract commentary.
 9. INPUT_KEYWORDS must be short, human, and literal search language for DataForSEO related keyword mining.
-10. INPUT_KEYWORDS must be 3-5 items, each 2-4 words max, no punctuation-heavy phrases, no jargon.
+10. INPUT_KEYWORDS must be 3-5 items, each 1-3 words max, no punctuation-heavy phrases, no jargon, and avoid connectors like "or", "vs", "and".
 
 For each idea, provide:
 - Title: SEO-conscious title in plain language
 - Description: 1-2 sentence angle summary
-- Search Phrase: 2-5 words, plain language
+- Search Phrase: 1-3 words, plain language
 - Input Keywords: 3-5 simple query-like seed phrases for keyword mining
 - Intent: informational/commercial/transactional
 - Format: comparison/checklist/framework/case-study/how-to/calculator-guide
@@ -2100,6 +2101,7 @@ Generate 5 blog ideas following this format.
             # Generate software/commercial ideas
             software_prompt = f"""
 You are a product strategist generating software tools users can discover through search. Use plain language and practical naming.
+Also act as a Search Intent Specialist: reverse complex concepts into short query terms users actually type.
 
 Current Year: 2026
 Topic: {topic_context.get('title') or 'N/A'}
@@ -2129,8 +2131,8 @@ Examples of what NOT to generate:
 For each tool idea, provide:
 - Title: Name of the tool/feature to build and include SEARCH_PHRASE verbatim
 - Description: What the tool does and how users interact with it
-- Search Phrase: 2-5 words users would type to find this tool
-- Input Keywords: 3-5 simple query-like seed phrases for DataForSEO related keyword mining
+- Search Phrase: 1-3 words users would type to find this tool
+- Input Keywords: 3-5 simple query-like seed phrases for DataForSEO related keyword mining (each 1-3 words, no connector phrases like "x vs y")
 - Product Type: calculator/planner/evaluator/comparison-tool/dashboard/workflow-helper
 - User Job To Be Done: the repeated decision/action this solves
 - Key Inputs: data users provide
@@ -2144,7 +2146,7 @@ Output format (use exactly this format):
 SOFTWARE_IDEA: [number]
 TITLE: [tool name - NOT a review article title]
 DESCRIPTION: [what the tool does and user interaction]
-SEARCH_PHRASE: [2-5 word query]
+SEARCH_PHRASE: [1-3 word query]
 INPUT_KEYWORDS: [keyword1, keyword2, keyword3, keyword4]
 PRODUCT_TYPE: [calculator/planner/evaluator/comparison-tool/dashboard/workflow-helper]
 USER_JOB: [job to be done]
@@ -2564,9 +2566,11 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
                 continue
             tokens = [t for t in part.split(" ") if t and t not in SIMPLE_STOPWORDS and t not in JARGON_TOKENS]
             if len(tokens) < 2:
+                if tokens and len(tokens[0]) >= 4:
+                    normalized_parts.append(tokens[0])
                 continue
-            if len(tokens) > 4:
-                tokens = tokens[:4]
+            if len(tokens) > 3:
+                tokens = tokens[:3]
             normalized_parts.append(" ".join(tokens))
 
         if normalized_parts:
@@ -2575,8 +2579,8 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
         tokens = [t for t in cleaned.split(" ") if t and t not in SIMPLE_STOPWORDS and t not in JARGON_TOKENS]
         if len(tokens) < 2:
             return tokens[0] if tokens and len(tokens[0]) >= 4 else ""
-        if len(tokens) > 4:
-            tokens = tokens[:4]
+        if len(tokens) > 3:
+            tokens = tokens[:3]
         return " ".join(tokens)
 
     def _build_simple_keyword_seeds(title_value: str, subtopic_value: str, seeds: list[str]) -> list[str]:
