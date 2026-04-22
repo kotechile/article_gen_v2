@@ -170,18 +170,21 @@ def _hydrate_legacy_idea_seo_fields(row_copy: dict) -> dict:
     row_copy["secondary_keywords"] = secondary_keywords
 
     # Backfill aggregate metrics when not populated on the row.
-    total_search_volume = _coerce_numeric(row_copy.get("total_search_volume"), int, 0)
-    average_difficulty = _coerce_numeric(row_copy.get("average_difficulty"), float, 0.0)
-    average_cpc = _coerce_numeric(row_copy.get("average_cpc"), float, 0.0)
+    total_search_volume = _coerce_numeric(row_copy.get("total_search_volume"), int, None)
+    average_difficulty = _coerce_numeric(row_copy.get("average_difficulty"), float, None)
+    average_cpc = _coerce_numeric(row_copy.get("average_cpc"), float, None)
 
-    if total_search_volume <= 0:
-        total_search_volume = _coerce_numeric(seo_offer.get("total_search_volume"), int, 0)
-    if average_difficulty <= 0:
-        average_difficulty = _coerce_numeric(seo_offer.get("average_difficulty"), float, 0.0)
-    if average_cpc <= 0:
-        average_cpc = _coerce_numeric(seo_offer.get("average_cpc"), float, 0.0)
+    if not total_search_volume:
+        total_search_volume = _coerce_numeric(seo_offer.get("total_search_volume"), int, None)
+    if not average_difficulty:
+        average_difficulty = _coerce_numeric(seo_offer.get("average_difficulty"), float, None)
+    if not average_cpc:
+        average_cpc = _coerce_numeric(seo_offer.get("average_cpc"), float, None)
 
-    if (total_search_volume <= 0 or average_difficulty <= 0 or average_cpc <= 0) and keyword_metrics:
+    if (
+        (not total_search_volume or not average_difficulty or not average_cpc)
+        and keyword_metrics
+    ):
         volumes = []
         difficulties = []
         cpcs = []
@@ -198,16 +201,16 @@ def _hydrate_legacy_idea_seo_fields(row_copy: dict) -> dict:
             if cpc > 0:
                 cpcs.append(cpc)
 
-        if total_search_volume <= 0 and volumes:
+        if not total_search_volume and volumes:
             total_search_volume = int(sum(volumes))
-        if average_difficulty <= 0 and difficulties:
+        if not average_difficulty and difficulties:
             average_difficulty = round(sum(difficulties) / len(difficulties), 1)
-        if average_cpc <= 0 and cpcs:
+        if not average_cpc and cpcs:
             average_cpc = round(sum(cpcs) / len(cpcs), 2)
 
-    row_copy["total_search_volume"] = max(0, int(total_search_volume or 0))
-    row_copy["average_difficulty"] = round(float(average_difficulty or 0.0), 1)
-    row_copy["average_cpc"] = round(float(average_cpc or 0.0), 2)
+    row_copy["total_search_volume"] = int(total_search_volume) if total_search_volume else None
+    row_copy["average_difficulty"] = round(float(average_difficulty), 1) if average_difficulty else None
+    row_copy["average_cpc"] = round(float(average_cpc), 2) if average_cpc else None
     return row_copy
 
 
@@ -951,6 +954,70 @@ def _persist_raw_trace_for_idea(
             continue
 
 
+def _verify_enrichment_persistence(row: dict, expected_keywords: list[str], expected_raw: dict) -> bool:
+    if not isinstance(row, dict):
+        return False
+
+    stored_raw = _coerce_json_field(row.get("raw_dataforseo_output"), {})
+    raw_expected_non_empty = isinstance(expected_raw, dict) and bool(expected_raw)
+    raw_persisted = (not raw_expected_non_empty) or (isinstance(stored_raw, dict) and bool(stored_raw))
+
+    stored_keywords = _coerce_json_field(
+        row.get("primary_keywords") or row.get("keywords"),
+        [],
+    )
+    stored_keywords_norm = {
+        str(keyword).strip().lower()
+        for keyword in (stored_keywords or [])
+        if str(keyword).strip()
+    }
+    expected_keywords_norm = [
+        str(keyword).strip().lower()
+        for keyword in (expected_keywords or [])
+        if str(keyword).strip()
+    ]
+    keywords_persisted = not expected_keywords_norm or any(
+        keyword in stored_keywords_norm for keyword in expected_keywords_norm
+    )
+
+    return raw_persisted and keywords_persisted
+
+
+def _apply_enrichment_update_with_fallback(
+    supabase,
+    *,
+    idea_id: str,
+    user_id: str,
+    payloads: list[dict],
+    expected_keywords: list[str],
+    expected_raw: dict,
+) -> bool:
+    for payload in payloads:
+        try:
+            supabase.table("content_ideas").update(payload).eq("id", idea_id).eq("user_id", user_id).execute()
+        except Exception:
+            continue
+
+        try:
+            verify_resp = (
+                supabase
+                .table("content_ideas")
+                .select("id,keywords,primary_keywords,raw_dataforseo_output")
+                .eq("id", idea_id)
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            verify_row = (verify_resp.data or [None])[0]
+        except Exception:
+            verify_row = None
+
+        if _verify_enrichment_persistence(verify_row or {}, expected_keywords, expected_raw):
+            return True
+
+    return False
+
+
 @content_ideas_bp.route("/list", methods=["POST"])
 @require_api_key
 def list_content_ideas():
@@ -1357,34 +1424,6 @@ def enrich_content_ideas():
                 })
                 continue
 
-            # If all enrichment metrics are zero, report this as a failed enrichment
-            # so UI does not show a misleading "success" with no visible SEO stats.
-            if (
-                not bool(enrichment.get("has_exact_keyword_metrics"))
-                and int(enrichment.get("total_search_volume") or 0) == 0
-                and float(enrichment.get("average_cpc") or 0.0) == 0.0
-                and float(enrichment.get("average_difficulty") or 0.0) == 0.0
-            ):
-                logger.warning(
-                    "Enrichment produced zero metrics for idea_id=%s keywords=%s",
-                    idea_id,
-                    enrichment.get("keywords_used") or [],
-                )
-                _persist_raw_trace_for_idea(
-                    supabase=supabase,
-                    idea=idea,
-                    user_id=user_id,
-                    now_iso=now,
-                    raw_output=enrichment.get("raw_dataforseo_output") or {},
-                    reason="zero_metrics",
-                )
-                results.append({
-                    "idea_id": idea_id,
-                    "status": "failed",
-                    "reason": "No SEO/offer metrics returned for this idea",
-                })
-                continue
-
             all_keywords_found = [
                 str(keyword).strip()
                 for keyword in (enrichment.get("all_keywords_found") or [])
@@ -1408,9 +1447,21 @@ def enrich_content_ideas():
                 "search_phrase": selected_primary_keyword,
             }
             update_payload = {
-                "total_search_volume": enrichment["total_search_volume"],
-                "average_cpc": enrichment["average_cpc"],
-                "average_difficulty": enrichment["average_difficulty"],
+                "total_search_volume": (
+                    enrichment["total_search_volume"]
+                    if enrichment.get("has_exact_keyword_metrics")
+                    else None
+                ),
+                "average_cpc": (
+                    enrichment["average_cpc"]
+                    if enrichment.get("has_exact_keyword_metrics")
+                    else None
+                ),
+                "average_difficulty": (
+                    enrichment["average_difficulty"]
+                    if enrichment.get("has_exact_keyword_metrics")
+                    else None
+                ),
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
                 "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
                 "status": "in_progress",
@@ -1443,9 +1494,8 @@ def enrich_content_ideas():
                 },
             }
 
-            updated = False
             # Try richest payload first; gracefully degrade for older schemas.
-            for payload in (
+            payload_attempts = [
                 {
                     **update_payload,
                     **keyword_projection_payload,
@@ -1480,14 +1530,16 @@ def enrich_content_ideas():
                     "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
                 },
                 update_payload,
-                {"updated_at": now},
-            ):
-                try:
-                    supabase.table("content_ideas").update(payload).eq("id", idea_id).eq("user_id", user_id).execute()
-                    updated = True
-                    break
-                except Exception:
-                    continue
+            ]
+
+            updated = _apply_enrichment_update_with_fallback(
+                supabase,
+                idea_id=idea_id,
+                user_id=user_id,
+                payloads=payload_attempts,
+                expected_keywords=keywords_used,
+                expected_raw=enrichment.get("raw_dataforseo_output") or {},
+            )
 
             if updated:
                 enriched_count += 1
@@ -1676,15 +1728,27 @@ def refresh_keywords_for_library():
                 "secondary_keywords": keywords_used[1:],
             }
             update_payload = {
-                "total_search_volume": enrichment["total_search_volume"],
-                "average_cpc": enrichment["average_cpc"],
-                "average_difficulty": enrichment["average_difficulty"],
+                "total_search_volume": (
+                    enrichment["total_search_volume"]
+                    if enrichment.get("has_exact_keyword_metrics")
+                    else None
+                ),
+                "average_cpc": (
+                    enrichment["average_cpc"]
+                    if enrichment.get("has_exact_keyword_metrics")
+                    else None
+                ),
+                "average_difficulty": (
+                    enrichment["average_difficulty"]
+                    if enrichment.get("has_exact_keyword_metrics")
+                    else None
+                ),
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
                 "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
                 "status": "in_progress",
                 "updated_at": now,
             }
-            for payload in (
+            payload_attempts = [
                 {
                     **update_payload,
                     **keyword_projection_payload,
@@ -1734,13 +1798,22 @@ def refresh_keywords_for_library():
                     },
                 },
                 update_payload,
-                {"updated_at": now},
-            ):
-                try:
-                    supabase.table("content_ideas").update(payload).eq("id", idea_id).eq("user_id", user_id).execute()
-                    break
-                except Exception:
-                    continue
+            ]
+            updated = _apply_enrichment_update_with_fallback(
+                supabase,
+                idea_id=idea_id,
+                user_id=user_id,
+                payloads=payload_attempts,
+                expected_keywords=keywords_used,
+                expected_raw=enrichment.get("raw_dataforseo_output") or {},
+            )
+            if not updated:
+                results.append({
+                    "idea_id": idea_id,
+                    "status": "failed",
+                    "reason": "Could not persist enrichment values",
+                })
+                continue
 
             # Re-fetch updated row and sync Titles projection.
             refreshed_idea_resp = (

@@ -569,13 +569,17 @@ class DataForSEOAPI:
                         aggregated_items.extend(parsed)
 
                 if return_raw:
-                    return {
-                        "items": aggregated_items,
-                        "raw": {
+                    if len(raw_responses) == 1 and isinstance(raw_responses[0], dict):
+                        raw_payload = raw_responses[0].get("response")
+                    else:
+                        raw_payload = {
                             "endpoint": "dataforseo_labs/google/related_keywords/live",
                             "requests_count": len(sanitized_seeds),
                             "responses": raw_responses,
-                        },
+                        }
+                    return {
+                        "items": aggregated_items,
+                        "raw": raw_payload,
                     }
                 return aggregated_items
         except Exception as e:
@@ -1347,6 +1351,21 @@ class DataForSEOAPI:
                         "created_at": datetime.utcnow().isoformat()
                     })
 
+                def _append_related_keyword_text(term: Any) -> None:
+                    keyword_norm = str(term or "").strip().lower()
+                    if not keyword_norm or keyword_norm in seen_keywords:
+                        return
+                    seen_keywords.add(keyword_norm)
+                    keywords.append({
+                        "keyword": keyword_norm,
+                        "search_volume": None,
+                        "competition": None,
+                        "competition_level": None,
+                        "cpc": None,
+                        "keyword_difficulty": None,
+                        "created_at": datetime.utcnow().isoformat()
+                    })
+
                 for result_entry in task.get("result") or []:
                     if not isinstance(result_entry, dict):
                         continue
@@ -1364,6 +1383,10 @@ class DataForSEOAPI:
                     for item in result_entry.get("items") or []:
                         if isinstance(item, dict):
                             _append_keyword_row(item)
+                            related_list = item.get("related_keywords")
+                            if isinstance(related_list, list):
+                                for related_term in related_list:
+                                    _append_related_keyword_text(related_term)
         
         return keywords
     
