@@ -269,7 +269,7 @@ class ContentIdeasService {
             const { error } = await supabase
                 .from('content_ideas')
                 .update({
-                    primary_keywords: allKeywords,
+                    primary_keywords: [primaryKeyword],
                     secondary_keywords: secondaryKeywords.filter((k) => k !== primaryKeyword),
                     keywords: allKeywords,
                     search_phrase: primaryKeyword,
