@@ -33,9 +33,9 @@ export interface ContentIdea {
     secondary_keywords: string[];
     seo_optimization_score: number;
     traffic_potential_score: number;
-    total_search_volume: number;
-    average_difficulty: number;
-    average_cpc: number;
+    total_search_volume: number | null;
+    average_difficulty: number | null;
+    average_cpc: number | null;
     created_at: string;
     updated_at?: string;
     status?: ContentIdeaStatus;
@@ -119,6 +119,15 @@ export interface ContentIdeaGenerationRequest {
     keywords: KeywordData[];
     user_id: string;
     content_types?: ContentType[];
+}
+
+export interface IdeaBurstResponse {
+    success: boolean;
+    blog_ideas: ContentIdea[];
+    software_ideas: ContentIdea[];
+    generated_count?: number;
+    persisted_count?: number;
+    persistence_warning?: string | null;
 }
 
 export interface ContentIdeaGenerationResponse {

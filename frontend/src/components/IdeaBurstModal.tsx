@@ -534,6 +534,14 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             const nextSoftwareIdeas = result.software_ideas || [];
             setBlogIdeas(nextBlogIdeas);
             setSoftwareIdeas(nextSoftwareIdeas);
+            const generatedCount = Number(result.generated_count ?? (nextBlogIdeas.length + nextSoftwareIdeas.length));
+            const persistedCount = Number(result.persisted_count ?? generatedCount);
+
+            if (persistedCount <= 0 && generatedCount > 0) {
+                setError("Ideas were generated but were not saved to Supabase. Reloading will lose them until persistence is fixed.");
+            } else if (persistedCount < generatedCount) {
+                setError(result.persistence_warning || `Only ${persistedCount} of ${generatedCount} ideas were saved. Some may disappear on reload.`);
+            }
 
             if (ENABLE_IDEA_BURST_CACHE && cacheKey) {
                 try {
@@ -547,7 +555,9 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     console.warn("Failed to persist idea burst cache:", e);
                 }
             }
-            await autoEnrichIdeasWithoutKeywordMetrics([...nextBlogIdeas, ...nextSoftwareIdeas]);
+            if (persistedCount === generatedCount) {
+                await autoEnrichIdeasWithoutKeywordMetrics([...nextBlogIdeas, ...nextSoftwareIdeas]);
+            }
         } catch (err: any) {
             console.error("Failed to generate ideas:", err);
             setError(err.message || "Failed to generate content ideas. Please try again.");

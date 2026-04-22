@@ -1957,8 +1957,10 @@ def idea_burst():
                 status=403
             ).dict()), 403
 
+        supabase_admin = _get_admin_supabase_client(supabase)
+
         topic_context_res = (
-            supabase
+            supabase_admin
             .table('research_topics')
             .select('title, description, primary_category_id, secondary_category_id, intent_bucket, decision_focus, angle_question, value_layer_tags, target_audience')
             .eq('id', topic_id)
@@ -1976,7 +1978,7 @@ def idea_burst():
         if category_ids:
             try:
                 category_response = (
-                    supabase
+                    supabase_admin
                     .table('project_categories')
                     .select('id, name')
                     .in_('id', category_ids)
@@ -2251,10 +2253,11 @@ Critical naming and language rules:
 
         # Persist burst ideas so they appear in Content Library and Software Ideas screens.
         all_ideas = (blog_ideas or []) + (software_ideas or [])
+        saved_count = 0
         if all_ideas:
             # Keep published ideas, replace only draft rows for this subtopic/topic/user.
             try:
-                supabase.table("content_ideas") \
+                supabase_admin.table("content_ideas") \
                     .delete() \
                     .eq("user_id", user_id) \
                     .eq("topic_id", topic_id) \
@@ -2339,24 +2342,42 @@ Critical naming and language rules:
 
             def _insert_with_schema_fallback(row: dict) -> bool:
                 payload = dict(row)
-                for _ in range(6):
+                last_error = None
+                max_attempts = max(12, len(payload) + 4)
+                for _ in range(max_attempts):
                     try:
-                        supabase.table("content_ideas").insert(payload).execute()
+                        supabase_admin.table("content_ideas").insert(payload).execute()
                         return True
                     except Exception as insert_error:
+                        last_error = insert_error
                         err = str(insert_error)
                         missing_cols = re.findall(r"Could not find the '([^']+)' column", err)
                         if not missing_cols:
-                            logger.warning("Idea burst insert failed without recoverable schema hint", exc_info=True)
+                            logger.warning(
+                                "Idea burst insert failed without recoverable schema hint payload_keys=%s err=%s",
+                                sorted(payload.keys()),
+                                err,
+                                exc_info=True,
+                            )
                             return False
+                        removed_any = False
                         for col in missing_cols:
-                            payload.pop(col, None)
+                            if col in payload:
+                                payload.pop(col, None)
+                                removed_any = True
                         if not payload:
                             return False
+                        if not removed_any:
+                            break
+                if last_error:
+                    logger.error(
+                        "Idea burst insert exhausted schema fallback payload_keys=%s err=%s",
+                        sorted(payload.keys()),
+                        last_error,
+                    )
                 return False
 
             persisted_rows = [_build_persist_row(idea) for idea in all_ideas]
-            saved_count = 0
             for row in persisted_rows:
                 if _insert_with_schema_fallback(row):
                     saved_count += 1
@@ -2370,17 +2391,26 @@ Critical naming and language rules:
 
             # Touch the parent topic to mark progress recency.
             try:
-                supabase.table("research_topics").update({
+                supabase_admin.table("research_topics").update({
                     "updated_at": datetime.utcnow().isoformat()
                 }).eq("id", topic_id).eq("user_id", user_id).execute()
             except Exception:
                 logger.warning("Could not update research topic timestamp after idea burst", exc_info=True)
 
+        persistence_warning = None
+        if all_ideas and saved_count != len(all_ideas):
+            persistence_warning = (
+                f"Generated {len(all_ideas)} ideas but saved {saved_count}. "
+                "Some ideas may not persist across reloads."
+            )
+
         return jsonify({
             "success": True,
             "blog_ideas": [idea.to_dict() if hasattr(idea, 'to_dict') else idea for idea in blog_ideas],
             "software_ideas": [idea.to_dict() if hasattr(idea, 'to_dict') else idea for idea in software_ideas],
-            "persisted_count": len(all_ideas),
+            "generated_count": len(all_ideas),
+            "persisted_count": saved_count,
+            "persistence_warning": persistence_warning,
         }), 200
 
     except Exception as e:
@@ -2716,9 +2746,9 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
         "secondary_keywords": [],
         "seo_optimization_score": 0,
         "traffic_potential_score": 0,
-        "total_search_volume": idea_data.get('total_search_volume', 0),
-        "average_difficulty": idea_data.get('average_difficulty', 50),
-        "average_cpc": 0.0,
+        "total_search_volume": idea_data.get('total_search_volume'),
+        "average_difficulty": idea_data.get('average_difficulty'),
+        "average_cpc": idea_data.get('average_cpc'),
         "created_at": datetime.utcnow().isoformat(),
         "user_id": user_id,
         "topic_id": topic_id,

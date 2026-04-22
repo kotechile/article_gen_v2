@@ -3,7 +3,8 @@ import { supabase } from '../lib/supabase';
 import {
     type ContentIdea,
     type ContentIdeaGenerationRequest,
-    type ContentIdeaGenerationResponse
+    type ContentIdeaGenerationResponse,
+    type IdeaBurstResponse,
 } from '../types/idea-burst';
 
 class ContentIdeasService {
@@ -43,7 +44,7 @@ class ContentIdeasService {
         primaryUserOutcome?: string | null;
         serpIntentMatch?: string | null;
         toolPotentialScore?: number | null;
-    }): Promise<{ success: boolean, blog_ideas: ContentIdea[], software_ideas: ContentIdea[] }> {
+    }): Promise<IdeaBurstResponse> {
         return await apiClient.post('/research-topics/idea-burst', {
             user_id: request.userId,
             topic_id: request.topicId,

@@ -343,29 +343,6 @@ export function TopicDetail() {
         }
     }
 
-    const cachedIdeasCountBySubtopicId = React.useMemo(() => {
-        if (!id || !user || typeof window === 'undefined') return new Map<string, number>()
-        const cachedCounts = new Map<string, number>()
-        for (const sub of subtopics) {
-            if (!sub?.id) continue
-            const key = `ideaBurstCache:${id}:${sub.id}:${user.id}`
-            try {
-                const raw = localStorage.getItem(key)
-                if (!raw) continue
-                const parsed = JSON.parse(raw) as { blogIdeas?: unknown[]; softwareIdeas?: unknown[] }
-                const blogCount = Array.isArray(parsed.blogIdeas) ? parsed.blogIdeas.length : 0
-                const softwareCount = Array.isArray(parsed.softwareIdeas) ? parsed.softwareIdeas.length : 0
-                const total = blogCount + softwareCount
-                if (total > 0) {
-                    cachedCounts.set(sub.id, total)
-                }
-            } catch {
-                // ignore malformed cache entries
-            }
-        }
-        return cachedCounts
-    }, [id, user?.id, subtopics])
-
     const summary = React.useMemo(() => {
         const totalSubtopics = subtopics.length
         const completedSubtopics = subtopics.filter(isSubtopicResearched).length
@@ -374,8 +351,7 @@ export function TopicDetail() {
         for (const sub of subtopics) {
             const normalizedName = (sub.name || '').trim().toLowerCase()
             const persistedIdeasCount = savedIdeasCountBySubtopicName.get(normalizedName) || 0
-            const cachedIdeasCount = cachedIdeasCountBySubtopicId.get(sub.id) || 0
-            totalIdeas += Math.max(persistedIdeasCount, cachedIdeasCount)
+            totalIdeas += persistedIdeasCount
         }
         return {
             totalSubtopics,
@@ -384,7 +360,7 @@ export function TopicDetail() {
             totalIdeas,
             hasProgress: totalIdeas > 0 || hasStoredIdeas || inLibrarySubtopics > 0 || completedSubtopics > 0,
         }
-    }, [subtopics, subtopicsReadyForContent, savedIdeasCountBySubtopicName, cachedIdeasCountBySubtopicId, hasStoredIdeas])
+    }, [subtopics, subtopicsReadyForContent, savedIdeasCountBySubtopicName, hasStoredIdeas])
 
     React.useEffect(() => {
         if (!id) return
@@ -677,9 +653,7 @@ export function TopicDetail() {
                                     const normalizedSubtopicName = (sub.name || '').trim().toLowerCase()
                                     const persistedIdeasCount = savedIdeasCountBySubtopicName.get(normalizedSubtopicName) || 0
                                     const readyForContent = subtopicsReadyForContent.has((sub.name || '').trim().toLowerCase())
-                                    const cachedIdeasCount = cachedIdeasCountBySubtopicId.get(sub.id) || 0
-                                    // Cache can mirror persisted rows; avoid double-counting.
-                                    const totalIdeasCount = Math.max(persistedIdeasCount, cachedIdeasCount)
+                                    const totalIdeasCount = persistedIdeasCount
                                     return (
                                     <motion.div
                                         key={sub.id || i}
