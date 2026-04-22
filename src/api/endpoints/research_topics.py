@@ -2284,6 +2284,22 @@ Critical naming and language rules:
                 if not isinstance(idea_metadata, dict):
                     idea_metadata = {}
 
+                raw_total_search_volume = idea.get("total_search_volume")
+                raw_average_difficulty = idea.get("average_difficulty")
+                raw_average_cpc = idea.get("average_cpc")
+                try:
+                    total_search_volume = int(raw_total_search_volume) if raw_total_search_volume is not None and str(raw_total_search_volume).strip() != "" else None
+                except Exception:
+                    total_search_volume = None
+                try:
+                    average_difficulty = float(raw_average_difficulty) if raw_average_difficulty is not None and str(raw_average_difficulty).strip() != "" else None
+                except Exception:
+                    average_difficulty = None
+                try:
+                    average_cpc = float(raw_average_cpc) if raw_average_cpc is not None and str(raw_average_cpc).strip() != "" else None
+                except Exception:
+                    average_cpc = None
+
                 return {
                     "id": idea.get("id"),
                     "title": idea.get("title") or "Untitled Idea",
@@ -2297,9 +2313,9 @@ Critical naming and language rules:
                     "primary_keywords": keywords,
                     "secondary_keywords": secondary_keywords,
                     "search_phrase": idea.get("search_phrase") or "",
-                    "total_search_volume": int(idea.get("total_search_volume") or 0),
-                    "average_difficulty": float(idea.get("average_difficulty") or 0.0),
-                    "average_cpc": float(idea.get("average_cpc") or 0.0),
+                    "total_search_volume": total_search_volume,
+                    "average_difficulty": average_difficulty,
+                    "average_cpc": average_cpc,
                     "viability_score": int(idea.get("viability_score") or 0),
                     "traffic_potential_score": int(idea.get("traffic_potential_score") or 0),
                     "seo_optimization_score": int(idea.get("seo_optimization_score") or 0),
