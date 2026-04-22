@@ -1013,12 +1013,21 @@ def enrich_content_ideas():
                 })
                 continue
 
+            keywords_used = [
+                str(keyword).strip()
+                for keyword in (enrichment.get("keywords_used") or [])
+                if str(keyword).strip()
+            ]
+            keyword_projection_payload = {
+                "keywords": keywords_used,
+                "primary_keywords": keywords_used,
+                "secondary_keywords": keywords_used[1:],
+            }
             update_payload = {
                 "total_search_volume": enrichment["total_search_volume"],
                 "average_cpc": enrichment["average_cpc"],
                 "average_difficulty": enrichment["average_difficulty"],
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
-                "keywords": enrichment.get("keywords_used") or [],
                 "status": "in_progress",
                 "updated_at": now,
             }
@@ -1039,6 +1048,26 @@ def enrich_content_ideas():
             updated = False
             # Try richest payload first; gracefully degrade for older schemas.
             for payload in (
+                {
+                    **update_payload,
+                    **keyword_projection_payload,
+                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                    "idea_metadata": enrichment_metadata,
+                },
+                {
+                    **update_payload,
+                    **keyword_projection_payload,
+                    "idea_metadata": enrichment_metadata,
+                },
+                {
+                    **update_payload,
+                    **keyword_projection_payload,
+                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                },
+                {
+                    **update_payload,
+                    **keyword_projection_payload,
+                },
                 {
                     **update_payload,
                     "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
@@ -1227,19 +1256,55 @@ def refresh_keywords_for_library():
                 results.append({"idea_id": idea_id, "status": "failed", "reason": enrichment.get("reason") or "Enrichment failed"})
                 continue
 
+            keywords_used = [
+                str(keyword).strip()
+                for keyword in (enrichment.get("keywords_used") or [])
+                if str(keyword).strip()
+            ]
+            keyword_projection_payload = {
+                "keywords": keywords_used,
+                "primary_keywords": keywords_used,
+                "secondary_keywords": keywords_used[1:],
+            }
             update_payload = {
                 "total_search_volume": enrichment["total_search_volume"],
                 "average_cpc": enrichment["average_cpc"],
                 "average_difficulty": enrichment["average_difficulty"],
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
-                "keywords": enrichment.get("keywords_used") or [],
-                "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
                 "status": "in_progress",
                 "updated_at": now,
             }
             for payload in (
                 {
                     **update_payload,
+                    **keyword_projection_payload,
+                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                    "idea_metadata": {
+                        **(idea.get("idea_metadata") or {}),
+                        "seo_offer_enrichment": {
+                            "keywords_used": enrichment["keywords_used"],
+                            "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                            "keyword_ranked_candidates": enrichment.get("keyword_ranked_candidates") or [],
+                            "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
+                            "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
+                            "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
+                            "affiliate_offers_preview": enrichment["affiliate_offers"],
+                            "enriched_at": now,
+                        },
+                    },
+                },
+                {
+                    **update_payload,
+                    **keyword_projection_payload,
+                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
+                },
+                {
+                    **update_payload,
+                    **keyword_projection_payload,
+                },
+                {
+                    **update_payload,
+                    "keyword_metrics": enrichment.get("keyword_metrics_map") or {},
                     "idea_metadata": {
                         **(idea.get("idea_metadata") or {}),
                         "seo_offer_enrichment": {

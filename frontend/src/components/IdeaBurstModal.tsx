@@ -25,7 +25,13 @@ interface KeywordMetricRow {
 }
 
 function normalizeKeywordKey(input: string): string {
-    return (input || "").trim().toLowerCase();
+    return (input || "")
+        .trim()
+        .toLowerCase()
+        .replace(/&/g, " and ")
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 function parseJsonLike<T>(value: unknown, fallback: T): T {
@@ -104,7 +110,28 @@ function resolveKeywordMetricRow(
     subtopicMap: Map<string, KeywordMetricRow>,
 ): KeywordMetricRow | undefined {
     const key = normalizeKeywordKey(keyword);
-    return ideaMap.get(key) || subtopicMap.get(key);
+    const direct = ideaMap.get(key) || subtopicMap.get(key);
+    if (direct) return direct;
+
+    // Fuzzy fallback for punctuation/phrase variants (e.g., "s&p" vs "s p").
+    const findFuzzy = (source: Map<string, KeywordMetricRow>) => {
+        if (!key || key.length < 4) return undefined;
+        for (const [candidateKey, row] of source.entries()) {
+            if (!candidateKey) continue;
+            if (candidateKey === key) return row;
+            if (candidateKey.includes(key) || key.includes(candidateKey)) return row;
+        }
+        return undefined;
+    };
+
+    return findFuzzy(ideaMap) || findFuzzy(subtopicMap);
+}
+
+function resolveIdeaKeywords(idea: ContentIdea): string[] {
+    const enrichedKeywords = Array.isArray(idea.keywords) ? idea.keywords.filter(Boolean) : [];
+    if (enrichedKeywords.length > 0) return enrichedKeywords;
+    const primaryKeywords = Array.isArray(idea.primary_keywords) ? idea.primary_keywords.filter(Boolean) : [];
+    return primaryKeywords;
 }
 
 function buildAggregateFallbackKeywordRow(
@@ -997,7 +1024,7 @@ interface BlogIdeaCardProps {
 }
 
 function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics, mapContext, keywordMetricsMap }: BlogIdeaCardProps) {
-    const keywords = idea.primary_keywords || idea.keywords || [];
+    const keywords = resolveIdeaKeywords(idea);
     const rankFactors = getRankFactors(idea);
     const ideaKeywordMetricsMap = React.useMemo(() => extractIdeaKeywordMetricsMap(idea), [idea]);
     const hasAnyRealKeywordMetrics = keywords.some((kw: string) => {
@@ -1283,7 +1310,7 @@ interface SoftwareIdeaCardProps {
 }
 
 function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics, mapContext, keywordMetricsMap }: SoftwareIdeaCardProps) {
-    const keywords = idea.primary_keywords || idea.keywords || [];
+    const keywords = resolveIdeaKeywords(idea);
     const rankFactors = getRankFactors(idea);
     const ideaKeywordMetricsMap = React.useMemo(() => extractIdeaKeywordMetricsMap(idea), [idea]);
     const hasAnyRealKeywordMetrics = keywords.some((kw: string) => {
