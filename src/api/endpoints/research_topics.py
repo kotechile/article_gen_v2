@@ -2336,8 +2336,22 @@ Critical naming and language rules:
         blog_text, software_text = asyncio.run(generate_ideas())
 
         # Parse the responses
-        blog_ideas = parse_idea_response(blog_text, 'blog', topic_id, user_id, subtopic_name)
-        software_ideas = parse_idea_response(software_text, 'software', topic_id, user_id, subtopic_name)
+        blog_ideas = parse_idea_response(
+            blog_text,
+            'blog',
+            topic_id,
+            user_id,
+            subtopic_name,
+            primary_user_outcome=effective_primary_user_outcome,
+        )
+        software_ideas = parse_idea_response(
+            software_text,
+            'software',
+            topic_id,
+            user_id,
+            subtopic_name,
+            primary_user_outcome=effective_primary_user_outcome,
+        )
         blog_ideas = _rank_ideas(
             ideas=blog_ideas,
             content_type="blog",
@@ -2594,7 +2608,14 @@ Critical naming and language rules:
         ).dict()), 500
 
 
-def parse_idea_response(text: str, content_type: str, topic_id: str, user_id: str, subtopic_name: str):
+def parse_idea_response(
+    text: str,
+    content_type: str,
+    topic_id: str,
+    user_id: str,
+    subtopic_name: str,
+    primary_user_outcome=None,
+):
     """Parse LLM response into ContentIdea objects."""
     import re
     from uuid import uuid4
@@ -2650,7 +2671,16 @@ def parse_idea_response(text: str, content_type: str, topic_id: str, user_id: st
         # Check for idea start
         if re.match(r'^(BLOG_IDEA|SOFTWARE_IDEA):', line, re.IGNORECASE):
             if current_idea and 'title' in current_idea:
-                ideas.append(create_idea_dict(current_idea, content_type, topic_id, user_id, subtopic_name))
+                ideas.append(
+                    create_idea_dict(
+                        current_idea,
+                        content_type,
+                        topic_id,
+                        user_id,
+                        subtopic_name,
+                        primary_user_outcome=primary_user_outcome,
+                    )
+                )
             current_idea = {'id': str(uuid4())}
 
         # Parse fields
@@ -2714,17 +2744,42 @@ def parse_idea_response(text: str, content_type: str, topic_id: str, user_id: st
                 current_idea['viability_score'] = 50
         elif re.match(r'^END_IDEA', line, re.IGNORECASE):
             if current_idea and 'title' in current_idea:
-                ideas.append(create_idea_dict(current_idea, content_type, topic_id, user_id, subtopic_name))
+                ideas.append(
+                    create_idea_dict(
+                        current_idea,
+                        content_type,
+                        topic_id,
+                        user_id,
+                        subtopic_name,
+                        primary_user_outcome=primary_user_outcome,
+                    )
+                )
                 current_idea = {}
 
     # Don't forget the last idea
     if current_idea and 'title' in current_idea:
-        ideas.append(create_idea_dict(current_idea, content_type, topic_id, user_id, subtopic_name))
+        ideas.append(
+            create_idea_dict(
+                current_idea,
+                content_type,
+                topic_id,
+                user_id,
+                subtopic_name,
+                primary_user_outcome=primary_user_outcome,
+            )
+        )
 
     return ideas
 
 
-def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id: str, subtopic_name: str) -> dict:
+def create_idea_dict(
+    idea_data: dict,
+    content_type: str,
+    topic_id: str,
+    user_id: str,
+    subtopic_name: str,
+    primary_user_outcome=None,
+) -> dict:
     """Create a standardized idea dictionary."""
     from datetime import datetime
     from uuid import uuid4
@@ -2756,6 +2811,14 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
         title_norm = re.sub(r"\s+", " ", str(raw_title or "").lower()).strip()
         phrase_norm = re.sub(r"\s+", " ", str(phrase or "").lower()).strip()
         return bool(title_norm and phrase_norm and phrase_norm in title_norm)
+
+    def _normalize_outcome_text(raw_outcome: str) -> str:
+        text = re.sub(r"\s+", " ", str(raw_outcome or "")).strip(" ,.-")
+        if not text:
+            return ""
+        if len(text) > 120:
+            text = f"{text[:117].rstrip()}..."
+        return text
 
     SIMPLE_STOPWORDS = {
         "a", "an", "the", "to", "for", "of", "in", "on", "at", "with", "without",
@@ -2885,8 +2948,15 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
     # Do not force keyword prefixes in title; keep meaning and readability first.
 
     description = str(idea_data.get('description') or '').strip()
+    preferred_outcome = _normalize_outcome_text(
+        idea_data.get('user_decision_helped')
+        or idea_data.get('user_job_to_be_done')
+        or primary_user_outcome
+    )
     if not description:
-        if keywords:
+        if preferred_outcome:
+            description = f"Outcome: {preferred_outcome}."
+        elif keywords:
             description = (
                 f"This article explains {keywords[0]} and helps the reader make a practical decision."
             )
@@ -2894,6 +2964,12 @@ def create_idea_dict(idea_data: dict, content_type: str, topic_id: str, user_id:
             description = (
                 f"This article gives a practical breakdown of {title.lower()} and what action the reader should take next."
             )
+    elif preferred_outcome:
+        description_norm = re.sub(r"\s+", " ", description.lower()).strip()
+        outcome_norm = re.sub(r"\s+", " ", preferred_outcome.lower()).strip()
+        # Outcome should lead the narrative weight for idea descriptions.
+        if outcome_norm and outcome_norm not in description_norm:
+            description = f"Outcome: {preferred_outcome}. {description}"
     description = re.sub(r"\bin plain language\b", "", description, flags=re.IGNORECASE)
     description = re.sub(r"\s{2,}", " ", description).strip(" ,.-")
     # Keep description short and UI-friendly.
