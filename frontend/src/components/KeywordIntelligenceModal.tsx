@@ -550,7 +550,11 @@ export interface KeywordIntelligenceModalProps {
     onClose: () => void;
     idea: ContentIdea;
     /** Called after a successful save so the parent can update local state */
-    onSaved?: (primary: string, secondary: string[]) => void;
+    onSaved?: (
+        primary: string,
+        secondary: string[],
+        metrics: { volume: number | null; difficulty: number | null; cpc: number | null }
+    ) => void;
 }
 
 export function KeywordIntelligenceModal({
@@ -633,15 +637,24 @@ export function KeywordIntelligenceModal({
         setSaving(true);
         setSaveError(null);
         try {
+            // Find metrics for the primary keyword
+            const primaryRow = parsed?.rows.find((r) => r.keyword === primaryKeyword);
+            const metrics = {
+                volume: primaryRow?.search_volume ?? null,
+                difficulty: primaryRow?.keyword_difficulty ?? null,
+                cpc: primaryRow?.cpc ?? null,
+            };
+
             const ok = await contentIdeasService.updateKeywordSelection(
                 idea.id,
                 user.id,
                 primaryKeyword,
-                secondaryKeywords
+                secondaryKeywords,
+                metrics
             );
             if (ok) {
                 setSaved(true);
-                onSaved?.(primaryKeyword, secondaryKeywords);
+                onSaved?.(primaryKeyword, secondaryKeywords, metrics);
                 setTimeout(() => setSaved(false), 2500);
             } else {
                 setSaveError("Save failed. Please try again.");

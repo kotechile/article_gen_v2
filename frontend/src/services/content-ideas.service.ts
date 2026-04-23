@@ -260,7 +260,12 @@ class ContentIdeasService {
         ideaId: string,
         userId: string,
         primaryKeyword: string,
-        secondaryKeywords: string[]
+        secondaryKeywords: string[],
+        metrics?: {
+            volume?: number | null;
+            difficulty?: number | null;
+            cpc?: number | null;
+        }
     ): Promise<boolean> {
         try {
             const allKeywords = [primaryKeyword, ...secondaryKeywords.filter((k) => k !== primaryKeyword)];
@@ -273,6 +278,9 @@ class ContentIdeasService {
                     secondary_keywords: secondaryKeywords.filter((k) => k !== primaryKeyword),
                     keywords: allKeywords,
                     search_phrase: primaryKeyword,
+                    total_search_volume: metrics?.volume ?? undefined,
+                    average_difficulty: metrics?.difficulty ?? undefined,
+                    average_cpc: metrics?.cpc ?? undefined,
                     updated_at: now,
                 })
                 .eq('id', ideaId)

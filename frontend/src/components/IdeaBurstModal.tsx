@@ -719,8 +719,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
                     ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
                         keywords: keywordsUsed,
-                        primary_keywords: keywordsUsed,
-                        secondary_keywords: keywordsUsed.slice(1),
+                        primary_keywords: [selectedPrimaryKeyword || keywordsUsed[0]],
+                        secondary_keywords: keywordsUsed.filter(k => k !== (selectedPrimaryKeyword || keywordsUsed[0])),
                     } : {}),
                     ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
                 }
@@ -737,8 +737,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
                     ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
                         keywords: keywordsUsed,
-                        primary_keywords: keywordsUsed,
-                        secondary_keywords: keywordsUsed.slice(1),
+                        primary_keywords: [selectedPrimaryKeyword || keywordsUsed[0]],
+                        secondary_keywords: keywordsUsed.filter(k => k !== (selectedPrimaryKeyword || keywordsUsed[0])),
                     } : {}),
                     ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
                 }
@@ -1101,8 +1101,20 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                                     topicTitle: topicTitle || undefined,
                                                 }}
                                                 keywordMetricsMap={subtopicKeywordMetrics}
-                                                onKeywordSaved={(ideaId, primary, secondary) => {
-                                                    applyEnrichedMetrics(ideaId, undefined, undefined, [primary, ...secondary], undefined, primary);
+                                                onKeywordSaved={(ideaId, primary, secondary, metrics) => {
+                                                    applyEnrichedMetrics(
+                                                        ideaId,
+                                                        {
+                                                            total_search_volume: metrics.volume || 0,
+                                                            average_cpc: metrics.cpc || 0,
+                                                            average_difficulty: metrics.difficulty || 0,
+                                                            affiliate_offer_count: idea.viability_score || 0,
+                                                        },
+                                                        undefined,
+                                                        [primary, ...secondary],
+                                                        undefined,
+                                                        primary
+                                                    );
                                                 }}
                                             />
                                         ))}
@@ -1313,7 +1325,12 @@ interface BlogIdeaCardProps {
         clusterName?: string;
     };
     keywordMetricsMap: Map<string, KeywordMetricRow>;
-    onKeywordSaved?: (ideaId: string, primary: string, secondary: string[]) => void;
+    onKeywordSaved?: (
+        ideaId: string,
+        primary: string,
+        secondary: string[],
+        metrics: { volume: number | null; difficulty: number | null; cpc: number | null }
+    ) => void;
 }
 
 function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onToggleMetrics: _onToggleMetrics, mapContext, keywordMetricsMap, onKeywordSaved }: BlogIdeaCardProps) {
@@ -1545,8 +1562,8 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onT
                         isOpen={showKeywordModal}
                         onClose={() => setShowKeywordModal(false)}
                         idea={idea}
-                        onSaved={(primary, secondary) => {
-                            onKeywordSaved?.(idea.id, primary, secondary);
+                        onSaved={(primary, secondary, metrics) => {
+                            onKeywordSaved?.(idea.id, primary, secondary, metrics);
                         }}
                     />
                 )}
