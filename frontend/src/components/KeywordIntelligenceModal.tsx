@@ -170,6 +170,54 @@ function fmtCpc(v: number | null) {
     return `$${v.toFixed(2)}`;
 }
 
+function extractKeywordValues(value: unknown, depth = 0): string[] {
+    if (depth > 5 || value === null || value === undefined) return [];
+
+    if (Array.isArray(value)) {
+        return value.flatMap((item) => extractKeywordValues(item, depth + 1));
+    }
+
+    if (typeof value === "object") {
+        const maybeKeyword = (value as any)?.keyword;
+        if (typeof maybeKeyword === "string") {
+            return extractKeywordValues(maybeKeyword, depth + 1);
+        }
+        return [];
+    }
+
+    if (typeof value !== "string") return [];
+    const raw = value.trim();
+    if (!raw) return [];
+
+    try {
+        const parsed = JSON.parse(raw);
+        if (parsed !== raw) {
+            return extractKeywordValues(parsed, depth + 1);
+        }
+    } catch {
+        // Fallback parsing below.
+    }
+
+    if (
+        (raw.startsWith('"') && raw.endsWith('"')) ||
+        (raw.startsWith("'") && raw.endsWith("'"))
+    ) {
+        return extractKeywordValues(raw.slice(1, -1), depth + 1);
+    }
+
+    const unescaped = raw
+        .replace(/\\"/g, '"')
+        .replace(/\\'/g, "'")
+        .replace(/\\\\/g, "\\")
+        .trim();
+    if (unescaped !== raw) {
+        return extractKeywordValues(unescaped, depth + 1);
+    }
+
+    const parts = raw.split(",").map((part) => part.trim()).filter(Boolean);
+    return parts.length > 1 ? parts : [raw];
+}
+
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 // ─── Trend Sparkline ─────────────────────────────────────────────────────────
@@ -616,22 +664,18 @@ export function KeywordIntelligenceModal({
 
     // Resolve initial selections from stored idea data
     const initialPrimary = React.useMemo(() => {
-        const stored = (idea as any).primary_keywords ?? (idea as any).keywords ?? [];
-        const list = Array.isArray(stored)
-            ? stored
-            : typeof stored === "string"
-            ? [stored]
-            : [];
-        return (list[0] as string | undefined) ?? null;
+        const stored = (idea as any).primary_keywords ?? (idea as any).primary_keyword ?? (idea as any).keywords ?? [];
+        const list = extractKeywordValues(stored);
+        return list[0] ?? null;
     }, [idea.id]);
 
     const initialSecondary = React.useMemo(() => {
-        const raw = (idea as any).secondary_keywords;
-        if (Array.isArray(raw)) return raw as string[];
-        if (typeof raw === "string" && raw.trim()) return [raw];
+        const raw = (idea as any).secondary_keywords ?? (idea as any).secondary_keywords_json;
+        const parsedSecondary = extractKeywordValues(raw);
+        if (parsedSecondary.length > 0) return parsedSecondary;
         // Fall back to keywords[1..] if secondary_keywords is empty
-        const stored = (idea as any).primary_keywords ?? (idea as any).keywords ?? [];
-        const list = Array.isArray(stored) ? (stored as string[]) : [];
+        const stored = (idea as any).keywords ?? [];
+        const list = extractKeywordValues(stored);
         return list.slice(1);
     }, [idea.id]);
 

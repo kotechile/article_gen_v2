@@ -152,6 +152,31 @@ function getKeywordTelemetryLabel(article: any): string | null {
 }
 
 function getKeywordRows(article: any): Array<{ keyword: string; volume: number; difficulty: number; cpc: number; isEstimated: boolean }> {
+    const parseKeywordValues = (value: any, depth = 0): string[] => {
+        if (depth > 5 || value === null || value === undefined) return []
+        if (Array.isArray(value)) return value.flatMap((item) => parseKeywordValues(item, depth + 1))
+        if (typeof value === 'object') {
+            if (typeof value.keyword === 'string') return parseKeywordValues(value.keyword, depth + 1)
+            return []
+        }
+        if (typeof value !== 'string') return []
+        const raw = value.trim()
+        if (!raw) return []
+        try {
+            const parsed = JSON.parse(raw)
+            if (parsed !== raw) return parseKeywordValues(parsed, depth + 1)
+        } catch {
+            // Fallback parsing.
+        }
+        if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+            return parseKeywordValues(raw.slice(1, -1), depth + 1)
+        }
+        const unescaped = raw.replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, '\\').trim()
+        if (unescaped !== raw) return parseKeywordValues(unescaped, depth + 1)
+        const split = raw.split(',').map((s) => s.trim()).filter(Boolean)
+        return split.length > 1 ? split : [raw]
+    }
+
     const payload = article?.selected_keyword_metrics_json || {}
     const rows: Array<{ keyword: string; volume: number; difficulty: number; cpc: number; isEstimated: boolean }> = []
     const primary = payload?.primary
@@ -179,11 +204,7 @@ function getKeywordRows(article: any): Array<{ keyword: string; volume: number; 
 
     const fallbackPrimary = String(article?.primary_keyword || '').trim()
     const fallbackSecondaryRaw = article?.secondary_keywords_json
-    const fallbackSecondary = Array.isArray(fallbackSecondaryRaw)
-        ? fallbackSecondaryRaw
-        : typeof fallbackSecondaryRaw === 'string'
-            ? fallbackSecondaryRaw.split(',').map((s) => s.trim()).filter(Boolean)
-            : []
+    const fallbackSecondary = parseKeywordValues(fallbackSecondaryRaw)
     const fallback = [fallbackPrimary, ...fallbackSecondary].filter(Boolean)
     return fallback.slice(0, 3).map((keyword) => ({
         keyword,
@@ -1188,6 +1209,31 @@ export const MyArticles: React.FC = () => {
 
                 {/* ── Keyword Intelligence Modal (Titles context) ── */}
                 {kwIntelOpen && kwIntelArticle && (() => {
+                    const parseKeywordValues = (value: any, depth = 0): string[] => {
+                        if (depth > 5 || value === null || value === undefined) return []
+                        if (Array.isArray(value)) return value.flatMap((item) => parseKeywordValues(item, depth + 1))
+                        if (typeof value === 'object') {
+                            if (typeof value.keyword === 'string') return parseKeywordValues(value.keyword, depth + 1)
+                            return []
+                        }
+                        if (typeof value !== 'string') return []
+                        const raw = value.trim()
+                        if (!raw) return []
+                        try {
+                            const parsed = JSON.parse(raw)
+                            if (parsed !== raw) return parseKeywordValues(parsed, depth + 1)
+                        } catch {
+                            // Fallback parsing.
+                        }
+                        if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+                            return parseKeywordValues(raw.slice(1, -1), depth + 1)
+                        }
+                        const unescaped = raw.replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, '\\').trim()
+                        if (unescaped !== raw) return parseKeywordValues(unescaped, depth + 1)
+                        const split = raw.split(',').map((s) => s.trim()).filter(Boolean)
+                        return split.length > 1 ? split : [raw]
+                    }
+
                     // Build a ContentIdea-shaped object from the Titles record.
                     // The modal reads raw_dataforseo_output for its table;
                     // selections are persisted back to Titles via onSave.
@@ -1197,16 +1243,12 @@ export const MyArticles: React.FC = () => {
                         title: kwIntelArticle.Title ?? '',
                         content_type: (kwIntelArticle.content_type ?? 'blog') as any,
                         primary_keywords: (() => {
-                            const raw = (kwIntelArticle as any).primary_keywords
-                            if (Array.isArray(raw)) return raw
-                            if (typeof raw === 'string' && raw.trim()) return raw.split(',').map((s: string) => s.trim()).filter(Boolean)
-                            return []
+                            const raw = (kwIntelArticle as any).primary_keywords ?? (kwIntelArticle as any).primary_keyword
+                            return parseKeywordValues(raw)
                         })(),
                         secondary_keywords: (() => {
-                            const raw = (kwIntelArticle as any).secondary_keywords
-                            if (Array.isArray(raw)) return raw
-                            if (typeof raw === 'string' && raw.trim()) return raw.split(',').map((s: string) => s.trim()).filter(Boolean)
-                            return []
+                            const raw = (kwIntelArticle as any).secondary_keywords ?? (kwIntelArticle as any).secondary_keywords_json
+                            return parseKeywordValues(raw)
                         })(),
                         search_phrase: (kwIntelArticle as any).search_phrase ?? (kwIntelArticle as any).primary_keyword ?? '',
                         raw_dataforseo_output: (kwIntelArticle as any).raw_dataforseo_output ?? null,

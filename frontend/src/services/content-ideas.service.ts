@@ -8,11 +8,62 @@ import {
 } from '../types/idea-burst';
 
 class ContentIdeasService {
+    private extractKeywordValues(value: unknown, depth = 0): string[] {
+        if (depth > 5 || value === null || value === undefined) return [];
+
+        if (Array.isArray(value)) {
+            return value.flatMap((item) => this.extractKeywordValues(item, depth + 1));
+        }
+
+        if (typeof value === 'object') {
+            const maybeKeyword = (value as any)?.keyword;
+            if (typeof maybeKeyword === 'string') {
+                return this.extractKeywordValues(maybeKeyword, depth + 1);
+            }
+            return [];
+        }
+
+        if (typeof value !== 'string') return [];
+
+        const raw = value.trim();
+        if (!raw) return [];
+
+        try {
+            const parsed = JSON.parse(raw);
+            if (parsed !== raw) {
+                return this.extractKeywordValues(parsed, depth + 1);
+            }
+        } catch {
+            // Continue with fallback parsing.
+        }
+
+        if (
+            (raw.startsWith('"') && raw.endsWith('"')) ||
+            (raw.startsWith("'") && raw.endsWith("'"))
+        ) {
+            return this.extractKeywordValues(raw.slice(1, -1), depth + 1);
+        }
+
+        const unescaped = raw
+            .replace(/\\"/g, '"')
+            .replace(/\\'/g, "'")
+            .replace(/\\\\/g, '\\')
+            .trim();
+
+        if (unescaped !== raw) {
+            return this.extractKeywordValues(unescaped, depth + 1);
+        }
+
+        const parts = raw.split(',').map((part) => part.trim()).filter(Boolean);
+        return parts.length > 1 ? parts : [raw];
+    }
+
     private normalizeKeywordSelection(primaryKeyword: string, secondaryKeywords: string[]) {
-        const primary = String(primaryKeyword || '').trim();
+        const primary = this.extractKeywordValues(primaryKeyword)[0] || '';
+        const secondarySource = this.extractKeywordValues(secondaryKeywords);
         const secondary = Array.from(
             new Set(
-                (Array.isArray(secondaryKeywords) ? secondaryKeywords : [])
+                secondarySource
                     .map((k) => String(k || '').trim())
                     .filter(Boolean)
             )
