@@ -6,6 +6,7 @@ monitoring, and retrieving research tasks.
 """
 
 import logging
+import json
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, current_app
 from flask_limiter import Limiter
@@ -24,6 +25,7 @@ from ...core.models.errors import (
 )
 from ...api.middleware.auth import require_api_key
 from ...api.schemas.research import ResearchRequestSchema, ResearchResponseSchema
+from llm_client import create_llm_client
 # Import tasks when needed to avoid circular imports
 
 
@@ -38,6 +40,46 @@ limiter = Limiter(
     default_limits=["1000 per hour", "60 per minute"],
     storage_uri="memory://"
 )
+
+
+def _extract_refined_metadata_from_response(raw: str, fallback_title: str, fallback_description: str) -> dict:
+    cleaned = str(raw or "").strip()
+    if not cleaned:
+        return {
+            "refined_title": fallback_title,
+            "refined_description": fallback_description,
+            "rationale": "",
+        }
+
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        cleaned = cleaned.replace("json", "", 1).strip()
+
+    try:
+        parsed = json.loads(cleaned)
+        return {
+            "refined_title": str(parsed.get("refined_title") or fallback_title).strip(),
+            "refined_description": str(parsed.get("refined_description") or fallback_description).strip(),
+            "rationale": str(parsed.get("rationale") or "").strip(),
+        }
+    except Exception:
+        pass
+
+    # Fallback heuristics if model didn't return strict JSON.
+    refined_title = fallback_title
+    refined_description = fallback_description
+    for line in cleaned.splitlines():
+        low = line.lower()
+        if "title:" in low and refined_title == fallback_title:
+            refined_title = line.split(":", 1)[1].strip() or fallback_title
+        elif "description:" in low and refined_description == fallback_description:
+            refined_description = line.split(":", 1)[1].strip() or fallback_description
+
+    return {
+        "refined_title": refined_title,
+        "refined_description": refined_description,
+        "rationale": "",
+    }
 
 
 @research_bp.route('/research', methods=['POST'])
@@ -202,6 +244,134 @@ def create_research_task():
             error_code="INTERNAL_ERROR",
             status=500
         ).dict()), 500
+
+
+@research_bp.route('/research/refine-metadata', methods=['POST'])
+@require_api_key
+@limiter.limit("30 per minute")
+def refine_research_metadata():
+    """
+    Generate GEO-refined title/description preview for user approval before full generation.
+    """
+    try:
+        if not request.is_json:
+            return jsonify({
+                "success": False,
+                "message": "Content-Type must be application/json",
+            }), 400
+
+        data = request.get_json() or {}
+        title = str(data.get("title") or "").strip()
+        description = str(data.get("description") or "").strip()
+        provider = str(data.get("provider") or "").strip().lower()
+        model = str(data.get("model") or "").strip()
+        llm_model = str(data.get("llm_model") or "").strip()
+        api_key = str(data.get("api_key") or data.get("llm_key") or "").strip()
+        primary_keyword = str(data.get("primary_keyword") or "").strip()
+        secondary_keywords = data.get("secondary_keywords") or []
+        if isinstance(secondary_keywords, str):
+            secondary_keywords = [k.strip() for k in secondary_keywords.split(",") if k.strip()]
+        if not isinstance(secondary_keywords, list):
+            secondary_keywords = []
+        secondary_keywords = [str(k).strip() for k in secondary_keywords if str(k).strip()][:8]
+        domain = str(data.get("domain") or "").strip()
+
+        if not title or not description:
+            return jsonify({
+                "success": False,
+                "message": "Both title and description are required.",
+            }), 400
+
+        if (not provider or not model) and llm_model:
+            if "/" in llm_model:
+                split_provider, split_model = llm_model.split("/", 1)
+                provider = provider or split_provider.strip().lower()
+                model = model or split_model.strip()
+            else:
+                provider = provider or "openai"
+                model = model or llm_model
+
+        if not provider or not model:
+            return jsonify({
+                "success": False,
+                "message": "LLM provider/model is required.",
+            }), 400
+
+        if not api_key or api_key == "development":
+            from supabase_client import get_llm_api_key
+            resolved_key = get_llm_api_key(provider, model)
+            if resolved_key:
+                api_key = resolved_key
+
+        if not api_key:
+            return jsonify({
+                "success": False,
+                "message": "Could not resolve API key for selected model.",
+            }), 400
+
+        llm_client = create_llm_client(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            temperature=0.2,
+            timeout=45,
+            max_retries=1,
+            max_tokens=450,
+        )
+
+        secondary_part = ", ".join(secondary_keywords) if secondary_keywords else "none"
+        prompt = f"""
+You are a GEO + SEO editorial optimizer.
+Rewrite title + description to improve AI-search discoverability while preserving original intent.
+
+Rules:
+- Keep the title <= 60 characters.
+- Keep the description <= 320 characters.
+- Prioritize information density and keyword relevance.
+- Include primary keyword naturally when provided.
+- Keep tone authoritative and data-driven.
+- Return STRICT JSON only with keys: refined_title, refined_description, rationale.
+
+Original title: {title}
+Original description: {description}
+Primary keyword: {primary_keyword or "none"}
+Secondary keywords: {secondary_part}
+Domain context: {domain or "none"}
+""".strip()
+
+        response = llm_client.generate([
+            {
+                "role": "system",
+                "content": "You optimize metadata for GEO. Output strict JSON only.",
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ])
+
+        parsed = _extract_refined_metadata_from_response(response.content, title, description)
+        refined_title = parsed.get("refined_title") or title
+        refined_description = parsed.get("refined_description") or description
+        rationale = parsed.get("rationale") or ""
+        changed = (refined_title != title) or (refined_description != description)
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "refined_title": refined_title,
+                "refined_description": refined_description,
+                "rationale": rationale,
+                "changed": changed,
+            }
+        }), 200
+
+    except Exception as exc:
+        logger.error("Metadata refinement preview failed", exc_info=True)
+        return jsonify({
+            "success": False,
+            "message": f"Failed to refine metadata: {str(exc)}",
+        }), 500
 
 
 @research_bp.route('/research/<task_id>', methods=['GET'])

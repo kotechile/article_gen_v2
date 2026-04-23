@@ -198,6 +198,13 @@ interface LlmProviderRow {
     llm_key_id?: string | null;
 }
 
+interface MetadataRefinementPreview {
+    refined_title: string;
+    refined_description: string;
+    rationale?: string;
+    changed: boolean;
+}
+
 async function fetchLlmProviderRowsDirect(): Promise<LlmProviderRow[]> {
     const queryAttempts: Array<{
         label: string;
@@ -315,6 +322,20 @@ function resolveInitialLlmModel(
     return defaultModel;
 }
 
+function buildRefinementSignature(
+    title: string,
+    description: string,
+    llmModel: string,
+    primaryKeyword: string
+): string {
+    return [
+        String(title || '').trim(),
+        String(description || '').trim(),
+        String(llmModel || '').trim(),
+        String(primaryKeyword || '').trim(),
+    ].join('||');
+}
+
 const TONE_OPTIONS = [
     { label: "Academic", value: "academic" },
     { label: "Journalistic", value: "journalistic" },
@@ -355,6 +376,11 @@ export const ContentStudio: React.FC = () => {
     const [seoShiftEnabled, setSeoShiftEnabled] = useState(true);
     const [seoValidation, setSeoValidation] = useState<SEOValidation | null>(null);
     const [showKeywordModal, setShowKeywordModal] = useState(false);
+    const [showRefinementGate, setShowRefinementGate] = useState(false);
+    const [requestingRefinement, setRequestingRefinement] = useState(false);
+    const [refinementPreview, setRefinementPreview] = useState<MetadataRefinementPreview | null>(null);
+    const [refinementDraft, setRefinementDraft] = useState({ title: '', description: '' });
+    const [approvedRefinementSignature, setApprovedRefinementSignature] = useState('');
 
     // Data State
     const [article, setArticle] = useState<ArticleData | null>(null);
@@ -515,26 +541,33 @@ export const ContentStudio: React.FC = () => {
         : null;
 
     // Save Changes
-    const handleSave = async (): Promise<boolean> => {
+    const handleSave = async (
+        overrides?: Partial<typeof formData>
+    ): Promise<boolean> => {
         if (!articleId) return false;
         setSaving(true);
         try {
+            const effectiveFormData = {
+                ...formData,
+                ...(overrides || {}),
+            };
+
             // Calculate estimated reading time
             const wpm = 250;
-            const words = parseInt(formData.articleLength, 10) || 0;
+            const words = parseInt(effectiveFormData.articleLength, 10) || 0;
             const minutes = Math.ceil(words / wpm);
             const readingTime = Math.max(1, minutes);
 
             const updates = {
-                Title: formData.title,
-                userDescription: formData.description,
-                Keywords: formData.keywords,
-                articleLength: formData.articleLength,
-                Tone: formData.tone,
-                rag_collection_name: formData.ragCollection,
-                rag_query_type: formData.ragQueryType,
-                rag_balance_emphasis: formData.emphasis,
-                LLM: formData.llmModel,
+                Title: effectiveFormData.title,
+                userDescription: effectiveFormData.description,
+                Keywords: effectiveFormData.keywords,
+                articleLength: effectiveFormData.articleLength,
+                Tone: effectiveFormData.tone,
+                rag_collection_name: effectiveFormData.ragCollection,
+                rag_query_type: effectiveFormData.ragQueryType,
+                rag_balance_emphasis: effectiveFormData.emphasis,
+                LLM: effectiveFormData.llmModel,
                 estimated_reading_time: readingTime,
             };
 
@@ -556,6 +589,10 @@ export const ContentStudio: React.FC = () => {
                     // We just need to ensure estimated_reading_time is set.
                     estimated_reading_time: readingTime,
                 });
+            }
+
+            if (overrides && Object.keys(overrides).length > 0) {
+                setFormData((prev) => ({ ...prev, ...overrides }));
             }
 
             // Optional: show toast
@@ -634,15 +671,69 @@ export const ContentStudio: React.FC = () => {
         return null;
     };
 
-    // Generate Article
-    const handleGenerate = async () => {
+    const requestMetadataRefinementPreview = async (params: {
+        title: string;
+        description: string;
+        provider: string;
+        modelName: string;
+        llmModel: string;
+        llmKey: string;
+        primaryKw: string;
+        secondaryKeywords: string[];
+    }): Promise<MetadataRefinementPreview> => {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) throw new Error("No session token found");
+
+        const response = await axios.post(
+            `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/v1/research/refine-metadata`,
+            {
+                title: params.title,
+                description: params.description,
+                provider: params.provider,
+                model: params.modelName,
+                llm_model: params.llmModel,
+                llm_key: params.llmKey,
+                api_key: params.llmKey,
+                primary_keyword: params.primaryKw || undefined,
+                secondary_keywords: params.secondaryKeywords,
+                domain: article?.domain || undefined,
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'X-API-Key': 'development',
+                }
+            }
+        );
+
+        const payload = response.data?.data || {};
+        return {
+            refined_title: String(payload.refined_title || params.title),
+            refined_description: String(payload.refined_description || params.description),
+            rationale: String(payload.rationale || ''),
+            changed: Boolean(payload.changed),
+        };
+    };
+
+    const startGeneration = async (options?: {
+        skipApprovalGate?: boolean;
+        approvedTitle?: string;
+        approvedDescription?: string;
+    }) => {
         if (!articleId || !appSettings) return;
         setGenerating(true);
         setError(null);
 
+        const effectiveTitle = String(options?.approvedTitle ?? formData.title ?? '').trim();
+        const effectiveDescription = String(options?.approvedDescription ?? formData.description ?? '').trim();
+
         try {
-            // Save first
-            const saveOk = await handleSave();
+            // Save first (including approved metadata overrides when provided)
+            const saveOk = await handleSave({
+                title: effectiveTitle,
+                description: effectiveDescription,
+            });
             if (!saveOk) {
                 setGenerating(false);
                 return;
@@ -651,7 +742,7 @@ export const ContentStudio: React.FC = () => {
             // Clear any old progress from local storage
             localStorage.removeItem(`gen_progress_${articleId}`);
 
-            if (formData.description.length < 10) {
+            if (effectiveDescription.length < 10) {
                 alert('Please provide a longer description (at least 10 characters).');
                 setGenerating(false);
                 return;
@@ -696,12 +787,47 @@ export const ContentStudio: React.FC = () => {
                 formData.keywords.split(',')[0]?.trim() ??
                 '';
 
-            const secondaryKwList = (
-                article?.secondary_keywords?.slice(0, 4) ??
-                []
-            ).join(', ');
+            const secondaryKeywords = article?.secondary_keywords ?? [];
+            const secondaryKwList = secondaryKeywords.slice(0, 4).join(', ');
+            const refinementSignature = buildRefinementSignature(
+                effectiveTitle,
+                effectiveDescription,
+                formData.llmModel,
+                primaryKw
+            );
 
-            let generationBrief = formData.description;
+            if (
+                seoShiftEnabled &&
+                primaryKw &&
+                !options?.skipApprovalGate &&
+                approvedRefinementSignature !== refinementSignature
+            ) {
+                setRequestingRefinement(true);
+                try {
+                    const preview = await requestMetadataRefinementPreview({
+                        title: effectiveTitle,
+                        description: effectiveDescription,
+                        provider,
+                        modelName,
+                        llmModel,
+                        llmKey,
+                        primaryKw,
+                        secondaryKeywords,
+                    });
+                    setRefinementPreview(preview);
+                    setRefinementDraft({
+                        title: preview.refined_title || effectiveTitle,
+                        description: preview.refined_description || effectiveDescription,
+                    });
+                    setShowRefinementGate(true);
+                } finally {
+                    setRequestingRefinement(false);
+                }
+                setGenerating(false);
+                return;
+            }
+
+            let generationBrief = effectiveDescription;
             let seodirective = '';
 
             if (seoShiftEnabled && primaryKw) {
@@ -729,7 +855,7 @@ export const ContentStudio: React.FC = () => {
                     `- Ensure the rewritten title is under 60 characters and includes "${primaryKw}".`,
                     '',
                     `ORIGINAL CREATIVE INTENT (preserve direction, adapt execution):`,
-                    formData.description,
+                    effectiveDescription,
                 ].filter(Boolean).join('\n');
 
                 generationBrief = seoParts;
@@ -739,7 +865,7 @@ export const ContentStudio: React.FC = () => {
             const payload = {
                 brief: generationBrief,
                 keywords: formData.keywords,
-                draft_title: formData.title,
+                draft_title: effectiveTitle,
                 llm_model: llmModel,
                 llm_key: llmKey,
                 domain: article?.domain || undefined,
@@ -762,7 +888,6 @@ export const ContentStudio: React.FC = () => {
             };
 
             // Call Backend
-            // Use axios with session token from supabase
             const { data: { session } } = await supabase.auth.getSession();
             const token = session?.access_token;
 
@@ -802,6 +927,33 @@ export const ContentStudio: React.FC = () => {
             setError(errorMessage);
             setGenerating(false);
         }
+    };
+
+    // Generate Article
+    const handleGenerate = async () => {
+        await startGeneration();
+    };
+
+    const handleApproveRefinement = async () => {
+        const primaryKw =
+            article?.primary_keywords?.[0] ??
+            article?.search_phrase ??
+            article?.primary_keyword ??
+            formData.keywords.split(',')[0]?.trim() ??
+            '';
+        const signature = buildRefinementSignature(
+            refinementDraft.title,
+            refinementDraft.description,
+            formData.llmModel,
+            primaryKw
+        );
+        setApprovedRefinementSignature(signature);
+        setShowRefinementGate(false);
+        await startGeneration({
+            skipApprovalGate: true,
+            approvedTitle: refinementDraft.title,
+            approvedDescription: refinementDraft.description,
+        });
     };
 
     if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-primary" /></div>;
@@ -871,7 +1023,9 @@ export const ContentStudio: React.FC = () => {
                         Keywords
                     </button>
                     <button
-                        onClick={handleSave}
+                        onClick={() => {
+                            void handleSave();
+                        }}
                         disabled={saving}
                         className="flex items-center gap-2 px-4 py-2 bg-background border border-border rounded-xl hover:bg-muted transition"
                     >
@@ -880,12 +1034,12 @@ export const ContentStudio: React.FC = () => {
                     </button>
                     <button
                         onClick={handleGenerate}
-                        disabled={generating || (seoValidation !== null && !seoValidation.isValid)}
+                        disabled={generating || requestingRefinement || (seoValidation !== null && !seoValidation.isValid)}
                         className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                         title={seoValidation && !seoValidation.isValid ? seoValidation.errors[0] : undefined}
                     >
-                        {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                        Generate Article
+                        {(generating || requestingRefinement) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                        {requestingRefinement ? 'Preparing Approval Gate...' : 'Generate Article'}
                     </button>
                 </div>
             </div>
@@ -1284,6 +1438,60 @@ export const ContentStudio: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {showRefinementGate && (
+                <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="w-full max-w-2xl bg-background border border-border rounded-2xl shadow-xl p-6 space-y-4">
+                        <div>
+                            <h3 className="text-lg font-semibold text-foreground">Approve GEO Metadata Refinement</h3>
+                            <p className="text-sm text-muted-foreground">
+                                Review and edit the refined title/description before full article generation.
+                            </p>
+                        </div>
+
+                        {refinementPreview?.rationale && (
+                            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+                                {refinementPreview.rationale}
+                            </div>
+                        )}
+
+                        <div className="space-y-3">
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Refined Title</label>
+                                <input
+                                    className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
+                                    value={refinementDraft.title}
+                                    onChange={(e) => setRefinementDraft((prev) => ({ ...prev, title: e.target.value }))}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Refined Description</label>
+                                <textarea
+                                    className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none min-h-[130px]"
+                                    value={refinementDraft.description}
+                                    onChange={(e) => setRefinementDraft((prev) => ({ ...prev, description: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-1">
+                            <button
+                                onClick={() => setShowRefinementGate(false)}
+                                className="px-4 py-2 rounded-xl border border-border bg-background hover:bg-muted transition"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleApproveRefinement}
+                                disabled={!refinementDraft.title.trim() || refinementDraft.description.trim().length < 10}
+                                className="px-4 py-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Approve & Continue
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <GenerationModal
                 articleId={articleId || ''}
