@@ -33,6 +33,7 @@ class LLMProvider(Enum):
     COHERE = "cohere"
     MISTRAL = "mistral"
     KIMI = "kimi"
+    DEEPSEEK = "deepseek"
 
 class LLMModel(Enum):
     """Supported LLM models."""
@@ -123,6 +124,8 @@ class LLMClient:
             os.environ["COHERE_API_KEY"] = self.config.api_key
         elif self.config.provider == LLMProvider.MISTRAL.value:
             os.environ["MISTRAL_API_KEY"] = self.config.api_key
+        elif self.config.provider == LLMProvider.DEEPSEEK.value:
+            os.environ["DEEPSEEK_API_KEY"] = self.config.api_key
         elif self.config.provider == LLMProvider.KIMI.value or self.config.provider == "moonshot":
             os.environ["MOONSHOT_API_KEY"] = self.config.api_key
         
@@ -145,6 +148,10 @@ class LLMClient:
             LLMProvider.ANTHROPIC.value: [
                 "claude-3-sonnet-20240229",
                 "claude-3-haiku-20240307"
+            ],
+            LLMProvider.DEEPSEEK.value: [
+                "deepseek-chat",
+                "deepseek-reasoner",
             ],
             LLMProvider.KIMI.value: [
                 "kimi-k2-0711-preview",
@@ -216,6 +223,8 @@ class LLMClient:
             params["api_key"] = self.config.api_key
         elif self.config.provider == LLMProvider.ANTHROPIC.value:
             params["api_key"] = self.config.api_key
+        elif self.config.provider == LLMProvider.DEEPSEEK.value:
+            params["api_key"] = self.config.api_key
         
         # Add max_tokens or max_completion_tokens based on model
         if model in ["gpt-5"] and self.config.max_completion_tokens:
@@ -263,8 +272,6 @@ class LLMClient:
                         params.pop('api_key', None)  # Remove if added, we'll use env var
                         # Ensure env var is set just before the call
                         os.environ["GEMINI_API_KEY"] = self.config.api_key
-                        # Log API key info for debugging (first 10 chars only for security)
-                        self.logger.info(f"Using Gemini API key: {self.config.api_key[:10]}... (length: {len(self.config.api_key)})")
                     
                     response = await acompletion(
                         messages=messages,
@@ -351,8 +358,6 @@ class LLMClient:
                         params.pop('api_key', None)  # Remove if added, we'll use env var
                         # Ensure env var is set just before the call
                         os.environ["GEMINI_API_KEY"] = self.config.api_key
-                        # Log API key info for debugging (first 10 chars only for security)
-                        self.logger.info(f"Using Gemini API key: {self.config.api_key[:10]}... (length: {len(self.config.api_key)})")
                     
                     response = completion(
                         messages=messages,
@@ -440,6 +445,9 @@ class LLMClient:
             LLMProvider.ANTHROPIC.value: [
                 "claude-3-5-sonnet-20241022", "claude-3-opus-20240229",
                 "claude-3-sonnet-20240229", "claude-3-haiku-20240307"
+            ],
+            LLMProvider.DEEPSEEK.value: [
+                "deepseek-chat", "deepseek-reasoner"
             ],
             LLMProvider.KIMI.value: [
                 "kimi-k2-0711-preview",
