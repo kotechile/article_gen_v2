@@ -746,13 +746,6 @@ def _normalize_title_keyword_term(value: str) -> str:
     return cleaned
 
 
-def _restate_title_with_primary_keyword(title: str, primary_keyword: str) -> tuple[str, bool]:
-    # Keep titles authored by first-pass generation.
-    # Auto-prefixing with a keyword can produce awkward, non-human titles.
-    base_title = str(title or "").strip()
-    return base_title, False
-
-
 def _extract_keyword_metrics_from_dataforseo_raw(raw_payload: dict | None) -> dict:
     """
     Build a keyword->metrics map from raw DataForSEO related_keywords/live response.
@@ -1420,21 +1413,19 @@ def _apply_enrichment_update_with_fallback(
         if _verify_enrichment_persistence(verify_row or {}, expected_keywords, expected_raw):
             return True
 
-    # Final minimal fallback: persist only raw output + keyword arrays.
+    # Final minimal fallback: persist only raw output + keyword list.
     final_raw = _sanitize_for_json(expected_raw or {})
     final_keywords = [str(keyword).strip() for keyword in (expected_keywords or []) if str(keyword).strip()]
     minimal_payload = {
         "raw_dataforseo_output": final_raw,
         "keywords": final_keywords,
-        "primary_keywords": final_keywords,
-        "secondary_keywords": final_keywords[1:],
     }
     try:
         supabase.table("content_ideas").update(minimal_payload).eq("id", idea_id).eq("user_id", user_id).execute()
         verify_resp = (
             supabase
             .table("content_ideas")
-            .select("id,keywords,primary_keywords,raw_dataforseo_output")
+                .select("id,keywords,raw_dataforseo_output")
             .eq("id", idea_id)
             .eq("user_id", user_id)
             .limit(1)
@@ -1882,23 +1873,14 @@ def enrich_content_ideas():
             ]
             if not keywords_used:
                 keywords_used = all_keywords_found
-            selected_primary_keyword = keywords_used[0] if keywords_used else ""
             original_title = str(idea.get("title") or "").strip()
-            restated_title, title_restated = _restate_title_with_primary_keyword(
-                original_title,
-                selected_primary_keyword,
-            )
             keyword_projection_payload = {
                 "keywords": keywords_used,
-                "primary_keywords": keywords_used,
-                "secondary_keywords": keywords_used[1:],
-                "search_phrase": selected_primary_keyword,
             }
             update_payload = {
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
                 "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
                 "updated_at": now,
-                "title": restated_title or original_title,
             }
             if enrichment.get("has_exact_keyword_metrics"):
                 update_payload["total_search_volume"] = enrichment["total_search_volume"]
@@ -1919,14 +1901,10 @@ def enrich_content_ideas():
                     "enriched_at": now,
                 },
                 "keyword_pass_2": {
-                    "selected_primary_keyword": selected_primary_keyword,
                     "selection_rule_version": "kd_asc_volume_desc_v1",
                     "keyword_ranked_candidates": enrichment.get("keyword_ranked_candidates") or [],
                     "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
-                    "title_restated": title_restated,
-                    "restated_title": restated_title or original_title,
                     "original_title": original_title,
-                    "restated_at": now,
                 },
             }
 
@@ -1935,9 +1913,6 @@ def enrich_content_ideas():
             safe_minimal_payload = {
                 "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
                 "keywords": _sanitize_for_json(keyword_projection_payload.get("keywords") or []),
-                "primary_keywords": _sanitize_for_json(keyword_projection_payload.get("primary_keywords") or []),
-                "secondary_keywords": _sanitize_for_json(keyword_projection_payload.get("secondary_keywords") or []),
-                "search_phrase": keyword_projection_payload.get("search_phrase") or "",
                 "updated_at": now,
             }
             payload_attempts = [
@@ -2001,9 +1976,6 @@ def enrich_content_ideas():
                 results.append({
                     "idea_id": idea_id,
                     "status": "enriched",
-                    "selected_primary_keyword": selected_primary_keyword,
-                    "restated_title": restated_title or original_title,
-                    "title_restated": title_restated,
                     "metrics": {
                         "total_search_volume": enrichment["total_search_volume"],
                         "average_cpc": enrichment["average_cpc"],
@@ -2175,8 +2147,6 @@ def refresh_keywords_for_library():
             ]
             keyword_projection_payload = {
                 "keywords": keywords_used,
-                "primary_keywords": keywords_used,
-                "secondary_keywords": keywords_used[1:],
             }
             update_payload = {
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
@@ -2191,8 +2161,6 @@ def refresh_keywords_for_library():
                 {
                     "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
                     "keywords": _sanitize_for_json(keyword_projection_payload.get("keywords") or []),
-                    "primary_keywords": _sanitize_for_json(keyword_projection_payload.get("primary_keywords") or []),
-                    "secondary_keywords": _sanitize_for_json(keyword_projection_payload.get("secondary_keywords") or []),
                     "updated_at": now,
                 },
                 {
