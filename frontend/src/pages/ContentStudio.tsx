@@ -304,7 +304,10 @@ export const ContentStudio: React.FC = () => {
 
                 // 4. Fetch LLM Providers
                 // Primary query: active models. Fallback query: all models (legacy rows may not set is_active).
-                const llmSelect = 'id, name, model_name, provider, is_default, is_active, api_keys_id, api_key_id, llm_key_id';
+                // Keep this select schema-safe for production tables that only expose api_keys_id.
+                // Do not request optional legacy columns here, otherwise PostgREST returns an error
+                // and the dropdown becomes empty.
+                const llmSelect = 'id, name, model_name, provider, is_default, is_active, api_keys_id';
                 let llmRows: LlmProviderRow[] = [];
 
                 const { data: activeModels, error: activeModelsError } = await supabase
