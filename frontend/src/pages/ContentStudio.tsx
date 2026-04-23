@@ -3,13 +3,16 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
-import { Loader2, Wand2, Save, BarChart3, BrainCircuit, ShieldCheck, AlertTriangle, Globe2, Tag } from 'lucide-react';
+import { Loader2, Wand2, Save, BarChart3, BrainCircuit, ShieldCheck, AlertTriangle, Globe2, Tag, KeyRound } from 'lucide-react';
 import axios from 'axios';
 import { Gauge } from '../components/Gauge';
 import { METRIC_EXPLANATIONS } from '../types/metrics';
 import { MetricTooltip } from '../components/Tooltip';
 import { GenerationModal } from '../components/GenerationModal';
+import { KeywordIntelligenceModal } from '../components/KeywordIntelligenceModal';
 import { computeGEOContext } from '../utils/seoUtils';
+import { contentIdeasService } from '../services/content-ideas.service';
+import type { ContentIdea } from '../types/idea-burst';
 
 
 // Types
@@ -64,6 +67,10 @@ interface ArticleData {
     source_idea_id?: string;
     // Affiliate
     affiliate_opportunities?: any;
+    // DataForSEO traces for Keyword Intelligence modal
+    raw_dataforseo_output?: any;
+    raw_supabase_output?: any;
+    idea_metadata?: any;
 }
 
 function normalizeKeywordList(value: unknown): string[] {
@@ -148,9 +155,42 @@ interface LlmProviderRow {
     name: string;
     model_name: string;
     provider: string;
+    is_default?: boolean | null;
+    is_active?: boolean | null;
     api_keys_id?: string | null;
     api_key_id?: string | null;
     llm_key_id?: string | null;
+}
+
+function sortLlmModels(models: LlmProviderRow[]): LlmProviderRow[] {
+    return [...models].sort((a, b) => {
+        if (!!a.is_default !== !!b.is_default) return a.is_default ? -1 : 1;
+        return String(a.name || a.model_name).localeCompare(String(b.name || b.model_name));
+    });
+}
+
+function resolveInitialLlmModel(
+    storedValue: string | undefined | null,
+    models: LlmProviderRow[]
+): string {
+    const rows = sortLlmModels(models);
+    if (rows.length === 0) return '';
+
+    const defaultModel = rows.find((row) => row.is_default)?.model_name || rows[0].model_name;
+    const raw = String(storedValue || '').trim();
+    if (!raw) return defaultModel;
+
+    // Stored value can be model_name, provider/model_name, or display name.
+    const exactModelMatch = rows.find((row) => row.model_name === raw);
+    if (exactModelMatch) return exactModelMatch.model_name;
+
+    const providerModelMatch = rows.find((row) => `${row.provider}/${row.model_name}` === raw);
+    if (providerModelMatch) return providerModelMatch.model_name;
+
+    const displayNameMatch = rows.find((row) => row.name === raw);
+    if (displayNameMatch) return displayNameMatch.model_name;
+
+    return defaultModel;
 }
 
 const TONE_OPTIONS = [
@@ -192,6 +232,7 @@ export const ContentStudio: React.FC = () => {
     const [taskId, setTaskId] = useState<string | null>(null);
     const [seoShiftEnabled, setSeoShiftEnabled] = useState(true);
     const [seoValidation, setSeoValidation] = useState<SEOValidation | null>(null);
+    const [showKeywordModal, setShowKeywordModal] = useState(false);
 
     // Data State
     const [article, setArticle] = useState<ArticleData | null>(null);
@@ -262,16 +303,34 @@ export const ContentStudio: React.FC = () => {
                 }
 
                 // 4. Fetch LLM Providers
-                const { data: llmData, error: llmError } = await supabase
+                // Primary query: active models. Fallback query: all models (legacy rows may not set is_active).
+                const llmSelect = 'id, name, model_name, provider, is_default, is_active, api_keys_id, api_key_id, llm_key_id';
+                let llmRows: LlmProviderRow[] = [];
+
+                const { data: activeModels, error: activeModelsError } = await supabase
                     .from('llm_providers')
-                    .select('id, name, model_name, provider, api_keys_id, api_key_id, llm_key_id')
+                    .select(llmSelect)
                     .eq('is_active', true);
 
-                if (llmError) {
-                    console.error("Error fetching LLM models:", llmError);
+                if (!activeModelsError && Array.isArray(activeModels) && activeModels.length > 0) {
+                    llmRows = activeModels as LlmProviderRow[];
                 } else {
-                    setLlmModels(llmData || []);
+                    if (activeModelsError) {
+                        console.warn('LLM active-model query failed, falling back to unfiltered query:', activeModelsError);
+                    }
+                    const { data: allModels, error: allModelsError } = await supabase
+                        .from('llm_providers')
+                        .select(llmSelect);
+
+                    if (allModelsError) {
+                        console.error('Error fetching LLM models:', allModelsError);
+                    } else {
+                        llmRows = (allModels as LlmProviderRow[]) || [];
+                    }
                 }
+
+                const normalizedLlmRows = sortLlmModels(llmRows);
+                setLlmModels(normalizedLlmRows);
 
                 // Initialize Form
                 setFormData({
@@ -289,7 +348,7 @@ export const ContentStudio: React.FC = () => {
                     ragQueryType: normalizedArticle.rag_query_type || '/query_hybrid_enhanced',
                     emphasis: normalizedArticle.rag_balance_emphasis || 'balanced',
                     claimsValidation: true,
-                    llmModel: normalizedArticle.LLM || '',
+                    llmModel: resolveInitialLlmModel(normalizedArticle.LLM, normalizedLlmRows),
                 });
 
             } catch (error) {
@@ -322,6 +381,30 @@ export const ContentStudio: React.FC = () => {
         const pct = value <= 1 ? value * 100 : value;
         return `${Math.round(pct)}%`;
     };
+
+    const keywordModalIdea: ContentIdea | null = article
+        ? {
+            id: article.id,
+            title: article.Title || formData.title || 'Untitled Article',
+            content_type: 'blog',
+            primary_keywords: article.primary_keywords ?? [],
+            secondary_keywords: article.secondary_keywords ?? [],
+            seo_optimization_score: article.seo_optimization_score ?? 0,
+            traffic_potential_score: article.traffic_potential_score ?? 0,
+            total_search_volume: article.total_search_volume ?? null,
+            average_difficulty: article.avg_keyword_difficulty ?? null,
+            average_cpc: null,
+            created_at: '',
+            user_id: user?.id || '',
+            topic_id: article.source_idea_id || '',
+            description: article.userDescription,
+            search_phrase: article.search_phrase,
+            keyword_metrics: article.selected_keyword_metrics_json || undefined,
+            raw_dataforseo_output: article.raw_dataforseo_output ?? null,
+            raw_supabase_output: article.raw_supabase_output ?? null,
+            idea_metadata: article.idea_metadata || undefined,
+        }
+        : null;
 
     // Save Changes
     const handleSave = async (): Promise<boolean> => {
@@ -671,6 +754,15 @@ export const ContentStudio: React.FC = () => {
                 </div>
                 <div className="flex gap-3">
                     <button
+                        onClick={() => setShowKeywordModal(true)}
+                        disabled={!keywordModalIdea}
+                        className="flex items-center gap-2 px-4 py-2 bg-background border border-border rounded-xl hover:bg-muted transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Maintain primary and secondary keywords"
+                    >
+                        <KeyRound className="w-4 h-4" />
+                        Keywords
+                    </button>
+                    <button
                         onClick={handleSave}
                         disabled={saving}
                         className="flex items-center gap-2 px-4 py-2 bg-background border border-border rounded-xl hover:bg-muted transition"
@@ -746,10 +838,10 @@ export const ContentStudio: React.FC = () => {
                             </button>
                             <div className="flex-1">
                                 <label htmlFor="seo-shift-toggle" className="text-sm font-medium text-foreground cursor-pointer">
-                                    SEO-First & Generative App Mode
+                                    GEO/SEO First & Generative App Mode
                                 </label>
                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                    Enrich the generation with a strict SEO/GEO directive. Optimizes for Google search rankings and Generative AI engines (ChatGPT, Gemini, Perplexity) by surfacing citations, entities, and direct answers.
+                                    Enrich the generation with a strict GEO-SEO directive. Optimizes for Google search rankings and Generative AI engines (ChatGPT, Gemini, Perplexity) by surfacing citations, entities, and direct answers.
                                 </p>
                             </div>
                         </div>
@@ -1097,6 +1189,47 @@ export const ContentStudio: React.FC = () => {
                     navigate('/');
                 }}
             />
+
+            {showKeywordModal && keywordModalIdea && user?.id && (
+                <KeywordIntelligenceModal
+                    isOpen={showKeywordModal}
+                    onClose={() => setShowKeywordModal(false)}
+                    idea={keywordModalIdea}
+                    onSave={async (primary, secondary, metrics, rawOutput) => {
+                        return contentIdeasService.updateTitleKeywordSelection(
+                            article.id,
+                            user.id,
+                            primary,
+                            secondary,
+                            metrics,
+                            rawOutput
+                        );
+                    }}
+                    onSaved={(primary, secondary, metrics, rawOutput) => {
+                        const nextPrimary = primary ? [primary] : [];
+                        setArticle((prev) => {
+                            if (!prev) return prev;
+                            const updated: ArticleData = {
+                                ...prev,
+                                primary_keywords: nextPrimary,
+                                secondary_keywords: secondary,
+                                search_phrase: primary || prev.search_phrase,
+                                primary_keyword: primary || prev.primary_keyword,
+                                Keywords: [primary, ...secondary].filter(Boolean).join(', '),
+                                selected_keyword_search_volume: metrics.volume ?? prev.selected_keyword_search_volume,
+                                selected_keyword_difficulty: metrics.difficulty ?? prev.selected_keyword_difficulty,
+                                raw_dataforseo_output: rawOutput ?? prev.raw_dataforseo_output,
+                            };
+                            setSeoValidation(validateSEOReadiness(updated));
+                            return updated;
+                        });
+                        setFormData((prev) => ({
+                            ...prev,
+                            keywords: [primary, ...secondary].filter(Boolean).join(', '),
+                        }));
+                    }}
+                />
+            )}
         </div>
     );
 };
