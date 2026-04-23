@@ -162,6 +162,66 @@ interface LlmProviderRow {
     llm_key_id?: string | null;
 }
 
+async function fetchLlmProviderRows(): Promise<LlmProviderRow[]> {
+    const queryAttempts: Array<{
+        label: string;
+        select: string;
+        activeOnly: boolean;
+    }> = [
+        {
+            label: 'active-with-flags',
+            select: 'id, name, model_name, provider, api_keys_id, is_default, is_active',
+            activeOnly: true,
+        },
+        {
+            label: 'all-with-flags',
+            select: 'id, name, model_name, provider, api_keys_id, is_default, is_active',
+            activeOnly: false,
+        },
+        {
+            label: 'all-with-default',
+            select: 'id, name, model_name, provider, api_keys_id, is_default',
+            activeOnly: false,
+        },
+        {
+            label: 'all-core-fields',
+            select: 'id, name, model_name, provider, api_keys_id',
+            activeOnly: false,
+        },
+    ];
+
+    for (const attempt of queryAttempts) {
+        let query = supabase.from('llm_providers').select(attempt.select);
+        if (attempt.activeOnly) {
+            query = query.eq('is_active', true);
+        }
+
+        const { data, error } = await query;
+        if (error) {
+            console.warn(`[ContentStudio] LLM model query "${attempt.label}" failed:`, error);
+            continue;
+        }
+
+        const rows = (Array.isArray(data) ? data : [])
+            .filter((row: any) => row && row.model_name)
+            .map((row: any) => ({
+                id: String(row.id ?? ''),
+                name: String(row.name ?? row.model_name ?? ''),
+                model_name: String(row.model_name ?? ''),
+                provider: String(row.provider ?? ''),
+                api_keys_id: row.api_keys_id ? String(row.api_keys_id) : null,
+                is_default: typeof row.is_default === 'boolean' ? row.is_default : null,
+                is_active: typeof row.is_active === 'boolean' ? row.is_active : null,
+            }));
+
+        if (rows.length > 0) {
+            return rows;
+        }
+    }
+
+    return [];
+}
+
 function sortLlmModels(models: LlmProviderRow[]): LlmProviderRow[] {
     return [...models].sort((a, b) => {
         if (!!a.is_default !== !!b.is_default) return a.is_default ? -1 : 1;
@@ -302,35 +362,10 @@ export const ContentStudio: React.FC = () => {
                     setRagCollections(ragData || []);
                 }
 
-                // 4. Fetch LLM Providers
-                // Primary query: active models. Fallback query: all models (legacy rows may not set is_active).
-                // Keep this select schema-safe for production tables that only expose api_keys_id.
-                // Do not request optional legacy columns here, otherwise PostgREST returns an error
-                // and the dropdown becomes empty.
-                const llmSelect = 'id, name, model_name, provider, is_default, is_active, api_keys_id';
-                let llmRows: LlmProviderRow[] = [];
-
-                const { data: activeModels, error: activeModelsError } = await supabase
-                    .from('llm_providers')
-                    .select(llmSelect)
-                    .eq('is_active', true);
-
-                if (!activeModelsError && Array.isArray(activeModels) && activeModels.length > 0) {
-                    llmRows = activeModels as LlmProviderRow[];
-                } else {
-                    if (activeModelsError) {
-                        console.warn('LLM active-model query failed, falling back to unfiltered query:', activeModelsError);
-                    }
-                    const { data: allModels, error: allModelsError } = await supabase
-                        .from('llm_providers')
-                        .select(llmSelect);
-
-                    if (allModelsError) {
-                        console.error('Error fetching LLM models:', allModelsError);
-                    } else {
-                        llmRows = (allModels as LlmProviderRow[]) || [];
-                    }
-                }
+                // 4. Fetch LLM Providers with schema-safe fallbacks.
+                // Some environments don't expose optional columns like is_active/is_default;
+                // this chain keeps the dropdown populated from core columns.
+                const llmRows = await fetchLlmProviderRows();
 
                 const normalizedLlmRows = sortLlmModels(llmRows);
                 setLlmModels(normalizedLlmRows);
