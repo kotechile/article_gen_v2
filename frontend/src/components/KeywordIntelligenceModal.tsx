@@ -684,6 +684,7 @@ export function KeywordIntelligenceModal({
         const parsedSecondary = extractKeywordValues(raw);
         if (parsedSecondary.length > 0) return parsedSecondary;
         // Fall back to keywords[1..] if secondary_keywords is empty
+        const stored = (idea as any).keywords ?? [];
         const list = extractKeywordValues(stored);
         return list.slice(1);
     }, [idea.id, (idea as any).secondary_keywords, (idea as any).secondary_keywords_json, (idea as any).keywords]);
