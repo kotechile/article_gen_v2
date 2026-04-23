@@ -1,6 +1,6 @@
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Sparkles, Lightbulb, Loader2, Check, Save, BookOpen, Code, Info, Key, Star } from "lucide-react";
+import { X, Sparkles, Lightbulb, Loader2, Check, Save, BookOpen, Code, Info, Key, Star, Archive, Trash2 } from "lucide-react";
 import { KeywordIntelligenceModal } from "./KeywordIntelligenceModal";
 import { Button } from "@/components/ui/button";
 import { contentIdeasService } from "@/services/content-ideas.service";
@@ -404,6 +404,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
     const [publishing, setPublishing] = React.useState(false);
     const [savingSoftware, setSavingSoftware] = React.useState(false);
     const [ratingIdeaIds, setRatingIdeaIds] = React.useState<Set<string>>(new Set());
+    const [archivingIdeaIds, setArchivingIdeaIds] = React.useState<Set<string>>(new Set());
+    const [deletingIdeaIds, setDeletingIdeaIds] = React.useState<Set<string>>(new Set());
     const [enrichingIdeas, setEnrichingIdeas] = React.useState(false);
     const [enrichResultMessage, setEnrichResultMessage] = React.useState<string | null>(null);
     const [published, setPublished] = React.useState(false);
@@ -431,7 +433,9 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                 const storedIdeas = await contentIdeasService.getContentIdeas(topicId, user.id);
                 const normalizedSubtopic = (subtopic.name || "").trim().toLowerCase();
                 const filtered = (storedIdeas || []).filter(
-                    (idea) => (idea.subtopic || "").trim().toLowerCase() === normalizedSubtopic
+                    (idea) =>
+                        (idea.subtopic || "").trim().toLowerCase() === normalizedSubtopic &&
+                        idea.status !== "archived"
                 );
                 if (!cancelled && filtered.length > 0) {
                     const nextBlogIdeas = filtered.filter((idea) => idea.content_type === "blog");
@@ -919,6 +923,68 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         }
     };
 
+    const handleArchiveIdea = async (ideaId: string) => {
+        if (!user) return;
+        setArchivingIdeaIds((current) => new Set(current).add(ideaId));
+        try {
+            const ok = await contentIdeasService.archiveContentIdea(ideaId, user.id);
+            if (!ok) {
+                setError("Failed to archive content idea.");
+                return;
+            }
+            setBlogIdeas((prev) => prev.filter((idea) => idea.id !== ideaId));
+            setSoftwareIdeas((prev) => prev.filter((idea) => idea.id !== ideaId));
+            setSelectedBlogIdeas((prev) => {
+                const next = new Set(prev);
+                next.delete(ideaId);
+                return next;
+            });
+            setSelectedSoftwareIdeas((prev) => {
+                const next = new Set(prev);
+                next.delete(ideaId);
+                return next;
+            });
+        } finally {
+            setArchivingIdeaIds((current) => {
+                const next = new Set(current);
+                next.delete(ideaId);
+                return next;
+            });
+        }
+    };
+
+    const handleDeleteIdea = async (ideaId: string) => {
+        if (!user) return;
+        const confirmed = window.confirm("Delete this content idea? This cannot be undone.");
+        if (!confirmed) return;
+        setDeletingIdeaIds((current) => new Set(current).add(ideaId));
+        try {
+            const ok = await contentIdeasService.deleteContentIdea(ideaId, user.id);
+            if (!ok) {
+                setError("Failed to delete content idea.");
+                return;
+            }
+            setBlogIdeas((prev) => prev.filter((idea) => idea.id !== ideaId));
+            setSoftwareIdeas((prev) => prev.filter((idea) => idea.id !== ideaId));
+            setSelectedBlogIdeas((prev) => {
+                const next = new Set(prev);
+                next.delete(ideaId);
+                return next;
+            });
+            setSelectedSoftwareIdeas((prev) => {
+                const next = new Set(prev);
+                next.delete(ideaId);
+                return next;
+            });
+        } finally {
+            setDeletingIdeaIds((current) => {
+                const next = new Set(current);
+                next.delete(ideaId);
+                return next;
+            });
+        }
+    };
+
     const internalLinkGroups = React.useMemo(() => buildInternalLinkGroups(blogIdeas), [blogIdeas]);
 
     if (!isOpen || !subtopic) return null;
@@ -1126,6 +1192,10 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                                 keywordMetricsMap={subtopicKeywordMetrics}
                                                 ratingSaving={ratingIdeaIds.has(idea.id)}
                                                 onSetRating={(rating) => handleSetIdeaRating(idea.id, rating)}
+                                                isArchiving={archivingIdeaIds.has(idea.id)}
+                                                isDeleting={deletingIdeaIds.has(idea.id)}
+                                                onArchive={() => handleArchiveIdea(idea.id)}
+                                                onDelete={() => handleDeleteIdea(idea.id)}
                                                 onKeywordSaved={(ideaId, primary, secondary, metrics) => {
                                                     applyEnrichedMetrics(
                                                         ideaId,
@@ -1239,6 +1309,10 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                                 keywordMetricsMap={subtopicKeywordMetrics}
                                                 ratingSaving={ratingIdeaIds.has(idea.id)}
                                                 onSetRating={(rating) => handleSetIdeaRating(idea.id, rating)}
+                                                isArchiving={archivingIdeaIds.has(idea.id)}
+                                                isDeleting={deletingIdeaIds.has(idea.id)}
+                                                onArchive={() => handleArchiveIdea(idea.id)}
+                                                onDelete={() => handleDeleteIdea(idea.id)}
                                             />
                                         ))}
                                     </div>
@@ -1354,6 +1428,10 @@ interface BlogIdeaCardProps {
     keywordMetricsMap: Map<string, KeywordMetricRow>;
     ratingSaving?: boolean;
     onSetRating?: (rating: number) => void;
+    isArchiving?: boolean;
+    isDeleting?: boolean;
+    onArchive?: () => void;
+    onDelete?: () => void;
     onKeywordSaved?: (
         ideaId: string,
         primary: string,
@@ -1362,7 +1440,7 @@ interface BlogIdeaCardProps {
     ) => void;
 }
 
-function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onToggleMetrics: _onToggleMetrics, mapContext, keywordMetricsMap, ratingSaving, onSetRating, onKeywordSaved }: BlogIdeaCardProps) {
+function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onToggleMetrics: _onToggleMetrics, mapContext, keywordMetricsMap, ratingSaving, onSetRating, isArchiving, isDeleting, onArchive, onDelete, onKeywordSaved }: BlogIdeaCardProps) {
     const [showKeywordModal, setShowKeywordModal] = React.useState(false);
     const keywords = resolveIdeaKeywords(idea);
     const rankFactors = getRankFactors(idea);
@@ -1419,6 +1497,28 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onT
                                     In Library
                                 </span>
                             )}
+                            <div className="ml-auto flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                    type="button"
+                                    onClick={() => onArchive?.()}
+                                    disabled={Boolean(isArchiving || isDeleting)}
+                                    className="rounded p-1 text-slate-400 transition hover:bg-white/10 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                    aria-label={`Archive ${idea.title}`}
+                                    title="Archive idea"
+                                >
+                                    {isArchiving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => onDelete?.()}
+                                    disabled={Boolean(isArchiving || isDeleting)}
+                                    className="rounded p-1 text-slate-400 transition hover:bg-white/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                    aria-label={`Delete ${idea.title}`}
+                                    title="Delete idea"
+                                >
+                                    {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                </button>
+                            </div>
                         </div>
                         {idea.description && (
                             <p className="text-xs text-slate-400 line-clamp-2 mb-2">{idea.description}</p>
@@ -1637,9 +1737,13 @@ interface SoftwareIdeaCardProps {
     keywordMetricsMap: Map<string, KeywordMetricRow>;
     ratingSaving?: boolean;
     onSetRating?: (rating: number) => void;
+    isArchiving?: boolean;
+    isDeleting?: boolean;
+    onArchive?: () => void;
+    onDelete?: () => void;
 }
 
-function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onToggleMetrics: _onToggleMetrics, mapContext, keywordMetricsMap, ratingSaving, onSetRating }: SoftwareIdeaCardProps) {
+function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onToggleMetrics: _onToggleMetrics, mapContext, keywordMetricsMap, ratingSaving, onSetRating, isArchiving, isDeleting, onArchive, onDelete }: SoftwareIdeaCardProps) {
     const [showKeywordModal, setShowKeywordModal] = React.useState(false);
     const keywords = resolveIdeaKeywords(idea);
     const rankFactors = getRankFactors(idea);
@@ -1696,6 +1800,28 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded,
                                     In Library
                                 </span>
                             )}
+                            <div className="ml-auto flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                    type="button"
+                                    onClick={() => onArchive?.()}
+                                    disabled={Boolean(isArchiving || isDeleting)}
+                                    className="rounded p-1 text-slate-400 transition hover:bg-white/10 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                    aria-label={`Archive ${idea.title}`}
+                                    title="Archive idea"
+                                >
+                                    {isArchiving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => onDelete?.()}
+                                    disabled={Boolean(isArchiving || isDeleting)}
+                                    className="rounded p-1 text-slate-400 transition hover:bg-white/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                    aria-label={`Delete ${idea.title}`}
+                                    title="Delete idea"
+                                >
+                                    {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                </button>
+                            </div>
                         </div>
                         {idea.description && (
                             <p className="text-xs text-slate-400 line-clamp-2 mb-2">{idea.description}</p>
