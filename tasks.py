@@ -9,6 +9,7 @@ import os
 import re
 import html
 import sys
+import json
 import concurrent.futures
 import asyncio
 from datetime import datetime
@@ -72,6 +73,7 @@ ARTICLE_MIN_AVG_CLAIM_CONFIDENCE = 0.40
 ARTICLE_MAX_WEAK_CLAIMS = 3
 ARTICLE_MIN_WORD_COUNT = 900
 DEFAULT_STRICT_KEYWORD_MODE = True
+DEFAULT_STRICT_TITLES_AUTHORITY = True
 
 _LOW_SUBSTANCE_PATTERNS = (
     r"\bthis section covers\b",
@@ -97,6 +99,7 @@ def _load_keyword_gate_settings() -> Dict[str, Any]:
     """Read generation keyword gate settings from application settings."""
     settings = {
         "strict_keyword_mode": DEFAULT_STRICT_KEYWORD_MODE,
+        "strict_titles_authority": DEFAULT_STRICT_TITLES_AUTHORITY,
         "min_keyword_candidates": 1,
         "allow_llm_fallback": False,
     }
@@ -111,6 +114,12 @@ def _load_keyword_gate_settings() -> Dict[str, Any]:
         strict_mode = research_settings.get("strict_keyword_mode", research_settings.get("strict_mode"))
         if strict_mode is not None:
             settings["strict_keyword_mode"] = bool(strict_mode)
+        strict_titles_authority = research_settings.get(
+            "strict_titles_authority",
+            research_settings.get("strict_titles_source_of_truth"),
+        )
+        if strict_titles_authority is not None:
+            settings["strict_titles_authority"] = bool(strict_titles_authority)
         if research_settings.get("min_keyword_candidates") is not None:
             settings["min_keyword_candidates"] = max(1, int(research_settings.get("min_keyword_candidates") or 1))
         if research_settings.get("allow_llm_keyword_fallback") is not None:
@@ -249,6 +258,24 @@ def _validate_keyword_strategy_for_generation(research_data: Dict[str, Any]) -> 
             + ", ".join(failures)
             + f" (source={keyword_source or 'unknown'}, candidates={len(keyword_candidates)})"
         )
+
+
+def _parse_keyword_list(raw_value: Any) -> List[str]:
+    if isinstance(raw_value, list):
+        return [str(x).strip() for x in raw_value if str(x).strip()]
+    if isinstance(raw_value, str):
+        value = raw_value.strip()
+        if not value:
+            return []
+        if value.startswith('[') and value.endswith(']'):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return [str(x).strip() for x in parsed if str(x).strip()]
+            except Exception:
+                pass
+        return [x.strip() for x in value.split(',') if x.strip()]
+    return []
 
 
 def _normalize_claim_text(text: str) -> str:
@@ -823,76 +850,41 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                             gate.get("reason"),
                         )
 
-                    # Keyword handoff recovery:
-                    # 1) Prefer dossier fields already on Titles.
-                    # 2) If missing and source_idea_id exists, recover from content_ideas.
-                    keyword_candidates = title_row.get('keyword_candidates_json') or []
-                    if not isinstance(keyword_candidates, list):
-                        keyword_candidates = []
-                    source_idea_id = title_row.get('source_idea_id')
+                    # Keyword handoff hydration (Titles-only authoritative source).
+                    keyword_candidates = []
+                    title_primary_keyword = str(title_row.get('primary_keyword') or '').strip()
+                    title_search_phrase = str(title_row.get('search_phrase') or '').strip()
+                    title_primary_keywords = _parse_keyword_list(title_row.get('primary_keywords'))
+                    title_secondary_keywords = _parse_keyword_list(title_row.get('secondary_keywords'))
+                    title_candidate_keywords = _parse_keyword_list(title_row.get('keyword_candidates_json'))
+                    title_legacy_keywords = _parse_keyword_list(title_row.get('Keywords') or title_row.get('keywords'))
+                    for kw in (
+                        [title_primary_keyword, title_search_phrase]
+                        + title_primary_keywords
+                        + title_secondary_keywords
+                        + title_candidate_keywords
+                        + title_legacy_keywords
+                    ):
+                        kw_text = str(kw).strip()
+                        if kw_text and kw_text not in keyword_candidates:
+                            keyword_candidates.append(kw_text)
 
                     recovered_volume = int(title_row.get('selected_keyword_search_volume') or 0)
                     recovered_difficulty = float(title_row.get('selected_keyword_difficulty') or 0.0)
                     recovered_intent = str(title_row.get('selected_keyword_intent') or '').strip().lower()
                     recovered_selected_keyword_metrics = title_row.get('selected_keyword_metrics_json') or {}
-                    recovered_keyword_metric_map = {}
+                    recovered_keyword_metric_map = _normalize_keyword_metric_map(title_row.get('keyword_metrics_map') or {})
 
-                    if not keyword_candidates and source_idea_id:
-                        try:
-                            idea_response = (
-                                supabase.table('content_ideas')
-                                .select('primary_keywords,secondary_keywords,keywords,keyword_metrics,total_search_volume,average_difficulty,target_intent,idea_metadata')
-                                .eq('id', source_idea_id)
-                                .limit(1)
-                                .execute()
-                            )
-                            if idea_response.data:
-                                idea_row = idea_response.data[0]
-                                primary_keywords = idea_row.get('primary_keywords') or idea_row.get('keywords') or []
-                                secondary_keywords = idea_row.get('secondary_keywords') or []
-                                if isinstance(primary_keywords, str):
-                                    primary_keywords = [k.strip() for k in primary_keywords.split(',') if k.strip()]
-                                if isinstance(secondary_keywords, str):
-                                    secondary_keywords = [k.strip() for k in secondary_keywords.split(',') if k.strip()]
-                                if not secondary_keywords and len(primary_keywords) > 1:
-                                    secondary_keywords = primary_keywords[1:]
-                                keyword_candidates = []
-                                for kw in (primary_keywords + secondary_keywords):
-                                    kw_text = str(kw).strip()
-                                    if kw_text and kw_text not in keyword_candidates:
-                                        keyword_candidates.append(kw_text)
-                                recovered_volume = int(idea_row.get('total_search_volume') or recovered_volume or 0)
-                                recovered_difficulty = float(idea_row.get('average_difficulty') or recovered_difficulty or 0.0)
-                                recovered_intent = str(idea_row.get('target_intent') or recovered_intent or '').strip().lower()
-                                keyword_metrics_map = idea_row.get('keyword_metrics') or {}
-                                if not keyword_metrics_map:
-                                    seo_offer_enrichment = (idea_row.get('idea_metadata') or {}).get('seo_offer_enrichment') or {}
-                                    keyword_metrics_map = seo_offer_enrichment.get('keyword_metrics') or {}
-                                recovered_keyword_metric_map = _normalize_keyword_metric_map(keyword_metrics_map)
-                                primary_keyword_from_idea = primary_keywords[0] if primary_keywords else ""
-                                if keyword_metrics_map and primary_keyword_from_idea:
-                                    recovered_selected_keyword_metrics = _hydrate_selected_keyword_metrics_from_map(
-                                        keyword_metrics_map=keyword_metrics_map,
-                                        primary_keyword=primary_keyword_from_idea,
-                                        secondary_keywords=secondary_keywords,
-                                        target_intent=recovered_intent or "informational",
-                                        keyword_source='dataforseo',
-                                    )
-                                    primary_metric = (recovered_selected_keyword_metrics.get('primary') or {})
-                                    recovered_volume = int(primary_metric.get('search_volume') or recovered_volume or 0)
-                                    recovered_difficulty = float(primary_metric.get('keyword_difficulty') or recovered_difficulty or 0.0)
-                                logger.info(
-                                    "Recovered keyword dossier from content_ideas for article %s (source_idea_id=%s, candidates=%s)",
-                                    article_id,
-                                    source_idea_id,
-                                    len(keyword_candidates),
-                                )
-                        except Exception as keyword_recovery_error:
-                            logger.warning(
-                                "Keyword dossier recovery from content_ideas failed for article %s: %s",
-                                article_id,
-                                keyword_recovery_error,
-                            )
+                    gate_settings = _load_keyword_gate_settings()
+                    strict_titles_authority = bool(
+                        gate_settings.get("strict_titles_authority", DEFAULT_STRICT_TITLES_AUTHORITY)
+                    )
+                    if not keyword_candidates and strict_titles_authority:
+                        research_data['titles_keyword_gate_error'] = (
+                            "Titles keyword gate blocked generation: missing keyword candidates on Titles row. "
+                            "Populate Titles.keyword_candidates_json / primary_keywords / secondary_keywords before generation."
+                        )
+                        logger.error("Strict Titles authority gate failed for article %s", article_id)
 
                     if keyword_candidates:
                         research_data['keyword_candidates'] = keyword_candidates
@@ -1122,6 +1114,16 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     }
 
                     optional_updates = {
+                        'seo_title_optimized': final_content.get('seo_title_optimized', ''),
+                        'metaTitle': final_content.get('metaTitle', ''),
+                        'metaDescription': final_content.get('metaDescription', ''),
+                        'seo_meta_desc_optimized': final_content.get('seo_meta_desc_optimized', ''),
+                        'focus_keyword': final_content.get('focus_keyword', ''),
+                        'breadcrumb_title': final_content.get('breadcrumb_title', ''),
+                        'wp_slug': final_content.get('wp_slug', ''),
+                        'wp_tag_ids': final_content.get('wp_tag_ids', []),
+                        'wp_excerpt_auto_generated': final_content.get('wp_excerpt_auto_generated', ''),
+                        'wp_custom_fields': final_content.get('wp_custom_fields', {}),
                         'quality_report': final_content.get('quality_report', {}),
                         'confidence_map': final_content.get('confidence_map', {}),
                         'quality_gate': final_content.get('quality_gate', {}),
@@ -1133,6 +1135,9 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         'keyword_research_confidence': final_content.get('keyword_research_confidence', 0.0),
                         'keyword_research_generated_at': final_content.get('keyword_research_generated_at'),
                         'primary_keyword': final_content.get('primary_keyword', ''),
+                        'primary_keywords': [final_content.get('primary_keyword')] if final_content.get('primary_keyword') else [],
+                        'secondary_keywords': final_content.get('secondary_keywords_json', []),
+                        'search_phrase': final_content.get('primary_keyword', ''),
                         'secondary_keywords_json': final_content.get('secondary_keywords_json', []),
                         'supporting_entities_json': final_content.get('supporting_entities_json', []),
                         'priority_questions_json': final_content.get('priority_questions_json', []),
@@ -1186,6 +1191,9 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                             'keyword_research_confidence',
                             'keyword_research_generated_at',
                             'primary_keyword',
+                            'primary_keywords',
+                            'secondary_keywords',
+                            'search_phrase',
                             'secondary_keywords_json',
                             'supporting_entities_json',
                             'priority_questions_json',
@@ -1468,6 +1476,10 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
             )
 
         research_data = result.get('research_data', {})
+        gate_settings = _load_keyword_gate_settings()
+        strict_titles_authority = bool(
+            gate_settings.get("strict_titles_authority", DEFAULT_STRICT_TITLES_AUTHORITY)
+        )
         candidate_keywords = research_data.get('keyword_candidates') or []
         if isinstance(candidate_keywords, str):
             candidate_keywords = [k.strip() for k in candidate_keywords.split(',') if k.strip()]
@@ -1475,9 +1487,20 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
             candidate_keywords = []
         candidate_keywords = [str(k).strip() for k in candidate_keywords if str(k).strip()]
 
+        if strict_titles_authority:
+            pre_gate_error = str(research_data.get('titles_keyword_gate_error') or '').strip()
+            if pre_gate_error:
+                raise ValueError(pre_gate_error)
+            if not candidate_keywords:
+                raise ValueError(
+                    "Titles keyword gate blocked generation: keyword_candidates is empty. "
+                    "Populate Titles keyword fields before generation."
+                )
+
         brief_keywords = [k.strip() for k in str(research_data.get('keywords', '') or '').split(',') if k.strip()]
         merged_candidates = []
-        for kw in candidate_keywords + brief_keywords:
+        candidate_pool = candidate_keywords if strict_titles_authority else (candidate_keywords + brief_keywords)
+        for kw in candidate_pool:
             if kw not in merged_candidates:
                 merged_candidates.append(kw)
 
@@ -1648,6 +1671,11 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
         }
     except Exception as e:
         logger.error(f"Error in keyword intelligence stage: {str(e)}")
+        strict_titles_authority = bool(
+            _load_keyword_gate_settings().get("strict_titles_authority", DEFAULT_STRICT_TITLES_AUTHORITY)
+        )
+        if strict_titles_authority and "Titles keyword gate blocked generation" in str(e):
+            raise
         return {
             'research_data': result.get('research_data', {}),
             'stage_data': {'keyword_intelligence_error': str(e)}

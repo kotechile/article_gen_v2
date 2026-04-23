@@ -8,6 +8,12 @@ import type {
     SEOMetadata
 } from '../types/wordpress';
 
+const extractMissingColumns = (errorMessage: string): string[] => {
+    if (!errorMessage) return [];
+    const matches = Array.from(errorMessage.matchAll(/Could not find the '([^']+)' column/gi));
+    return matches.map((m) => m[1]).filter(Boolean);
+};
+
 /**
  * Fetch all WordPress sites configured for a user
  */
@@ -171,6 +177,157 @@ const buildSEOMetadata = (articleData: any, seoData: SEOMetadata, categoryId?: n
     return meta;
 };
 
+type FaqEntry = {
+    question: string;
+    answer: string;
+};
+
+const stripHtml = (html: string): string => {
+    const temp = document.createElement('div');
+    temp.innerHTML = html || '';
+    return (temp.textContent || temp.innerText || '').trim();
+};
+
+const ensureAnswerFirstBlock = (html: string, articleData: any): string => {
+    if (!html.trim()) return html;
+    const hasAnswerFirst = /<h2[^>]*>\s*(short answer|quick answer)\s*<\/h2>/i.test(html);
+    if (hasAnswerFirst) return html;
+
+    const shortAnswer = String(articleData?.thesis || articleData?.excerpt || articleData?.hook || '').trim();
+    if (!shortAnswer) return html;
+
+    const answerHtml = `
+<section class="geo-answer-first" data-geo-injected="short-answer">
+  <h2>Short Answer</h2>
+  <p>In short: ${shortAnswer}</p>
+</section>
+`;
+    return `${answerHtml}\n${html}`;
+};
+
+const ensureKeyTakeawaysBlock = (html: string, articleData: any): string => {
+    if (!html.trim()) return html;
+    if (/<h[23][^>]*>\s*key takeaways\s*<\/h[23]>/i.test(html)) return html;
+
+    const candidates = [
+        articleData?.thesis,
+        articleData?.excerpt,
+        articleData?.hook,
+        articleData?.focus_keyword ? `This article is optimized around "${articleData.focus_keyword}".` : '',
+    ]
+        .map((item: unknown) => String(item || '').trim())
+        .filter(Boolean);
+
+    const deduped = Array.from(new Set(candidates)).slice(0, 4);
+    if (deduped.length === 0) return html;
+
+    const listItems = deduped.map((item) => `<li>${item}</li>`).join('\n');
+    const takeawaysHtml = `
+<section class="geo-key-takeaways" data-geo-injected="key-takeaways">
+  <h2>Key Takeaways</h2>
+  <ul>
+    ${listItems}
+  </ul>
+</section>
+`;
+
+    // Keep this near the top for scannability by AI engines.
+    return `${takeawaysHtml}\n${html}`;
+};
+
+const extractFaqEntries = (html: string): FaqEntry[] => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const body = doc.body;
+    if (!body) return [];
+
+    const entries: FaqEntry[] = [];
+    const allChildren = Array.from(body.children);
+    const faqHeadingIndex = allChildren.findIndex((el) => /^h[1-6]$/i.test(el.tagName) && /faq|frequently asked/i.test(el.textContent || ''));
+
+    const scopedNodes: Element[] = [];
+    if (faqHeadingIndex >= 0) {
+        for (let i = faqHeadingIndex + 1; i < allChildren.length; i += 1) {
+            const node = allChildren[i];
+            if (/^h2$/i.test(node.tagName)) break;
+            scopedNodes.push(node);
+        }
+    } else {
+        scopedNodes.push(...allChildren);
+    }
+
+    let currentQuestion = '';
+    let currentAnswerParts: string[] = [];
+
+    const flush = () => {
+        const question = currentQuestion.trim();
+        const answer = currentAnswerParts.join(' ').trim();
+        if (question && answer) {
+            entries.push({ question, answer });
+        }
+        currentQuestion = '';
+        currentAnswerParts = [];
+    };
+
+    for (const node of scopedNodes) {
+        const tag = node.tagName.toLowerCase();
+        const text = stripHtml(node.outerHTML);
+        if (!text) continue;
+
+        const isQuestionHeading = (tag === 'h3' || tag === 'h4') && text.endsWith('?');
+        const isQuestionParagraph = tag === 'p' && text.endsWith('?') && text.length < 220;
+
+        if (isQuestionHeading || isQuestionParagraph) {
+            flush();
+            currentQuestion = text;
+            continue;
+        }
+
+        if (currentQuestion) {
+            currentAnswerParts.push(text);
+        }
+    }
+    flush();
+
+    return entries.slice(0, 8);
+};
+
+const buildFaqJsonLdScript = (faqEntries: FaqEntry[]): string => {
+    if (!faqEntries.length) return '';
+    const schema = {
+        '@context': 'https://schema.org',
+        '@type': 'FAQPage',
+        mainEntity: faqEntries.map((item) => ({
+            '@type': 'Question',
+            name: item.question,
+            acceptedAnswer: {
+                '@type': 'Answer',
+                text: item.answer,
+            },
+        })),
+    };
+
+    return `<script type="application/ld+json">${JSON.stringify(schema)}</script>`;
+};
+
+const injectGeoFormatting = (html: string, articleData: any): string => {
+    if (!html.trim()) return html;
+    let formatted = html;
+    formatted = ensureAnswerFirstBlock(formatted, articleData);
+    formatted = ensureKeyTakeawaysBlock(formatted, articleData);
+
+    const hasFaqJsonLd = /<script[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*"@type"\s*:\s*"FAQPage"[\s\S]*<\/script>/i.test(formatted);
+    if (!hasFaqJsonLd) {
+        const faqEntries = extractFaqEntries(formatted);
+        const faqScript = buildFaqJsonLdScript(faqEntries);
+        if (faqScript) {
+            formatted = `${formatted}\n${faqScript}`;
+        }
+    }
+
+    return formatted;
+};
+
 /**
  * Formats the article body to include metadata elements (Deck, Hook, Thesis, Image)
  * logically integrated into the text with professional styling.
@@ -210,7 +367,7 @@ const formatArticleBody = (articleData: any): string => {
     // 4. Main Body Content
     content += articleData.htmlArticle || articleData.htmlarticle || '';
 
-    return content;
+    return injectGeoFormatting(content, articleData);
 };
 
 
@@ -318,16 +475,80 @@ export const publishToWordPress = async (
 
         const result: WordPressApiResponse = await response.json();
 
-        // Update Supabase status
+        // Update Titles loopback with publish outcome and GEO/SEO canonical fields.
         if (articleData.id) {
             const newStatus = settings.postStatus === 'future' ? 'Scheduled' : 'WP Published';
-            await supabase
+            const optimizedTitle = String(
+                articleData.seo_title_optimized ||
+                seoData.metaTitle ||
+                articleData.metaTitle ||
+                articleData.Title ||
+                articleData.title ||
+                ''
+            ).trim();
+            const optimizedDescription = String(
+                articleData.seo_meta_desc_optimized ||
+                seoData.metaDescription ||
+                articleData.metaDescription ||
+                articleData.userDescription ||
+                ''
+            ).trim();
+
+            let updatePayload: Record<string, unknown> = {
+                status: newStatus,
+                published: true,
+                Title: optimizedTitle || articleData.Title || articleData.title || '',
+                userDescription: optimizedDescription || articleData.userDescription || '',
+                seo_title_optimized: optimizedTitle || null,
+                metaTitle: optimizedTitle || null,
+                seo_meta_desc_optimized: optimizedDescription || null,
+                metaDescription: optimizedDescription || null,
+                last_wp_post_status: result.status || settings.postStatus,
+                published_at: new Date().toISOString(),
+                wp_post_id: result.id,
+                wp_post_url: result.link,
+                last_wp_post_id: result.id,
+                last_wp_post_url: result.link,
+            };
+            const attemptedFields = Object.keys(updatePayload);
+            const removedFields: string[] = [];
+
+            let { error: titlesUpdateError } = await supabase
                 .from('Titles')
-                .update({
-                    status: newStatus,
-                    published: true
-                })
+                .update(updatePayload)
                 .eq('id', articleData.id);
+
+            // Backward-compatible retries for deployments missing some optional columns.
+            while (titlesUpdateError) {
+                const missingCols = extractMissingColumns(String(titlesUpdateError.message || titlesUpdateError));
+                if (missingCols.length === 0) break;
+                for (const col of missingCols) {
+                    if (!removedFields.includes(col)) removedFields.push(col);
+                }
+
+                updatePayload = Object.fromEntries(
+                    Object.entries(updatePayload).filter(([key]) => !missingCols.includes(key))
+                );
+                if (Object.keys(updatePayload).length === 0) break;
+
+                const retry = await supabase
+                    .from('Titles')
+                    .update(updatePayload)
+                    .eq('id', articleData.id);
+                titlesUpdateError = retry.error;
+            }
+
+            if (titlesUpdateError) {
+                console.warn('WordPress publish succeeded, but Titles loopback update failed:', titlesUpdateError);
+            }
+
+            result.loopback_summary = {
+                success: !titlesUpdateError,
+                attemptedFields,
+                savedFields: Object.keys(updatePayload),
+                removedFields,
+                error: titlesUpdateError ? String(titlesUpdateError.message || titlesUpdateError) : undefined,
+            };
         }
 
         console.log('✅ Article published to WordPress:', {

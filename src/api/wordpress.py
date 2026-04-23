@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from flask import Blueprint, jsonify, request
 from supabase_client import get_supabase_client
 from src.utils.wordpress_client import WordPressClient

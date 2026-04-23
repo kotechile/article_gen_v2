@@ -92,6 +92,13 @@ export interface WordPressApiResponse {
     title: {
         rendered: string;
     };
+    loopback_summary?: {
+        success: boolean;
+        attemptedFields: string[];
+        savedFields: string[];
+        removedFields: string[];
+        error?: string;
+    };
 }
 
 export interface WordPressMediaResponse {

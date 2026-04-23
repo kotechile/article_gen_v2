@@ -5,6 +5,7 @@ Provides read/write access to research filtering settings used by the UI.
 """
 
 import logging
+from typing import Optional
 from flask import Blueprint, jsonify, request
 
 from supabase_client import get_supabase_client
@@ -21,7 +22,7 @@ DEFAULT_RESEARCH_SETTINGS = {
 }
 
 
-def _normalize_research_settings(raw: dict | None) -> dict:
+def _normalize_research_settings(raw: Optional[dict]) -> dict:
     values = dict(DEFAULT_RESEARCH_SETTINGS)
     payload = raw or {}
 

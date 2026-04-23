@@ -66,6 +66,36 @@ interface ArticleData {
     affiliate_opportunities?: any;
 }
 
+function normalizeKeywordList(value: unknown): string[] {
+    if (Array.isArray(value)) {
+        return value
+            .map((item) => String(item ?? '').trim())
+            .filter(Boolean);
+    }
+
+    if (typeof value === 'string') {
+        const raw = value.trim();
+        if (!raw) return [];
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                return parsed
+                    .map((item) => String(item ?? '').trim())
+                    .filter(Boolean);
+            }
+        } catch {
+            // Fall back to comma-separated parsing.
+        }
+
+        return raw
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
+    }
+
+    return [];
+}
+
 // ─── SEO Validation ───────────────────────────────────────────────────────────
 
 interface SEOValidation {
@@ -89,11 +119,15 @@ function validateSEOReadiness(article: ArticleData): SEOValidation {
 
     const hasSecondary = (article.secondary_keywords?.length ?? 0) > 0;
     if (!hasSecondary) {
-        warnings.push('No secondary keywords set. Add them in Keyword Intelligence for richer, more targeted content.');
+        errors.push('Missing secondary keywords — save secondary keyword strategy before generation.');
+    }
+
+    if (!article.domain || !String(article.domain).trim()) {
+        errors.push('Missing domain context — link a project/domain before generation.');
     }
 
     if (!article.wordpress_category_id) {
-        warnings.push('No WordPress Category ID linked. Auto-category selection in the WP Export modal may not work correctly.');
+        errors.push('Missing WordPress category mapping — assign wordpress_category_id before generation.');
     }
 
     return { isValid: errors.length === 0, warnings, errors };
@@ -107,6 +141,16 @@ interface RagCollection {
 interface AppSettings {
     // Add specific keys if needed
     [key: string]: any;
+}
+
+interface LlmProviderRow {
+    id: string;
+    name: string;
+    model_name: string;
+    provider: string;
+    api_keys_id?: string | null;
+    api_key_id?: string | null;
+    llm_key_id?: string | null;
 }
 
 const TONE_OPTIONS = [
@@ -153,7 +197,7 @@ export const ContentStudio: React.FC = () => {
     const [article, setArticle] = useState<ArticleData | null>(null);
     const [ragCollections, setRagCollections] = useState<RagCollection[]>([]);
     const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
-    const [llmModels, setLlmModels] = useState<any[]>([]);
+    const [llmModels, setLlmModels] = useState<LlmProviderRow[]>([]);
 
     // Form State
     const [formData, setFormData] = useState({
@@ -185,8 +229,13 @@ export const ContentStudio: React.FC = () => {
                     .single();
 
                 if (artError) throw artError;
-                setArticle(artData);
-                setSeoValidation(validateSEOReadiness(artData as ArticleData));
+                const normalizedArticle: ArticleData = {
+                    ...(artData as ArticleData),
+                    primary_keywords: normalizeKeywordList((artData as any)?.primary_keywords),
+                    secondary_keywords: normalizeKeywordList((artData as any)?.secondary_keywords),
+                };
+                setArticle(normalizedArticle);
+                setSeoValidation(validateSEOReadiness(normalizedArticle));
 
                 // Do not auto-open progress modal from DB status alone.
                 // It creates stale 90% hangs when previous runs crashed and left status as Generating.
@@ -215,7 +264,7 @@ export const ContentStudio: React.FC = () => {
                 // 4. Fetch LLM Providers
                 const { data: llmData, error: llmError } = await supabase
                     .from('llm_providers')
-                    .select('id, name, model_name, provider')
+                    .select('id, name, model_name, provider, api_keys_id, api_key_id, llm_key_id')
                     .eq('is_active', true);
 
                 if (llmError) {
@@ -226,21 +275,21 @@ export const ContentStudio: React.FC = () => {
 
                 // Initialize Form
                 setFormData({
-                    title: artData.Title || '',
-                    description: artData.userDescription || '',
+                    title: normalizedArticle.Title || '',
+                    description: normalizedArticle.userDescription || '',
                     keywords: (
                         // Prefer primary_keywords array, fall back to legacy Keywords field
-                        Array.isArray(artData.primary_keywords) && artData.primary_keywords.length > 0
-                            ? artData.primary_keywords.join(', ')
-                            : artData.Keywords || ''
+                        normalizedArticle.primary_keywords && normalizedArticle.primary_keywords.length > 0
+                            ? normalizedArticle.primary_keywords.join(', ')
+                            : normalizedArticle.Keywords || ''
                     ),
-                    articleLength: artData.articleLength || '2500',
-                    tone: artData.Tone || 'journalistic',
-                    ragCollection: artData.rag_collection_name || '',
-                    ragQueryType: artData.rag_query_type || '/query_hybrid_enhanced',
-                    emphasis: artData.rag_balance_emphasis || 'balanced',
+                    articleLength: normalizedArticle.articleLength || '2500',
+                    tone: (artData as any).Tone || 'journalistic',
+                    ragCollection: normalizedArticle.rag_collection_name || '',
+                    ragQueryType: normalizedArticle.rag_query_type || '/query_hybrid_enhanced',
+                    emphasis: normalizedArticle.rag_balance_emphasis || 'balanced',
                     claimsValidation: true,
-                    llmModel: artData.LLM || '',
+                    llmModel: normalizedArticle.LLM || '',
                 });
 
             } catch (error) {
@@ -329,6 +378,71 @@ export const ContentStudio: React.FC = () => {
         }
     };
 
+    const resolveSelectedModelKey = async (selectedModel: LlmProviderRow): Promise<string | null> => {
+        const candidateKeyIds = [
+            selectedModel.api_keys_id,
+            selectedModel.api_key_id,
+            selectedModel.llm_key_id,
+        ]
+            .map((value) => String(value || '').trim())
+            .filter(Boolean);
+
+        if (candidateKeyIds.length > 0) {
+            const { data: apiKeyRows, error: apiKeyError } = await supabase
+                .from('api_keys')
+                .select('id, key_value')
+                .in('id', candidateKeyIds);
+
+            if (!apiKeyError && apiKeyRows && apiKeyRows.length > 0) {
+                const byId = new Map<string, string>();
+                for (const row of apiKeyRows as Array<{ id: string; key_value?: string | null }>) {
+                    byId.set(String(row.id), String(row.key_value || '').trim());
+                }
+                for (const id of candidateKeyIds) {
+                    const key = byId.get(id);
+                    if (key) return key;
+                }
+            }
+        }
+
+        // Backward-compatible fallback: if llm_keys table exists in this deployment, use it.
+        const llmKeyId = String(selectedModel.llm_key_id || '').trim();
+        if (llmKeyId) {
+            try {
+                const { data: llmKeyRow, error: llmKeyError } = await supabase
+                    .from('llm_keys')
+                    .select('id, key_value')
+                    .eq('id', llmKeyId)
+                    .maybeSingle();
+
+                if (!llmKeyError) {
+                    const key = String((llmKeyRow as any)?.key_value || '').trim();
+                    if (key) return key;
+                }
+            } catch {
+                // Ignore missing table/permissions and continue to provider fallback.
+            }
+        }
+
+        // Last fallback: provider-level active key lookup.
+        const provider = String(selectedModel.provider || '').trim();
+        if (provider) {
+            const { data: providerKeyRows, error: providerKeyError } = await supabase
+                .from('api_keys')
+                .select('key_value')
+                .eq('provider', provider)
+                .eq('is_active', true)
+                .limit(1);
+
+            if (!providerKeyError && providerKeyRows && providerKeyRows.length > 0) {
+                const key = String((providerKeyRows[0] as any)?.key_value || '').trim();
+                if (key) return key;
+            }
+        }
+
+        return null;
+    };
+
     // Generate Article
     const handleGenerate = async () => {
         if (!articleId || !appSettings) return;
@@ -374,6 +488,14 @@ export const ContentStudio: React.FC = () => {
 
             const provider = selectedModel.provider;
             const modelName = selectedModel.model_name;
+            const llmModel = `${provider}/${modelName}`;
+            const llmKey = await resolveSelectedModelKey(selectedModel);
+
+            if (!llmKey) {
+                setError('No API key found for the selected LLM model. Link the model to an active key in llm_providers/api_keys.');
+                setGenerating(false);
+                return;
+            }
 
             // ── Phase 3: Build SEO-enriched brief (Directional Shift) ─────────────
             const primaryKw =
@@ -427,9 +549,14 @@ export const ContentStudio: React.FC = () => {
                 brief: generationBrief,
                 keywords: formData.keywords,
                 draft_title: formData.title,
+                llm_model: llmModel,
+                llm_key: llmKey,
+                domain: article?.domain || undefined,
+                wordpress_category_id: article?.wordpress_category_id ?? undefined,
                 seo_primary_keyword: primaryKw || undefined,
                 seo_secondary_keywords: article?.secondary_keywords?.length ? article.secondary_keywords : undefined,
                 seo_directive: seodirective || undefined,
+                // Keep normalized fields for compatibility with both research API variants.
                 provider: provider,
                 model: modelName,
                 depth: formData.emphasis === 'balanced' ? 'standard' : 'comprehensive',

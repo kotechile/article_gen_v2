@@ -43,6 +43,10 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
     // Error state
     const [error, setError] = useState<string | null>(null);
     const [autoCategoryHint, setAutoCategoryHint] = useState<string | null>(null);
+    const [loopbackBanner, setLoopbackBanner] = useState<{
+        type: 'success' | 'warning';
+        message: string;
+    } | null>(null);
 
     // GEO/SEO quality report (computed once from article data)
     const seoReport = useMemo(() => computeSEOQualityScore(articleData), [articleData]);
@@ -209,8 +213,30 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                 categoryId: selectedCategoryIds[0]
             });
 
-            // Show success and close
-            onSuccess(result.link);
+            const loopbackSummary = result.loopback_summary;
+            if (loopbackSummary?.success) {
+                const savedCount = loopbackSummary.savedFields.length;
+                setLoopbackBanner({
+                    type: 'success',
+                    message: `Published and synced ${savedCount} Titles fields.`,
+                });
+            } else if (loopbackSummary) {
+                const removedCount = loopbackSummary.removedFields.length;
+                setLoopbackBanner({
+                    type: 'warning',
+                    message: removedCount > 0
+                        ? `Published, but ${removedCount} loopback fields were skipped due to schema mismatch.`
+                        : 'Published, but Titles loopback update had issues.',
+                });
+            } else {
+                setLoopbackBanner({
+                    type: 'success',
+                    message: 'Published successfully.',
+                });
+            }
+
+            // Give user a brief moment to read the verification banner.
+            setTimeout(() => onSuccess(result.link), 1400);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to publish to WordPress');
         } finally {
@@ -253,6 +279,31 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 flex items-start gap-3">
                             <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                             <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+                        </div>
+                    )}
+
+                    {loopbackBanner && (
+                        <div
+                            className={`rounded-xl p-3 border flex items-start gap-2 ${
+                                loopbackBanner.type === 'success'
+                                    ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
+                                    : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+                            }`}
+                        >
+                            {loopbackBanner.type === 'success' ? (
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 mt-0.5 flex-shrink-0" />
+                            ) : (
+                                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                            )}
+                            <p
+                                className={`text-xs ${
+                                    loopbackBanner.type === 'success'
+                                        ? 'text-emerald-700 dark:text-emerald-300'
+                                        : 'text-amber-700 dark:text-amber-300'
+                                }`}
+                            >
+                                {loopbackBanner.message}
+                            </p>
                         </div>
                     )}
 
