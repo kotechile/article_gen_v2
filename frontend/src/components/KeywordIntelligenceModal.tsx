@@ -773,8 +773,13 @@ export function KeywordIntelligenceModal({
             const normalizedSecondary = Array.from(
                 new Set(
                     secondaryKeywords
-                        .map((kw) => parsedKeywordLookup.get(normalizeKeywordKey(kw)) ?? null)
-                        .filter((kw): kw is string => Boolean(kw))
+                        .map((kw) => {
+                            const normalized = normalizeKeywordKey(kw);
+                            // If it's in the table, use the table's exact casing.
+                            // If NOT in the table, keep it as is (this preserves manual/legacy keys).
+                            return parsedKeywordLookup.get(normalized) ?? kw;
+                        })
+                        .filter(Boolean)
                 )
             ).filter((kw) => kw !== normalizedPrimary);
             if (!normalizedPrimary) {
