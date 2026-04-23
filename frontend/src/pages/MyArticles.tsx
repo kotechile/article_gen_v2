@@ -1224,14 +1224,15 @@ export const MyArticles: React.FC = () => {
                             isOpen={kwIntelOpen}
                             onClose={() => setKwIntelOpen(false)}
                             idea={ideaProxy}
-                            onSave={async (primary, secondary, metrics) => {
+                            onSave={async (primary, secondary, metrics, rawOutput) => {
                                 if (!user) return false
                                 const ok = await contentIdeasService.updateTitleKeywordSelection(
                                     kwIntelArticle.id,
                                     user.id,
                                     primary,
                                     secondary,
-                                    metrics
+                                    metrics,
+                                    rawOutput
                                 )
                                 if (ok) {
                                     // Optimistically update local state so the card
@@ -1245,6 +1246,7 @@ export const MyArticles: React.FC = () => {
                                                 search_phrase: primary,
                                                 selected_keyword_search_volume: metrics.volume ?? undefined,
                                                 selected_keyword_difficulty: metrics.difficulty ?? undefined,
+                                                raw_dataforseo_output: rawOutput,
                                             } as any
                                             : a
                                     ))

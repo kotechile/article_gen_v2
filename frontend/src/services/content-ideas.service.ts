@@ -145,6 +145,31 @@ class ContentIdeasService {
     }
 
     /**
+     * Archive a content idea by switching status to "archived".
+     */
+    async archiveContentIdea(ideaId: string, userId: string): Promise<boolean> {
+        try {
+            const { error } = await supabase
+                .from('content_ideas')
+                .update({
+                    status: 'archived',
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('id', ideaId)
+                .eq('user_id', userId);
+
+            if (error) {
+                console.error('[ContentIdeas] archiveContentIdea error:', error);
+                return false;
+            }
+            return true;
+        } catch (err) {
+            console.error('[ContentIdeas] archiveContentIdea exception:', err);
+            return false;
+        }
+    }
+
+    /**
      * Persist user star rating for a content idea (0-5).
      */
     async updateContentIdeaRating(ideaId: string, userId: string, rating: number): Promise<boolean> {
@@ -291,7 +316,8 @@ class ContentIdeasService {
             volume?: number | null;
             difficulty?: number | null;
             cpc?: number | null;
-        }
+        },
+        rawOutput?: any
     ): Promise<boolean> {
         try {
             const allKeywords = [primaryKeyword, ...secondaryKeywords.filter((k) => k !== primaryKeyword)];
@@ -307,6 +333,7 @@ class ContentIdeasService {
                     total_search_volume: metrics?.volume ?? undefined,
                     average_difficulty: metrics?.difficulty ?? undefined,
                     average_cpc: metrics?.cpc ?? undefined,
+                    raw_dataforseo_output: rawOutput ?? undefined,
                     updated_at: now,
                 })
                 .eq('id', ideaId)
@@ -372,7 +399,8 @@ class ContentIdeasService {
             volume?: number | null;
             difficulty?: number | null;
             cpc?: number | null;
-        }
+        },
+        rawOutput?: any
     ): Promise<boolean> {
         try {
             const allKeywords = [primaryKeyword, ...secondaryKeywords.filter((k) => k !== primaryKeyword)];
@@ -393,6 +421,7 @@ class ContentIdeasService {
                     keyword_selection_source: 'keyword_intelligence_modal',
                     selected_keyword_search_volume: metrics?.volume ?? undefined,
                     selected_keyword_difficulty: metrics?.difficulty ?? undefined,
+                    raw_dataforseo_output: rawOutput ?? undefined,
                     keyword_research_generated_at: now,
                 })
                 .eq('id', titleId)

@@ -563,7 +563,8 @@ export interface KeywordIntelligenceModalProps {
     onSaved?: (
         primary: string,
         secondary: string[],
-        metrics: { volume: number | null; difficulty: number | null; cpc: number | null }
+        metrics: { volume: number | null; difficulty: number | null; cpc: number | null },
+        rawOutput?: any
     ) => void;
     /**
      * Optional override for the save persistence call.
@@ -573,7 +574,8 @@ export interface KeywordIntelligenceModalProps {
     onSave?: (
         primary: string,
         secondary: string[],
-        metrics: { volume: number | null; difficulty: number | null; cpc: number | null }
+        metrics: { volume: number | null; difficulty: number | null; cpc: number | null },
+        rawOutput?: any
     ) => Promise<boolean>;
 }
 
@@ -687,18 +689,19 @@ export function KeywordIntelligenceModal({
             // Use custom save handler if provided (e.g. Titles table context),
             // otherwise fall back to the default content_ideas persistence.
             const ok = onSave
-                ? await onSave(primaryKeyword, secondaryKeywords, metrics)
+                ? await onSave(primaryKeyword, secondaryKeywords, metrics, parsed)
                 : await contentIdeasService.updateKeywordSelection(
                     idea.id,
                     user.id,
                     primaryKeyword,
                     secondaryKeywords,
-                    metrics
+                    metrics,
+                    parsed
                 );
 
             if (ok) {
                 setSaved(true);
-                onSaved?.(primaryKeyword, secondaryKeywords, metrics);
+                onSaved?.(primaryKeyword, secondaryKeywords, metrics, parsed);
                 setTimeout(() => setSaved(false), 2500);
             } else {
                 setSaveError("Save failed. Please try again.");
