@@ -55,6 +55,11 @@ class _TableQuery:
         self._action = "delete"
         return self
 
+    def insert(self, payload):
+        self._action = "insert"
+        self._insert_payload = payload
+        return self
+
     def execute(self):
         rows = self._db.tables[self._table_name]
 
@@ -76,6 +81,16 @@ class _TableQuery:
             self._db.tables[self._table_name] = [row for row in rows if not matches(row)]
             return _Result(copy.deepcopy(matched))
 
+        if self._action == "insert":
+            payload = self._insert_payload
+            if isinstance(payload, list):
+                inserted = [copy.deepcopy(item) for item in payload]
+                rows.extend(inserted)
+                return _Result(inserted)
+            inserted = copy.deepcopy(payload)
+            rows.append(inserted)
+            return _Result([inserted])
+
         return _Result([])
 
 
@@ -84,6 +99,7 @@ class _FakeSupabase:
         self.auth = _Auth(user_id)
         self.tables = {
             "content_ideas": copy.deepcopy(rows),
+            "Titles": [],
         }
 
     def table(self, table_name: str):
@@ -158,6 +174,41 @@ def test_publish_content_ideas_marks_rows_published(monkeypatch):
     assert persisted["2"]["published"] is True
     assert persisted["3"]["status"] == "draft"
     assert persisted["3"]["published"] is False
+
+
+def test_publish_content_ideas_copies_wp_and_domain_fields_to_titles(monkeypatch):
+    rows = [
+        {
+            "id": "1",
+            "user_id": "user-1",
+            "topic_id": "topic-1",
+            "title": "How to choose a trail backpack",
+            "description": "Decision framework for sizing and fit.",
+            "content_type": "blog",
+            "keywords": ["trail backpack sizing"],
+            "wordpress_category_id": 22,
+            "wordpress_parent_category_id": 5,
+            "category": "Backpacking gear buying guides",
+            "domain": "example.com",
+            "status": "draft",
+            "published": False,
+        }
+    ]
+    client, fake = _build_client(monkeypatch, rows)
+
+    response = client.post(
+        "/api/content-ideas/publish",
+        headers=_headers(),
+        json={"user_id": "user-1", "idea_ids": ["1"]},
+    )
+
+    assert response.status_code == 200
+    titles = fake.tables["Titles"]
+    assert len(titles) == 1
+    assert titles[0]["wordpress_category_id"] == 22
+    assert titles[0]["wordpress_parent_category_id"] == 5
+    assert titles[0]["category"] == "Backpacking gear buying guides"
+    assert titles[0]["domain"] == "example.com"
 
 
 def test_delete_content_idea_requires_owner(monkeypatch):

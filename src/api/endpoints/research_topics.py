@@ -256,6 +256,108 @@ def _build_idea_keyword_metrics_payload(idea: dict, source_metrics_map: dict) ->
     return keyword_metrics, aggregates
 
 
+def _select_preferred_project_category_row(
+    category_rows: list[dict],
+    primary_category_id=None,
+    secondary_category_id=None,
+) -> dict:
+    """Pick the best project_categories row for idea-level WP/category context."""
+    if not category_rows:
+        return {}
+
+    by_id = {
+        str(row.get("id")): row
+        for row in category_rows
+        if row.get("id")
+    }
+    for category_id in [primary_category_id, secondary_category_id]:
+        if category_id and str(category_id) in by_id:
+            return by_id[str(category_id)]
+
+    def _sort_key(row: dict):
+        sort_order = row.get("sort_order")
+        try:
+            normalized_sort = int(sort_order)
+        except Exception:
+            normalized_sort = 999999
+        return (normalized_sort, str(row.get("created_at") or ""))
+
+    wp_rows = [row for row in category_rows if row.get("wordpress_category_id") is not None]
+    wp_root_rows = [row for row in wp_rows if row.get("parent_category_id") in (None, "")]
+    if wp_root_rows:
+        return sorted(wp_root_rows, key=_sort_key)[0]
+    if wp_rows:
+        return sorted(wp_rows, key=_sort_key)[0]
+
+    root_rows = [row for row in category_rows if row.get("parent_category_id") in (None, "")]
+    if root_rows:
+        return sorted(root_rows, key=_sort_key)[0]
+    return sorted(category_rows, key=_sort_key)[0]
+
+
+def _resolve_idea_wordpress_category_context(
+    supabase_admin,
+    *,
+    project_id,
+    user_id: str,
+    primary_category_id=None,
+    secondary_category_id=None,
+) -> dict:
+    """
+    Resolve WordPress category metadata and domain for new content_ideas rows.
+    """
+    context = {
+        "wordpress_category_id": None,
+        "wordpress_parent_category_id": None,
+        "category_description": None,
+        "domain": None,
+    }
+    if not project_id:
+        return context
+
+    try:
+        project_response = (
+            supabase_admin
+            .table("projects")
+            .select("id, domain, app_name")
+            .eq("id", project_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        project_row = (project_response.data or [None])[0] or {}
+        context["domain"] = project_row.get("domain") or project_row.get("app_name")
+    except Exception:
+        logger.warning("Could not resolve project domain for project_id=%s", project_id, exc_info=True)
+
+    try:
+        categories_response = (
+            supabase_admin
+            .table("project_categories")
+            .select(
+                "id, project_id, parent_category_id, sort_order, created_at, "
+                "name, description, wordpress_category_id, wordpress_parent_category_id"
+            )
+            .eq("project_id", project_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        category_rows = categories_response.data or []
+        selected_row = _select_preferred_project_category_row(
+            category_rows,
+            primary_category_id=primary_category_id,
+            secondary_category_id=secondary_category_id,
+        )
+        if selected_row:
+            context["wordpress_category_id"] = selected_row.get("wordpress_category_id")
+            context["wordpress_parent_category_id"] = selected_row.get("wordpress_parent_category_id")
+            context["category_description"] = selected_row.get("description")
+    except Exception:
+        logger.warning("Could not resolve project category metadata for project_id=%s", project_id, exc_info=True)
+
+    return context
+
+
 def _enrich_research_topics(supabase, topics):
     """Attach project and category display names to research topics."""
     if not topics:
@@ -1969,12 +2071,22 @@ def idea_burst():
         topic_context_res = (
             supabase_admin
             .table('research_topics')
-            .select('title, description, primary_category_id, secondary_category_id, intent_bucket, decision_focus, angle_question, value_layer_tags, target_audience')
+            .select(
+                'title, description, project_id, primary_category_id, secondary_category_id, '
+                'intent_bucket, decision_focus, angle_question, value_layer_tags, target_audience'
+            )
             .eq('id', topic_id)
             .single()
             .execute()
         )
         topic_context = topic_context_res.data or {}
+        idea_wp_context = _resolve_idea_wordpress_category_context(
+            supabase_admin,
+            project_id=topic_context.get("project_id"),
+            user_id=user_id,
+            primary_category_id=topic_context.get("primary_category_id"),
+            secondary_category_id=topic_context.get("secondary_category_id"),
+        )
 
         category_path = "N/A"
         category_ids = [
@@ -2291,6 +2403,11 @@ Critical naming and language rules:
 
                 content_type = (idea.get("content_type") or "blog").strip().lower()
                 category = "software_tool" if content_type == "software" else "seo_optimized"
+                mapped_category_description = (
+                    str(idea_wp_context.get("category_description") or "").strip()
+                )
+                if mapped_category_description:
+                    category = mapped_category_description
                 idea_metadata = idea.get("idea_metadata") or {}
                 if not isinstance(idea_metadata, dict):
                     idea_metadata = {}
@@ -2323,6 +2440,9 @@ Critical naming and language rules:
                     "keywords": keywords,
                     "primary_keywords": keywords,
                     "secondary_keywords": secondary_keywords,
+                    "wordpress_category_id": idea_wp_context.get("wordpress_category_id"),
+                    "wordpress_parent_category_id": idea_wp_context.get("wordpress_parent_category_id"),
+                    "domain": idea_wp_context.get("domain"),
                     "search_phrase": idea.get("search_phrase") or "",
                     "total_search_volume": total_search_volume,
                     "average_difficulty": average_difficulty,

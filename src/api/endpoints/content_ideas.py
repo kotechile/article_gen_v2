@@ -4,6 +4,8 @@ Content Ideas API endpoints.
 Provides list, publish, and delete actions used by the frontend Idea Burst flow.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -1452,6 +1454,139 @@ def _apply_enrichment_update_with_fallback(
     return False
 
 
+def _select_preferred_project_category_row(
+    category_rows: list[dict],
+    primary_category_id=None,
+    secondary_category_id=None,
+) -> dict:
+    if not category_rows:
+        return {}
+
+    by_id = {
+        str(row.get("id")): row
+        for row in category_rows
+        if row.get("id")
+    }
+    for category_id in [primary_category_id, secondary_category_id]:
+        if category_id and str(category_id) in by_id:
+            return by_id[str(category_id)]
+
+    def _sort_key(row: dict):
+        sort_order = row.get("sort_order")
+        try:
+            normalized_sort = int(sort_order)
+        except Exception:
+            normalized_sort = 999999
+        return (normalized_sort, str(row.get("created_at") or ""))
+
+    wp_rows = [row for row in category_rows if row.get("wordpress_category_id") is not None]
+    wp_root_rows = [row for row in wp_rows if row.get("parent_category_id") in (None, "")]
+    if wp_root_rows:
+        return sorted(wp_root_rows, key=_sort_key)[0]
+    if wp_rows:
+        return sorted(wp_rows, key=_sort_key)[0]
+
+    root_rows = [row for row in category_rows if row.get("parent_category_id") in (None, "")]
+    if root_rows:
+        return sorted(root_rows, key=_sort_key)[0]
+    return sorted(category_rows, key=_sort_key)[0]
+
+
+def _resolve_publish_context_from_idea(supabase_admin, idea: dict, user_id: str) -> dict:
+    """
+    Ensure publish has content_ideas category/domain fields; backfill from project context when absent.
+    """
+    resolved = {
+        "wordpress_category_id": idea.get("wordpress_category_id"),
+        "wordpress_parent_category_id": idea.get("wordpress_parent_category_id"),
+        "category": idea.get("category"),
+        "domain": idea.get("domain"),
+    }
+
+    if all(resolved.values()):
+        return resolved
+
+    topic_id = idea.get("topic_id")
+    if not topic_id:
+        return resolved
+
+    project_id = None
+    primary_category_id = None
+    secondary_category_id = None
+    try:
+        topic_response = (
+            supabase_admin
+            .table("research_topics")
+            .select("project_id, primary_category_id, secondary_category_id")
+            .eq("id", topic_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        topic_row = (topic_response.data or [None])[0] or {}
+        project_id = topic_row.get("project_id")
+        primary_category_id = topic_row.get("primary_category_id")
+        secondary_category_id = topic_row.get("secondary_category_id")
+    except Exception:
+        logger.warning("Could not resolve research topic context for topic_id=%s", topic_id, exc_info=True)
+
+    if not project_id:
+        return resolved
+
+    if not resolved.get("domain"):
+        try:
+            project_response = (
+                supabase_admin
+                .table("projects")
+                .select("id, domain, app_name")
+                .eq("id", project_id)
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            project_row = (project_response.data or [None])[0] or {}
+            resolved["domain"] = project_row.get("domain") or project_row.get("app_name")
+        except Exception:
+            logger.warning("Could not resolve project domain for project_id=%s", project_id, exc_info=True)
+
+    needs_category_backfill = (
+        resolved.get("wordpress_category_id") is None
+        or resolved.get("wordpress_parent_category_id") is None
+        or not str(resolved.get("category") or "").strip()
+    )
+    if not needs_category_backfill:
+        return resolved
+
+    try:
+        categories_response = (
+            supabase_admin
+            .table("project_categories")
+            .select(
+                "id, project_id, parent_category_id, sort_order, created_at, "
+                "name, description, wordpress_category_id, wordpress_parent_category_id"
+            )
+            .eq("project_id", project_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        selected_row = _select_preferred_project_category_row(
+            categories_response.data or [],
+            primary_category_id=primary_category_id,
+            secondary_category_id=secondary_category_id,
+        )
+        if selected_row:
+            if resolved.get("wordpress_category_id") is None:
+                resolved["wordpress_category_id"] = selected_row.get("wordpress_category_id")
+            if resolved.get("wordpress_parent_category_id") is None:
+                resolved["wordpress_parent_category_id"] = selected_row.get("wordpress_parent_category_id")
+            if not str(resolved.get("category") or "").strip():
+                resolved["category"] = selected_row.get("description")
+    except Exception:
+        logger.warning("Could not resolve project category context for project_id=%s", project_id, exc_info=True)
+
+    return resolved
+
+
 @content_ideas_bp.route("/list", methods=["POST"])
 @require_api_key
 def list_content_ideas():
@@ -1613,6 +1748,11 @@ def publish_content_ideas():
 
             # 2) For blog ideas, publish into Titles table directly.
             if (idea.get("content_type") or "").lower() != "software":
+                publish_context = _resolve_publish_context_from_idea(
+                    supabase_admin,
+                    idea,
+                    user_id,
+                )
                 primary_keywords = idea.get("primary_keywords") or idea.get("keywords") or []
                 secondary_keywords = idea.get("secondary_keywords") or []
                 if isinstance(primary_keywords, str):
@@ -1645,6 +1785,10 @@ def publish_content_ideas():
                     "status": "New",
                     "published": False,
                     "dateCreatedOn": now,
+                    "wordpress_category_id": publish_context.get("wordpress_category_id"),
+                    "wordpress_parent_category_id": publish_context.get("wordpress_parent_category_id"),
+                    "category": publish_context.get("category"),
+                    "domain": publish_context.get("domain"),
                     "source_idea_id": idea.get("id"),
                     # ── Keyword data parity fields ──────────────────────────────
                     # Copy raw DataForSEO output so Keyword Intelligence Modal
