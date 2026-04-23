@@ -14,6 +14,42 @@ import { computeGEOContext } from '../utils/seoUtils';
 import { contentIdeasService } from '../services/content-ideas.service';
 import type { ContentIdea } from '../types/idea-burst';
 
+function sanitizeErrorForLog(error: unknown): Record<string, unknown> {
+    if (axios.isAxiosError(error)) {
+        return {
+            type: 'axios_error',
+            message: error.message,
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            method: error.config?.method,
+            url: error.config?.url,
+            serverMessage: error.response?.data?.message || error.response?.data?.error?.message,
+        };
+    }
+
+    if (error instanceof Error) {
+        return {
+            type: 'error',
+            name: error.name,
+            message: error.message,
+        };
+    }
+
+    return {
+        type: typeof error,
+        message: String(error),
+    };
+}
+
+function logSafeError(prefix: string, error: unknown, level: 'error' | 'warn' = 'error') {
+    const payload = sanitizeErrorForLog(error);
+    if (level === 'warn') {
+        console.warn(prefix, payload);
+        return;
+    }
+    console.error(prefix, payload);
+}
+
 
 // Types
 interface ArticleData {
@@ -198,7 +234,7 @@ async function fetchLlmProviderRowsDirect(): Promise<LlmProviderRow[]> {
 
         const { data, error } = await query;
         if (error) {
-            console.warn(`[ContentStudio] LLM model query "${attempt.label}" failed:`, error);
+            logSafeError(`[ContentStudio] LLM model query "${attempt.label}" failed:`, error, 'warn');
             continue;
         }
 
@@ -394,7 +430,7 @@ export const ContentStudio: React.FC = () => {
                 try {
                     llmRows = await fetchLlmProviderRowsFromBackend();
                 } catch (backendError) {
-                    console.warn('[ContentStudio] Backend LLM provider endpoint failed; falling back to direct query.', backendError);
+                    logSafeError('[ContentStudio] Backend LLM provider endpoint failed; falling back to direct query.', backendError, 'warn');
                     llmRows = await fetchLlmProviderRowsDirect();
                 }
 
@@ -424,7 +460,7 @@ export const ContentStudio: React.FC = () => {
                 });
 
             } catch (error) {
-                console.error("Error fetching data:", error);
+                logSafeError("Error fetching data:", error);
             } finally {
                 setLoading(false);
             }
@@ -525,7 +561,7 @@ export const ContentStudio: React.FC = () => {
             // Optional: show toast
             return true;
         } catch (error) {
-            console.error("Error saving:", error);
+            logSafeError("Error saving:", error);
             setError("Failed to save article settings. Please verify DB schema/settings and try again.");
             return false;
         } finally {
@@ -752,7 +788,7 @@ export const ContentStudio: React.FC = () => {
             }
 
         } catch (error: any) {
-            console.error("Generation error:", error);
+            logSafeError("Generation error:", error);
             const serverMessage = error.response?.data?.error?.message || error.response?.data?.message;
             const validationErrors = error.response?.data?.validation_errors;
 
