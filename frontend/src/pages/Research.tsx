@@ -414,7 +414,10 @@ export function Research() {
                                         >
                                             {/* Header with Progress Chips */}
                                             <div className="mb-4">
-                                                <h3 className="text-lg font-bold text-foreground line-clamp-2 pr-36">
+                                                <h3
+                                                    className="text-lg font-bold text-foreground line-clamp-2 pr-36"
+                                                    title={topic.title || ''}
+                                                >
                                                     {topic.title}
                                                 </h3>
                                                 <div className="absolute right-6 top-6 flex flex-col items-end gap-2">
@@ -496,7 +499,10 @@ export function Research() {
                                             </div>
 
                                             {/* Description */}
-                                            <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
+                                            <p
+                                                className="text-sm text-muted-foreground line-clamp-2 leading-relaxed"
+                                                title={topic.description || ''}
+                                            >
                                                 {topic.description}
                                             </p>
 
@@ -565,7 +571,10 @@ export function Research() {
                                                     className="relative rounded-2xl border border-border/80 bg-muted/20 p-6 opacity-70 saturate-0 transition-all"
                                                 >
                                                     <div className="flex items-start justify-between gap-3">
-                                                        <h4 className="text-base font-semibold text-foreground line-clamp-2">
+                                                        <h4
+                                                            className="text-base font-semibold text-foreground line-clamp-2"
+                                                            title={topic.title || ''}
+                                                        >
                                                             {topic.title}
                                                         </h4>
                                                         <div className="flex items-center gap-1">
@@ -598,7 +607,10 @@ export function Research() {
                                                                 {formatDate(topic.created_at)}
                                                             </div>
 
-                                                            <p className="mt-3 text-sm text-muted-foreground line-clamp-3 leading-relaxed">
+                                                            <p
+                                                                className="mt-3 text-sm text-muted-foreground line-clamp-3 leading-relaxed"
+                                                                title={topic.description || ''}
+                                                            >
                                                                 {topic.description || "No description provided."}
                                                             </p>
 

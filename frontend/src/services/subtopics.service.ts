@@ -14,6 +14,8 @@ export interface SubtopicCreate {
 
 export interface SubtopicUpdate {
     name?: string;
+    is_archived?: boolean;
+    topic_rating?: number;
     trend_direction?: 'up' | 'down' | 'stable';
     trend_score?: number;
     seo_difficulty?: number;

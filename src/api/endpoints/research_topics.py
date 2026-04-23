@@ -575,6 +575,18 @@ def _coerce_topic_rating(value):
     return max(0, min(5, rating))
 
 
+def _coerce_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "y", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "n", "off"}:
+            return False
+    return bool(value)
+
+
 def _derive_intent_bucket(title: str, category_path: str) -> str:
     """Infer a default intent bucket from topic/category phrasing."""
     text = f"{title} {category_path}".lower()
@@ -1664,6 +1676,8 @@ def update_subtopic(topic_id, subtopic_id):
         update_data = {}
         allowed_fields = {
             "name",
+            "is_archived",
+            "topic_rating",
             "trend_direction",
             "trend_score",
             "seo_difficulty",
@@ -1687,6 +1701,11 @@ def update_subtopic(topic_id, subtopic_id):
         for key in allowed_fields:
             if key in data:
                 update_data[key] = data.get(key)
+
+        if "is_archived" in update_data:
+            update_data["is_archived"] = _coerce_bool(update_data.get("is_archived"))
+        if "topic_rating" in update_data:
+            update_data["topic_rating"] = _coerce_topic_rating(update_data.get("topic_rating"))
 
         update_data["updated_at"] = datetime.utcnow().isoformat()
 

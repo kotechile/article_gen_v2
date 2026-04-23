@@ -8,7 +8,7 @@ import { contentIdeasService } from "@/services/content-ideas.service"
 import type { ResearchTopic, Subtopic } from "@/types/research"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ArrowLeft, ListTree, CheckCircle2, LibraryBig, Sparkles, RefreshCw, Lightbulb, Trash2 } from "lucide-react"
+import { ArrowLeft, ListTree, CheckCircle2, LibraryBig, Sparkles, RefreshCw, Lightbulb, Trash2, Archive, RotateCcw, Star } from "lucide-react"
 import { motion } from "framer-motion"
 import { IdeaBurstModal } from "@/components/IdeaBurstModal"
 import { toast } from "sonner"
@@ -34,6 +34,8 @@ export function TopicDetail() {
     const [selectedSubtopic, setSelectedSubtopic] = React.useState<Subtopic | null>(null)
     const [showIdeaModal, setShowIdeaModal] = React.useState(false)
     const [deletingSubtopicId, setDeletingSubtopicId] = React.useState<string | null>(null)
+    const [archivingSubtopicIds, setArchivingSubtopicIds] = React.useState<Set<string>>(new Set())
+    const [ratingSubtopicIds, setRatingSubtopicIds] = React.useState<Set<string>>(new Set())
     const [hasStoredIdeas, setHasStoredIdeas] = React.useState(false)
     const [savedIdeasCountBySubtopicName, setSavedIdeasCountBySubtopicName] = React.useState<Map<string, number>>(new Map())
     const [subtopicsReadyForContent, setSubtopicsReadyForContent] = React.useState<Set<string>>(new Set())
@@ -343,6 +345,60 @@ export function TopicDetail() {
         }
     }
 
+    const handleToggleSubtopicArchived = async (e: React.MouseEvent, sub: Subtopic, nextArchived: boolean) => {
+        e.stopPropagation()
+        if (!id || !sub?.id) return
+
+        setArchivingSubtopicIds((current) => new Set(current).add(sub.id))
+        try {
+            const updated = await subtopicsService.updateSubtopic(id, sub.id, { is_archived: nextArchived })
+            if (updated) {
+                setSubtopics((prev) => prev.map((item) => (item.id === sub.id ? { ...item, ...updated } : item)))
+            }
+        } catch (err) {
+            console.error("Failed to update archived state:", err)
+            toast.error(`Could not ${nextArchived ? 'archive' : 'restore'} sub-topic.`)
+        } finally {
+            setArchivingSubtopicIds((current) => {
+                const next = new Set(current)
+                next.delete(sub.id)
+                return next
+            })
+        }
+    }
+
+    const handleSetSubtopicRating = async (e: React.MouseEvent, sub: Subtopic, rating: number) => {
+        e.stopPropagation()
+        if (!id || !sub?.id) return
+
+        const nextRating = Math.max(0, Math.min(5, rating))
+        setRatingSubtopicIds((current) => new Set(current).add(sub.id))
+        try {
+            const updated = await subtopicsService.updateSubtopic(id, sub.id, { topic_rating: nextRating })
+            if (updated) {
+                setSubtopics((prev) => prev.map((item) => (item.id === sub.id ? { ...item, ...updated } : item)))
+            }
+        } catch (err) {
+            console.error("Failed to update sub-topic rating:", err)
+            toast.error("Could not save sub-topic rating.")
+        } finally {
+            setRatingSubtopicIds((current) => {
+                const next = new Set(current)
+                next.delete(sub.id)
+                return next
+            })
+        }
+    }
+
+    const activeSubtopics = React.useMemo(
+        () => subtopics.filter((sub) => !sub.is_archived),
+        [subtopics]
+    )
+    const archivedSubtopics = React.useMemo(
+        () => subtopics.filter((sub) => Boolean(sub.is_archived)),
+        [subtopics]
+    )
+
     const summary = React.useMemo(() => {
         const totalSubtopics = subtopics.length
         const completedSubtopics = subtopics.filter(isSubtopicResearched).length
@@ -648,110 +704,245 @@ export function TopicDetail() {
                                 </div>
                             </motion.div>
                         ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {subtopics.map((sub, i) => {
-                                    const normalizedSubtopicName = (sub.name || '').trim().toLowerCase()
-                                    const persistedIdeasCount = savedIdeasCountBySubtopicName.get(normalizedSubtopicName) || 0
-                                    const readyForContent = subtopicsReadyForContent.has((sub.name || '').trim().toLowerCase())
-                                    const totalIdeasCount = persistedIdeasCount
-                                    return (
-                                    <motion.div
-                                        key={sub.id || i}
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: i * 0.05 }}
-                                        onClick={() => handleSubtopicClick(sub)}
-                                        className="bg-muted/30 backdrop-blur-sm border border-border rounded-xl p-5 cursor-pointer hover:bg-muted/50 hover:border-ring/50 transition-all duration-200 group"
-                                    >
-                                        <div className="flex items-start justify-between mb-3">
-                                            <h3 className="font-semibold text-foreground line-clamp-2 flex-1 pr-2 group-hover:text-foreground transition-colors flex items-center gap-2">
-                                                <Lightbulb className="w-4 h-4 text-primary flex-shrink-0" />
-                                                {sub.name}
-                                            </h3>
-                                            <div className="flex items-center gap-2">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
-                                                    title="Delete sub-topic and related content ideas"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        handleDeleteSubtopic(sub)
-                                                    }}
-                                                    disabled={deletingSubtopicId === sub.id}
-                                                >
-                                                    {deletingSubtopicId === sub.id ? (
-                                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                    ) : (
-                                                        <Trash2 className="h-3.5 w-3.5" />
-                                                    )}
-                                                </Button>
-                                                <label
-                                                    className={`text-xs px-2 py-1 rounded-full border transition-colors inline-flex items-center gap-1.5 ${
-                                                        isSubtopicResearched(sub)
-                                                            ? 'text-emerald-500 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-                                                            : 'text-muted-foreground border-border bg-muted/50 hover:bg-muted'
-                                                    }`}
-                                                    title="Mark subtopic as completed"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                >
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={isSubtopicResearched(sub)}
-                                                        onClick={(e) => e.stopPropagation()}
-                                                        onChange={(e) => {
-                                                            e.stopPropagation()
-                                                            handleToggleSubtopicResearched(sub, e.target.checked)
-                                                        }}
-                                                        className="h-3 w-3 accent-emerald-500"
-                                                    />
-                                                    Completed
-                                                </label>
-                                                {totalIdeasCount > 0 && (
-                                                    <span className="text-xs px-2 py-1 rounded-full border flex-shrink-0 text-indigo-300 border-indigo-500/30 bg-indigo-500/10">
-                                                        {totalIdeasCount} {totalIdeasCount === 1 ? 'Idea' : 'Ideas'}
-                                                    </span>
-                                                )}
-                                                <span className={`text-xs px-2 py-1 rounded-full border flex-shrink-0 ${
-                                                    readyForContent
-                                                        ? 'text-emerald-500 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-                                                        : 'text-muted-foreground border-border bg-muted/50'
-                                                }`}>
-                                                    {readyForContent
-                                                        ? 'In Library'
-                                                        : 'Empty'}
-                                                </span>
-                                            </div>
-                                        </div>
-
-                                        {(sub.intent_bucket || sub.cluster_type || sub.primary_user_outcome || sub.decision_focus) && (
-                                            <div className="mt-3 pt-3 border-t border-white/5 space-y-2">
-                                                <div className="flex flex-wrap gap-1.5">
-                                                    {sub.intent_bucket && (
-                                                        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${intentChipClass(sub.intent_bucket)}`}>
-                                                            Intent: {sub.intent_bucket}
+                            <div className="space-y-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {activeSubtopics.map((sub, i) => {
+                                        const normalizedSubtopicName = (sub.name || '').trim().toLowerCase()
+                                        const persistedIdeasCount = savedIdeasCountBySubtopicName.get(normalizedSubtopicName) || 0
+                                        const readyForContent = subtopicsReadyForContent.has(normalizedSubtopicName)
+                                        const totalIdeasCount = persistedIdeasCount
+                                        return (
+                                            <motion.div
+                                                key={sub.id || i}
+                                                initial={{ opacity: 0, y: 20 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                transition={{ delay: i * 0.05 }}
+                                                onClick={() => handleSubtopicClick(sub)}
+                                                className="bg-muted/30 backdrop-blur-sm border border-border rounded-xl p-5 cursor-pointer hover:bg-muted/50 hover:border-ring/50 transition-all duration-200 group"
+                                            >
+                                                <div className="flex items-start justify-between mb-3">
+                                                    <h3
+                                                        className="font-semibold text-foreground line-clamp-2 flex-1 pr-2 group-hover:text-foreground transition-colors flex items-center gap-2"
+                                                        title={sub.name || ''}
+                                                    >
+                                                        <Lightbulb className="w-4 h-4 text-primary flex-shrink-0" />
+                                                        {sub.name}
+                                                    </h3>
+                                                    <div className="flex items-center gap-2">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                                            title="Archive sub-topic"
+                                                            onClick={(e) => handleToggleSubtopicArchived(e, sub, true)}
+                                                            disabled={archivingSubtopicIds.has(sub.id)}
+                                                        >
+                                                            {archivingSubtopicIds.has(sub.id) ? (
+                                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                            ) : (
+                                                                <Archive className="h-3.5 w-3.5" />
+                                                            )}
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+                                                            title="Delete sub-topic and related content ideas"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                handleDeleteSubtopic(sub)
+                                                            }}
+                                                            disabled={deletingSubtopicId === sub.id}
+                                                        >
+                                                            {deletingSubtopicId === sub.id ? (
+                                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                            ) : (
+                                                                <Trash2 className="h-3.5 w-3.5" />
+                                                            )}
+                                                        </Button>
+                                                        <label
+                                                            className={`text-xs px-2 py-1 rounded-full border transition-colors inline-flex items-center gap-1.5 ${
+                                                                isSubtopicResearched(sub)
+                                                                    ? 'text-emerald-500 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                                                                    : 'text-muted-foreground border-border bg-muted/50 hover:bg-muted'
+                                                            }`}
+                                                            title="Mark subtopic as completed"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isSubtopicResearched(sub)}
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                onChange={(e) => {
+                                                                    e.stopPropagation()
+                                                                    handleToggleSubtopicResearched(sub, e.target.checked)
+                                                                }}
+                                                                className="h-3 w-3 accent-emerald-500"
+                                                            />
+                                                            Completed
+                                                        </label>
+                                                        {totalIdeasCount > 0 && (
+                                                            <span className="text-xs px-2 py-1 rounded-full border flex-shrink-0 text-indigo-300 border-indigo-500/30 bg-indigo-500/10">
+                                                                {totalIdeasCount} {totalIdeasCount === 1 ? 'Idea' : 'Ideas'}
+                                                            </span>
+                                                        )}
+                                                        <span className={`text-xs px-2 py-1 rounded-full border flex-shrink-0 ${
+                                                            readyForContent
+                                                                ? 'text-emerald-500 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                                                                : 'text-muted-foreground border-border bg-muted/50'
+                                                        }`}>
+                                                            {readyForContent ? 'In Library' : 'Empty'}
                                                         </span>
-                                                    )}
-                                                    {sub.cluster_type && (
-                                                        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${clusterChipClass(sub.cluster_type)}`}>
-                                                            Cluster: {sub.cluster_type}
-                                                        </span>
-                                                    )}
+                                                    </div>
                                                 </div>
-                                                {sub.decision_focus && (
-                                                    <p className="text-[11px] text-slate-300 line-clamp-2">
-                                                        <span className="text-indigo-400 font-medium">Decision:</span> {sub.decision_focus}
-                                                    </p>
+
+                                                <div className="mb-3 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                                    {[1, 2, 3, 4, 5].map((value) => {
+                                                        const isFilled = value <= Number(sub.topic_rating || 0)
+                                                        return (
+                                                            <button
+                                                                key={`${sub.id}-rating-${value}`}
+                                                                type="button"
+                                                                onClick={(e) => handleSetSubtopicRating(e, sub, value)}
+                                                                disabled={ratingSubtopicIds.has(sub.id)}
+                                                                className="rounded p-0.5 transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+                                                                aria-label={`Rate ${sub.name} ${value} star${value === 1 ? '' : 's'}`}
+                                                            >
+                                                                <Star className={`h-4 w-4 ${isFilled ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'}`} />
+                                                            </button>
+                                                        )
+                                                    })}
+                                                    {ratingSubtopicIds.has(sub.id) && <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />}
+                                                </div>
+
+                                                {(sub.intent_bucket || sub.cluster_type || sub.primary_user_outcome || sub.decision_focus) && (
+                                                    <div className="mt-3 pt-3 border-t border-white/5 space-y-2">
+                                                        <div className="flex flex-wrap gap-1.5">
+                                                            {sub.intent_bucket && (
+                                                                <span className={`text-[10px] px-2 py-0.5 rounded-full border ${intentChipClass(sub.intent_bucket)}`}>
+                                                                    Intent: {sub.intent_bucket}
+                                                                </span>
+                                                            )}
+                                                            {sub.cluster_type && (
+                                                                <span className={`text-[10px] px-2 py-0.5 rounded-full border ${clusterChipClass(sub.cluster_type)}`}>
+                                                                    Cluster: {sub.cluster_type}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        {sub.decision_focus && (
+                                                            <p className="text-[11px] text-slate-300 line-clamp-2" title={sub.decision_focus}>
+                                                                <span className="text-indigo-400 font-medium">Decision:</span> {sub.decision_focus}
+                                                            </p>
+                                                        )}
+                                                        {sub.primary_user_outcome && (
+                                                            <p className="text-[11px] text-slate-300 line-clamp-2" title={sub.primary_user_outcome}>
+                                                                <span className="text-indigo-400 font-medium">Outcome:</span> {sub.primary_user_outcome}
+                                                            </p>
+                                                        )}
+                                                    </div>
                                                 )}
-                                                {sub.primary_user_outcome && (
-                                                    <p className="text-[11px] text-slate-300 line-clamp-2">
-                                                        <span className="text-indigo-400 font-medium">Outcome:</span> {sub.primary_user_outcome}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        )}
-                                    </motion.div>
-                                )})}
+                                            </motion.div>
+                                        )
+                                    })}
+                                </div>
+
+                                {archivedSubtopics.length > 0 && (
+                                    <div className="pt-1">
+                                        <div className="mb-3 flex items-center justify-between">
+                                            <h3 className="text-base font-semibold text-foreground">Archived Sub-Topics</h3>
+                                            <span className="rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
+                                                {archivedSubtopics.length}
+                                            </span>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                            {archivedSubtopics.map((sub, i) => {
+                                                const normalizedSubtopicName = (sub.name || '').trim().toLowerCase()
+                                                const persistedIdeasCount = savedIdeasCountBySubtopicName.get(normalizedSubtopicName) || 0
+                                                return (
+                                                    <motion.div
+                                                        key={sub.id || i}
+                                                        initial={{ opacity: 0, y: 20 }}
+                                                        animate={{ opacity: 1, y: 0 }}
+                                                        transition={{ delay: i * 0.04 }}
+                                                        onClick={() => handleSubtopicClick(sub)}
+                                                        className="bg-muted/20 backdrop-blur-sm border border-border/80 rounded-xl p-5 cursor-pointer transition-all duration-200 opacity-70 saturate-0"
+                                                    >
+                                                        <div className="flex items-start justify-between mb-3">
+                                                            <h3 className="font-semibold text-foreground line-clamp-2 flex-1 pr-2 flex items-center gap-2" title={sub.name || ''}>
+                                                                <Lightbulb className="w-4 h-4 text-primary flex-shrink-0" />
+                                                                {sub.name}
+                                                            </h3>
+                                                            <div className="flex items-center gap-2">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                                                    title="Restore sub-topic"
+                                                                    onClick={(e) => handleToggleSubtopicArchived(e, sub, false)}
+                                                                    disabled={archivingSubtopicIds.has(sub.id)}
+                                                                >
+                                                                    {archivingSubtopicIds.has(sub.id) ? (
+                                                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                                    ) : (
+                                                                        <RotateCcw className="h-3.5 w-3.5" />
+                                                                    )}
+                                                                </Button>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+                                                                    title="Delete sub-topic and related content ideas"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation()
+                                                                        handleDeleteSubtopic(sub)
+                                                                    }}
+                                                                    disabled={deletingSubtopicId === sub.id}
+                                                                >
+                                                                    {deletingSubtopicId === sub.id ? (
+                                                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                                    ) : (
+                                                                        <Trash2 className="h-3.5 w-3.5" />
+                                                                    )}
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="mb-3 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                                            {[1, 2, 3, 4, 5].map((value) => {
+                                                                const isFilled = value <= Number(sub.topic_rating || 0)
+                                                                return (
+                                                                    <button
+                                                                        key={`${sub.id}-archived-rating-${value}`}
+                                                                        type="button"
+                                                                        onClick={(e) => handleSetSubtopicRating(e, sub, value)}
+                                                                        disabled={ratingSubtopicIds.has(sub.id)}
+                                                                        className="rounded p-0.5 transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+                                                                        aria-label={`Rate ${sub.name} ${value} star${value === 1 ? '' : 's'}`}
+                                                                    >
+                                                                        <Star className={`h-4 w-4 ${isFilled ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'}`} />
+                                                                    </button>
+                                                                )
+                                                            })}
+                                                            {ratingSubtopicIds.has(sub.id) && <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />}
+                                                        </div>
+
+                                                        {(sub.decision_focus || sub.primary_user_outcome || sub.rationale) && (
+                                                            <p className="text-[11px] text-slate-300 line-clamp-2" title={sub.decision_focus || sub.primary_user_outcome || sub.rationale || ''}>
+                                                                {sub.decision_focus || sub.primary_user_outcome || sub.rationale}
+                                                            </p>
+                                                        )}
+
+                                                        {persistedIdeasCount > 0 && (
+                                                            <span className="mt-3 inline-flex text-xs px-2 py-1 rounded-full border text-indigo-300 border-indigo-500/30 bg-indigo-500/10">
+                                                                {persistedIdeasCount} {persistedIdeasCount === 1 ? 'Idea' : 'Ideas'}
+                                                            </span>
+                                                        )}
+                                                    </motion.div>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

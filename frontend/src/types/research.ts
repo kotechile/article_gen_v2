@@ -166,6 +166,8 @@ export interface Subtopic {
     id: string
     research_topic_id: string
     name: string
+    is_archived?: boolean
+    topic_rating?: number
     trend_direction: 'up' | 'down' | 'stable' | null
     trend_score: number | null
     interest_over_time: InterestDataPoint[]
