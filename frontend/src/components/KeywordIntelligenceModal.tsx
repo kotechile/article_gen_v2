@@ -683,8 +683,21 @@ export function KeywordIntelligenceModal({
         setSaving(true);
         setSaveError(null);
         try {
+            const normalizedPrimary = String(primaryKeyword || "").trim();
+            const normalizedSecondary = Array.from(
+                new Set(
+                    secondaryKeywords
+                        .map((k) => String(k || "").trim())
+                        .filter(Boolean)
+                )
+            ).filter((k) => k !== normalizedPrimary);
+            if (!normalizedPrimary) {
+                setSaveError("Please choose a primary keyword before saving.");
+                return;
+            }
+
             // Find metrics for the primary keyword (including expanded rows)
-            const primaryRow = parsed?.rows.find((r) => r.keyword === primaryKeyword);
+            const primaryRow = parsed?.rows.find((r) => r.keyword === normalizedPrimary);
             const metrics = {
                 volume: primaryRow?.search_volume ?? null,
                 difficulty: primaryRow?.keyword_difficulty ?? null,
@@ -693,27 +706,27 @@ export function KeywordIntelligenceModal({
 
             console.log("[KeywordIntelligenceModal] Initiating save...", {
                 ideaId: idea.id,
-                primaryKeyword,
-                secondaryCount: secondaryKeywords.length,
+                primaryKeyword: normalizedPrimary,
+                secondaryCount: normalizedSecondary.length,
                 totalRows: parsed?.rows.length
             });
 
             // Use custom save handler if provided (e.g. Titles table context),
             // otherwise fall back to the default content_ideas persistence.
             const ok = onSave
-                ? await onSave(primaryKeyword, secondaryKeywords, metrics, parsed)
+                ? await onSave(normalizedPrimary, normalizedSecondary, metrics, parsed)
                 : await contentIdeasService.updateKeywordSelection(
                     idea.id,
                     user.id,
-                    primaryKeyword,
-                    secondaryKeywords,
+                    normalizedPrimary,
+                    normalizedSecondary,
                     metrics,
                     parsed
                 );
 
             if (ok) {
                 setSaved(true);
-                onSaved?.(primaryKeyword, secondaryKeywords, metrics, parsed);
+                onSaved?.(normalizedPrimary, normalizedSecondary, metrics, parsed);
                 setTimeout(() => setSaved(false), 2500);
             } else {
                 setSaveError("Save failed. Please try again.");

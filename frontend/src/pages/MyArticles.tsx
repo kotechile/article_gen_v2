@@ -1226,11 +1226,20 @@ export const MyArticles: React.FC = () => {
                             idea={ideaProxy}
                             onSave={async (primary, secondary, metrics, rawOutput) => {
                                 if (!user) return false
+                                const primaryClean = String(primary || '').trim()
+                                const secondaryClean = Array.from(
+                                    new Set(
+                                        (Array.isArray(secondary) ? secondary : [])
+                                            .map((k) => String(k || '').trim())
+                                            .filter(Boolean)
+                                    )
+                                ).filter((k) => k !== primaryClean)
+                                if (!primaryClean) return false
                                 const ok = await contentIdeasService.updateTitleKeywordSelection(
                                     kwIntelArticle.id,
                                     user.id,
-                                    primary,
-                                    secondary,
+                                    primaryClean,
+                                    secondaryClean,
                                     metrics,
                                     rawOutput
                                 )
@@ -1241,9 +1250,9 @@ export const MyArticles: React.FC = () => {
                                         a.id === kwIntelArticle.id
                                             ? {
                                                 ...a,
-                                                primary_keywords: [primary],
-                                                secondary_keywords: secondary,
-                                                search_phrase: primary,
+                                                primary_keywords: [primaryClean],
+                                                secondary_keywords: secondaryClean,
+                                                search_phrase: primaryClean,
                                                 selected_keyword_search_volume: metrics.volume ?? undefined,
                                                 selected_keyword_difficulty: metrics.difficulty ?? undefined,
                                                 raw_dataforseo_output: rawOutput,

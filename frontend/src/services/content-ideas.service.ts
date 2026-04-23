@@ -8,6 +8,18 @@ import {
 } from '../types/idea-burst';
 
 class ContentIdeasService {
+    private normalizeKeywordSelection(primaryKeyword: string, secondaryKeywords: string[]) {
+        const primary = String(primaryKeyword || '').trim();
+        const secondary = Array.from(
+            new Set(
+                (Array.isArray(secondaryKeywords) ? secondaryKeywords : [])
+                    .map((k) => String(k || '').trim())
+                    .filter(Boolean)
+            )
+        ).filter((k) => k !== primary);
+        const all = primary ? [primary, ...secondary] : secondary;
+        return { primary, secondary, all };
+    }
     /**
      * Generate content ideas based on subtopics and keywords
      */
@@ -334,7 +346,8 @@ class ContentIdeasService {
         rawOutput?: any
     ): Promise<boolean> {
         try {
-            const allKeywords = [primaryKeyword, ...secondaryKeywords.filter((k) => k !== primaryKeyword)];
+            const { primary, secondary, all } = this.normalizeKeywordSelection(primaryKeyword, secondaryKeywords);
+            if (!primary) return false;
             const now = new Date().toISOString();
 
             console.log(`[ContentIdeasService] updateKeywordSelection for idea: ${ideaId}`, {
@@ -344,13 +357,31 @@ class ContentIdeasService {
                 rawOutputRows: rawOutput?.rows?.length
             });
 
+            const { error: clearError } = await supabase
+                .from('content_ideas')
+                .update({
+                    primary_keywords: [],
+                    secondary_keywords: [],
+                    keywords: [],
+                    search_phrase: null,
+                    updated_at: now,
+                })
+                .eq('id', ideaId)
+                .eq('user_id', userId);
+
+            if (clearError) {
+                console.error('[ContentIdeasService] updateKeywordSelection clear step error:', clearError);
+                return false;
+            }
+
             const { error } = await supabase
                 .from('content_ideas')
                 .update({
-                    primary_keywords: [primaryKeyword],
-                    secondary_keywords: secondaryKeywords.filter((k) => k !== primaryKeyword),
-                    keywords: allKeywords,
-                    search_phrase: primaryKeyword,
+                    // Force replacement semantics before setting the new values.
+                    primary_keywords: [primary],
+                    secondary_keywords: secondary,
+                    keywords: all,
+                    search_phrase: primary,
                     total_search_volume: metrics?.volume ?? undefined,
                     average_difficulty: metrics?.difficulty ?? undefined,
                     average_cpc: metrics?.cpc ?? undefined,
@@ -425,7 +456,8 @@ class ContentIdeasService {
         rawOutput?: any
     ): Promise<boolean> {
         try {
-            const allKeywords = [primaryKeyword, ...secondaryKeywords.filter((k) => k !== primaryKeyword)];
+            const { primary, secondary, all } = this.normalizeKeywordSelection(primaryKeyword, secondaryKeywords);
+            if (!primary) return false;
             const now = new Date().toISOString();
 
             console.log(`[ContentIdeasService] updateTitleKeywordSelection for title: ${titleId}`, {
@@ -435,16 +467,36 @@ class ContentIdeasService {
                 rawOutputRows: rawOutput?.rows?.length
             });
 
+            const { error: clearError } = await supabase
+                .from('Titles')
+                .update({
+                    primary_keywords: [],
+                    secondary_keywords: [],
+                    search_phrase: null,
+                    primary_keyword: null,
+                    secondary_keywords_json: [],
+                    keyword_candidates_json: [],
+                    updated_at: now,
+                })
+                .eq('id', titleId)
+                .eq('user_id', userId);
+
+            if (clearError) {
+                console.error('[ContentIdeasService] updateTitleKeywordSelection clear step error:', clearError);
+                return false;
+            }
+
             const { error } = await supabase
                 .from('Titles')
                 .update({
-                    primary_keywords: [primaryKeyword],
-                    secondary_keywords: secondaryKeywords.filter((k) => k !== primaryKeyword),
-                    search_phrase: primaryKeyword,
+                    // Force replacement semantics before setting the new values.
+                    primary_keywords: [primary],
+                    secondary_keywords: secondary,
+                    search_phrase: primary,
                     // Also update the canonical keyword fields used by content generation
-                    primary_keyword: primaryKeyword,
-                    secondary_keywords_json: secondaryKeywords.filter((k) => k !== primaryKeyword),
-                    keyword_candidates_json: allKeywords,
+                    primary_keyword: primary,
+                    secondary_keywords_json: secondary,
+                    keyword_candidates_json: all,
                     keyword_research_status: 'ready',
                     keyword_research_source: 'manual_keyword_intelligence',
                     keyword_selection_source: 'keyword_intelligence_modal',
