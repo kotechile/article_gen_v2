@@ -476,7 +476,7 @@ class ContentIdeasService {
                     primary_keyword: null,
                     secondary_keywords_json: [],
                     keyword_candidates_json: [],
-                    updated_at: now,
+                    last_updated: now,
                 })
                 .eq('id', titleId)
                 .eq('user_id', userId);
@@ -504,6 +504,7 @@ class ContentIdeasService {
                     selected_keyword_difficulty: metrics?.difficulty ?? undefined,
                     raw_dataforseo_output: rawOutput ?? undefined,
                     keyword_research_generated_at: now,
+                    last_updated: now,
                 })
                 .eq('id', titleId)
                 .eq('user_id', userId);
