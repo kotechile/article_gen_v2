@@ -19,6 +19,7 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
     const [progress, setProgress] = useState(0);
     const [error, setError] = useState<string | null>(null);
     const hasUpdatedRef = useRef(false);
+    const apiFailureCountRef = useRef(0);
 
 
     useEffect(() => {
@@ -39,6 +40,7 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                     const { data } = await axios.get(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/v1/research/${taskId}`, {
                         headers: { 'X-API-Key': 'development' }
                     });
+                    apiFailureCountRef.current = 0;
 
                     // Handle different states
                     if (data.status === 'SUCCESS') {
@@ -82,7 +84,13 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
 
                 } catch (err) {
                     console.error("API Poll error:", err);
-                    // Fallback to Supabase below if API fails?
+                    apiFailureCountRef.current += 1;
+                    setStatus(`Reconnecting to status service (${apiFailureCountRef.current})...`);
+                    if (apiFailureCountRef.current >= 10) {
+                        setError('Lost connection while tracking generation status. Please refresh and check the article status.');
+                        clearInterval(pollInterval);
+                    }
+                    return;
                 }
             }
 

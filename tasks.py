@@ -74,6 +74,8 @@ ARTICLE_MAX_WEAK_CLAIMS = 3
 ARTICLE_MIN_WORD_COUNT = 900
 DEFAULT_STRICT_KEYWORD_MODE = True
 DEFAULT_STRICT_TITLES_AUTHORITY = True
+REFINEMENT_PASS_TIMEOUT_SECONDS = 75
+REFINEMENT_STAGE_TIMEOUT_SECONDS = 540
 
 _LOW_SUBSTANCE_PATTERNS = (
     r"\bthis section covers\b",
@@ -3245,12 +3247,50 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
                     cleaned = cleaned[html_match.start():]
             return cleaned.strip()
 
+        refinement_pass_timeout = max(
+            15,
+            int(research_data.get('refinement_pass_timeout_seconds') or REFINEMENT_PASS_TIMEOUT_SECONDS),
+        )
+        refinement_stage_deadline = time.time() + max(
+            120,
+            int(research_data.get('refinement_stage_timeout_seconds') or REFINEMENT_STAGE_TIMEOUT_SECONDS),
+        )
+
         def _run_refinement_pass(pass_name: str, system_content: str, input_html: str) -> Optional[str]:
+            if time.time() > refinement_stage_deadline:
+                logger.warning(
+                    "Skipping refinement pass '%s' because stage deadline was exceeded.",
+                    pass_name,
+                )
+                return None
+
             try:
-                response = llm_client.generate([
+                messages = [
                     {"role": "system", "content": system_content},
                     {"role": "user", "content": _build_refinement_user_message(tone, input_html)},
-                ])
+                ]
+
+                pass_started_at = time.time()
+                executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                future = executor.submit(llm_client.generate, messages)
+                try:
+                    response = future.result(timeout=refinement_pass_timeout)
+                except concurrent.futures.TimeoutError:
+                    logger.error(
+                        "Refinement pass '%s' timed out after %ss; skipping this pass.",
+                        pass_name,
+                        refinement_pass_timeout,
+                    )
+                    future.cancel()
+                    return None
+                finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
+
+                logger.info(
+                    "Refinement pass '%s' completed in %.2fs",
+                    pass_name,
+                    time.time() - pass_started_at,
+                )
                 return _clean_llm_html(response.content)
             except Exception as run_err:
                 logger.error(f"Failed {pass_name} pass: {run_err}")
@@ -3274,6 +3314,7 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
         refinements = []
         sections = content.get('sections', [])
         total_sections = len(sections)
+        section_denom = max(total_sections, 1)
         failed_sections = 0
         factual_pass_applied = 0
         humanization_pass_applied = 0
@@ -3281,10 +3322,18 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
         weak_sections_detected = 0
         
         for i, section in enumerate(sections):
+            if time.time() > refinement_stage_deadline:
+                logger.warning(
+                    "Refinement stage timeout reached after %s/%s sections. Proceeding to finalization.",
+                    i,
+                    total_sections,
+                )
+                break
+
             # Update progress if task instance is available
             if task_instance:
                 try:
-                    current_progress = 90 + int((i / total_sections) * 5)  # 90-95%
+                    current_progress = 90 + int((i / section_denom) * 5)  # 90-95%
                     section_title_display = section.get('title', f'Section {i+1}')
                     task_instance.update_state(
                         state='PROGRESS',
