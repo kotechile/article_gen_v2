@@ -22,6 +22,49 @@ DEFAULT_RESEARCH_SETTINGS = {
 }
 
 
+def _normalize_llm_provider_rows(rows: Optional[list]) -> list[dict]:
+    normalized = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        model_name = str(row.get("model_name") or "").strip()
+        if not model_name:
+            continue
+        normalized.append({
+            "id": str(row.get("id") or ""),
+            "name": str(row.get("name") or model_name),
+            "provider": str(row.get("provider") or ""),
+            "model_name": model_name,
+            "api_keys_id": row.get("api_keys_id"),
+            "is_default": row.get("is_default") if isinstance(row.get("is_default"), bool) else None,
+            "is_active": row.get("is_active") if isinstance(row.get("is_active"), bool) else None,
+        })
+    return normalized
+
+
+def _fetch_llm_providers_with_fallbacks(supabase) -> list[dict]:
+    attempts = [
+        ("active-with-flags", "id,name,provider,model_name,api_keys_id,is_default,is_active", True),
+        ("all-with-flags", "id,name,provider,model_name,api_keys_id,is_default,is_active", False),
+        ("all-with-default", "id,name,provider,model_name,api_keys_id,is_default", False),
+        ("all-core-fields", "id,name,provider,model_name,api_keys_id", False),
+    ]
+
+    for label, select_fields, active_only in attempts:
+        try:
+            query = supabase.table("llm_providers").select(select_fields)
+            if active_only:
+                query = query.eq("is_active", True)
+            response = query.execute()
+            rows = _normalize_llm_provider_rows(response.data)
+            if rows:
+                return rows
+        except Exception:
+            logger.warning("LLM providers query attempt failed: %s", label, exc_info=True)
+
+    return []
+
+
 def _normalize_research_settings(raw: Optional[dict]) -> dict:
     values = dict(DEFAULT_RESEARCH_SETTINGS)
     payload = raw or {}
@@ -124,4 +167,33 @@ def update_research_settings():
         return jsonify({
             "success": False,
             "message": f"Failed to save settings: {str(exc)}",
+        }), 500
+
+
+@settings_bp.route("/llm-providers", methods=["GET"])
+def get_llm_providers():
+    """Return LLM provider rows from Supabase using backend service-role credentials."""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return jsonify({
+                "success": False,
+                "message": "Database connection failed",
+                "data": [],
+            }), 500
+
+        providers = _fetch_llm_providers_with_fallbacks(supabase)
+        providers.sort(key=lambda row: (not bool(row.get("is_default")), (row.get("name") or row.get("model_name") or "").lower()))
+
+        return jsonify({
+            "success": True,
+            "data": providers,
+        }), 200
+    except Exception as exc:
+        logger.error("Failed to fetch llm providers", exc_info=True)
+        return jsonify({
+            "success": False,
+            "message": "Failed to fetch llm providers",
+            "data": [],
+            "error": str(exc),
         }), 500

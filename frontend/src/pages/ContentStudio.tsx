@@ -162,7 +162,7 @@ interface LlmProviderRow {
     llm_key_id?: string | null;
 }
 
-async function fetchLlmProviderRows(): Promise<LlmProviderRow[]> {
+async function fetchLlmProviderRowsDirect(): Promise<LlmProviderRow[]> {
     const queryAttempts: Array<{
         label: string;
         select: string;
@@ -220,6 +220,32 @@ async function fetchLlmProviderRows(): Promise<LlmProviderRow[]> {
     }
 
     return [];
+}
+
+async function fetchLlmProviderRowsFromBackend(): Promise<LlmProviderRow[]> {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+
+    const response = await axios.get(`${apiBase}/api/settings/llm-providers`, {
+        headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            'X-API-Key': 'development',
+        },
+    });
+
+    const rawRows = Array.isArray(response?.data?.data) ? response.data.data : [];
+    return rawRows
+        .filter((row: any) => row && row.model_name)
+        .map((row: any) => ({
+            id: String(row.id ?? ''),
+            name: String(row.name ?? row.model_name ?? ''),
+            model_name: String(row.model_name ?? ''),
+            provider: String(row.provider ?? ''),
+            api_keys_id: row.api_keys_id ? String(row.api_keys_id) : null,
+            is_default: typeof row.is_default === 'boolean' ? row.is_default : null,
+            is_active: typeof row.is_active === 'boolean' ? row.is_active : null,
+        }));
 }
 
 function sortLlmModels(models: LlmProviderRow[]): LlmProviderRow[] {
@@ -362,10 +388,15 @@ export const ContentStudio: React.FC = () => {
                     setRagCollections(ragData || []);
                 }
 
-                // 4. Fetch LLM Providers with schema-safe fallbacks.
-                // Some environments don't expose optional columns like is_active/is_default;
-                // this chain keeps the dropdown populated from core columns.
-                const llmRows = await fetchLlmProviderRows();
+                // 4. Fetch LLM Providers via backend (service-role Supabase client).
+                // Fallback to direct client query only if backend endpoint is unavailable.
+                let llmRows: LlmProviderRow[] = [];
+                try {
+                    llmRows = await fetchLlmProviderRowsFromBackend();
+                } catch (backendError) {
+                    console.warn('[ContentStudio] Backend LLM provider endpoint failed; falling back to direct query.', backendError);
+                    llmRows = await fetchLlmProviderRowsDirect();
+                }
 
                 const normalizedLlmRows = sortLlmModels(llmRows);
                 setLlmModels(normalizedLlmRows);
