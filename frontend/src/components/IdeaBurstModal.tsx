@@ -735,7 +735,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         average_cpc: number;
         average_difficulty: number;
         affiliate_offer_count: number;
-    }, keywordMetricsMap?: Record<string, { search_volume?: number; keyword_difficulty?: number; cpc?: number }>, keywordsUsed?: string[], restatedTitle?: string, selectedPrimaryKeyword?: string) => {
+    }, keywordMetricsMap?: Record<string, { search_volume?: number; keyword_difficulty?: number; cpc?: number }>, keywordsUsed?: string[], restatedTitle?: string, selectedPrimaryKeyword?: string, rawOutput?: any) => {
         if (!metrics) return;
         setBlogIdeas((prev) => prev.map((idea) => (
             idea.id === ideaId
@@ -744,6 +744,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     total_search_volume: metrics.total_search_volume,
                     average_cpc: metrics.average_cpc,
                     average_difficulty: metrics.average_difficulty,
+                    raw_dataforseo_output: rawOutput ?? idea.raw_dataforseo_output,
                     ...(restatedTitle ? { title: restatedTitle } : {}),
                     ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
                     ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
@@ -762,6 +763,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     total_search_volume: metrics.total_search_volume,
                     average_cpc: metrics.average_cpc,
                     average_difficulty: metrics.average_difficulty,
+                    raw_dataforseo_output: rawOutput ?? idea.raw_dataforseo_output,
                     ...(restatedTitle ? { title: restatedTitle } : {}),
                     ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
                     ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
@@ -780,6 +782,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     total_search_volume: metrics.total_search_volume,
                     average_cpc: metrics.average_cpc,
                     average_difficulty: metrics.average_difficulty,
+                    raw_dataforseo_output: rawOutput ?? idea.raw_dataforseo_output,
                     ...(restatedTitle ? { title: restatedTitle } : {}),
                     ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
                     ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
@@ -798,6 +801,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     total_search_volume: metrics.total_search_volume,
                     average_cpc: metrics.average_cpc,
                     average_difficulty: metrics.average_difficulty,
+                    raw_dataforseo_output: rawOutput ?? idea.raw_dataforseo_output,
                     ...(restatedTitle ? { title: restatedTitle } : {}),
                     ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
                     ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
@@ -842,6 +846,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     keyword_difficulty?: number;
                     cpc?: number;
                 }>;
+                raw_dataforseo_output?: any;
             }> = [];
             let enrichedCount = 0;
 
@@ -876,7 +881,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                         item.keyword_metrics_map,
                         item.keywords_used,
                         item.restated_title,
-                        item.selected_primary_keyword
+                        item.selected_primary_keyword,
+                        item.raw_dataforseo_output
                     );
                 }
             });
@@ -1329,7 +1335,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                                 isDeleting={deletingIdeaIds.has(idea.id)}
                                                 onArchive={() => handleArchiveIdea(idea.id)}
                                                 onDelete={() => handleDeleteIdea(idea.id)}
-                                                onKeywordSaved={(ideaId, primary, secondary, metrics) => {
+                                                onKeywordSaved={(ideaId, primary, secondary, metrics, rawOutput) => {
                                                     applyEnrichedMetrics(
                                                         ideaId,
                                                         {
@@ -1341,7 +1347,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                                         undefined,
                                                         [primary, ...secondary],
                                                         undefined,
-                                                        primary
+                                                        primary,
+                                                        rawOutput
                                                     );
                                                 }}
                                             />
@@ -1446,6 +1453,22 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                                 isDeleting={deletingIdeaIds.has(idea.id)}
                                                 onArchive={() => handleArchiveIdea(idea.id)}
                                                 onDelete={() => handleDeleteIdea(idea.id)}
+                                                onKeywordSaved={(ideaId, primary, secondary, metrics, rawOutput) => {
+                                                    applyEnrichedMetrics(
+                                                        ideaId,
+                                                        {
+                                                            total_search_volume: metrics.volume || 0,
+                                                            average_cpc: metrics.cpc || 0,
+                                                            average_difficulty: metrics.difficulty || 0,
+                                                            affiliate_offer_count: idea.viability_score || 0,
+                                                        },
+                                                        undefined,
+                                                        [primary, ...secondary],
+                                                        undefined,
+                                                        primary,
+                                                        rawOutput
+                                                    );
+                                                }}
                                             />
                                         ))}
                                     </div>
@@ -1716,7 +1739,8 @@ interface BlogIdeaCardProps {
         ideaId: string,
         primary: string,
         secondary: string[],
-        metrics: { volume: number | null; difficulty: number | null; cpc: number | null }
+        metrics: { volume: number | null; difficulty: number | null; cpc: number | null },
+        rawOutput?: any
     ) => void;
 }
 
@@ -1990,8 +2014,8 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onT
                         isOpen={showKeywordModal}
                         onClose={() => setShowKeywordModal(false)}
                         idea={idea}
-                        onSaved={(primary, secondary, metrics) => {
-                            onKeywordSaved?.(idea.id, primary, secondary, metrics);
+                        onSaved={(primary, secondary, metrics, rawOutput) => {
+                            onKeywordSaved?.(idea.id, primary, secondary, metrics, rawOutput);
                         }}
                     />
                 )}
@@ -2021,9 +2045,16 @@ interface SoftwareIdeaCardProps {
     isDeleting?: boolean;
     onArchive?: () => void;
     onDelete?: () => void;
+    onKeywordSaved?: (
+        ideaId: string,
+        primary: string,
+        secondary: string[],
+        metrics: { volume: number | null; difficulty: number | null; cpc: number | null },
+        rawOutput?: any
+    ) => void;
 }
 
-function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onToggleMetrics: _onToggleMetrics, mapContext, keywordMetricsMap, ratingSaving, onSetRating, isArchiving, isDeleting, onArchive, onDelete }: SoftwareIdeaCardProps) {
+function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onToggleMetrics: _onToggleMetrics, mapContext, keywordMetricsMap, ratingSaving, onSetRating, isArchiving, isDeleting, onArchive, onDelete, onKeywordSaved }: SoftwareIdeaCardProps) {
     const [showKeywordModal, setShowKeywordModal] = React.useState(false);
     const keywords = resolveIdeaKeywords(idea);
     const rankFactors = getRankFactors(idea);
@@ -2298,6 +2329,9 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded,
                         isOpen={showKeywordModal}
                         onClose={() => setShowKeywordModal(false)}
                         idea={idea}
+                        onSaved={(primary, secondary, metrics, rawOutput) => {
+                            onKeywordSaved?.(idea.id, primary, secondary, metrics, rawOutput);
+                        }}
                     />
                 )}
             </AnimatePresence>

@@ -2404,8 +2404,14 @@ def refresh_keywords_for_library():
                 "titles_synced": synced,
                 "metrics": {
                     "total_search_volume": enrichment["total_search_volume"],
+                    "average_cpc": enrichment.get("average_cpc") or 0,
                     "average_difficulty": enrichment["average_difficulty"],
+                    "affiliate_offer_count": enrichment.get("affiliate_offer_count") or 0,
                 },
+                "keywords_used": enrichment.get("keywords_used") or [],
+                "selected_primary_keyword": enrichment.get("selected_primary_keyword"),
+                "keyword_metrics_map": enrichment.get("keyword_metrics_map") or {},
+                "raw_dataforseo_output": enrichment.get("raw_dataforseo_output"),
             })
 
         return jsonify({

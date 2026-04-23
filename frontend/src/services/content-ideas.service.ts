@@ -337,6 +337,13 @@ class ContentIdeasService {
             const allKeywords = [primaryKeyword, ...secondaryKeywords.filter((k) => k !== primaryKeyword)];
             const now = new Date().toISOString();
 
+            console.log(`[ContentIdeasService] updateKeywordSelection for idea: ${ideaId}`, {
+                primaryKeyword,
+                secondaryCount: secondaryKeywords.length,
+                hasRawOutput: !!rawOutput,
+                rawOutputRows: rawOutput?.rows?.length
+            });
+
             const { error } = await supabase
                 .from('content_ideas')
                 .update({
@@ -354,12 +361,13 @@ class ContentIdeasService {
                 .eq('user_id', userId);
 
             if (error) {
-                console.error('[ContentIdeas] updateKeywordSelection error:', error);
+                console.error('[ContentIdeasService] updateKeywordSelection error:', error);
                 return false;
             }
+            console.log('[ContentIdeasService] updateKeywordSelection success');
             return true;
         } catch (err) {
-            console.error('[ContentIdeas] updateKeywordSelection exception:', err);
+            console.error('[ContentIdeasService] updateKeywordSelection exception:', err);
             return false;
         }
     }
@@ -420,6 +428,13 @@ class ContentIdeasService {
             const allKeywords = [primaryKeyword, ...secondaryKeywords.filter((k) => k !== primaryKeyword)];
             const now = new Date().toISOString();
 
+            console.log(`[ContentIdeasService] updateTitleKeywordSelection for title: ${titleId}`, {
+                primaryKeyword,
+                secondaryCount: secondaryKeywords.length,
+                hasRawOutput: !!rawOutput,
+                rawOutputRows: rawOutput?.rows?.length
+            });
+
             const { error } = await supabase
                 .from('Titles')
                 .update({
@@ -442,12 +457,13 @@ class ContentIdeasService {
                 .eq('user_id', userId);
 
             if (error) {
-                console.error('[ContentIdeas] updateTitleKeywordSelection error:', error);
+                console.error('[ContentIdeasService] updateTitleKeywordSelection error:', error);
                 return false;
             }
+            console.log('[ContentIdeasService] updateTitleKeywordSelection success');
             return true;
         } catch (err) {
-            console.error('[ContentIdeas] updateTitleKeywordSelection exception:', err);
+            console.error('[ContentIdeasService] updateTitleKeywordSelection exception:', err);
             return false;
         }
     }

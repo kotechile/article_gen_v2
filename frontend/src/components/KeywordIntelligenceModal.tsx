@@ -48,6 +48,11 @@ function parseDataForSEOOutput(raw: unknown): DFSParsedOutput | null {
     const parsed = safeJsonParse<any>(raw, null);
     if (!parsed || typeof parsed !== "object") return null;
 
+    // Check if it's already in our flat format (e.g. from a previous manual save)
+    if (parsed.rows && Array.isArray(parsed.rows)) {
+        return parsed as DFSParsedOutput;
+    }
+
     const tasks: any[] = Array.isArray(parsed.tasks) ? parsed.tasks : [];
     const task = tasks[0];
     if (!task) return null;
@@ -685,6 +690,13 @@ export function KeywordIntelligenceModal({
                 difficulty: primaryRow?.keyword_difficulty ?? null,
                 cpc: primaryRow?.cpc ?? null,
             };
+
+            console.log("[KeywordIntelligenceModal] Initiating save...", {
+                ideaId: idea.id,
+                primaryKeyword,
+                secondaryCount: secondaryKeywords.length,
+                totalRows: parsed?.rows.length
+            });
 
             // Use custom save handler if provided (e.g. Titles table context),
             // otherwise fall back to the default content_ideas persistence.
