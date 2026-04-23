@@ -189,33 +189,32 @@ function extractKeywordValues(value: unknown, depth = 0): string[] {
     const raw = value.trim();
     if (!raw) return [];
 
+    // Heuristic: remove surrounding brackets if it looks like a stringified array fragment
+    let cleaned = raw;
+    while ((cleaned.startsWith('[') && cleaned.endsWith(']')) || (cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+        cleaned = cleaned.slice(1, -1).trim();
+        if (!cleaned) break;
+    }
+    if (!cleaned) return [];
+
     try {
         const parsed = JSON.parse(raw);
-        if (parsed !== raw) {
+        if (typeof parsed === "string" && parsed !== raw) {
             return extractKeywordValues(parsed, depth + 1);
         }
+        if (Array.isArray(parsed)) {
+            return parsed.flatMap(item => extractKeywordValues(item, depth + 1));
+        }
     } catch {
-        // Fallback parsing below.
+        // Continue with manual parsing
     }
 
-    if (
-        (raw.startsWith('"') && raw.endsWith('"')) ||
-        (raw.startsWith("'") && raw.endsWith("'"))
-    ) {
-        return extractKeywordValues(raw.slice(1, -1), depth + 1);
-    }
+    const parts = cleaned.split(",").map((part) => part.trim().replace(/^["']|["']$/g, "").trim()).filter(Boolean);
+    return parts.length > 1 ? parts : [cleaned.replace(/^["']|["']$/g, "").trim()];
+}
 
-    const unescaped = raw
-        .replace(/\\"/g, '"')
-        .replace(/\\'/g, "'")
-        .replace(/\\\\/g, "\\")
-        .trim();
-    if (unescaped !== raw) {
-        return extractKeywordValues(unescaped, depth + 1);
-    }
-
-    const parts = raw.split(",").map((part) => part.trim()).filter(Boolean);
-    return parts.length > 1 ? parts : [raw];
+function normalizeKeywordKey(input: string): string {
+    return String(input || "").trim().toLowerCase();
 }
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -543,9 +542,10 @@ interface FooterProps {
     saving: boolean;
     saved: boolean;
     onSave: () => void;
+    onRemoveSecondary?: (kw: string) => void;
 }
 
-function Footer({ primaryKeyword, secondaryKeywords, saving, saved, onSave }: FooterProps) {
+function Footer({ primaryKeyword, secondaryKeywords, saving, saved, onSave, onRemoveSecondary }: FooterProps) {
     return (
         <div className="border-t border-white/10 p-4 bg-slate-900 flex flex-col sm:flex-row items-start sm:items-center gap-3">
             <div className="flex-1 flex flex-col gap-1 min-w-0">
@@ -564,12 +564,22 @@ function Footer({ primaryKeyword, secondaryKeywords, saving, saved, onSave }: Fo
                         <span className="text-[11px] text-slate-400 flex-shrink-0">Secondary:</span>
                         <div className="flex flex-wrap gap-1">
                             {secondaryKeywords.map((kw) => (
-                                <span
+                                <div
                                     key={kw}
-                                    className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-500/30 text-sky-300"
+                                    className="group flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-500/30 text-sky-300"
                                 >
-                                    {kw}
-                                </span>
+                                    <span className="truncate max-w-[120px]">{kw}</span>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onRemoveSecondary?.(kw);
+                                        }}
+                                        className="opacity-0 group-hover:opacity-100 hover:text-white transition-opacity ml-0.5"
+                                        title="Remove keyword"
+                                    >
+                                        <X className="w-2.5 h-2.5" />
+                                    </button>
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -674,10 +684,9 @@ export function KeywordIntelligenceModal({
         const parsedSecondary = extractKeywordValues(raw);
         if (parsedSecondary.length > 0) return parsedSecondary;
         // Fall back to keywords[1..] if secondary_keywords is empty
-        const stored = (idea as any).keywords ?? [];
         const list = extractKeywordValues(stored);
         return list.slice(1);
-    }, [idea.id]);
+    }, [idea.id, (idea as any).secondary_keywords, (idea as any).secondary_keywords_json, (idea as any).keywords]);
 
     const [primaryKeyword, setPrimaryKeyword] = React.useState<string | null>(initialPrimary);
     const [secondaryKeywords, setSecondaryKeywords] = React.useState<string[]>(initialSecondary);
@@ -686,22 +695,54 @@ export function KeywordIntelligenceModal({
     const [saved, setSaved] = React.useState(false);
     const [saveError, setSaveError] = React.useState<string | null>(null);
 
+    const baseParsedKeywordLookup = React.useMemo(() => {
+        const map = new Map<string, string>();
+        for (const row of baseParsed?.rows ?? []) {
+            const key = normalizeKeywordKey(row.keyword);
+            if (!key || map.has(key)) continue;
+            map.set(key, row.keyword);
+        }
+        return map;
+    }, [baseParsed]);
+
+    const parsedKeywordLookup = React.useMemo(() => {
+        const map = new Map<string, string>();
+        for (const row of parsed?.rows ?? []) {
+            const key = normalizeKeywordKey(row.keyword);
+            if (!key || map.has(key)) continue;
+            map.set(key, row.keyword);
+        }
+        return map;
+    }, [parsed]);
+
     // Re-sync selections when idea changes (e.g. re-opened for different idea)
     React.useEffect(() => {
         if (isOpen) {
+            const nextPrimaryRaw = initialPrimary ? String(initialPrimary).trim() : null;
+            const canonicalPrimary = nextPrimaryRaw
+                ? baseParsedKeywordLookup.get(normalizeKeywordKey(nextPrimaryRaw)) ?? nextPrimaryRaw
+                : null;
+            const canonicalSecondary = Array.from(
+                new Set(
+                    initialSecondary
+                        .map((kw) => baseParsedKeywordLookup.get(normalizeKeywordKey(kw)) ?? null)
+                        .filter((kw): kw is string => Boolean(kw))
+                )
+            ).filter((kw) => kw !== canonicalPrimary);
+
             setParsed(baseParsed);
             setExpandedKeywords(new Set());
             setExpanderOpen(false);
             setExpanderSeed("");
             setExpanderError(null);
             setExpanderAdded(0);
-            setPrimaryKeyword(initialPrimary);
-            setSecondaryKeywords(initialSecondary);
+            setPrimaryKeyword(canonicalPrimary);
+            setSecondaryKeywords(canonicalSecondary);
             setExpandedChart(null);
             setSaved(false);
             setSaveError(null);
         }
-    }, [idea.id, isOpen]);
+    }, [idea.id, isOpen, baseParsedKeywordLookup]);
 
     const handleSelectPrimary = (keyword: string) => {
         setPrimaryKeyword(keyword);
@@ -727,14 +768,15 @@ export function KeywordIntelligenceModal({
         setSaving(true);
         setSaveError(null);
         try {
-            const normalizedPrimary = String(primaryKeyword || "").trim();
+            const normalizedPrimaryKey = normalizeKeywordKey(primaryKeyword);
+            const normalizedPrimary = parsedKeywordLookup.get(normalizedPrimaryKey) ?? String(primaryKeyword || "").trim();
             const normalizedSecondary = Array.from(
                 new Set(
                     secondaryKeywords
-                        .map((k) => String(k || "").trim())
-                        .filter(Boolean)
+                        .map((kw) => parsedKeywordLookup.get(normalizeKeywordKey(kw)) ?? null)
+                        .filter((kw): kw is string => Boolean(kw))
                 )
-            ).filter((k) => k !== normalizedPrimary);
+            ).filter((kw) => kw !== normalizedPrimary);
             if (!normalizedPrimary) {
                 setSaveError("Please choose a primary keyword before saving.");
                 return;
@@ -1066,6 +1108,10 @@ export function KeywordIntelligenceModal({
                             saving={saving}
                             saved={saved}
                             onSave={handleSave}
+                            onRemoveSecondary={(kw) => {
+                                setSecondaryKeywords((prev) => prev.filter((k) => k !== kw));
+                                setSaved(false);
+                            }}
                         />
                     </>
                 )}

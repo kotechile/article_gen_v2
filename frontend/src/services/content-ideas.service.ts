@@ -28,34 +28,28 @@ class ContentIdeasService {
         const raw = value.trim();
         if (!raw) return [];
 
+        // Heuristic: remove surrounding brackets if it looks like a stringified array fragment
+        let cleaned = raw;
+        while ((cleaned.startsWith('[') && cleaned.endsWith(']')) || (cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+            cleaned = cleaned.slice(1, -1).trim();
+            if (!cleaned) break;
+        }
+        if (!cleaned) return [];
+
         try {
             const parsed = JSON.parse(raw);
-            if (parsed !== raw) {
+            if (typeof parsed === 'string' && parsed !== raw) {
                 return this.extractKeywordValues(parsed, depth + 1);
             }
+            if (Array.isArray(parsed)) {
+                return parsed.flatMap(item => this.extractKeywordValues(item, depth + 1));
+            }
         } catch {
-            // Continue with fallback parsing.
+            // Continue with manual parsing
         }
 
-        if (
-            (raw.startsWith('"') && raw.endsWith('"')) ||
-            (raw.startsWith("'") && raw.endsWith("'"))
-        ) {
-            return this.extractKeywordValues(raw.slice(1, -1), depth + 1);
-        }
-
-        const unescaped = raw
-            .replace(/\\"/g, '"')
-            .replace(/\\'/g, "'")
-            .replace(/\\\\/g, '\\')
-            .trim();
-
-        if (unescaped !== raw) {
-            return this.extractKeywordValues(unescaped, depth + 1);
-        }
-
-        const parts = raw.split(',').map((part) => part.trim()).filter(Boolean);
-        return parts.length > 1 ? parts : [raw];
+        const parts = cleaned.split(',').map((part) => part.trim().replace(/^["']|["']$/g, '').trim()).filter(Boolean);
+        return parts.length > 1 ? parts : [cleaned.replace(/^["']|["']$/g, '').trim()];
     }
 
     private normalizeKeywordSelection(primaryKeyword: string, secondaryKeywords: string[]) {
