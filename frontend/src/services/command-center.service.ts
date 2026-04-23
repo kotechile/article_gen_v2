@@ -252,6 +252,23 @@ class CommandCenterService {
     }))
 
     const created = await researchTopicsService.bulkCreateResearchTopics(payload)
+
+    const releasedTopicCandidateIds = input.topics
+      .map((topic) => topic.id)
+      .filter((id): id is string => Boolean(id))
+
+    if (releasedTopicCandidateIds.length > 0) {
+      const { error } = await supabase
+        .from('project_topic_candidates')
+        .delete()
+        .in('id', releasedTopicCandidateIds)
+
+      if (error) {
+        // Keep the release successful even if candidate cleanup fails.
+        console.warn('Failed to remove released topics from New Research workspace:', error)
+      }
+    }
+
     return created.map((topic) => ({ id: topic.id, title: topic.title }))
   }
 

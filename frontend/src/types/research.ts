@@ -4,6 +4,7 @@ export interface ResearchTopic {
     title: string
     description: string
     status: ResearchTopicStatus
+    is_archived?: boolean
     version: number
     created_at: string
     updated_at: string
@@ -42,6 +43,7 @@ export interface ResearchTopicCreate {
     title: string
     description: string
     status?: ResearchTopicStatus
+    is_archived?: boolean
     project_id?: string | null
     primary_category_id?: string | null
     secondary_category_id?: string | null
@@ -62,6 +64,7 @@ export interface ResearchTopicUpdate {
     title?: string
     description?: string
     status?: ResearchTopicStatus
+    is_archived?: boolean
     project_id?: string | null
     primary_category_id?: string | null
     secondary_category_id?: string | null

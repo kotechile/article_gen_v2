@@ -4,12 +4,11 @@ import { useAuth } from "@/context/auth-context"
 import { useProject } from "@/context/project-context"
 import { researchTopicsService } from "@/services/research-topics.service"
 import type { ResearchTopic } from "@/types/research"
-import { ResearchTopicStatus } from "@/types/research"
 import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Search, Clock, Trash2, ArrowUpRight, Loader2 } from "lucide-react"
+import { Search, Clock, Trash2, ArrowUpRight, Loader2, Archive, RotateCcw, ChevronDown, ChevronUp } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
 
@@ -32,6 +31,10 @@ export function Research() {
     const [primaryCategoryFilter, setPrimaryCategoryFilter] = React.useState<string>("")
     const [secondaryCategoryFilter, setSecondaryCategoryFilter] = React.useState<string>("")
     const [projectCategories, setProjectCategories] = React.useState<ProjectCategory[]>([])
+    const [topicPendingDelete, setTopicPendingDelete] = React.useState<ResearchTopic | null>(null)
+    const [deleteLoading, setDeleteLoading] = React.useState(false)
+    const [archivingTopicIds, setArchivingTopicIds] = React.useState<Set<string>>(new Set())
+    const [expandedArchivedIds, setExpandedArchivedIds] = React.useState<Set<string>>(new Set())
 
     React.useEffect(() => {
         // Default to the active project when available.
@@ -97,7 +100,6 @@ export function Research() {
             const response = await researchTopicsService.listResearchTopics({
                 order_by: 'created_at',
                 order_direction: 'desc',
-                status: ResearchTopicStatus.ACTIVE,
                 page: pageNum,
                 size: PAGE_SIZE,
                 project_id: projectFilter || undefined,
@@ -127,17 +129,72 @@ export function Research() {
         loadTopics(nextPage, true)
     }
 
-    const handleDeleteTopic = async (e: React.MouseEvent, topicId: string) => {
+    const handleDeleteTopic = async (e: React.MouseEvent, topic: ResearchTopic) => {
         e.stopPropagation()
-        if (!confirm('Delete this research topic? This cannot be undone.')) return
+        setTopicPendingDelete(topic)
+    }
 
+    const handleConfirmDelete = async () => {
+        if (!topicPendingDelete) return
+        setDeleteLoading(true)
         try {
-            await researchTopicsService.deleteResearchTopic(topicId)
-            setTopics(topics.filter(t => t.id !== topicId))
+            await researchTopicsService.deleteResearchTopic(topicPendingDelete.id)
+            setTopics((prev) => prev.filter((topic) => topic.id !== topicPendingDelete.id))
+            setExpandedArchivedIds((current) => {
+                const next = new Set(current)
+                next.delete(topicPendingDelete.id)
+                return next
+            })
+            setTopicPendingDelete(null)
         } catch (err) {
             console.error('Failed to delete topic:', err)
             setError('Failed to delete topic')
+        } finally {
+            setDeleteLoading(false)
         }
+    }
+
+    const handleToggleArchived = async (
+        e: React.MouseEvent,
+        topic: ResearchTopic,
+        isArchived: boolean,
+    ) => {
+        e.stopPropagation()
+        setArchivingTopicIds((current) => new Set(current).add(topic.id))
+        try {
+            const updated = await researchTopicsService.updateResearchTopic(topic.id, { is_archived: isArchived })
+            setTopics((prev) => prev.map((item) => (item.id === topic.id ? updated : item)))
+
+            if (!isArchived) {
+                setExpandedArchivedIds((current) => {
+                    const next = new Set(current)
+                    next.delete(topic.id)
+                    return next
+                })
+            }
+        } catch (err) {
+            console.error('Failed to update archive status:', err)
+            setError(`Failed to ${isArchived ? 'archive' : 'restore'} topic`)
+        } finally {
+            setArchivingTopicIds((current) => {
+                const next = new Set(current)
+                next.delete(topic.id)
+                return next
+            })
+        }
+    }
+
+    const toggleArchivedExpansion = (e: React.MouseEvent, topicId: string) => {
+        e.stopPropagation()
+        setExpandedArchivedIds((current) => {
+            const next = new Set(current)
+            if (next.has(topicId)) {
+                next.delete(topicId)
+            } else {
+                next.add(topicId)
+            }
+            return next
+        })
     }
 
     const formatDate = (dateString: string) => {
@@ -172,6 +229,8 @@ export function Research() {
             .toLowerCase()
         return haystack.includes(searchTerm.trim().toLowerCase())
     })
+    const activeTopics = filteredTopics.filter((topic) => !topic.is_archived)
+    const archivedTopics = filteredTopics.filter((topic) => Boolean(topic.is_archived))
 
     const primaryCategories = React.useMemo(
         () => projectCategories.filter((category) => category.level === 1),
@@ -322,107 +381,204 @@ export function Research() {
                         </motion.div>
                     ) : (
                         <>
-                            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                                {filteredTopics.map((topic, index) => (
-                                    <motion.div
-                                        key={topic.id}
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ duration: 0.4, delay: index * 0.05 }}
-                                        onClick={() => navigate(`/research/${topic.id}${filterQuery}`)}
-                                        className="group relative bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-8 cursor-pointer hover:-translate-y-1 hover:border-ring/50 transition-all duration-300"
-                                    >
-                                        {/* Header with Progress Chips */}
-                                        <div className="mb-4">
-                                            <h3 className="text-lg font-bold text-foreground line-clamp-2 pr-32">
-                                                {topic.title}
-                                            </h3>
-                                            <div className="absolute right-6 top-6 flex flex-col items-end gap-2">
-                                                {(() => {
-                                                    const subtopicsCount = Number(topic.subtopics_count || 0)
-                                                    const researchedSubtopicsCount = Number(topic.researched_subtopics_count || 0)
-                                                    const ideasCount = Number(topic.content_ideas_count || 0)
-                                                    const inLibraryCount = Number(topic.in_library_count || 0)
-                                                    const isFullyResearched = Boolean(topic.all_subtopics_researched)
-                                                    const hasAnyProgress = subtopicsCount > 0 || ideasCount > 0 || inLibraryCount > 0 || Boolean(topic.has_underlying_data)
-                                                    const isNotStarted = !hasAnyProgress && !isFullyResearched
-                                                    const chipBase =
-                                                        "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-1 text-xs font-medium leading-none"
+                            {activeTopics.length > 0 ? (
+                                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                                    {activeTopics.map((topic, index) => (
+                                        <motion.div
+                                            key={topic.id}
+                                            initial={{ opacity: 0, y: 20 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            transition={{ duration: 0.4, delay: index * 0.05 }}
+                                            onClick={() => navigate(`/research/${topic.id}${filterQuery}`)}
+                                            className="group relative bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-8 cursor-pointer hover:-translate-y-1 hover:border-ring/50 transition-all duration-300"
+                                        >
+                                            {/* Header with Progress Chips */}
+                                            <div className="mb-4">
+                                                <h3 className="text-lg font-bold text-foreground line-clamp-2 pr-36">
+                                                    {topic.title}
+                                                </h3>
+                                                <div className="absolute right-6 top-6 flex flex-col items-end gap-2">
+                                                    {(() => {
+                                                        const subtopicsCount = Number(topic.subtopics_count || 0)
+                                                        const researchedSubtopicsCount = Number(topic.researched_subtopics_count || 0)
+                                                        const ideasCount = Number(topic.content_ideas_count || 0)
+                                                        const inLibraryCount = Number(topic.in_library_count || 0)
+                                                        const isFullyResearched = Boolean(topic.all_subtopics_researched)
+                                                        const hasAnyProgress = subtopicsCount > 0 || ideasCount > 0 || inLibraryCount > 0 || Boolean(topic.has_underlying_data)
+                                                        const isNotStarted = !hasAnyProgress && !isFullyResearched
+                                                        const chipBase =
+                                                            "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-1 text-xs font-medium leading-none"
 
-                                                    return (
-                                                        <div className="flex flex-col items-end gap-1">
-                                                            {subtopicsCount > 0 && (
-                                                                <span className={`${chipBase} border-indigo-500/20 bg-indigo-500/10 text-indigo-300`}>
-                                                                    {subtopicsCount} Sub-Topics
-                                                                </span>
-                                                            )}
-                                                            {isFullyResearched && (
-                                                                <span className={`${chipBase} border-emerald-500/30 bg-emerald-500/10 text-emerald-300`}>
-                                                                    Researched
-                                                                </span>
-                                                            )}
-                                                            {isNotStarted && (
-                                                                <span className={`${chipBase} border-border bg-muted/60 text-muted-foreground`}>
-                                                                    Not Started
-                                                                </span>
-                                                            )}
-                                                            {researchedSubtopicsCount > 0 && !isFullyResearched && (
-                                                                <span className={`${chipBase} border-emerald-500/20 bg-emerald-500/10 text-emerald-300`}>
-                                                                    {researchedSubtopicsCount}/{subtopicsCount} Researched
-                                                                </span>
-                                                            )}
-                                                            {ideasCount > 0 && (
-                                                                <span className={`${chipBase} border-sky-500/20 bg-sky-500/10 text-sky-300`}>
-                                                                    {ideasCount} Ideas
-                                                                </span>
-                                                            )}
-                                                            {inLibraryCount > 0 && (
-                                                                <span className={`${chipBase} border-emerald-500/30 bg-emerald-500/10 text-emerald-300`}>
-                                                                    {inLibraryCount} In Library
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    )
-                                                })()}
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                                                    onClick={(e) => handleDeleteTopic(e, topic.id)}
+                                                        return (
+                                                            <div className="flex flex-col items-end gap-1">
+                                                                {subtopicsCount > 0 && (
+                                                                    <span className={`${chipBase} border-indigo-500/20 bg-indigo-500/10 text-indigo-300`}>
+                                                                        {subtopicsCount} Sub-Topics
+                                                                    </span>
+                                                                )}
+                                                                {isFullyResearched && (
+                                                                    <span className={`${chipBase} border-emerald-500/30 bg-emerald-500/10 text-emerald-300`}>
+                                                                        Researched
+                                                                    </span>
+                                                                )}
+                                                                {isNotStarted && (
+                                                                    <span className={`${chipBase} border-border bg-muted/60 text-muted-foreground`}>
+                                                                        Not Started
+                                                                    </span>
+                                                                )}
+                                                                {researchedSubtopicsCount > 0 && !isFullyResearched && (
+                                                                    <span className={`${chipBase} border-emerald-500/20 bg-emerald-500/10 text-emerald-300`}>
+                                                                        {researchedSubtopicsCount}/{subtopicsCount} Researched
+                                                                    </span>
+                                                                )}
+                                                                {ideasCount > 0 && (
+                                                                    <span className={`${chipBase} border-sky-500/20 bg-sky-500/10 text-sky-300`}>
+                                                                        {ideasCount} Ideas
+                                                                    </span>
+                                                                )}
+                                                                {inLibraryCount > 0 && (
+                                                                    <span className={`${chipBase} border-emerald-500/30 bg-emerald-500/10 text-emerald-300`}>
+                                                                        {inLibraryCount} In Library
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        )
+                                                    })()}
+
+                                                    <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                                            onClick={(e) => handleToggleArchived(e, topic, true)}
+                                                            disabled={archivingTopicIds.has(topic.id)}
+                                                            aria-label={`Archive ${topic.title}`}
+                                                        >
+                                                            {archivingTopicIds.has(topic.id) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                                            onClick={(e) => handleDeleteTopic(e, topic)}
+                                                            aria-label={`Delete ${topic.title}`}
+                                                        >
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Timestamp */}
+                                            <div className="flex items-center text-xs text-muted-foreground mb-4">
+                                                <Clock className="h-3 w-3 mr-1.5 opacity-70" />
+                                                {formatDate(topic.created_at)}
+                                            </div>
+
+                                            {/* Description */}
+                                            <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
+                                                {topic.description}
+                                            </p>
+
+                                            {(topic.project_name || topic.primary_category_name || topic.secondary_category_name) && (
+                                                <div className="mt-4 flex flex-wrap gap-2">
+                                                    {topic.project_name && (
+                                                        <span className="rounded-full border border-border bg-muted/50 px-3 py-1 text-[11px] text-foreground">
+                                                            {topic.project_name}
+                                                        </span>
+                                                    )}
+                                                    {(topic.primary_category_name || topic.secondary_category_name) && (
+                                                        <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[11px] text-primary">
+                                                            {[topic.primary_category_name, topic.secondary_category_name].filter(Boolean).join(' / ')}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </motion.div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="rounded-2xl border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
+                                    No active topics match the current filters.
+                                </div>
+                            )}
+
+                            {archivedTopics.length > 0 && (
+                                <div className="pt-2">
+                                    <div className="mb-4 flex items-center justify-between">
+                                        <h3 className="text-lg font-semibold tracking-tight text-foreground">Archived Topics</h3>
+                                        <span className="rounded-full border border-border bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+                                            {archivedTopics.length}
+                                        </span>
+                                    </div>
+
+                                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                                        {archivedTopics.map((topic, index) => {
+                                            const expanded = expandedArchivedIds.has(topic.id)
+                                            return (
+                                                <motion.div
+                                                    key={topic.id}
+                                                    initial={{ opacity: 0, y: 20 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    transition={{ duration: 0.35, delay: index * 0.04 }}
+                                                    className="relative rounded-2xl border border-border/80 bg-muted/20 p-6 opacity-70 saturate-0 transition-all"
                                                 >
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        </div>
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <h4 className="text-base font-semibold text-foreground line-clamp-2">
+                                                            {topic.title}
+                                                        </h4>
+                                                        <div className="flex items-center gap-1">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                                                onClick={(e) => handleToggleArchived(e, topic, false)}
+                                                                disabled={archivingTopicIds.has(topic.id)}
+                                                                aria-label={`Restore ${topic.title}`}
+                                                            >
+                                                                {archivingTopicIds.has(topic.id) ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                                                onClick={(e) => handleDeleteTopic(e, topic)}
+                                                                aria-label={`Delete ${topic.title}`}
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </Button>
+                                                        </div>
+                                                    </div>
 
-                                        {/* Timestamp */}
-                                        <div className="flex items-center text-xs text-muted-foreground mb-4">
-                                            <Clock className="h-3 w-3 mr-1.5 opacity-70" />
-                                            {formatDate(topic.created_at)}
-                                        </div>
+                                                    {expanded && (
+                                                        <>
+                                                            <div className="mt-4 flex items-center text-xs text-muted-foreground">
+                                                                <Clock className="mr-1.5 h-3 w-3 opacity-70" />
+                                                                {formatDate(topic.created_at)}
+                                                            </div>
 
-                                        {/* Description */}
-                                        <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
-                                            {topic.description}
-                                        </p>
+                                                            <p className="mt-3 text-sm text-muted-foreground line-clamp-3 leading-relaxed">
+                                                                {topic.description || "No description provided."}
+                                                            </p>
+                                                        </>
+                                                    )}
 
-                                        {(topic.project_name || topic.primary_category_name || topic.secondary_category_name) && (
-                                            <div className="mt-4 flex flex-wrap gap-2">
-                                                {topic.project_name && (
-                                                    <span className="rounded-full border border-border bg-muted/50 px-3 py-1 text-[11px] text-foreground">
-                                                        {topic.project_name}
-                                                    </span>
-                                                )}
-                                                {(topic.primary_category_name || topic.secondary_category_name) && (
-                                                    <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[11px] text-primary">
-                                                        {[topic.primary_category_name, topic.secondary_category_name].filter(Boolean).join(' / ')}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        )}
-                                    </motion.div>
-                                ))}
-                            </div>
+                                                    <div className="mt-4 border-t border-border/80 pt-3">
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => toggleArchivedExpansion(e, topic.id)}
+                                                            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition hover:text-foreground"
+                                                        >
+                                                            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                                            {expanded ? "Collapse" : "Expand"}
+                                                        </button>
+                                                    </div>
+                                                </motion.div>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Load More Button */}
                             {hasMore && (
@@ -439,7 +595,7 @@ export function Research() {
                                                 Loading...
                                             </>
                                         ) : (
-                                            <>Load More Projects</>
+                                            <>Load More Topics</>
                                         )}
                                     </Button>
                                 </div>
@@ -448,6 +604,39 @@ export function Research() {
                     )}
                 </div>
             </div>
+
+            {topicPendingDelete && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 px-4 backdrop-blur-sm">
+                    <div className="w-full max-w-md rounded-2xl border border-border bg-background p-6">
+                        <h3 className="text-base font-semibold text-foreground">Delete Research Topic</h3>
+                        <p className="mt-3 text-sm text-muted-foreground">
+                            Warning: This action is permanent. All associated subtopics and content ideas will also be deleted.
+                        </p>
+                        <p className="mt-3 text-sm text-foreground">
+                            <span className="font-medium">Topic:</span> {topicPendingDelete.title}
+                        </p>
+                        <div className="mt-6 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setTopicPendingDelete(null)}
+                                disabled={deleteLoading}
+                                className="h-10 rounded-xl border border-border px-4 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleConfirmDelete}
+                                disabled={deleteLoading}
+                                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-destructive px-4 text-sm font-medium text-destructive-foreground transition hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                {deleteLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
