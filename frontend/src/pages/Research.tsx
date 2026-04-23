@@ -267,7 +267,7 @@ export function Research() {
                     <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                         <div>
                             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-foreground">
-                                All Research
+                                All Research Topics
                             </h1>
                             <p className="mt-2 text-muted-foreground">
                                 Browse research topics across projects, with the category context attached.
