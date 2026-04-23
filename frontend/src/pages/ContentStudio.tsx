@@ -3,12 +3,13 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
-import { Loader2, Wand2, Save, BarChart3, BrainCircuit } from 'lucide-react';
+import { Loader2, Wand2, Save, BarChart3, BrainCircuit, ShieldCheck, AlertTriangle, Globe2, Tag } from 'lucide-react';
 import axios from 'axios';
 import { Gauge } from '../components/Gauge';
 import { METRIC_EXPLANATIONS } from '../types/metrics';
 import { MetricTooltip } from '../components/Tooltip';
 import { GenerationModal } from '../components/GenerationModal';
+import { computeGEOContext } from '../utils/seoUtils';
 
 
 // Types
@@ -40,6 +41,7 @@ interface ArticleData {
     avg_keyword_difficulty?: number;
     traffic_potential_score?: number;
     competition_score?: number;
+    // Legacy single keyword field
     primary_keyword?: string;
     secondary_keywords_json?: string[] | string;
     keyword_research_source?: string;
@@ -51,8 +53,50 @@ interface ArticleData {
     keyword_selection_source?: string;
     supporting_entities_json?: string[] | string;
     priority_questions_json?: string[] | string;
+    // SEO-First fields (from Keyword Intelligence)
+    primary_keywords?: string[];
+    secondary_keywords?: string[];
+    search_phrase?: string;
+    // Site / WP context
+    domain?: string;
+    wordpress_category_id?: number | null;
+    wordpress_parent_category_id?: number | null;
+    source_idea_id?: string;
     // Affiliate
     affiliate_opportunities?: any;
+}
+
+// ─── SEO Validation ───────────────────────────────────────────────────────────
+
+interface SEOValidation {
+    isValid: boolean;
+    warnings: string[];
+    errors: string[];
+}
+
+function validateSEOReadiness(article: ArticleData): SEOValidation {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    const hasPrimary =
+        (article.primary_keywords?.length ?? 0) > 0 ||
+        !!article.search_phrase ||
+        !!article.primary_keyword;
+
+    if (!hasPrimary) {
+        errors.push('Missing primary keyword — open Keyword Intelligence and save a selection first.');
+    }
+
+    const hasSecondary = (article.secondary_keywords?.length ?? 0) > 0;
+    if (!hasSecondary) {
+        warnings.push('No secondary keywords set. Add them in Keyword Intelligence for richer, more targeted content.');
+    }
+
+    if (!article.wordpress_category_id) {
+        warnings.push('No WordPress Category ID linked. Auto-category selection in the WP Export modal may not work correctly.');
+    }
+
+    return { isValid: errors.length === 0, warnings, errors };
 }
 
 interface RagCollection {
@@ -102,6 +146,8 @@ export const ContentStudio: React.FC = () => {
     const [showProgress, setShowProgress] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [taskId, setTaskId] = useState<string | null>(null);
+    const [seoShiftEnabled, setSeoShiftEnabled] = useState(true);
+    const [seoValidation, setSeoValidation] = useState<SEOValidation | null>(null);
 
     // Data State
     const [article, setArticle] = useState<ArticleData | null>(null);
@@ -134,12 +180,13 @@ export const ContentStudio: React.FC = () => {
                 // 1. Fetch Article
                 const { data: artData, error: artError } = await supabase
                     .from('Titles')
-                    .select('*')
+                    .select('*, primary_keywords, secondary_keywords, search_phrase, domain, wordpress_category_id, wordpress_parent_category_id, source_idea_id')
                     .eq('id', articleId)
                     .single();
 
                 if (artError) throw artError;
                 setArticle(artData);
+                setSeoValidation(validateSEOReadiness(artData as ArticleData));
 
                 // Do not auto-open progress modal from DB status alone.
                 // It creates stale 90% hangs when previous runs crashed and left status as Generating.
@@ -181,13 +228,18 @@ export const ContentStudio: React.FC = () => {
                 setFormData({
                     title: artData.Title || '',
                     description: artData.userDescription || '',
-                    keywords: artData.Keywords || '',
+                    keywords: (
+                        // Prefer primary_keywords array, fall back to legacy Keywords field
+                        Array.isArray(artData.primary_keywords) && artData.primary_keywords.length > 0
+                            ? artData.primary_keywords.join(', ')
+                            : artData.Keywords || ''
+                    ),
                     articleLength: artData.articleLength || '2500',
                     tone: artData.Tone || 'journalistic',
-                    ragCollection: artData.rag_collection_name || '', // Assuming stored as name or we need to map
+                    ragCollection: artData.rag_collection_name || '',
                     ragQueryType: artData.rag_query_type || '/query_hybrid_enhanced',
                     emphasis: artData.rag_balance_emphasis || 'balanced',
-                    claimsValidation: true, // Default
+                    claimsValidation: true,
                     llmModel: artData.LLM || '',
                 });
 
@@ -294,20 +346,28 @@ export const ContentStudio: React.FC = () => {
             // Clear any old progress from local storage
             localStorage.removeItem(`gen_progress_${articleId}`);
 
-            // Prepare Payload
-            // Note: Logic allows checking if user has specific overwrites, but for now using basic logic
-
             if (formData.description.length < 10) {
-                alert("Please provide a longer description (at least 10 characters).");
+                alert('Please provide a longer description (at least 10 characters).');
                 setGenerating(false);
                 return;
+            }
+
+            // ── Phase 2: Validate SEO readiness ──────────────────────────────────
+            if (article) {
+                const validation = validateSEOReadiness(article);
+                setSeoValidation(validation);
+                if (!validation.isValid) {
+                    setGenerating(false);
+                    setError(validation.errors.join(' '));
+                    return;
+                }
             }
 
             // Find selected model details
             const selectedModel = llmModels.find(m => m.model_name === formData.llmModel);
 
             if (!selectedModel) {
-                setError("Please select a valid LLM model from the dropdown.");
+                setError('Please select a valid LLM model from the dropdown.');
                 setGenerating(false);
                 return;
             }
@@ -315,21 +375,70 @@ export const ContentStudio: React.FC = () => {
             const provider = selectedModel.provider;
             const modelName = selectedModel.model_name;
 
+            // ── Phase 3: Build SEO-enriched brief (Directional Shift) ─────────────
+            const primaryKw =
+                article?.primary_keywords?.[0] ??
+                article?.search_phrase ??
+                article?.primary_keyword ??
+                formData.keywords.split(',')[0]?.trim() ??
+                '';
+
+            const secondaryKwList = (
+                article?.secondary_keywords?.slice(0, 4) ??
+                []
+            ).join(', ');
+
+            let generationBrief = formData.description;
+            let seodirective = '';
+
+            if (seoShiftEnabled && primaryKw) {
+                const geoCtx = computeGEOContext(primaryKw, article?.domain);
+
+                const seoParts = [
+                    '[SEO + GENERATIVE ENGINE OPTIMIZATION (GEO) DIRECTIVE]',
+                    `PRIMARY KEYWORD: "${primaryKw}"`,
+                    `- Integrate naturally in the H1, opening paragraph, and 2–3 subheadings.`,
+                    `- Do NOT keyword-stuff; density should be ~1–2%.`,
+                    secondaryKwList
+                        ? `SECONDARY KEYWORDS (weave in naturally across body sections): ${secondaryKwList}.`
+                        : '',
+                    '',
+                    `GENERATIVE ENGINE OPTIMIZATION (GEO):`,
+                    `- This article must be optimized so that AI search engines (Perplexity, ChatGPT Search, Google AI Overview, Gemini) surface it as a high-confidence citation.`,
+                    `- Write at least one "Direct Answer" paragraph that clearly and concisely answers the core query intent of "${primaryKw}".`,
+                    `- Use structured, scannable sections with clear H2/H3 headings — Generative AI engines prefer content they can excerpt.`,
+                    `- Include specific, authoritative data points, statistics, or expert-framed assertions (entity density matters for AI citation ranking).`,
+                    `- Where relevant, use definition-style openers (e.g., "X is defined as...") as they are favored for AI answer extraction.`,
+                    geoCtx.hasGEOSignal ? `- GEO focus area detected: ${geoCtx.optimizationFocus}. Apply accordingly.` : '',
+                    '',
+                    `TITLE & DESCRIPTION REWRITE AUTHORIZATION:`,
+                    `- You ARE authorized to rewrite the Title and Description if the current versions do not integrate the primary keyword or are not GEO-ready.`,
+                    `- Ensure the rewritten title is under 60 characters and includes "${primaryKw}".`,
+                    '',
+                    `ORIGINAL CREATIVE INTENT (preserve direction, adapt execution):`,
+                    formData.description,
+                ].filter(Boolean).join('\n');
+
+                generationBrief = seoParts;
+                seodirective = 'seo_geo_llm_enriched';
+            }
+
             const payload = {
-                brief: formData.description,
+                brief: generationBrief,
                 keywords: formData.keywords,
                 draft_title: formData.title,
+                seo_primary_keyword: primaryKw || undefined,
+                seo_secondary_keywords: article?.secondary_keywords?.length ? article.secondary_keywords : undefined,
+                seo_directive: seodirective || undefined,
                 provider: provider,
                 model: modelName,
-                // llm_model: `${provider}/${modelName}`, // Optional legacy field
-                // llm_key is now resolved by backend from DB
-                depth: formData.emphasis === 'balanced' ? 'standard' : 'comprehensive', // Mapping logic
+                depth: formData.emphasis === 'balanced' ? 'standard' : 'comprehensive',
                 tone: formData.tone,
                 target_word_count: parseInt(formData.articleLength, 10),
                 claims_research_enabled: formData.claimsValidation,
                 rag_enabled: !!formData.ragCollection,
                 rag_collection_name: formData.ragCollection,
-                rag_endpoint: appSettings.rag_url + formData.ragQueryType, // "query_hybrid_enhanced" etc.
+                rag_endpoint: appSettings.rag_url + formData.ragQueryType,
                 rag_balance_emphasis: formData.emphasis,
                 article_id: articleId,
             };
@@ -396,6 +505,37 @@ export const ContentStudio: React.FC = () => {
                     <span>{error}</span>
                 </div>
             )}
+            {/* SEO Pre-Flight Panel */}
+            {seoValidation && (seoValidation.errors.length > 0 || seoValidation.warnings.length > 0) && (
+                <div className="rounded-xl border overflow-hidden">
+                    {seoValidation.errors.length > 0 && (
+                        <div className="bg-destructive/10 border-b border-destructive/20 px-4 py-3">
+                            <div className="flex items-center gap-2 mb-1">
+                                <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0" />
+                                <span className="text-sm font-semibold text-destructive">SEO Validation — Generation Blocked</span>
+                            </div>
+                            <ul className="space-y-1 pl-6 list-disc">
+                                {seoValidation.errors.map((e, i) => (
+                                    <li key={i} className="text-xs text-destructive">{e}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                    {seoValidation.warnings.length > 0 && (
+                        <div className="bg-amber-500/10 px-4 py-3">
+                            <div className="flex items-center gap-2 mb-1">
+                                <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                                <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">SEO Warnings</span>
+                            </div>
+                            <ul className="space-y-1 pl-6 list-disc">
+                                {seoValidation.warnings.map((w, i) => (
+                                    <li key={i} className="text-xs text-amber-700 dark:text-amber-300">{w}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+            )}
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
@@ -413,8 +553,9 @@ export const ContentStudio: React.FC = () => {
                     </button>
                     <button
                         onClick={handleGenerate}
-                        disabled={generating}
-                        className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition shadow-lg"
+                        disabled={generating || (seoValidation !== null && !seoValidation.isValid)}
+                        className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={seoValidation && !seoValidation.isValid ? seoValidation.errors[0] : undefined}
                     >
                         {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                         Generate Article
@@ -455,6 +596,35 @@ export const ContentStudio: React.FC = () => {
                                 onChange={(e) => handleChange('keywords', e.target.value)}
                                 placeholder="Comma separated keywords"
                             />
+                        </div>
+
+                        {/* SEO-First Directional Shift Toggle */}
+                        <div className={`flex items-start gap-3 p-3 rounded-xl border transition ${
+                            seoShiftEnabled
+                                ? 'border-primary/30 bg-primary/5'
+                                : 'border-border bg-muted/30'
+                        }`}>
+                            <button
+                                id="seo-shift-toggle"
+                                onClick={() => setSeoShiftEnabled(v => !v)}
+                                className={`mt-0.5 relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
+                                    seoShiftEnabled ? 'bg-primary' : 'bg-muted-foreground/30'
+                                }`}
+                                aria-checked={seoShiftEnabled}
+                                role="switch"
+                            >
+                                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                                    seoShiftEnabled ? 'translate-x-4' : 'translate-x-0'
+                                }`} />
+                            </button>
+                            <div className="flex-1">
+                                <label htmlFor="seo-shift-toggle" className="text-sm font-medium text-foreground cursor-pointer">
+                                    SEO-First & Generative App Mode
+                                </label>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    Enrich the generation with a strict SEO/GEO directive. Optimizes for Google search rankings and Generative AI engines (ChatGPT, Gemini, Perplexity) by surfacing citations, entities, and direct answers.
+                                </p>
+                            </div>
                         </div>
                     </div>
 
@@ -654,7 +824,7 @@ export const ContentStudio: React.FC = () => {
                             <div className="flex items-center justify-between p-3 bg-muted/50 rounded-xl">
                                 <span className="text-sm text-muted-foreground">Primary Keyword</span>
                                 <span className="font-medium text-foreground text-right max-w-[60%] truncate">
-                                    {article.primary_keyword || '-'}
+                                    {article.primary_keywords?.[0] ?? article.search_phrase ?? article.primary_keyword ?? '-'}
                                 </span>
                             </div>
                             <div className="grid grid-cols-2 gap-3">
@@ -686,30 +856,104 @@ export const ContentStudio: React.FC = () => {
                                         <div className="font-medium text-sm text-foreground">{article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? '-'}</div>
                                 </div>
                                 <div className="p-3 bg-muted/50 rounded-xl">
-                                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Metric Provenance</div>
-                                    <div className="font-medium text-sm text-foreground">
-                                        {article.selected_keyword_metrics_json?.primary?.is_estimated
-                                            ? 'Estimated aggregate carryover'
-                                            : (article.selected_keyword_metrics_json?.primary?.metric_source || 'Exact keyword dossier')}
-                                    </div>
-                                </div>
-                                <div className="p-3 bg-muted/50 rounded-xl">
                                     <div className="text-[10px] text-muted-foreground uppercase mb-1">Secondary Keywords</div>
                                     <div className="font-medium text-sm text-foreground">
                                         {(() => {
+                                            const list = article.secondary_keywords ?? [];
+                                            if (list.length > 0) return list.slice(0, 5).join(', ');
                                             const raw = article.secondary_keywords_json;
-                                            const list = Array.isArray(raw)
+                                            const fallback = Array.isArray(raw)
                                                 ? raw
                                                 : (typeof raw === 'string'
                                                     ? raw.split(',').map((x) => x.trim()).filter(Boolean)
                                                     : []);
-                                            return list.length > 0 ? list.slice(0, 6).join(', ') : '-';
+                                            return fallback.length > 0 ? fallback.slice(0, 5).join(', ') : '-';
                                         })()}
                                     </div>
                                 </div>
                             </div>
                         </div>
+
+                    {/* SEO Data Panel */}
+                    <div className="bg-background p-6 rounded-2xl border border-border shadow-sm">
+                        <div className="flex items-center gap-2 mb-4">
+                            <ShieldCheck className="w-5 h-5 text-primary" />
+                            <h3 className="font-semibold text-foreground">SEO Data</h3>
+                            {seoValidation && (
+                                <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${
+                                    seoValidation.isValid
+                                        ? 'bg-emerald-500/15 text-emerald-400'
+                                        : 'bg-destructive/15 text-destructive'
+                                }`}>
+                                    {seoValidation.isValid ? 'Ready' : 'Incomplete'}
+                                </span>
+                            )}
+                        </div>
+                        <div className="space-y-3">
+                            <div className="p-3 bg-muted/50 rounded-xl">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                    <Tag className="w-3 h-3 text-muted-foreground" />
+                                    <span className="text-[10px] text-muted-foreground uppercase">Primary Keyword</span>
+                                </div>
+                                <div className="font-medium text-sm text-foreground">
+                                    {article.primary_keywords?.[0] ?? article.search_phrase ?? (
+                                        <span className="text-muted-foreground italic">Not set — use Keyword Intelligence</span>
+                                    )}
+                                </div>
+                            </div>
+                            {(article.secondary_keywords?.length ?? 0) > 0 && (
+                                <div className="p-3 bg-muted/50 rounded-xl">
+                                    <div className="flex items-center gap-1.5 mb-1.5">
+                                        <Tag className="w-3 h-3 text-muted-foreground" />
+                                        <span className="text-[10px] text-muted-foreground uppercase">Secondary Keywords ({article.secondary_keywords!.length})</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                        {article.secondary_keywords!.slice(0, 6).map((kw) => (
+                                            <span key={kw} className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-primary">
+                                                {kw}
+                                            </span>
+                                        ))}
+                                        {(article.secondary_keywords!.length > 6) && (
+                                            <span className="text-[10px] text-muted-foreground">+{article.secondary_keywords!.length - 6} more</span>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="p-3 bg-muted/50 rounded-xl">
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                        <Globe2 className="w-3 h-3 text-muted-foreground" />
+                                        <span className="text-[10px] text-muted-foreground uppercase">Target Domain</span>
+                                    </div>
+                                    <div className="font-medium text-xs text-foreground truncate">
+                                        {article.domain ?? <span className="text-muted-foreground italic">Not linked</span>}
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-muted/50 rounded-xl">
+                                    <div className="text-[10px] text-muted-foreground uppercase mb-1">WP Category ID</div>
+                                    <div className={`font-medium text-xs ${article.wordpress_category_id ? 'text-foreground' : 'text-amber-500'}`}>
+                                        {article.wordpress_category_id ?? 'Not mapped'}
+                                    </div>
+                                </div>
+                            </div>
+                            {(() => {
+                                const primaryKw = article.primary_keywords?.[0] ?? article.search_phrase ?? '';
+                                if (!primaryKw) return null;
+                                const geo = computeGEOContext(primaryKw, article.domain);
+                                if (!geo.hasGEOSignal) return null;
+                                return (
+                                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                            <BrainCircuit className="w-3 h-3 text-emerald-400" />
+                                            <span className="text-[10px] text-emerald-400 uppercase font-semibold">Generative Engine Optimization</span>
+                                        </div>
+                                        <p className="text-xs text-emerald-300">Ready for AI-Answer Engines: {geo.optimizationFocus}</p>
+                                    </div>
+                                );
+                            })()}
+                        </div>
                     </div>
+                </div>
             </div>
 
             <GenerationModal

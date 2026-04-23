@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Loader2, CheckCircle2, AlertCircle, Globe, Calendar, FolderTree } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Loader2, CheckCircle2, AlertCircle, Globe, Calendar, FolderTree, ShieldCheck, AlertTriangle } from 'lucide-react';
 import {
     fetchWordPressSites,
     fetchWordPressCategories,
@@ -9,6 +9,7 @@ import {
     resolveLinkedWordPressCategoryIds
 } from '../services/wordpressService';
 import type { WordPressSite, WordPressCategory } from '../types/wordpress';
+import { computeSEOQualityScore } from '../utils/seoUtils';
 
 interface WordPressExportModalProps {
     articleData: any;
@@ -42,6 +43,9 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
     // Error state
     const [error, setError] = useState<string | null>(null);
     const [autoCategoryHint, setAutoCategoryHint] = useState<string | null>(null);
+
+    // GEO/SEO quality report (computed once from article data)
+    const seoReport = useMemo(() => computeSEOQualityScore(articleData), [articleData]);
 
     // Load WordPress sites on mount
     useEffect(() => {
@@ -101,6 +105,16 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                 }
 
                 // Fallback: auto-link from article topic -> research topic -> project categories synced to WordPress
+                // Also try direct wordpress_category_id stored on the article itself
+                const directCategoryId = articleData.wordpress_category_id
+                    ? Number(articleData.wordpress_category_id)
+                    : null;
+                if (directCategoryId && wpCategories.some((cat) => cat.id === directCategoryId)) {
+                    setSelectedCategoryIds([directCategoryId]);
+                    setAutoCategoryHint('Auto-selected from linked WordPress Category ID.');
+                    return;
+                }
+
                 const linkedCategoryIds = await resolveLinkedWordPressCategoryIds(articleData, selectedSite.domain);
                 const validLinkedIds = linkedCategoryIds.filter((id) => wpCategories.some((cat) => cat.id === id));
                 if (validLinkedIds.length > 0) {
@@ -173,14 +187,15 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                     }
                 },
                 {
-                    focusKeyword: articleData.focus_keyword,
+                    focusKeyword: articleData.focus_keyword ?? articleData.primary_keywords?.[0] ?? articleData.search_phrase,
                     metaTitle: articleData.seo_title_optimized || articleData.metaTitle,
                     metaDescription: articleData.seo_meta_desc_optimized || articleData.metaDescription,
                     canonicalUrl: articleData.canonical_url,
                     robotsMeta: articleData.robots_meta,
                     schemaType: articleData.schema_type,
-                    primaryKeywords: articleData.enhanced_primary_keywords || articleData.primary_keywords_json,
-                    secondaryKeywords: articleData.enhanced_secondary_keywords || articleData.secondary_keywords_json,
+                    // Use canonical fields first, fall back to legacy enhanced/json variants
+                    primaryKeywords: articleData.primary_keywords ?? articleData.enhanced_primary_keywords ?? articleData.primary_keywords_json,
+                    secondaryKeywords: articleData.secondary_keywords ?? articleData.enhanced_secondary_keywords ?? articleData.secondary_keywords_json,
                     readabilityScore: articleData.readability_score,
                     keywordDensity: articleData.keyword_density,
                     optimizationTips: articleData.content_optimization_tips
@@ -365,38 +380,72 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                         )}
                     </div>
 
-                    {/* SEO Status Summary */}
-                    <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl p-4">
-                        <div className="flex items-start gap-3">
-                            <CheckCircle2 className="w-5 h-5 text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-0.5" />
-                            <div className="flex-1">
-                                <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-300 mb-2">
-                                    SEO Metadata Ready
-                                </h3>
-                                <ul className="text-xs text-indigo-700 dark:text-indigo-400 space-y-1">
-                                    <li>✓ Title, hook, and featured image</li>
-                                    <li>✓ Meta title and description</li>
-                                    <li>✓ Focus keywords and optimization data</li>
-                                    <li>✓ Compatible with Yoast SEO & RankMath</li>
-                                    <li className="flex items-center gap-1.5">
-                                        {(articleData.Title || articleData.title || '').length <= 60 ? (
-                                            <>
-                                                <span>✓</span>
-                                                <span>Title length optimized ({(articleData.Title || articleData.title || '').length}/60)</span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <AlertCircle className="w-3 h-3 text-amber-500" />
-                                                <span className="text-amber-600 dark:text-amber-400">
-                                                    Title exceeds 60 chars ({(articleData.Title || articleData.title || '').length}/60)
-                                                </span>
-                                            </>
-                                        )}
-                                    </li>
+                    {/* GEO/SEO Quality Gate */}
+                    {(() => {
+                        const report = seoReport;
+                        const gradeColor = {
+                            A: 'text-emerald-500', B: 'text-sky-400', C: 'text-amber-400',
+                            D: 'text-orange-500', F: 'text-destructive'
+                        }[report.grade];
+                        const borderColor = report.score < 40
+                            ? 'border-destructive/40 bg-destructive/5'
+                            : report.score < 60
+                                ? 'border-amber-500/40 bg-amber-500/5'
+                                : 'border-emerald-500/30 bg-emerald-500/5';
+                        return (
+                            <div className={`border rounded-xl p-4 ${borderColor}`}>
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                        {report.score < 40
+                                            ? <AlertTriangle className="w-4 h-4 text-destructive" />
+                                            : <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                                        }
+                                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                                            SEO + GEO Quality Gate
+                                        </h3>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-2xl font-bold ${gradeColor}`}>{report.grade}</span>
+                                        <span className="text-xs text-gray-500 dark:text-gray-400">{report.score}/100</span>
+                                    </div>
+                                </div>
+                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mb-3">
+                                    <div
+                                        className={`h-1.5 rounded-full transition-all ${
+                                            report.score >= 75 ? 'bg-emerald-500'
+                                            : report.score >= 60 ? 'bg-sky-400'
+                                            : report.score >= 40 ? 'bg-amber-400'
+                                            : 'bg-destructive'
+                                        }`}
+                                        style={{ width: `${report.score}%` }}
+                                    />
+                                </div>
+                                <ul className="space-y-1">
+                                    {report.checks.map((check, i) => (
+                                        <li key={i} className="flex items-center gap-2 text-xs">
+                                            {check.passed
+                                                ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                                                : <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                                            }
+                                            <span className={check.passed ? 'text-gray-600 dark:text-gray-300' : 'text-amber-700 dark:text-amber-300'}>
+                                                {check.label}
+                                            </span>
+                                        </li>
+                                    ))}
                                 </ul>
+                                {report.score < 40 && (
+                                    <p className="mt-3 text-xs text-destructive font-medium">
+                                        ⚠ Publication blocked — SEO/GEO score too low ({report.score}/100). Set a primary keyword and ensure it appears in the title.
+                                    </p>
+                                )}
+                                {report.score >= 40 && report.score < 60 && (
+                                    <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+                                        ⚠ Score below recommended threshold ({report.score}/100). Add ≥3 secondary keywords to improve Generative Engine Optimization (GEO) citation-readiness.
+                                    </p>
+                                )}
                             </div>
-                        </div>
-                    </div>
+                        );
+                    })()}
                 </div>
 
                 {/* Footer */}
@@ -410,7 +459,7 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                     </button>
                     <button
                         onClick={handlePublish}
-                        disabled={!isFormValid() || publishing}
+                        disabled={!isFormValid() || publishing || !seoReport.canPublish}
                         className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium shadow-lg shadow-indigo-500/25 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {publishing ? (
