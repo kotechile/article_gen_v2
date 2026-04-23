@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Search, Clock, Trash2, ArrowUpRight, Loader2, Archive, RotateCcw, ChevronDown, ChevronUp } from "lucide-react"
+import { Search, Clock, Trash2, ArrowUpRight, Loader2, Archive, RotateCcw, ChevronDown, ChevronUp, Star } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
 
@@ -35,6 +35,7 @@ export function Research() {
     const [deleteLoading, setDeleteLoading] = React.useState(false)
     const [archivingTopicIds, setArchivingTopicIds] = React.useState<Set<string>>(new Set())
     const [expandedArchivedIds, setExpandedArchivedIds] = React.useState<Set<string>>(new Set())
+    const [ratingTopicIds, setRatingTopicIds] = React.useState<Set<string>>(new Set())
 
     React.useEffect(() => {
         // Default to the active project when available.
@@ -195,6 +196,25 @@ export function Research() {
             }
             return next
         })
+    }
+
+    const handleSetTopicRating = async (e: React.MouseEvent, topic: ResearchTopic, rating: number) => {
+        e.stopPropagation()
+        const nextRating = Math.max(0, Math.min(5, rating))
+        setRatingTopicIds((current) => new Set(current).add(topic.id))
+        try {
+            const updated = await researchTopicsService.updateResearchTopic(topic.id, { topic_rating: nextRating })
+            setTopics((prev) => prev.map((item) => (item.id === topic.id ? updated : item)))
+        } catch (err) {
+            console.error('Failed to update topic rating:', err)
+            setError('Failed to update topic rating')
+        } finally {
+            setRatingTopicIds((current) => {
+                const next = new Set(current)
+                next.delete(topic.id)
+                return next
+            })
+        }
     }
 
     const formatDate = (dateString: string) => {
@@ -480,6 +500,27 @@ export function Research() {
                                                 {topic.description}
                                             </p>
 
+                                            <div className="mt-4 flex items-center gap-1">
+                                                {[1, 2, 3, 4, 5].map((value) => {
+                                                    const isFilled = value <= Number(topic.topic_rating || 0)
+                                                    return (
+                                                        <button
+                                                            key={`${topic.id}-rating-${value}`}
+                                                            type="button"
+                                                            onClick={(e) => handleSetTopicRating(e, topic, value)}
+                                                            disabled={ratingTopicIds.has(topic.id)}
+                                                            className="rounded p-0.5 transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+                                                            aria-label={`Rate ${topic.title} ${value} star${value === 1 ? '' : 's'}`}
+                                                        >
+                                                            <Star
+                                                                className={`h-4 w-4 ${isFilled ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'}`}
+                                                            />
+                                                        </button>
+                                                    )
+                                                })}
+                                                {ratingTopicIds.has(topic.id) && <Loader2 className="ml-1 h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                                            </div>
+
                                             {(topic.project_name || topic.primary_category_name || topic.secondary_category_name) && (
                                                 <div className="mt-4 flex flex-wrap gap-2">
                                                     {topic.project_name && (
@@ -560,6 +601,27 @@ export function Research() {
                                                             <p className="mt-3 text-sm text-muted-foreground line-clamp-3 leading-relaxed">
                                                                 {topic.description || "No description provided."}
                                                             </p>
+
+                                                            <div className="mt-3 flex items-center gap-1">
+                                                                {[1, 2, 3, 4, 5].map((value) => {
+                                                                    const isFilled = value <= Number(topic.topic_rating || 0)
+                                                                    return (
+                                                                        <button
+                                                                            key={`${topic.id}-archived-rating-${value}`}
+                                                                            type="button"
+                                                                            onClick={(e) => handleSetTopicRating(e, topic, value)}
+                                                                            disabled={ratingTopicIds.has(topic.id)}
+                                                                            className="rounded p-0.5 transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+                                                                            aria-label={`Rate ${topic.title} ${value} star${value === 1 ? '' : 's'}`}
+                                                                        >
+                                                                            <Star
+                                                                                className={`h-4 w-4 ${isFilled ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'}`}
+                                                                            />
+                                                                        </button>
+                                                                    )
+                                                                })}
+                                                                {ratingTopicIds.has(topic.id) && <Loader2 className="ml-1 h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                                                            </div>
                                                         </>
                                                     )}
 

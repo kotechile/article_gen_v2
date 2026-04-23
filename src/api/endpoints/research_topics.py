@@ -564,6 +564,17 @@ def _safe_string(value):
     return str(value)
 
 
+def _coerce_topic_rating(value):
+    """Normalize topic rating into an integer between 0 and 5."""
+    if value is None:
+        return 0
+    try:
+        rating = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(5, rating))
+
+
 def _derive_intent_bucket(title: str, category_path: str) -> str:
     """Infer a default intent bucket from topic/category phrasing."""
     text = f"{title} {category_path}".lower()
@@ -960,6 +971,7 @@ def create_research_topic():
             "description": data.get('description', ''),
             "status": data.get('status', 'active'),
             "is_archived": bool(data.get('is_archived', False)),
+            "topic_rating": _coerce_topic_rating(data.get('topic_rating')),
             "updated_at": datetime.utcnow().isoformat(),
             "user_id": user_id,
             "project_id": data.get('project_id'),
@@ -1074,6 +1086,7 @@ def update_research_topic(topic_id):
                 'description',
                 'status',
                 'is_archived',
+                'topic_rating',
                 'project_id',
                 'primary_category_id',
                 'secondary_category_id',
@@ -1083,6 +1096,8 @@ def update_research_topic(topic_id):
             ]
         }
         update_data['updated_at'] = datetime.utcnow().isoformat()
+        if 'topic_rating' in update_data:
+            update_data['topic_rating'] = _coerce_topic_rating(update_data.get('topic_rating'))
         
         response = (
             supabase
@@ -1183,6 +1198,7 @@ def bulk_create_research_topics():
                 "description": item.get('description', ''),
                 "status": item.get('status', 'active'),
                 "is_archived": bool(item.get('is_archived', False)),
+                "topic_rating": _coerce_topic_rating(item.get('topic_rating')),
                 "updated_at": now,
                 "user_id": user_id,
                 "project_id": item.get('project_id'),
