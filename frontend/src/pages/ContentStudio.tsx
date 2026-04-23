@@ -369,6 +369,9 @@ export const ContentStudio: React.FC = () => {
 
                 const normalizedLlmRows = sortLlmModels(llmRows);
                 setLlmModels(normalizedLlmRows);
+                if (normalizedLlmRows.length === 0) {
+                    setError('No active LLM models were found. Check llm_providers visibility/policies and model rows.');
+                }
 
                 // Initialize Form
                 setFormData({
@@ -917,10 +920,12 @@ export const ContentStudio: React.FC = () => {
                                         value={formData.llmModel}
                                         onChange={(e) => handleChange('llmModel', e.target.value)}
                                     >
-                                        <option value="">Select a Model</option>
+                                        <option value="">
+                                            {llmModels.length > 0 ? 'Select a Model' : 'No models available'}
+                                        </option>
                                         {llmModels.map(model => (
                                             <option key={model.id} value={model.model_name}>
-                                                {model.name}
+                                                {model.name || model.model_name}
                                             </option>
                                         ))}
                                     </select>
