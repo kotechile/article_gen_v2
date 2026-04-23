@@ -145,6 +145,32 @@ class ContentIdeasService {
     }
 
     /**
+     * Persist user star rating for a content idea (0-5).
+     */
+    async updateContentIdeaRating(ideaId: string, userId: string, rating: number): Promise<boolean> {
+        try {
+            const nextRating = Math.max(0, Math.min(5, Number(rating || 0)));
+            const { error } = await supabase
+                .from('content_ideas')
+                .update({
+                    topic_rating: nextRating,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('id', ideaId)
+                .eq('user_id', userId);
+
+            if (error) {
+                console.error('[ContentIdeas] updateContentIdeaRating error:', error);
+                return false;
+            }
+            return true;
+        } catch (err) {
+            console.error('[ContentIdeas] updateContentIdeaRating exception:', err);
+            return false;
+        }
+    }
+
+    /**
      * Get content ideas grouped by type
      */
     async getContentIdeasGrouped(

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Sparkles, Lightbulb, Loader2, Check, Save, BookOpen, Code, Info, BarChart3, ChevronDown, ChevronUp, Key } from "lucide-react";
+import { X, Sparkles, Lightbulb, Loader2, Check, Save, BookOpen, Code, Info, Key, Star } from "lucide-react";
 import { KeywordIntelligenceModal } from "./KeywordIntelligenceModal";
 import { Button } from "@/components/ui/button";
 import { contentIdeasService } from "@/services/content-ideas.service";
@@ -403,6 +403,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
     const [selectedSoftwareIdeas, setSelectedSoftwareIdeas] = React.useState<Set<string>>(new Set());
     const [publishing, setPublishing] = React.useState(false);
     const [savingSoftware, setSavingSoftware] = React.useState(false);
+    const [ratingIdeaIds, setRatingIdeaIds] = React.useState<Set<string>>(new Set());
     const [enrichingIdeas, setEnrichingIdeas] = React.useState(false);
     const [enrichResultMessage, setEnrichResultMessage] = React.useState<string | null>(null);
     const [published, setPublished] = React.useState(false);
@@ -896,6 +897,28 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         setExpandedMetrics(prev => prev === ideaId ? null : ideaId);
     };
 
+    const handleSetIdeaRating = async (ideaId: string, rating: number) => {
+        if (!user) return;
+        const nextRating = Math.max(0, Math.min(5, Number(rating || 0)));
+        setRatingIdeaIds((current) => new Set(current).add(ideaId));
+        try {
+            const ok = await contentIdeasService.updateContentIdeaRating(ideaId, user.id, nextRating);
+            if (!ok) return;
+            setBlogIdeas((prev) =>
+                prev.map((idea) => (idea.id === ideaId ? { ...idea, topic_rating: nextRating } : idea))
+            );
+            setSoftwareIdeas((prev) =>
+                prev.map((idea) => (idea.id === ideaId ? { ...idea, topic_rating: nextRating } : idea))
+            );
+        } finally {
+            setRatingIdeaIds((current) => {
+                const next = new Set(current);
+                next.delete(ideaId);
+                return next;
+            });
+        }
+    };
+
     const internalLinkGroups = React.useMemo(() => buildInternalLinkGroups(blogIdeas), [blogIdeas]);
 
     if (!isOpen || !subtopic) return null;
@@ -1101,6 +1124,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                                     topicTitle: topicTitle || undefined,
                                                 }}
                                                 keywordMetricsMap={subtopicKeywordMetrics}
+                                                ratingSaving={ratingIdeaIds.has(idea.id)}
+                                                onSetRating={(rating) => handleSetIdeaRating(idea.id, rating)}
                                                 onKeywordSaved={(ideaId, primary, secondary, metrics) => {
                                                     applyEnrichedMetrics(
                                                         ideaId,
@@ -1212,6 +1237,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                                                     topicTitle: topicTitle || undefined,
                                                 }}
                                                 keywordMetricsMap={subtopicKeywordMetrics}
+                                                ratingSaving={ratingIdeaIds.has(idea.id)}
+                                                onSetRating={(rating) => handleSetIdeaRating(idea.id, rating)}
                                             />
                                         ))}
                                     </div>
@@ -1325,6 +1352,8 @@ interface BlogIdeaCardProps {
         clusterName?: string;
     };
     keywordMetricsMap: Map<string, KeywordMetricRow>;
+    ratingSaving?: boolean;
+    onSetRating?: (rating: number) => void;
     onKeywordSaved?: (
         ideaId: string,
         primary: string,
@@ -1333,7 +1362,7 @@ interface BlogIdeaCardProps {
     ) => void;
 }
 
-function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onToggleMetrics: _onToggleMetrics, mapContext, keywordMetricsMap, onKeywordSaved }: BlogIdeaCardProps) {
+function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onToggleMetrics: _onToggleMetrics, mapContext, keywordMetricsMap, ratingSaving, onSetRating, onKeywordSaved }: BlogIdeaCardProps) {
     const [showKeywordModal, setShowKeywordModal] = React.useState(false);
     const keywords = resolveIdeaKeywords(idea);
     const rankFactors = getRankFactors(idea);
@@ -1394,6 +1423,25 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onT
                         {idea.description && (
                             <p className="text-xs text-slate-400 line-clamp-2 mb-2">{idea.description}</p>
                         )}
+
+                        <div className="mb-2 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            {[1, 2, 3, 4, 5].map((value) => {
+                                const isFilled = value <= Number(idea.topic_rating || 0);
+                                return (
+                                    <button
+                                        key={`${idea.id}-rating-${value}`}
+                                        type="button"
+                                        onClick={() => onSetRating?.(value)}
+                                        disabled={Boolean(ratingSaving)}
+                                        className="rounded p-0.5 transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+                                        aria-label={`Rate ${idea.title} ${value} star${value === 1 ? '' : 's'}`}
+                                    >
+                                        <Star className={`h-4 w-4 ${isFilled ? 'fill-amber-400 text-amber-400' : 'text-slate-500'}`} />
+                                    </button>
+                                );
+                            })}
+                            {ratingSaving && <Loader2 className="h-3 w-3 animate-spin text-slate-400 ml-1" />}
+                        </div>
 
                         {/* Primary Keywords */}
                         {keywords.length > 0 && (
@@ -1587,9 +1635,12 @@ interface SoftwareIdeaCardProps {
         clusterName?: string;
     };
     keywordMetricsMap: Map<string, KeywordMetricRow>;
+    ratingSaving?: boolean;
+    onSetRating?: (rating: number) => void;
 }
 
-function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetrics, mapContext, keywordMetricsMap }: SoftwareIdeaCardProps) {
+function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onToggleMetrics: _onToggleMetrics, mapContext, keywordMetricsMap, ratingSaving, onSetRating }: SoftwareIdeaCardProps) {
+    const [showKeywordModal, setShowKeywordModal] = React.useState(false);
     const keywords = resolveIdeaKeywords(idea);
     const rankFactors = getRankFactors(idea);
     const ideaKeywordMetricsMap = React.useMemo(() => extractIdeaKeywordMetricsMap(idea), [idea]);
@@ -1649,6 +1700,25 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                         {idea.description && (
                             <p className="text-xs text-slate-400 line-clamp-2 mb-2">{idea.description}</p>
                         )}
+
+                        <div className="mb-2 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            {[1, 2, 3, 4, 5].map((value) => {
+                                const isFilled = value <= Number(idea.topic_rating || 0);
+                                return (
+                                    <button
+                                        key={`${idea.id}-rating-${value}`}
+                                        type="button"
+                                        onClick={() => onSetRating?.(value)}
+                                        disabled={Boolean(ratingSaving)}
+                                        className="rounded p-0.5 transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+                                        aria-label={`Rate ${idea.title} ${value} star${value === 1 ? '' : 's'}`}
+                                    >
+                                        <Star className={`h-4 w-4 ${isFilled ? 'fill-amber-400 text-amber-400' : 'text-slate-500'}`} />
+                                    </button>
+                                );
+                            })}
+                            {ratingSaving && <Loader2 className="h-3 w-3 animate-spin text-slate-400 ml-1" />}
+                        </div>
 
                         {/* Primary Keywords */}
                         {keywords.length > 0 && (
@@ -1792,89 +1862,39 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded, onToggleMetr
                 </div>
             </div>
 
-            {/* Expandable Metrics Section */}
-            {keywords.length > 0 && (
-                <div className="border-t border-white/5">
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onToggleMetrics();
-                        }}
-                        className="w-full px-4 py-2 flex items-center justify-center gap-2 text-[11px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/5 transition-colors"
-                    >
-                        <BarChart3 className="w-3 h-3" />
-                        {isExpanded ? 'Hide Keyword Metrics' : 'View Keyword Metrics'}
-                        {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                    </button>
+            {/* Keyword Intelligence Button */}
+            <div className="border-t border-white/5">
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setShowKeywordModal(true);
+                    }}
+                    className={`w-full px-4 py-2 flex items-center justify-center gap-2 text-[11px] transition-colors ${
+                        rawTraceAvailable
+                            ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/5'
+                            : 'text-slate-600 hover:text-slate-400 hover:bg-white/3'
+                    }`}
+                >
+                    <Key className="w-3 h-3" />
+                    Keyword Intelligence
+                    {rawTraceAvailable ? (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">Data available</span>
+                    ) : (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400">Needs enrichment</span>
+                    )}
+                </button>
+            </div>
 
-                    <AnimatePresence>
-                        {isExpanded && (
-                            <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: 'auto', opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                transition={{ duration: 0.2 }}
-                                className="overflow-hidden"
-                            >
-                                <div className="px-4 pb-4">
-                                    <div className="bg-slate-800/50 rounded-lg overflow-hidden border border-white/5">
-                                        <table className="w-full text-[11px]">
-                                            <thead>
-                                                <tr className="bg-slate-800/80 border-b border-white/5">
-                                                    <th className="text-left px-3 py-2 text-slate-400 font-medium">Keyword</th>
-                                                    <th className="text-right px-3 py-2 text-slate-400 font-medium">Volume</th>
-                                                    <th className="text-right px-3 py-2 text-slate-400 font-medium">KD</th>
-                                                    <th className="text-right px-3 py-2 text-slate-400 font-medium">CPC</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {keywords.map((kw, idx) => (
-                                                    (() => {
-                                                        const row = resolveKeywordMetricRow(kw, ideaKeywordMetricsMap, keywordMetricsMap);
-                                                        const rowVolume = row?.search_volume ?? null;
-                                                        const rowKD = row?.keyword_difficulty ?? null;
-                                                        const rowCPC = row?.cpc ?? null;
-                                                        return (
-                                                    <tr key={idx} className="border-b border-white/5 last:border-0">
-                                                        <td className="px-3 py-2 text-slate-300 truncate max-w-[120px]">{kw}</td>
-                                                        <td className="px-3 py-2 text-right text-slate-300">
-                                                            {rowVolume !== null ? rowVolume.toLocaleString() : '-'}
-                                                        </td>
-                                                        <td className="px-3 py-2 text-right">
-                                                            <span className={(rowKD || 0) > 60 ? 'text-red-400' : (rowKD || 0) > 30 ? 'text-yellow-400' : 'text-green-400'}>
-                                                                {rowKD !== null ? rowKD : '-'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-3 py-2 text-right text-slate-300">
-                                                            {rowCPC !== null ? `$${rowCPC.toFixed(2)}` : '-'}
-                                                        </td>
-                                                    </tr>
-                                                        );
-                                                    })()
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <p className="text-[10px] text-slate-500 mt-2 text-center">
-                                        {hasAnyRealKeywordMetrics
-                                            ? "Note: Keyword rows show exact per-keyword metrics when available."
-                                            : "Note: No exact per-keyword metrics yet. Run SEO/Offers to populate keyword-level data."}
-                                    </p>
-                                    <div className="mt-1 flex justify-center">
-                                        <span className={`text-[10px] px-2 py-0.5 rounded border ${
-                                            rawTraceAvailable
-                                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                                                : "border-amber-500/30 bg-amber-500/10 text-amber-300"
-                                        }`}>
-                                            Raw DFS Trace: {rawTraceAvailable ? "Available" : "Missing"}
-                                        </span>
-                                    </div>
-                                </div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </div>
-            )}
+            {/* Keyword Intelligence Modal */}
+            <AnimatePresence>
+                {showKeywordModal && (
+                    <KeywordIntelligenceModal
+                        isOpen={showKeywordModal}
+                        onClose={() => setShowKeywordModal(false)}
+                        idea={idea}
+                    />
+                )}
+            </AnimatePresence>
         </motion.div>
     );
 }

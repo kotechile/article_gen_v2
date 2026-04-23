@@ -1,10 +1,11 @@
 import * as React from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Trash2, Wrench } from 'lucide-react'
+import { Search, Trash2, Wrench, Star } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useAuth } from '@/context/auth-context'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
+import { contentIdeasService } from '@/services/content-ideas.service'
 
 type SoftwareIdea = {
     id: string
@@ -14,6 +15,7 @@ type SoftwareIdea = {
     published: boolean | null
     created_at: string
     topic_id: string | null
+    topic_rating?: number | null
 }
 
 export function SoftwareIdeas() {
@@ -44,6 +46,7 @@ export function SoftwareIdeas() {
                 published: row.published ?? null,
                 created_at: row.created_at,
                 topic_id: row.topic_id ?? null,
+                topic_rating: row.topic_rating ?? 0,
             })) as SoftwareIdea[]
             setIdeas(normalized)
         } catch (err) {
@@ -70,6 +73,14 @@ export function SoftwareIdeas() {
             return
         }
         setIdeas((prev) => prev.filter((idea) => idea.id !== id))
+    }
+
+    const handleSetRating = async (id: string, rating: number) => {
+        if (!user) return
+        const nextRating = Math.max(0, Math.min(5, Number(rating || 0)))
+        const ok = await contentIdeasService.updateContentIdeaRating(id, user.id, nextRating)
+        if (!ok) return
+        setIdeas((prev) => prev.map((idea) => (idea.id === id ? { ...idea, topic_rating: nextRating } : idea)))
     }
 
     return (
@@ -126,6 +137,23 @@ export function SoftwareIdeas() {
                                     {idea.description && (
                                         <p className="mb-4 line-clamp-3 text-sm text-muted-foreground">{idea.description}</p>
                                     )}
+
+                                    <div className="mb-4 flex items-center gap-1">
+                                        {[1, 2, 3, 4, 5].map((value) => {
+                                            const isFilled = value <= Number(idea.topic_rating || 0)
+                                            return (
+                                                <button
+                                                    key={`${idea.id}-rating-${value}`}
+                                                    type="button"
+                                                    onClick={() => handleSetRating(idea.id, value)}
+                                                    className="rounded p-0.5 transition hover:scale-105"
+                                                    aria-label={`Rate ${idea.title} ${value} star${value === 1 ? '' : 's'}`}
+                                                >
+                                                    <Star className={`h-4 w-4 ${isFilled ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'}`} />
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
 
                                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                                         <span>{new Date(idea.created_at).toLocaleDateString()}</span>

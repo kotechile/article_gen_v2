@@ -43,6 +43,7 @@ export interface ContentIdea {
     topic_id: string;
     subtopic?: string;
     description?: string;
+    topic_rating?: number;
     published?: boolean;
     published_at?: string;
     published_to_titles?: boolean;
