@@ -14,6 +14,9 @@ import {
     AlertTriangle,
     RefreshCw,
     CheckCircle2,
+    Plus,
+    Search,
+    Sparkles,
 } from "lucide-react";
 import {
     AreaChart,
@@ -249,6 +252,7 @@ interface KeywordTableRowProps {
     showChart: boolean;
     onToggleChart: () => void;
     disabled: boolean;
+    isNew?: boolean;
 }
 
 function KeywordTableRow({
@@ -260,6 +264,7 @@ function KeywordTableRow({
     showChart,
     onToggleChart,
     disabled,
+    isNew = false,
 }: KeywordTableRowProps) {
     const isSeed = row.type === "seed";
     const hasVolume = (row.search_volume ?? 0) > 0;
@@ -329,6 +334,11 @@ function KeywordTableRow({
                             {isSeed && (
                                 <span className="text-[9px] px-1 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-medium">
                                     SEED
+                                </span>
+                            )}
+                            {isNew && (
+                                <span className="text-[9px] px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium">
+                                    NEW
                                 </span>
                             )}
                             {row.depth > 0 && (
@@ -565,14 +575,26 @@ export function KeywordIntelligenceModal({
 }: KeywordIntelligenceModalProps) {
     const { user } = useAuth();
 
-    // Parse the DataForSEO output once
-    const parsed = React.useMemo(() => {
+    // Parse the DataForSEO output once, then allow additions via useState
+    const baseParsed = React.useMemo(() => {
         const rawField =
             (idea as any).raw_dataforseo_output ??
             (idea as any).raw_supabase_output ??
             (idea as any).idea_metadata?.seo_offer_enrichment?.raw_dataforseo_output;
         return parseDataForSEOOutput(rawField);
     }, [idea.id, (idea as any).raw_dataforseo_output]);
+
+    // Mutable copy of parsed so we can append expanded rows
+    const [parsed, setParsed] = React.useState<DFSParsedOutput | null>(baseParsed);
+    // Track which keywords came from Keyword Expander (show NEW badge)
+    const [expandedKeywords, setExpandedKeywords] = React.useState<Set<string>>(new Set());
+
+    // Keyword Expander panel state
+    const [expanderOpen, setExpanderOpen] = React.useState(false);
+    const [expanderSeed, setExpanderSeed] = React.useState("");
+    const [expanderLoading, setExpanderLoading] = React.useState(false);
+    const [expanderError, setExpanderError] = React.useState<string | null>(null);
+    const [expanderAdded, setExpanderAdded] = React.useState(0);
 
     // Resolve initial selections from stored idea data
     const initialPrimary = React.useMemo(() => {
@@ -605,6 +627,12 @@ export function KeywordIntelligenceModal({
     // Re-sync selections when idea changes (e.g. re-opened for different idea)
     React.useEffect(() => {
         if (isOpen) {
+            setParsed(baseParsed);
+            setExpandedKeywords(new Set());
+            setExpanderOpen(false);
+            setExpanderSeed("");
+            setExpanderError(null);
+            setExpanderAdded(0);
             setPrimaryKeyword(initialPrimary);
             setSecondaryKeywords(initialSecondary);
             setExpandedChart(null);
@@ -637,7 +665,7 @@ export function KeywordIntelligenceModal({
         setSaving(true);
         setSaveError(null);
         try {
-            // Find metrics for the primary keyword
+            // Find metrics for the primary keyword (including expanded rows)
             const primaryRow = parsed?.rows.find((r) => r.keyword === primaryKeyword);
             const metrics = {
                 volume: primaryRow?.search_volume ?? null,
@@ -663,6 +691,70 @@ export function KeywordIntelligenceModal({
             setSaveError("Unexpected error saving selections.");
         } finally {
             setSaving(false);
+        }
+    };
+
+    /** Fetch related keywords for a custom seed and merge into the table */
+    const handleExpandKeywords = async () => {
+        const seed = expanderSeed.trim().toLowerCase();
+        if (!seed) return;
+        setExpanderLoading(true);
+        setExpanderError(null);
+        setExpanderAdded(0);
+        try {
+            const existingKeywords = (parsed?.rows ?? []).map((r) => r.keyword);
+            const result = await contentIdeasService.fetchRelatedKeywords(seed, existingKeywords, 20);
+            if (!result.success || result.keywords.length === 0) {
+                setExpanderError("No new keywords found. Try a different seed.");
+                return;
+            }
+            // Build DFSKeywordRow objects from the ranked keyword-lab response
+            const newRows: DFSKeywordRow[] = result.keywords
+                .filter((k) => !existingKeywords.includes(k.keyword))
+                .map((k) => ({
+                    keyword: k.keyword,
+                    type: "related" as const,
+                    depth: 2, // mark as custom-expanded
+                    search_volume: k.search_volume ?? null,
+                    competition: null,
+                    competition_level: null,
+                    cpc: k.cpc ?? null,
+                    keyword_difficulty: k.keyword_difficulty ?? null,
+                    main_intent: null,
+                    foreign_intents: null,
+                    monthly_searches: [],
+                    search_volume_trend: null,
+                    low_top_of_page_bid: null,
+                    high_top_of_page_bid: null,
+                    se_results_count: null,
+                    related_keywords: null,
+                }));
+
+            if (newRows.length === 0) {
+                setExpanderError("All returned keywords are already in the list.");
+                return;
+            }
+
+            setParsed((prev) => {
+                if (!prev) return prev;
+                return {
+                    ...prev,
+                    rows: [...prev.rows, ...newRows],
+                    total_count: prev.total_count + newRows.length,
+                    items_count: prev.items_count + newRows.length,
+                };
+            });
+            setExpandedKeywords((prev) => {
+                const next = new Set(prev);
+                newRows.forEach((r) => next.add(r.keyword));
+                return next;
+            });
+            setExpanderAdded(newRows.length);
+            setExpanderSeed(""); // clear after success
+        } catch (err) {
+            setExpanderError("Unexpected error fetching keywords.");
+        } finally {
+            setExpanderLoading(false);
         }
     };
 
@@ -696,13 +788,86 @@ export function KeywordIntelligenceModal({
                             </p>
                         )}
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="text-slate-500 hover:text-white transition-colors flex-shrink-0 p-1 -mr-1 rounded-lg hover:bg-white/5"
-                    >
-                        <X className="w-5 h-5" />
-                    </button>
+                    {/* Expander toggle + close */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                            onClick={() => { setExpanderOpen((v) => !v); setExpanderError(null); setExpanderAdded(0); }}
+                            title="Expand keywords with a new seed"
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                                expanderOpen
+                                    ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300"
+                                    : "border-white/10 text-slate-400 hover:text-white hover:border-white/20"
+                            }`}
+                        >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Expand Keywords
+                        </button>
+                        <button
+                            onClick={onClose}
+                            className="text-slate-500 hover:text-white transition-colors p-1 -mr-1 rounded-lg hover:bg-white/5"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+                    </div>
                 </div>
+
+                {/* ── Keyword Expander Panel ── */}
+                <AnimatePresence>
+                    {expanderOpen && (
+                        <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.18 }}
+                            className="overflow-hidden flex-shrink-0"
+                        >
+                            <div className="px-6 py-3 bg-indigo-950/40 border-b border-indigo-500/20 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                                <div className="flex-1 flex flex-col gap-1 min-w-0">
+                                    <p className="text-[11px] text-slate-400">
+                                        Enter a seed keyword to fetch new related keywords from DataForSEO and merge them into the list below.
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                        <div className="relative flex-1 max-w-xs">
+                                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                                            <input
+                                                type="text"
+                                                value={expanderSeed}
+                                                onChange={(e) => { setExpanderSeed(e.target.value); setExpanderError(null); setExpanderAdded(0); }}
+                                                onKeyDown={(e) => e.key === "Enter" && !expanderLoading && handleExpandKeywords()}
+                                                placeholder="e.g. mortgage calculator free"
+                                                className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 transition-all"
+                                                disabled={expanderLoading}
+                                            />
+                                        </div>
+                                        <button
+                                            onClick={handleExpandKeywords}
+                                            disabled={!expanderSeed.trim() || expanderLoading}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-all"
+                                        >
+                                            {expanderLoading ? (
+                                                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Fetching…</>
+                                            ) : (
+                                                <><Plus className="w-3.5 h-3.5" /> Fetch Keywords</>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="flex flex-col gap-1 min-w-[130px]">
+                                    {expanderError && (
+                                        <p className="text-[11px] text-red-400 flex items-center gap-1">
+                                            <AlertTriangle className="w-3 h-3" /> {expanderError}
+                                        </p>
+                                    )}
+                                    {expanderAdded > 0 && (
+                                        <p className="text-[11px] text-emerald-400 flex items-center gap-1">
+                                            <CheckCircle2 className="w-3 h-3" /> {expanderAdded} keywords added
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
                 {/* ── No data state ── */}
                 {!parsed ? (
@@ -774,6 +939,7 @@ export function KeywordIntelligenceModal({
                                             showChart={expandedChart === row.keyword}
                                             onToggleChart={() => handleToggleChart(row.keyword)}
                                             disabled={saving}
+                                            isNew={expandedKeywords.has(row.keyword)}
                                         />
                                     ))}
                                 </tbody>

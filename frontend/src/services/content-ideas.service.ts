@@ -296,7 +296,42 @@ class ContentIdeasService {
             return false;
         }
     }
+
+    /**
+     * Fetch related keywords for a custom seed keyword using the
+     * /keyword-lab/related backend endpoint (DataForSEO Labs live).
+     */
+    async fetchRelatedKeywords(
+        seedKeyword: string,
+        excludeKeywords?: string[],
+        limit = 20,
+    ): Promise<{
+        success: boolean;
+        seed_keyword: string;
+        keywords: Array<{
+            keyword: string;
+            search_volume: number;
+            keyword_difficulty: number;
+            cpc: number;
+            opportunity: number;
+        }>;
+    }> {
+        try {
+            const result = await apiClient.post<any>('/content-ideas/keyword-lab/related', {
+                seed_keyword: seedKeyword,
+                exclude_keywords: excludeKeywords ?? [],
+                limit,
+            });
+            return {
+                success: Boolean(result?.success),
+                seed_keyword: result?.seed_keyword ?? seedKeyword,
+                keywords: Array.isArray(result?.keywords) ? result.keywords : [],
+            };
+        } catch (err) {
+            console.error('[ContentIdeas] fetchRelatedKeywords error:', err);
+            return { success: false, seed_keyword: seedKeyword, keywords: [] };
+        }
+    }
 }
 
 export const contentIdeasService = new ContentIdeasService();
-
