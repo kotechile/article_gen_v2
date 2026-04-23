@@ -1,6 +1,6 @@
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Sparkles, Lightbulb, Loader2, Check, Save, BookOpen, Code, Info, Key, Star, Archive, Trash2 } from "lucide-react";
+import { X, Sparkles, Lightbulb, Loader2, Check, Save, BookOpen, Code, Info, Key, Star, Archive, Trash2, RotateCcw, ChevronDown, ChevronUp } from "lucide-react";
 import { KeywordIntelligenceModal } from "./KeywordIntelligenceModal";
 import { Button } from "@/components/ui/button";
 import { contentIdeasService } from "@/services/content-ideas.service";
@@ -333,6 +333,8 @@ function computeAggregateFromExactMap(
 interface CachedIdeaBurst {
     blogIdeas: ContentIdea[];
     softwareIdeas: ContentIdea[];
+    archivedBlogIdeas?: ContentIdea[];
+    archivedSoftwareIdeas?: ContentIdea[];
     cachedAt: string;
 }
 
@@ -399,6 +401,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
     const [error, setError] = React.useState<string | null>(null);
     const [blogIdeas, setBlogIdeas] = React.useState<ContentIdea[]>([]);
     const [softwareIdeas, setSoftwareIdeas] = React.useState<ContentIdea[]>([]);
+    const [archivedBlogIdeas, setArchivedBlogIdeas] = React.useState<ContentIdea[]>([]);
+    const [archivedSoftwareIdeas, setArchivedSoftwareIdeas] = React.useState<ContentIdea[]>([]);
     const [selectedBlogIdeas, setSelectedBlogIdeas] = React.useState<Set<string>>(new Set());
     const [selectedSoftwareIdeas, setSelectedSoftwareIdeas] = React.useState<Set<string>>(new Set());
     const [publishing, setPublishing] = React.useState(false);
@@ -406,6 +410,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
     const [ratingIdeaIds, setRatingIdeaIds] = React.useState<Set<string>>(new Set());
     const [archivingIdeaIds, setArchivingIdeaIds] = React.useState<Set<string>>(new Set());
     const [deletingIdeaIds, setDeletingIdeaIds] = React.useState<Set<string>>(new Set());
+    const [expandedArchivedIdeaIds, setExpandedArchivedIdeaIds] = React.useState<Set<string>>(new Set());
     const [enrichingIdeas, setEnrichingIdeas] = React.useState(false);
     const [enrichResultMessage, setEnrichResultMessage] = React.useState<string | null>(null);
     const [published, setPublished] = React.useState(false);
@@ -433,15 +438,17 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                 const storedIdeas = await contentIdeasService.getContentIdeas(topicId, user.id);
                 const normalizedSubtopic = (subtopic.name || "").trim().toLowerCase();
                 const filtered = (storedIdeas || []).filter(
-                    (idea) =>
-                        (idea.subtopic || "").trim().toLowerCase() === normalizedSubtopic &&
-                        idea.status !== "archived"
+                    (idea) => (idea.subtopic || "").trim().toLowerCase() === normalizedSubtopic
                 );
                 if (!cancelled && filtered.length > 0) {
-                    const nextBlogIdeas = filtered.filter((idea) => idea.content_type === "blog");
-                    const nextSoftwareIdeas = filtered.filter((idea) => idea.content_type === "software");
+                    const nextBlogIdeas = filtered.filter((idea) => idea.content_type === "blog" && idea.status !== "archived");
+                    const nextSoftwareIdeas = filtered.filter((idea) => idea.content_type === "software" && idea.status !== "archived");
+                    const nextArchivedBlogIdeas = filtered.filter((idea) => idea.content_type === "blog" && idea.status === "archived");
+                    const nextArchivedSoftwareIdeas = filtered.filter((idea) => idea.content_type === "software" && idea.status === "archived");
                     setBlogIdeas(nextBlogIdeas);
                     setSoftwareIdeas(nextSoftwareIdeas);
+                    setArchivedBlogIdeas(nextArchivedBlogIdeas);
+                    setArchivedSoftwareIdeas(nextArchivedSoftwareIdeas);
                     setError(null);
                     setLoadedFromStored(true);
                     setLoadedFromCache(false);
@@ -451,6 +458,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                             const payload: CachedIdeaBurst = {
                                 blogIdeas: nextBlogIdeas,
                                 softwareIdeas: nextSoftwareIdeas,
+                                archivedBlogIdeas: nextArchivedBlogIdeas,
+                                archivedSoftwareIdeas: nextArchivedSoftwareIdeas,
                                 cachedAt: new Date().toISOString(),
                             };
                             localStorage.setItem(cacheKey, JSON.stringify(payload));
@@ -472,11 +481,20 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     const raw = localStorage.getItem(cacheKey);
                     if (raw) {
                         const parsed = JSON.parse(raw) as CachedIdeaBurst;
-                        if (Array.isArray(parsed.blogIdeas) || Array.isArray(parsed.softwareIdeas)) {
+                        if (
+                            Array.isArray(parsed.blogIdeas) ||
+                            Array.isArray(parsed.softwareIdeas) ||
+                            Array.isArray(parsed.archivedBlogIdeas) ||
+                            Array.isArray(parsed.archivedSoftwareIdeas)
+                        ) {
                             const cachedBlogIdeas = Array.isArray(parsed.blogIdeas) ? parsed.blogIdeas : [];
                             const cachedSoftwareIdeas = Array.isArray(parsed.softwareIdeas) ? parsed.softwareIdeas : [];
+                            const cachedArchivedBlogIdeas = Array.isArray(parsed.archivedBlogIdeas) ? parsed.archivedBlogIdeas : [];
+                            const cachedArchivedSoftwareIdeas = Array.isArray(parsed.archivedSoftwareIdeas) ? parsed.archivedSoftwareIdeas : [];
                             setBlogIdeas(cachedBlogIdeas);
                             setSoftwareIdeas(cachedSoftwareIdeas);
+                            setArchivedBlogIdeas(cachedArchivedBlogIdeas);
+                            setArchivedSoftwareIdeas(cachedArchivedSoftwareIdeas);
                             setError(null);
                             setLoadedFromCache(true);
                             setLoadedFromStored(false);
@@ -553,6 +571,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         setLoadedFromStored(false);
         setBlogIdeas([]);
         setSoftwareIdeas([]);
+        setArchivedBlogIdeas([]);
+        setArchivedSoftwareIdeas([]);
         setSelectedBlogIdeas(new Set());
         setSelectedSoftwareIdeas(new Set());
         setPublished(false);
@@ -593,6 +613,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             const nextSoftwareIdeas = result.software_ideas || [];
             setBlogIdeas(nextBlogIdeas);
             setSoftwareIdeas(nextSoftwareIdeas);
+            setArchivedBlogIdeas([]);
+            setArchivedSoftwareIdeas([]);
             const generatedCount = Number(result.generated_count ?? (nextBlogIdeas.length + nextSoftwareIdeas.length));
             const persistedCount = Number(result.persisted_count ?? generatedCount);
             const persistedIdeaIds = Array.isArray(result.persisted_idea_ids)
@@ -610,6 +632,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     const payload: CachedIdeaBurst = {
                         blogIdeas: nextBlogIdeas,
                         softwareIdeas: nextSoftwareIdeas,
+                        archivedBlogIdeas: [],
+                        archivedSoftwareIdeas: [],
                         cachedAt: new Date().toISOString(),
                     };
                     localStorage.setItem(cacheKey, JSON.stringify(payload));
@@ -749,6 +773,42 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                 }
                 : idea
         )));
+        setArchivedBlogIdeas((prev) => prev.map((idea) => (
+            idea.id === ideaId
+                ? {
+                    ...idea,
+                    total_search_volume: metrics.total_search_volume,
+                    average_cpc: metrics.average_cpc,
+                    average_difficulty: metrics.average_difficulty,
+                    ...(restatedTitle ? { title: restatedTitle } : {}),
+                    ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
+                    ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
+                        keywords: keywordsUsed,
+                        primary_keywords: [selectedPrimaryKeyword || keywordsUsed[0]],
+                        secondary_keywords: keywordsUsed.filter(k => k !== (selectedPrimaryKeyword || keywordsUsed[0])),
+                    } : {}),
+                    ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
+                }
+                : idea
+        )));
+        setArchivedSoftwareIdeas((prev) => prev.map((idea) => (
+            idea.id === ideaId
+                ? {
+                    ...idea,
+                    total_search_volume: metrics.total_search_volume,
+                    average_cpc: metrics.average_cpc,
+                    average_difficulty: metrics.average_difficulty,
+                    ...(restatedTitle ? { title: restatedTitle } : {}),
+                    ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
+                    ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
+                        keywords: keywordsUsed,
+                        primary_keywords: [selectedPrimaryKeyword || keywordsUsed[0]],
+                        secondary_keywords: keywordsUsed.filter(k => k !== (selectedPrimaryKeyword || keywordsUsed[0])),
+                    } : {}),
+                    ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
+                }
+                : idea
+        )));
     };
 
     const runEnrichment = async (ideaIds: string[], options?: { silent?: boolean }) => {
@@ -869,8 +929,11 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         setLoadedFromStored(false);
         setBlogIdeas([]);
         setSoftwareIdeas([]);
+        setArchivedBlogIdeas([]);
+        setArchivedSoftwareIdeas([]);
         setSelectedBlogIdeas(new Set());
         setSelectedSoftwareIdeas(new Set());
+        setExpandedArchivedIdeaIds(new Set());
         setExpandedMetrics(null);
         setError(null);
         lastGeneratedKeyRef.current = null;
@@ -914,6 +977,12 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             setSoftwareIdeas((prev) =>
                 prev.map((idea) => (idea.id === ideaId ? { ...idea, topic_rating: nextRating } : idea))
             );
+            setArchivedBlogIdeas((prev) =>
+                prev.map((idea) => (idea.id === ideaId ? { ...idea, topic_rating: nextRating } : idea))
+            );
+            setArchivedSoftwareIdeas((prev) =>
+                prev.map((idea) => (idea.id === ideaId ? { ...idea, topic_rating: nextRating } : idea))
+            );
         } finally {
             setRatingIdeaIds((current) => {
                 const next = new Set(current);
@@ -926,6 +995,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
     const handleArchiveIdea = async (ideaId: string) => {
         if (!user) return;
         setArchivingIdeaIds((current) => new Set(current).add(ideaId));
+        const ideaToArchive = blogIdeas.find((idea) => idea.id === ideaId) || softwareIdeas.find((idea) => idea.id === ideaId) || null;
         try {
             const ok = await contentIdeasService.archiveContentIdea(ideaId, user.id);
             if (!ok) {
@@ -934,6 +1004,14 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             }
             setBlogIdeas((prev) => prev.filter((idea) => idea.id !== ideaId));
             setSoftwareIdeas((prev) => prev.filter((idea) => idea.id !== ideaId));
+            if (ideaToArchive) {
+                const archivedIdea: ContentIdea = { ...ideaToArchive, status: "archived" };
+                if (archivedIdea.content_type === "blog") {
+                    setArchivedBlogIdeas((prev) => [archivedIdea, ...prev]);
+                } else if (archivedIdea.content_type === "software") {
+                    setArchivedSoftwareIdeas((prev) => [archivedIdea, ...prev]);
+                }
+            }
             setSelectedBlogIdeas((prev) => {
                 const next = new Set(prev);
                 next.delete(ideaId);
@@ -941,6 +1019,41 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             });
             setSelectedSoftwareIdeas((prev) => {
                 const next = new Set(prev);
+                next.delete(ideaId);
+                return next;
+            });
+        } finally {
+            setArchivingIdeaIds((current) => {
+                const next = new Set(current);
+                next.delete(ideaId);
+                return next;
+            });
+        }
+    };
+
+    const handleRestoreIdea = async (ideaId: string) => {
+        if (!user) return;
+        setArchivingIdeaIds((current) => new Set(current).add(ideaId));
+        const ideaToRestore = archivedBlogIdeas.find((idea) => idea.id === ideaId) || archivedSoftwareIdeas.find((idea) => idea.id === ideaId) || null;
+        try {
+            const ok = await contentIdeasService.restoreContentIdea(ideaId, user.id);
+            if (!ok) {
+                setError("Failed to restore content idea.");
+                return;
+            }
+            setArchivedBlogIdeas((prev) => prev.filter((idea) => idea.id !== ideaId));
+            setArchivedSoftwareIdeas((prev) => prev.filter((idea) => idea.id !== ideaId));
+
+            if (ideaToRestore) {
+                const restoredIdea: ContentIdea = { ...ideaToRestore, status: "draft" };
+                if (restoredIdea.content_type === "blog") {
+                    setBlogIdeas((prev) => [restoredIdea, ...prev]);
+                } else if (restoredIdea.content_type === "software") {
+                    setSoftwareIdeas((prev) => [restoredIdea, ...prev]);
+                }
+            }
+            setExpandedArchivedIdeaIds((current) => {
+                const next = new Set(current);
                 next.delete(ideaId);
                 return next;
             });
@@ -966,6 +1079,8 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             }
             setBlogIdeas((prev) => prev.filter((idea) => idea.id !== ideaId));
             setSoftwareIdeas((prev) => prev.filter((idea) => idea.id !== ideaId));
+            setArchivedBlogIdeas((prev) => prev.filter((idea) => idea.id !== ideaId));
+            setArchivedSoftwareIdeas((prev) => prev.filter((idea) => idea.id !== ideaId));
             setSelectedBlogIdeas((prev) => {
                 const next = new Set(prev);
                 next.delete(ideaId);
@@ -973,6 +1088,11 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             });
             setSelectedSoftwareIdeas((prev) => {
                 const next = new Set(prev);
+                next.delete(ideaId);
+                return next;
+            });
+            setExpandedArchivedIdeaIds((current) => {
+                const next = new Set(current);
                 next.delete(ideaId);
                 return next;
             });
@@ -985,12 +1105,25 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         }
     };
 
+    const toggleArchivedIdeaExpansion = (ideaId: string) => {
+        setExpandedArchivedIdeaIds((current) => {
+            const next = new Set(current);
+            if (next.has(ideaId)) {
+                next.delete(ideaId);
+            } else {
+                next.add(ideaId);
+            }
+            return next;
+        });
+    };
+
     const internalLinkGroups = React.useMemo(() => buildInternalLinkGroups(blogIdeas), [blogIdeas]);
 
     if (!isOpen || !subtopic) return null;
 
     const totalBlogIdeas = blogIdeas.length;
     const totalSoftwareIdeas = softwareIdeas.length;
+    const totalArchivedIdeas = archivedBlogIdeas.length + archivedSoftwareIdeas.length;
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1127,7 +1260,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                         </div>
                     )}
 
-                    {!loading && !error && totalBlogIdeas === 0 && totalSoftwareIdeas === 0 && (
+                    {!loading && !error && totalBlogIdeas === 0 && totalSoftwareIdeas === 0 && totalArchivedIdeas === 0 && (
                         <div className="py-16 text-center">
                             <Lightbulb className="w-12 h-12 text-slate-600 mx-auto mb-4" />
                             <p className="text-slate-400">No ideas generated.</p>
@@ -1366,6 +1499,51 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                         </div>
                     )}
 
+                    {!loading && !error && totalArchivedIdeas > 0 && (
+                        <div className="mt-6 pt-2">
+                            <div className="mb-3 flex items-center justify-between">
+                                <h3 className="text-sm font-semibold text-slate-300">Archived Content Ideas</h3>
+                                <span className="rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[11px] text-slate-400">
+                                    {totalArchivedIdeas}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                {archivedBlogIdeas.map((idea) => (
+                                    <ArchivedIdeaCard
+                                        key={`archived-blog-${idea.id}`}
+                                        idea={idea}
+                                        typeLabel="Blog"
+                                        accentClass="text-blue-300"
+                                        isExpanded={expandedArchivedIdeaIds.has(idea.id)}
+                                        onToggleExpand={() => toggleArchivedIdeaExpansion(idea.id)}
+                                        onRestore={() => handleRestoreIdea(idea.id)}
+                                        onDelete={() => handleDeleteIdea(idea.id)}
+                                        isArchiving={archivingIdeaIds.has(idea.id)}
+                                        isDeleting={deletingIdeaIds.has(idea.id)}
+                                        ratingSaving={ratingIdeaIds.has(idea.id)}
+                                        onSetRating={(rating) => handleSetIdeaRating(idea.id, rating)}
+                                    />
+                                ))}
+                                {archivedSoftwareIdeas.map((idea) => (
+                                    <ArchivedIdeaCard
+                                        key={`archived-software-${idea.id}`}
+                                        idea={idea}
+                                        typeLabel="Software"
+                                        accentClass="text-amber-300"
+                                        isExpanded={expandedArchivedIdeaIds.has(idea.id)}
+                                        onToggleExpand={() => toggleArchivedIdeaExpansion(idea.id)}
+                                        onRestore={() => handleRestoreIdea(idea.id)}
+                                        onDelete={() => handleDeleteIdea(idea.id)}
+                                        isArchiving={archivingIdeaIds.has(idea.id)}
+                                        isDeleting={deletingIdeaIds.has(idea.id)}
+                                        ratingSaving={ratingIdeaIds.has(idea.id)}
+                                        onSetRating={(rating) => handleSetIdeaRating(idea.id, rating)}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {published && (
                         <motion.div
                             initial={{ opacity: 0, y: 10 }}
@@ -1390,7 +1568,7 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                 </div>
 
                 {/* Footer */}
-                {!loading && !error && (totalBlogIdeas > 0 || totalSoftwareIdeas > 0) && (
+                {!loading && !error && (totalBlogIdeas > 0 || totalSoftwareIdeas > 0 || totalArchivedIdeas > 0) && (
                     <div className="border-t border-white/10 p-4 flex items-center justify-between bg-white/5">
                         <div className="text-xs text-slate-500">
                             <span className="text-slate-400">Subtopic:</span> {subtopic.search_volume?.toLocaleString() || 0} monthly searches
@@ -1407,6 +1585,108 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     </div>
                 )}
             </motion.div>
+        </div>
+    );
+}
+
+interface ArchivedIdeaCardProps {
+    idea: ContentIdea;
+    typeLabel: string;
+    accentClass: string;
+    isExpanded: boolean;
+    onToggleExpand: () => void;
+    onRestore: () => void;
+    onDelete: () => void;
+    isArchiving?: boolean;
+    isDeleting?: boolean;
+    ratingSaving?: boolean;
+    onSetRating?: (rating: number) => void;
+}
+
+function ArchivedIdeaCard({
+    idea,
+    typeLabel,
+    accentClass,
+    isExpanded,
+    onToggleExpand,
+    onRestore,
+    onDelete,
+    isArchiving,
+    isDeleting,
+    ratingSaving,
+    onSetRating,
+}: ArchivedIdeaCardProps) {
+    return (
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 opacity-70 saturate-0">
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <p className={`text-[10px] uppercase tracking-wide ${accentClass}`}>{typeLabel}</p>
+                    <h4 className="mt-0.5 line-clamp-2 text-sm font-medium text-slate-200" title={idea.title || ""}>
+                        {idea.title}
+                    </h4>
+                </div>
+                <div className="flex items-center gap-1">
+                    <button
+                        type="button"
+                        onClick={onRestore}
+                        disabled={Boolean(isArchiving || isDeleting)}
+                        className="rounded p-1 text-slate-400 transition hover:bg-white/10 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label={`Restore ${idea.title}`}
+                        title="Restore idea"
+                    >
+                        {isArchiving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onDelete}
+                        disabled={Boolean(isArchiving || isDeleting)}
+                        className="rounded p-1 text-slate-400 transition hover:bg-white/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label={`Delete ${idea.title}`}
+                        title="Delete idea"
+                    >
+                        {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    </button>
+                </div>
+            </div>
+
+            {isExpanded && (
+                <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+                    {idea.description && (
+                        <p className="text-xs text-slate-400 line-clamp-3" title={idea.description}>
+                            {idea.description}
+                        </p>
+                    )}
+                    <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map((value) => {
+                            const isFilled = value <= Number(idea.topic_rating || 0);
+                            return (
+                                <button
+                                    key={`${idea.id}-archived-rating-${value}`}
+                                    type="button"
+                                    onClick={() => onSetRating?.(value)}
+                                    disabled={Boolean(ratingSaving)}
+                                    className="rounded p-0.5 transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+                                    aria-label={`Rate ${idea.title} ${value} star${value === 1 ? "" : "s"}`}
+                                >
+                                    <Star className={`h-4 w-4 ${isFilled ? "fill-amber-400 text-amber-400" : "text-slate-500"}`} />
+                                </button>
+                            );
+                        })}
+                        {ratingSaving && <Loader2 className="ml-1 h-3 w-3 animate-spin text-slate-500" />}
+                    </div>
+                </div>
+            )}
+
+            <div className="mt-3 border-t border-white/10 pt-2">
+                <button
+                    type="button"
+                    onClick={onToggleExpand}
+                    className="inline-flex items-center gap-1 text-[11px] text-slate-400 transition hover:text-slate-200"
+                >
+                    {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    {isExpanded ? "Collapse" : "Expand"}
+                </button>
+            </div>
         </div>
     );
 }

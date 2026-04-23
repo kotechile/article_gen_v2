@@ -148,23 +148,37 @@ class ContentIdeasService {
      * Archive a content idea by switching status to "archived".
      */
     async archiveContentIdea(ideaId: string, userId: string): Promise<boolean> {
+        return this.updateContentIdeaStatus(ideaId, userId, 'archived');
+    }
+
+    /**
+     * Restore an archived content idea back to draft.
+     */
+    async restoreContentIdea(ideaId: string, userId: string): Promise<boolean> {
+        return this.updateContentIdeaStatus(ideaId, userId, 'draft');
+    }
+
+    /**
+     * Update status for a content idea.
+     */
+    async updateContentIdeaStatus(ideaId: string, userId: string, status: string): Promise<boolean> {
         try {
             const { error } = await supabase
                 .from('content_ideas')
                 .update({
-                    status: 'archived',
+                    status,
                     updated_at: new Date().toISOString(),
                 })
                 .eq('id', ideaId)
                 .eq('user_id', userId);
 
             if (error) {
-                console.error('[ContentIdeas] archiveContentIdea error:', error);
+                console.error('[ContentIdeas] updateContentIdeaStatus error:', error);
                 return false;
             }
             return true;
         } catch (err) {
-            console.error('[ContentIdeas] archiveContentIdea exception:', err);
+            console.error('[ContentIdeas] updateContentIdeaStatus exception:', err);
             return false;
         }
     }
