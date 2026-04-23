@@ -339,22 +339,38 @@ Secondary keywords: {secondary_part}
 Domain context: {domain or "none"}
 """.strip()
 
-        response = llm_client.generate([
-            {
-                "role": "system",
-                "content": "You optimize metadata for GEO. Output strict JSON only.",
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ])
-
-        parsed = _extract_refined_metadata_from_response(response.content, title, description)
-        refined_title = parsed.get("refined_title") or title
-        refined_description = parsed.get("refined_description") or description
-        rationale = parsed.get("rationale") or ""
-        changed = (refined_title != title) or (refined_description != description)
+        fallback_reason = ""
+        try:
+            response = llm_client.generate([
+                {
+                    "role": "system",
+                    "content": "You optimize metadata for GEO. Output strict JSON only.",
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ])
+            parsed = _extract_refined_metadata_from_response(response.content, title, description)
+            refined_title = parsed.get("refined_title") or title
+            refined_description = parsed.get("refined_description") or description
+            rationale = parsed.get("rationale") or ""
+            changed = (refined_title != title) or (refined_description != description)
+        except Exception as llm_error:
+            logger.warning(
+                "Metadata refinement LLM call failed; returning original metadata for manual approval. provider=%s model=%s error=%s",
+                provider,
+                model,
+                llm_error,
+            )
+            refined_title = title
+            refined_description = description
+            changed = False
+            fallback_reason = (
+                "Automatic refinement is temporarily unavailable for this model/key. "
+                "Review the original metadata and approve to continue."
+            )
+            rationale = fallback_reason
 
         return jsonify({
             "success": True,
@@ -363,6 +379,7 @@ Domain context: {domain or "none"}
                 "refined_description": refined_description,
                 "rationale": rationale,
                 "changed": changed,
+                "fallback_used": bool(fallback_reason),
             }
         }), 200
 

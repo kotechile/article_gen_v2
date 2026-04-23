@@ -203,6 +203,7 @@ interface MetadataRefinementPreview {
     refined_description: string;
     rationale?: string;
     changed: boolean;
+    fallback_used?: boolean;
 }
 
 async function fetchLlmProviderRowsDirect(): Promise<LlmProviderRow[]> {
@@ -713,6 +714,7 @@ export const ContentStudio: React.FC = () => {
             refined_description: String(payload.refined_description || params.description),
             rationale: String(payload.rationale || ''),
             changed: Boolean(payload.changed),
+            fallback_used: Boolean(payload.fallback_used),
         };
     };
 
@@ -804,16 +806,28 @@ export const ContentStudio: React.FC = () => {
             ) {
                 setRequestingRefinement(true);
                 try {
-                    const preview = await requestMetadataRefinementPreview({
-                        title: effectiveTitle,
-                        description: effectiveDescription,
-                        provider,
-                        modelName,
-                        llmModel,
-                        llmKey,
-                        primaryKw,
-                        secondaryKeywords,
-                    });
+                    let preview: MetadataRefinementPreview;
+                    try {
+                        preview = await requestMetadataRefinementPreview({
+                            title: effectiveTitle,
+                            description: effectiveDescription,
+                            provider,
+                            modelName,
+                            llmModel,
+                            llmKey,
+                            primaryKw,
+                            secondaryKeywords,
+                        });
+                    } catch (previewError) {
+                        logSafeError('Metadata refinement preview failed; opening manual approval with original metadata.', previewError, 'warn');
+                        preview = {
+                            refined_title: effectiveTitle,
+                            refined_description: effectiveDescription,
+                            changed: false,
+                            fallback_used: true,
+                            rationale: 'Automatic refinement is unavailable right now. Review and approve to continue.',
+                        };
+                    }
                     setRefinementPreview(preview);
                     setRefinementDraft({
                         title: preview.refined_title || effectiveTitle,
