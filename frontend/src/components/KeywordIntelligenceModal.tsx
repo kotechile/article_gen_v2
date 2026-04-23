@@ -565,6 +565,16 @@ export interface KeywordIntelligenceModalProps {
         secondary: string[],
         metrics: { volume: number | null; difficulty: number | null; cpc: number | null }
     ) => void;
+    /**
+     * Optional override for the save persistence call.
+     * Receives the same args as onSaved. Return true on success.
+     * If omitted, defaults to contentIdeasService.updateKeywordSelection.
+     */
+    onSave?: (
+        primary: string,
+        secondary: string[],
+        metrics: { volume: number | null; difficulty: number | null; cpc: number | null }
+    ) => Promise<boolean>;
 }
 
 export function KeywordIntelligenceModal({
@@ -572,6 +582,7 @@ export function KeywordIntelligenceModal({
     onClose,
     idea,
     onSaved,
+    onSave,
 }: KeywordIntelligenceModalProps) {
     const { user } = useAuth();
 
@@ -673,13 +684,18 @@ export function KeywordIntelligenceModal({
                 cpc: primaryRow?.cpc ?? null,
             };
 
-            const ok = await contentIdeasService.updateKeywordSelection(
-                idea.id,
-                user.id,
-                primaryKeyword,
-                secondaryKeywords,
-                metrics
-            );
+            // Use custom save handler if provided (e.g. Titles table context),
+            // otherwise fall back to the default content_ideas persistence.
+            const ok = onSave
+                ? await onSave(primaryKeyword, secondaryKeywords, metrics)
+                : await contentIdeasService.updateKeywordSelection(
+                    idea.id,
+                    user.id,
+                    primaryKeyword,
+                    secondaryKeywords,
+                    metrics
+                );
+
             if (ok) {
                 setSaved(true);
                 onSaved?.(primaryKeyword, secondaryKeywords, metrics);

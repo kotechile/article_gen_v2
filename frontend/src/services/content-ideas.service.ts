@@ -332,6 +332,56 @@ class ContentIdeasService {
             return { success: false, seed_keyword: seedKeyword, keywords: [] };
         }
     }
+    /**
+     * Persist keyword selections for a Titles record (Content Library).
+     * Writes directly to the Titles table in Supabase.
+     * Mirrors updateKeywordSelection but operates on the Titles table.
+     */
+    async updateTitleKeywordSelection(
+        titleId: string,
+        userId: string,
+        primaryKeyword: string,
+        secondaryKeywords: string[],
+        metrics?: {
+            volume?: number | null;
+            difficulty?: number | null;
+            cpc?: number | null;
+        }
+    ): Promise<boolean> {
+        try {
+            const allKeywords = [primaryKeyword, ...secondaryKeywords.filter((k) => k !== primaryKeyword)];
+            const now = new Date().toISOString();
+
+            const { error } = await supabase
+                .from('Titles')
+                .update({
+                    primary_keywords: [primaryKeyword],
+                    secondary_keywords: secondaryKeywords.filter((k) => k !== primaryKeyword),
+                    search_phrase: primaryKeyword,
+                    // Also update the canonical keyword fields used by content generation
+                    primary_keyword: primaryKeyword,
+                    secondary_keywords_json: secondaryKeywords.filter((k) => k !== primaryKeyword),
+                    keyword_candidates_json: allKeywords,
+                    keyword_research_status: 'ready',
+                    keyword_research_source: 'manual_keyword_intelligence',
+                    keyword_selection_source: 'keyword_intelligence_modal',
+                    selected_keyword_search_volume: metrics?.volume ?? undefined,
+                    selected_keyword_difficulty: metrics?.difficulty ?? undefined,
+                    keyword_research_generated_at: now,
+                })
+                .eq('id', titleId)
+                .eq('user_id', userId);
+
+            if (error) {
+                console.error('[ContentIdeas] updateTitleKeywordSelection error:', error);
+                return false;
+            }
+            return true;
+        } catch (err) {
+            console.error('[ContentIdeas] updateTitleKeywordSelection exception:', err);
+            return false;
+        }
+    }
 }
 
 export const contentIdeasService = new ContentIdeasService();

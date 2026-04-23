@@ -1646,7 +1646,14 @@ def publish_content_ideas():
                     "published": False,
                     "dateCreatedOn": now,
                     "source_idea_id": idea.get("id"),
-                    # Phase 1 keyword handoff defaults (Research -> Content Generation)
+                    # ── Keyword data parity fields ──────────────────────────────
+                    # Copy raw DataForSEO output so Keyword Intelligence Modal
+                    # can operate on live Titles records without re-enriching.
+                    "raw_dataforseo_output": idea.get("raw_dataforseo_output"),
+                    "primary_keywords": primary_keywords[:1] if primary_keywords else [],
+                    "secondary_keywords": secondary_keywords if secondary_keywords else [],
+                    "search_phrase": idea.get("search_phrase") or (primary_keywords[0] if primary_keywords else ""),
+                    # ── Phase 1 keyword handoff defaults (Research → Content Generation) ──
                     "keyword_candidates_json": primary_keywords + [k for k in secondary_keywords if k not in primary_keywords],
                     "keyword_clusters_json": [],
                     "keyword_research_status": "ready" if primary_keywords else "fallback",

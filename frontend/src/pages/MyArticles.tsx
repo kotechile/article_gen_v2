@@ -7,6 +7,9 @@ import { Plus, Search, Trash2, Sparkles, Edit, X, ChevronDown, ChevronUp } from 
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { apiClient } from '../api-client'
+import { KeywordIntelligenceModal } from '../components/KeywordIntelligenceModal'
+import type { ContentIdea } from '../types/idea-burst'
+import { contentIdeasService } from '../services/content-ideas.service'
 
 type LibraryArticle = Article & {
     _source: 'titles' | 'content_ideas'
@@ -203,19 +206,14 @@ export const MyArticles: React.FC = () => {
     const [exactMetricsOnly, setExactMetricsOnly] = useState(false)
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
     const [refreshingKeywords, setRefreshingKeywords] = useState(false)
-    const [keywordLabOpen, setKeywordLabOpen] = useState(false)
-    const [keywordLabArticle, setKeywordLabArticle] = useState<LibraryArticle | null>(null)
-    const [keywordLabInput, setKeywordLabInput] = useState('')
-    const [keywordLabLoading, setKeywordLabLoading] = useState(false)
-    const [keywordLabResults, setKeywordLabResults] = useState<Array<any>>([])
-    const [keywordLabResultMap, setKeywordLabResultMap] = useState<Record<string, any>>({})
-    const [keywordLabPrimary, setKeywordLabPrimary] = useState('')
-    const [keywordLabSecondary, setKeywordLabSecondary] = useState<Set<string>>(new Set())
     const [expandedKeywordRows, setExpandedKeywordRows] = useState<Set<string>>(new Set())
     const [projectFilter, setProjectFilter] = useState('')
     const [primaryCategoryFilter, setPrimaryCategoryFilter] = useState('')
     const [secondaryCategoryFilter, setSecondaryCategoryFilter] = useState('')
     const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>([])
+    // Keyword Intelligence Modal (replaces legacy Keyword Lab)
+    const [kwIntelOpen, setKwIntelOpen] = useState(false)
+    const [kwIntelArticle, setKwIntelArticle] = useState<LibraryArticle | null>(null)
 
     useEffect(() => {
         if (activeProject?.id && !projectFilter) {
@@ -683,114 +681,9 @@ export const MyArticles: React.FC = () => {
         }
     }
 
-    const openKeywordLab = (article: LibraryArticle) => {
-        const rows = getKeywordRows(article)
-        const defaults = rows.map((r) => r.keyword).filter(Boolean)
-        setKeywordLabArticle(article)
-        setKeywordLabInput(defaults.join('\n'))
-        setKeywordLabResults([])
-        setKeywordLabResultMap({})
-        setKeywordLabPrimary(defaults[0] || '')
-        setKeywordLabSecondary(new Set(defaults.slice(1)))
-        setKeywordLabOpen(true)
-    }
-
-    const runKeywordLabMetrics = async () => {
-        if (!user || !keywordLabInput.trim()) return
-        setKeywordLabLoading(true)
-        try {
-            const keywords = keywordLabInput
-                .split(/\n|,/g)
-                .map((k) => k.trim())
-                .filter(Boolean)
-            const res = await apiClient.post<any>('/content-ideas/keyword-lab/metrics', {
-                user_id: user.id,
-                keywords,
-            })
-            const rows = Array.isArray(res?.keywords) ? res.keywords : []
-            setKeywordLabResults(rows)
-            const map: Record<string, any> = {}
-            for (const row of rows) {
-                if (row?.keyword) map[String(row.keyword)] = row
-            }
-            setKeywordLabResultMap(map)
-            if (rows.length > 0 && !keywordLabPrimary) {
-                setKeywordLabPrimary(rows[0].keyword)
-            }
-        } catch (error) {
-            console.error('Keyword Lab metrics failed:', error)
-        } finally {
-            setKeywordLabLoading(false)
-        }
-    }
-
-    const runKeywordLabRelated = async () => {
-        if (!user) return
-        const currentKeywords = keywordLabInput
-            .split(/\n|,/g)
-            .map((k) => k.trim())
-            .filter(Boolean)
-        const seed = keywordLabPrimary || currentKeywords.find(Boolean) || ''
-        if (!seed) return
-        setKeywordLabLoading(true)
-        try {
-            const res = await apiClient.post<any>('/content-ideas/keyword-lab/related', {
-                user_id: user.id,
-                seed_keyword: seed,
-                limit: 15,
-                exclude_keywords: currentKeywords.filter((k) => k.toLowerCase() !== seed.toLowerCase()),
-            })
-            const rows = Array.isArray(res?.keywords) ? res.keywords : []
-            setKeywordLabResults((prev) => {
-                const seen = new Set<string>()
-                const merged = [...prev, ...rows].filter((r: any) => {
-                    const kw = String(r?.keyword || '')
-                    if (!kw || seen.has(kw)) return false
-                    seen.add(kw)
-                    return true
-                })
-                return merged
-            })
-            setKeywordLabResultMap((prev) => {
-                const next = { ...prev }
-                for (const row of rows) {
-                    const kw = String(row?.keyword || '')
-                    if (!kw) continue
-                    next[kw] = row
-                }
-                return next
-            })
-            // Do not auto-overwrite user's chosen primary/secondary.
-        } catch (error) {
-            console.error('Keyword Lab related failed:', error)
-        } finally {
-            setKeywordLabLoading(false)
-        }
-    }
-
-    const getKeywordLabMetricText = (kw: string) => {
-        const row = keywordLabResultMap[kw]
-        if (!row) return 'V— · KD— · CPC —'
-        return `V${row.search_volume || 0} · KD${row.keyword_difficulty || 0} · CPC ${row.cpc || 0}`
-    }
-
-    const applyKeywordLab = async () => {
-        if (!user || !keywordLabArticle || keywordLabArticle._source !== 'titles' || !keywordLabPrimary) return
-        setKeywordLabLoading(true)
-        try {
-            await apiClient.post('/content-ideas/keyword-lab/apply', {
-                user_id: user.id,
-                title_id: keywordLabArticle.id,
-                primary_keyword: keywordLabPrimary,
-                secondary_keywords: Array.from(keywordLabSecondary).filter((k) => k !== keywordLabPrimary),
-            })
-            await fetchArticles()
-            setKeywordLabOpen(false)
-        } catch (error) {
-            console.error('Keyword Lab apply failed:', error)
-        } finally {
-            setKeywordLabLoading(false)
-        }
+    const openKwIntel = (article: LibraryArticle) => {
+        setKwIntelArticle(article)
+        setKwIntelOpen(true)
     }
 
     const handleSort = (field: keyof Article) => {
@@ -1184,9 +1077,9 @@ export const MyArticles: React.FC = () => {
                                                                 </button>
                                                                 {article._source === 'titles' && (
                                                                     <button
-                                                                        onClick={() => openKeywordLab(article)}
-                                                                        className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-emerald-400"
-                                                                        title="Keyword Lab"
+                                                                        onClick={() => openKwIntel(article)}
+                                                                        className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-indigo-400"
+                                                                        title="Keyword Intelligence"
                                                                     >
                                                                         <span className="text-[11px] font-semibold">KW</span>
                                                                     </button>
@@ -1293,135 +1186,76 @@ export const MyArticles: React.FC = () => {
                     )}
                 </motion.div>
 
-                {keywordLabOpen && keywordLabArticle && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-                        <div className="w-full max-w-3xl rounded-xl border border-border bg-background p-5">
-                            <div className="flex items-center justify-between">
-                                <h3 className="text-lg font-semibold text-foreground">Keyword Lab</h3>
-                                <button
-                                    type="button"
-                                    onClick={() => setKeywordLabOpen(false)}
-                                    className="rounded-md p-1 text-muted-foreground hover:text-foreground"
-                                >
-                                    <X className="h-4 w-4" />
-                                </button>
-                            </div>
-                            <p className="mt-1 text-xs text-muted-foreground truncate">{keywordLabArticle.Title}</p>
+                {/* ── Keyword Intelligence Modal (Titles context) ── */}
+                {kwIntelOpen && kwIntelArticle && (() => {
+                    // Build a ContentIdea-shaped object from the Titles record.
+                    // The modal reads raw_dataforseo_output for its table;
+                    // selections are persisted back to Titles via onSave.
+                    const ideaProxy = {
+                        id: kwIntelArticle.id,
+                        user_id: kwIntelArticle.user_id,
+                        title: kwIntelArticle.Title ?? '',
+                        content_type: (kwIntelArticle.content_type ?? 'blog') as any,
+                        primary_keywords: (() => {
+                            const raw = (kwIntelArticle as any).primary_keywords
+                            if (Array.isArray(raw)) return raw
+                            if (typeof raw === 'string' && raw.trim()) return raw.split(',').map((s: string) => s.trim()).filter(Boolean)
+                            return []
+                        })(),
+                        secondary_keywords: (() => {
+                            const raw = (kwIntelArticle as any).secondary_keywords
+                            if (Array.isArray(raw)) return raw
+                            if (typeof raw === 'string' && raw.trim()) return raw.split(',').map((s: string) => s.trim()).filter(Boolean)
+                            return []
+                        })(),
+                        search_phrase: (kwIntelArticle as any).search_phrase ?? (kwIntelArticle as any).primary_keyword ?? '',
+                        raw_dataforseo_output: (kwIntelArticle as any).raw_dataforseo_output ?? null,
+                        seo_optimization_score: kwIntelArticle.seo_optimization_score ?? 0,
+                        traffic_potential_score: 0,
+                        total_search_volume: (kwIntelArticle as any).selected_keyword_search_volume ?? null,
+                        average_difficulty: (kwIntelArticle as any).selected_keyword_difficulty ?? null,
+                        average_cpc: null,
+                        created_at: kwIntelArticle.dateCreatedOn ?? new Date().toISOString(),
+                        topic_id: '',
+                    } satisfies ContentIdea
 
-                            <div className="mt-4 grid gap-4 md:grid-cols-2">
-                                <div>
-                                    <label className="text-xs text-muted-foreground">Manual Keywords (one per line or comma-separated)</label>
-                                    <textarea
-                                        value={keywordLabInput}
-                                        onChange={(e) => setKeywordLabInput(e.target.value)}
-                                        rows={8}
-                                        className="mt-1 w-full rounded-lg border border-border bg-muted/30 p-2 text-sm text-foreground outline-none focus:border-ring/50"
-                                    />
-                                    <div className="mt-2 flex gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={runKeywordLabMetrics}
-                                            disabled={keywordLabLoading}
-                                            className="rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
-                                        >
-                                            Get Metrics
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={runKeywordLabRelated}
-                                            disabled={keywordLabLoading}
-                                            className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/15 disabled:opacity-60"
-                                        >
-                                            Find Related Keywords
-                                        </button>
-                                    </div>
-                                </div>
+                    return (
+                        <KeywordIntelligenceModal
+                            isOpen={kwIntelOpen}
+                            onClose={() => setKwIntelOpen(false)}
+                            idea={ideaProxy}
+                            onSave={async (primary, secondary, metrics) => {
+                                if (!user) return false
+                                const ok = await contentIdeasService.updateTitleKeywordSelection(
+                                    kwIntelArticle.id,
+                                    user.id,
+                                    primary,
+                                    secondary,
+                                    metrics
+                                )
+                                if (ok) {
+                                    // Optimistically update local state so the card
+                                    // reflects the new primary keyword immediately.
+                                    setArticles((prev) => prev.map((a) =>
+                                        a.id === kwIntelArticle.id
+                                            ? {
+                                                ...a,
+                                                primary_keywords: [primary],
+                                                secondary_keywords: secondary,
+                                                search_phrase: primary,
+                                                selected_keyword_search_volume: metrics.volume ?? undefined,
+                                                selected_keyword_difficulty: metrics.difficulty ?? undefined,
+                                            } as any
+                                            : a
+                                    ))
+                                }
+                                return ok
+                            }}
+                            onSaved={() => setKwIntelOpen(false)}
+                        />
+                    )
+                })()}
 
-                                <div>
-                                    <p className="text-xs text-muted-foreground">Select primary and secondary keywords</p>
-                                    <div className="mt-2 rounded-lg border border-border bg-muted/20 p-2 text-xs">
-                                        <p className="text-muted-foreground">
-                                            Primary: <span className="text-foreground">{keywordLabPrimary || 'Not selected'}</span>
-                                            {keywordLabPrimary ? ` · ${getKeywordLabMetricText(keywordLabPrimary)}` : ''}
-                                        </p>
-                                        <p className="mt-1 text-muted-foreground">
-                                            Secondary: <span className="text-foreground">
-                                                {Array.from(keywordLabSecondary).filter((k) => k !== keywordLabPrimary).join(', ') || 'None selected'}
-                                            </span>
-                                        </p>
-                                        <p className="mt-1 text-[11px] text-muted-foreground">
-                                            Note: Apply re-validates selected keywords with a fresh DataForSEO fetch.
-                                        </p>
-                                    </div>
-                                    <div className="mt-1 max-h-72 overflow-auto rounded-lg border border-border">
-                                        {keywordLabResults.length === 0 ? (
-                                            <p className="p-3 text-xs text-muted-foreground">Run metrics or related search to load results.</p>
-                                        ) : (
-                                            <div className="divide-y divide-border">
-                                                {keywordLabResults.map((row: any, idx: number) => {
-                                                    const kw = String(row.keyword || '')
-                                                    const isPrimary = keywordLabPrimary === kw
-                                                    const isSecondary = keywordLabSecondary.has(kw)
-                                                    return (
-                                                        <div key={`${kw}-${idx}`} className="flex items-center justify-between px-3 py-2 text-xs">
-                                                            <div>
-                                                                <p className="text-foreground">{kw}</p>
-                                                                <p className="text-muted-foreground">V{row.search_volume || 0} · KD{row.keyword_difficulty || 0} · CPC {row.cpc || 0}</p>
-                                                            </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <label className="inline-flex items-center gap-1 text-muted-foreground">
-                                                                    <input
-                                                                        type="radio"
-                                                                        checked={isPrimary}
-                                                                        onChange={() => setKeywordLabPrimary(kw)}
-                                                                    />
-                                                                    P
-                                                                </label>
-                                                                <label className="inline-flex items-center gap-1 text-muted-foreground">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={isSecondary}
-                                                                        onChange={() => {
-                                                                            setKeywordLabSecondary((prev) => {
-                                                                                const next = new Set(prev)
-                                                                                if (next.has(kw)) next.delete(kw)
-                                                                                else next.add(kw)
-                                                                                return next
-                                                                            })
-                                                                        }}
-                                                                    />
-                                                                    S
-                                                                </label>
-                                                            </div>
-                                                        </div>
-                                                    )
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="mt-4 flex justify-end gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setKeywordLabOpen(false)}
-                                    className="rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground hover:bg-muted"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={applyKeywordLab}
-                                    disabled={keywordLabLoading || !keywordLabPrimary || keywordLabArticle._source !== 'titles'}
-                                    className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/15 disabled:opacity-60"
-                                >
-                                    Apply Selected Keywords
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
             </div>
         </div>
     )
