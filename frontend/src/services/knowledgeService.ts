@@ -6,6 +6,12 @@ interface KnowledgeServiceDeps {
     ragUrl?: string; // Optional, can be fetched from settings if not provided
 }
 
+const DEFAULT_RAG_URL = import.meta.env.VITE_RAG_API_URL || 'https://rag.buildomain.com';
+
+function getRagBaseUrl(ragUrl?: string): string {
+    return (ragUrl || DEFAULT_RAG_URL).replace(/\/+$/, '');
+}
+
 export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) => {
 
     // --- Collections ---
@@ -87,11 +93,7 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
         formData.append('docid', docId);
         formData.append('collection_name', collectionName);
 
-        // Ideally ragUrl should be passed or fetched. 
-        // Fallback to local default if generic logic is needed, 
-        // but implementation plan assumed fetching from settings. 
-        // For now using the provided one or default.
-        const baseUrl = ragUrl || 'http://127.0.0.1:8080';
+        const baseUrl = getRagBaseUrl(ragUrl);
 
         const response = await fetch(`${baseUrl}/upload`, {
             method: 'POST',
@@ -137,7 +139,7 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
 
     // "Start" behavior based on Reference 3/4: Bulk Enhance Knowledge (Gap Filling)
     const fillKnowledgeGaps = async (titles: Title[], collectionName: string): Promise<any> => {
-        const baseUrl = ragUrl || 'http://127.0.0.1:8080';
+        const baseUrl = getRagBaseUrl(ragUrl);
         const titleIds = titles.map(t => t.id);
 
         // Extract content outlines map
@@ -167,7 +169,7 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
 
     // "Enhance+" behavior based on Reference 5: Additional Enhancement
     const enhanceKnowledge = async (titles: Title[], collectionName: string): Promise<any> => {
-        const baseUrl = ragUrl || 'http://127.0.0.1:8080';
+        const baseUrl = getRagBaseUrl(ragUrl);
         const titleIds = titles.map(t => t.id);
 
         // Extract content outlines map

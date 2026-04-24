@@ -41,7 +41,7 @@ class DeepResearchService:
         # checking previous file reads, it seems RAGService is in topic_analysis/backend/src/services/rag_service.py
         # but pure `rag_client.py` is in the root. 
         # based on existing code, we might use requests directly as user approved "external RAG service"
-        self.rag_api_url = os.getenv("RAG_API_URL") or "http://localhost:8081" 
+        self.rag_api_url = os.getenv("RAG_API_URL") or self.settings.rag_api_url
 
     def _get_api_key_from_db(self, provider: str) -> Optional[str]:
         """Fetch API key from Supabase if not in env"""

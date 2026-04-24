@@ -3,8 +3,8 @@
 This guide details how to interact with the deployed RAG system API.
 
 ## Base URL
-When deployed on Coolify, your API will be accessible at the endpoint provided in the Coolify dashboard (e.g., `https://rag-system.your-domain.com`).
-If you haven't configured a domain, it might be `http://<vps-ip>:8081` (depending on your port mapping).
+For internal server-to-server calls on the same VPS/Coolify host, use `http://localhost:8081`.
+If you need the public domain instead, use `https://rag.buildomain.com`.
 
 > [!WARNING]
 > **Authentication Note**: The current API implementation **does not** enforce authentication (API keys) by default. It is recommended to configure Basic Auth or similar on your reverse proxy (Coolify/Nginx) or implement API key logic in the application if exposed publicly.
@@ -41,7 +41,7 @@ Upload a PDF, DOCX, or TXT file to be indexed.
 ```python
 import requests
 
-url = "https://your-api-url.com/upload"
+url = "http://localhost:8081/upload"
 files = {
     'file': ('contract.pdf', open('docs/contract.pdf', 'rb'), 'application/pdf')
 }
@@ -73,7 +73,7 @@ Search your documents using RAG.
 
 **Example (cURL)**:
 ```bash
-curl -X POST https://your-api-url.com/query_hybrid_enhanced \
+curl -X POST http://localhost:8081/query_hybrid_enhanced \
   -H "Content-Type: application/json" \
   -d '{
     "query": "Explain the project timeline",
@@ -121,7 +121,7 @@ class RagClient:
         return response.json()
 
 # Usage
-client = RagClient("https://rag-system.your-domain.com")
+client = RagClient("http://localhost:8081")
 print(client.health())
 print(client.query("Summarize the Q3 report", collection="financials"))
 ```

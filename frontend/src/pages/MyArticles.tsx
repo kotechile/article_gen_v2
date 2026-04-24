@@ -605,6 +605,10 @@ export const MyArticles: React.FC = () => {
         }
     }
 
+    const handleOpenKnowledgeGaps = () => {
+        navigate('/knowledge-gaps')
+    }
+
     const handleDelete = async (id: string) => {
         const target = articles.find(a => a.id === id)
         if (!target) return
@@ -841,6 +845,13 @@ export const MyArticles: React.FC = () => {
                                 <span>Delete ({selectedIds.size})</span>
                             </button>
                         )}
+                        <button
+                            onClick={handleOpenKnowledgeGaps}
+                            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-blue-500/20 bg-blue-500/10 px-3.5 text-sm text-blue-400 transition hover:bg-blue-500/15"
+                        >
+                            <Sparkles className="h-3.5 w-3.5" />
+                            <span>Knowledge Gaps</span>
+                        </button>
                         <button
                             onClick={handleCreateNew}
                             className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-3.5 text-sm text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground"

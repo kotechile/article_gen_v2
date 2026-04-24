@@ -52,6 +52,7 @@ content_generator_v2/
    cp .env.example .env
    # Edit .env with your API keys and configuration
    ```
+   Set `RAG_API_URL=http://localhost:8081` for same-server RAG access, or use `https://rag.buildomain.com` if you need the public domain.
 
 3. **Run Tests**:
    ```bash
@@ -89,7 +90,7 @@ curl -X POST http://localhost:5001/api/v1/research \
     "target_word_count": 2000,
     "rag_enabled": true,
     "rag_collection": "medical_knowledge",
-    "rag_endpoint": "https://your-rag-endpoint.com/query",
+    "rag_endpoint": "http://localhost:8081/query_hybrid_enhanced",
     "rag_llm_provider": "openai"
   }'
 ```

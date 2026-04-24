@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     
     # External APIs - All API keys are now stored in Supabase api_keys table
     # Only keeping non-API-key configuration here
+    rag_api_url: Optional[str] = Field(default="http://localhost:8081", env="RAG_API_URL")
     
     # Amazon Associates (tag, not API key)
     amazon_associates_tag: Optional[str] = Field(default=None, env="AMAZON_ASSOCIATES_TAG")
