@@ -35,6 +35,8 @@ const ALLOWED_ATTRS = new Set([
     'height',
     'x',
     'y',
+    'dx',
+    'dy',
     'cx',
     'cy',
     'r',
