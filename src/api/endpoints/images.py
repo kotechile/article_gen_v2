@@ -9,6 +9,8 @@ import logging
 import os
 import io
 import base64
+import asyncio
+import re
 import requests
 from datetime import datetime
 from flask import Blueprint, request, jsonify, current_app
@@ -18,6 +20,7 @@ from werkzeug.utils import secure_filename
 
 from supabase_client import get_supabase_client, get_api_key
 from ...core.models.errors import ErrorResponse, ValidationErrorResponse
+from ...services.llm.providers import get_provider_class
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,157 @@ limiter = Limiter(
     default_limits=["1000 per hour", "60 per minute"],
     storage_uri="memory://"
 )
+
+
+def _query_llm_provider_rows(client, filters, require_active=True):
+    query = client.table('llm_providers').select('*')
+    for field, value in filters:
+        query = query.eq(field, value)
+
+    if require_active:
+        query = query.eq('is_active', True)
+
+    try:
+        return query.execute()
+    except Exception as exc:
+        message = str(exc)
+        if require_active and "llm_providers.is_active" in message and "does not exist" in message:
+            fallback_query = client.table('llm_providers').select('*')
+            for field, value in filters:
+                fallback_query = fallback_query.eq(field, value)
+            return fallback_query.execute()
+        raise
+
+
+def _resolve_infographic_llm(client, llm_model=None):
+    raw_model = (llm_model or '').strip()
+    provider_hint = None
+    model_hint = raw_model
+
+    if '/' in raw_model:
+        provider_hint, model_hint = [part.strip() for part in raw_model.split('/', 1)]
+
+    provider_row = None
+
+    if model_hint:
+        candidate_results = []
+        filters = [('model_name', model_hint)]
+        if provider_hint:
+            filters.insert(0, ('provider', provider_hint))
+        candidate_results.append(_query_llm_provider_rows(client, filters, require_active=True))
+
+        if not candidate_results[-1].data:
+            try:
+                candidate_results.append(_query_llm_provider_rows(client, [('name', raw_model)], require_active=True))
+            except Exception as exc:
+                if "llm_providers.name" not in str(exc):
+                    raise
+
+        if not candidate_results[-1].data and provider_hint:
+            candidate_results.append(_query_llm_provider_rows(client, [('provider', provider_hint)], require_active=True))
+
+        for result in candidate_results:
+            if result.data:
+                provider_row = result.data[0]
+                break
+
+    if not provider_row:
+        default_result = _query_llm_provider_rows(client, [('is_default', True)], require_active=True)
+        if default_result.data:
+            provider_row = default_result.data[0]
+
+    if not provider_row:
+        fallback_result = client.table('llm_providers').select('*').limit(1).execute()
+        if fallback_result.data:
+            provider_row = fallback_result.data[0]
+
+    if not provider_row:
+        raise ValueError("No LLM providers are configured")
+
+    key_id = provider_row.get('api_keys_id') or provider_row.get('api_key_id')
+    api_key = None
+    base_url = provider_row.get('base_url')
+
+    if key_id:
+        key_result = client.table('api_keys').select('*').eq('id', key_id).execute()
+        if key_result.data:
+            key_row = key_result.data[0]
+            api_key = key_row.get('key_value')
+            if not base_url:
+                base_url = key_row.get('base_url')
+
+    if not api_key:
+        api_key = current_app.config.get('LITELLM_API_KEY')
+
+    if not api_key:
+        raise ValueError("Selected LLM provider is missing an API key")
+
+    provider_name = (provider_row.get('provider') or provider_row.get('provider_name') or 'google').strip().lower()
+    model_name = (provider_row.get('model_name') or model_hint or 'gemini-1.5-flash').strip()
+    return {
+        'api_key': api_key,
+        'base_url': base_url,
+        'model_name': model_name,
+        'provider_name': provider_name,
+    }
+
+
+def _extract_svg_markup(content):
+    if not content:
+        return ""
+
+    cleaned = str(content).strip()
+    cleaned = re.sub(r'^```(?:svg|xml)?\s*', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\s*```$', '', cleaned)
+
+    match = re.search(r'(<svg[\s\S]*?</svg>)', cleaned, flags=re.IGNORECASE)
+    if match:
+        cleaned = match.group(1).strip()
+
+    if cleaned.lower().startswith('<?xml'):
+        xml_end = cleaned.find('?>')
+        if xml_end != -1:
+            cleaned = cleaned[xml_end + 2:].strip()
+
+    return cleaned
+
+
+def _build_svg_infographic_prompt(text, accent_color, text_color, secondary_color=None, neutral_color=None):
+    secondary = secondary_color or accent_color
+    neutral = neutral_color or "#94a3b8"
+    return f"""System instruction:
+You are a graphic design agent specializing in SVG infographics.
+Analyze the provided text, extract the 3 to 5 most important data points, steps, or takeaways, and visualize them as a modern editorial infographic.
+
+Output contract:
+- Return only raw SVG code.
+- Do not use markdown fences.
+- Do not include any explanation before or after the SVG.
+- The output must be exactly one <svg>...</svg> document.
+
+Visual design rules:
+- Use a modern, clean, flat-design style.
+- Use a 16:9 aspect ratio.
+- Include a responsive viewBox.
+- Keep the background transparent. Do not draw a full-canvas solid background rectangle.
+- Use professional web-safe sans-serif fonts such as Arial, Helvetica, Verdana, sans-serif.
+- Ensure all text is large enough and high-contrast enough to be legible inside an article body on desktop and mobile.
+- Use this palette consistently:
+  - Primary text: {text_color}
+  - Accent: {accent_color}
+  - Secondary accent: {secondary}
+  - Neutral/supporting color: {neutral}
+- Create clear hierarchy with a concise title, 3 to 5 cards, steps, metrics, or labeled sections.
+- Favor balanced spacing, alignment, and visual clarity over decoration.
+
+Technical rules:
+- Avoid scripts, animation, foreignObject, external assets, and embedded raster images.
+- Keep the SVG self-contained.
+- Prefer straightforward shapes, lines, labels, and simple icons built from SVG primitives.
+
+Text to transform:
+\"\"\"{text.strip()}\"\"\"
+"""
 
 
 def upload_to_supabase_storage(file_data: bytes, filename: str, user_id: str, content_type: str = 'image/jpeg') -> str:
@@ -659,6 +813,90 @@ def get_infographic_templates():
         
     except Exception as e:
         logger.error(f"Error fetching infographic templates: {str(e)}", exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message=str(e),
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@images_bp.route('/infographic/generate-svg', methods=['POST'])
+@limiter.limit("10 per minute")
+def generate_infographic_svg():
+    """Generate raw SVG infographic markup from selected article text."""
+    try:
+        if not request.is_json:
+            return jsonify(ErrorResponse(
+                error="invalid_content_type",
+                message="Content-Type must be application/json",
+                error_code="INVALID_CONTENT_TYPE",
+                status=400
+            ).dict()), 400
+
+        data = request.get_json() or {}
+        text = (data.get('text') or '').strip()
+        user_id = data.get('user_id')
+        llm_model = data.get('llmModel')
+        theme = data.get('theme') or {}
+        accent_color = (theme.get('accent') or '#3b82f6').strip()
+        text_color = (theme.get('text') or '#1e293b').strip()
+        secondary_color = (theme.get('secondary') or '').strip() or None
+        neutral_color = (theme.get('neutral') or '').strip() or None
+
+        if not text or not user_id:
+            return jsonify(ErrorResponse(
+                error="missing_parameters",
+                message="text and user_id are required",
+                error_code="MISSING_PARAMETERS",
+                status=400
+            ).dict()), 400
+
+        client = get_supabase_client()
+        if not client:
+            return jsonify(ErrorResponse(
+                error="database_error",
+                message="Database connection failed",
+                error_code="DATABASE_ERROR",
+                status=500
+            ).dict()), 500
+
+        llm_config = _resolve_infographic_llm(client, llm_model)
+        ProviderClass = get_provider_class(llm_config['provider_name'])
+        llm = ProviderClass(
+            api_key=llm_config['api_key'],
+            model_name=llm_config['model_name'],
+            base_url=llm_config['base_url']
+        )
+
+        prompt = _build_svg_infographic_prompt(text, accent_color, text_color, secondary_color, neutral_color)
+        retry_prompt = f"""{prompt}
+
+Your previous attempt did not return a valid SVG. Retry and return only a single <svg>...</svg> document."""
+
+        svg_markup = ""
+        for attempt_prompt in (prompt, retry_prompt):
+            response = asyncio.run(llm.generate(
+                attempt_prompt,
+                temperature=0.2,
+                max_tokens=3000,
+                top_p=0.9,
+            ))
+            svg_markup = _extract_svg_markup(response.content)
+            if svg_markup.lower().startswith('<svg'):
+                break
+
+        if not svg_markup.lower().startswith('<svg'):
+            raise ValueError("LLM did not return a valid SVG document")
+
+        return jsonify({
+            "svg": svg_markup,
+            "provider": llm_config['provider_name'],
+            "model": llm_config['model_name'],
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error generating infographic SVG: {str(e)}", exc_info=True)
         return jsonify(ErrorResponse(
             error="internal_error",
             message=str(e),

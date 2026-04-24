@@ -61,6 +61,21 @@ interface ApplicationSettings {
     [key: string]: any;
 }
 
+const normalizeOptionalHexColor = (value?: string) => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    return /^#?[0-9a-fA-F]{6}$/.test(trimmed)
+        ? (trimmed.startsWith('#') ? trimmed : `#${trimmed}`)
+        : trimmed;
+};
+
+const normalizeProjectDomain = (value?: string) =>
+    String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//, '')
+        .replace(/\/$/, '');
+
 export const Settings: React.FC = () => {
     const { user } = useAuth();
     const { refreshProjects } = useProject();
@@ -332,7 +347,17 @@ export const Settings: React.FC = () => {
         }
         setIsSaving(true);
         try {
-            const payload = { ...formData, user_id: user.id };
+            const normalizedDomain = normalizeProjectDomain(formData.domain) || null;
+            const payload = {
+                ...formData,
+                user_id: user.id,
+                domain: normalizedDomain,
+                brand_primary_color: normalizeOptionalHexColor(formData.brand_primary_color) || null,
+                brand_text_color: normalizeOptionalHexColor(formData.brand_text_color) || null,
+                brand_secondary_color: normalizeOptionalHexColor(formData.brand_secondary_color) || null,
+                brand_neutral_color: normalizeOptionalHexColor(formData.brand_neutral_color) || null,
+                branding_updated_at: new Date().toISOString(),
+            };
             let saveError;
             if (editingId && editingId !== 'new') {
                 const { error: err } = await supabase.from('projects').update(payload).eq('id', editingId);
@@ -342,6 +367,40 @@ export const Settings: React.FC = () => {
                 saveError = err;
             }
             if (saveError) throw saveError;
+
+            if (normalizedDomain) {
+                const wpBrandPayload = {
+                    user_id: user.id,
+                    domain: normalizedDomain,
+                    app_name: payload.app_name || null,
+                    wpUserName: payload.wpUserName || null,
+                    wordpress_key: payload.wordpress_key || null,
+                    brand_primary_color: payload.brand_primary_color,
+                    brand_text_color: payload.brand_text_color,
+                    brand_secondary_color: payload.brand_secondary_color,
+                    brand_neutral_color: payload.brand_neutral_color,
+                    branding_updated_at: payload.branding_updated_at,
+                };
+
+                const { data: existingWpSite } = await supabase
+                    .from('wordPress_details')
+                    .select('id')
+                    .eq('user_id', user.id)
+                    .eq('domain', normalizedDomain)
+                    .maybeSingle();
+
+                if (existingWpSite?.id) {
+                    await supabase
+                        .from('wordPress_details')
+                        .update(wpBrandPayload)
+                        .eq('id', existingWpSite.id);
+                } else if (showWpFields || payload.brand_primary_color || payload.brand_text_color || payload.brand_secondary_color || payload.brand_neutral_color) {
+                    await supabase
+                        .from('wordPress_details')
+                        .insert([wpBrandPayload]);
+                }
+            }
+
             setEditingId(null);
             setFormData({});
             setShowWpFields(false);
@@ -726,6 +785,97 @@ export const Settings: React.FC = () => {
                                                 onChange={e => setFormData({ ...formData, targetAudienceDescription: e.target.value })}
                                                 className="h-10 rounded-lg"
                                             />
+                                        </div>
+                                        <div className="space-y-3 md:col-span-2 rounded-xl border border-border bg-background p-4">
+                                            <div>
+                                                <Label className="text-xs font-semibold">Brand Colors</Label>
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                    Used for infographic generation and site-aware visual styling. These act as the project default.
+                                                </p>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs font-semibold">Primary Accent</Label>
+                                                    <div className="flex items-center gap-3">
+                                                        <Input
+                                                            type="color"
+                                                            value={normalizeOptionalHexColor(formData.brand_primary_color) || '#3b82f6'}
+                                                            onChange={e => setFormData({ ...formData, brand_primary_color: e.target.value })}
+                                                            className="h-10 w-16 rounded-lg p-1"
+                                                        />
+                                                        <Input
+                                                            placeholder="#3b82f6"
+                                                            value={formData.brand_primary_color || ''}
+                                                            onChange={e => setFormData({ ...formData, brand_primary_color: e.target.value })}
+                                                            className="h-10 rounded-lg font-mono"
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs font-semibold">Primary Text</Label>
+                                                    <div className="flex items-center gap-3">
+                                                        <Input
+                                                            type="color"
+                                                            value={normalizeOptionalHexColor(formData.brand_text_color) || '#1e293b'}
+                                                            onChange={e => setFormData({ ...formData, brand_text_color: e.target.value })}
+                                                            className="h-10 w-16 rounded-lg p-1"
+                                                        />
+                                                        <Input
+                                                            placeholder="#1e293b"
+                                                            value={formData.brand_text_color || ''}
+                                                            onChange={e => setFormData({ ...formData, brand_text_color: e.target.value })}
+                                                            className="h-10 rounded-lg font-mono"
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs font-semibold">Secondary Accent (optional)</Label>
+                                                    <div className="flex items-center gap-3">
+                                                        <Input
+                                                            type="color"
+                                                            value={normalizeOptionalHexColor(formData.brand_secondary_color) || '#60a5fa'}
+                                                            onChange={e => setFormData({ ...formData, brand_secondary_color: e.target.value })}
+                                                            className="h-10 w-16 rounded-lg p-1"
+                                                        />
+                                                        <Input
+                                                            placeholder="#60a5fa"
+                                                            value={formData.brand_secondary_color || ''}
+                                                            onChange={e => setFormData({ ...formData, brand_secondary_color: e.target.value })}
+                                                            className="h-10 rounded-lg font-mono"
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs font-semibold">Neutral (optional)</Label>
+                                                    <div className="flex items-center gap-3">
+                                                        <Input
+                                                            type="color"
+                                                            value={normalizeOptionalHexColor(formData.brand_neutral_color) || '#94a3b8'}
+                                                            onChange={e => setFormData({ ...formData, brand_neutral_color: e.target.value })}
+                                                            className="h-10 w-16 rounded-lg p-1"
+                                                        />
+                                                        <Input
+                                                            placeholder="#94a3b8"
+                                                            value={formData.brand_neutral_color || ''}
+                                                            onChange={e => setFormData({ ...formData, brand_neutral_color: e.target.value })}
+                                                            className="h-10 rounded-lg font-mono"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2 pt-1">
+                                                {[formData.brand_primary_color, formData.brand_text_color, formData.brand_secondary_color, formData.brand_neutral_color]
+                                                    .map((color) => normalizeOptionalHexColor(color))
+                                                    .filter(Boolean)
+                                                    .map((color) => (
+                                                        <span
+                                                            key={color}
+                                                            className="h-8 w-8 rounded-full border border-border shadow-sm"
+                                                            style={{ backgroundColor: color }}
+                                                            title={color}
+                                                        />
+                                                    ))}
+                                            </div>
                                         </div>
                                     </div>
 

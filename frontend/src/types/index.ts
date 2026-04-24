@@ -78,6 +78,11 @@ export interface Project {
     site_description?: string;
     websiteDescription?: string;
     targetAudienceDescription?: string;
+    brand_primary_color?: string;
+    brand_text_color?: string;
+    brand_secondary_color?: string;
+    brand_neutral_color?: string;
+    branding_updated_at?: string;
     categories?: string;
     last_trend_report?: any;
     target_keywords?: string[];
@@ -95,6 +100,11 @@ export interface WordPressDetail {
     websiteDescription?: string;
     targetAudienceDescription?: string;
     site_description?: string;
+    brand_primary_color?: string;
+    brand_text_color?: string;
+    brand_secondary_color?: string;
+    brand_neutral_color?: string;
+    branding_updated_at?: string;
     last_trend_report?: any;
     target_keywords?: string[];
 }

@@ -1,8 +1,9 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
+import { useProject } from '../context/project-context';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { Extension } from '@tiptap/core';
 import BulletList from '@tiptap/extension-bullet-list';
@@ -14,7 +15,7 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableRow } from '@tiptap/extension-table-row';
 import CharacterCount from '@tiptap/extension-character-count';
-import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2 } from 'lucide-react';
+import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn } from 'lucide-react';
 import axios from 'axios';
 import { assembleArticleHtml } from '../lib/contentParser';
 import { AddImageModal } from '../components/AddImageModal';
@@ -24,6 +25,11 @@ import { Gauge } from '../components/Gauge';
 import { METRIC_EXPLANATIONS } from '../types/metrics';
 import { MetricTooltip } from '../components/Tooltip';
 import type { ImageMetadata } from '../types/image';
+import { rankCitationDomains } from '../lib/citationAuthority';
+import { InfographicBlock } from '../components/editor/InfographicBlock';
+import { encodeSvgMarkup, materializeInfographicHtml, normalizeInfographicHtmlForEditor, sanitizeSvgMarkup } from '../lib/infographicSvg';
+import { generateInfographicSvg } from '../services/imageService';
+import type { Project } from '../types';
 
 const HeadingIdExtension = Extension.create({
     name: 'headingId',
@@ -64,13 +70,14 @@ const CustomBulletList = BulletList.extend({
 interface ToolbarButtonProps {
     onClick: () => void;
     isActive?: boolean;
+    disabled?: boolean;
     icon: React.ReactNode;
     title?: string;
     tooltip?: string;
     size?: 'sm' | 'md';
 }
 
-const ToolbarButton: React.FC<ToolbarButtonProps> = ({ onClick, isActive, icon, title, tooltip, size = 'md' }) => {
+const ToolbarButton: React.FC<ToolbarButtonProps> = ({ onClick, isActive, disabled, icon, title, tooltip, size = 'md' }) => {
     const [showTooltip, setShowTooltip] = useState(false);
     const displayTitle = tooltip || title || '';
     const paddingClass = size === 'sm' ? 'p-1' : 'p-2';
@@ -79,9 +86,10 @@ const ToolbarButton: React.FC<ToolbarButtonProps> = ({ onClick, isActive, icon, 
         <div className="relative flex flex-col items-center">
             <button
                 onClick={onClick}
+                disabled={disabled}
                 onMouseEnter={() => setShowTooltip(true)}
                 onMouseLeave={() => setShowTooltip(false)}
-                className={`${paddingClass} rounded-lg transition-colors ${isActive
+                className={`${paddingClass} rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isActive
                     ? 'bg-accent text-accent-foreground'
                     : 'text-muted-foreground hover:bg-muted'
                     }`}
@@ -113,6 +121,69 @@ const getMetricColorClass = (score: number, isInverse: boolean = false) => {
         return "text-destructive";
     }
 };
+
+const clampColorChannel = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
+
+const hslToHex = (h: number, s: number, l: number) => {
+    const saturation = s / 100;
+    const lightness = l / 100;
+    const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+    const huePrime = ((h % 360) + 360) % 360 / 60;
+    const x = chroma * (1 - Math.abs((huePrime % 2) - 1));
+
+    let r = 0;
+    let g = 0;
+    let b = 0;
+
+    if (huePrime >= 0 && huePrime < 1) {
+        r = chroma; g = x; b = 0;
+    } else if (huePrime < 2) {
+        r = x; g = chroma; b = 0;
+    } else if (huePrime < 3) {
+        r = 0; g = chroma; b = x;
+    } else if (huePrime < 4) {
+        r = 0; g = x; b = chroma;
+    } else if (huePrime < 5) {
+        r = x; g = 0; b = chroma;
+    } else {
+        r = chroma; g = 0; b = x;
+    }
+
+    const match = lightness - chroma / 2;
+    const toHex = (channel: number) => clampColorChannel((channel + match) * 255).toString(16).padStart(2, '0');
+
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+};
+
+const cssColorTokenToHex = (value: string, fallback: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return fallback;
+
+    if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(trimmed)) {
+        return trimmed;
+    }
+
+    const hslMatch = trimmed.match(/(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%/);
+    if (!hslMatch) return fallback;
+
+    const [, h, s, l] = hslMatch;
+    return hslToHex(Number(h), Number(s), Number(l));
+};
+
+const normalizeHexColor = (value?: string | null) => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    return /^#?[0-9a-fA-F]{6}$/.test(trimmed)
+        ? (trimmed.startsWith('#') ? trimmed : `#${trimmed}`)
+        : '';
+};
+
+const normalizeDomain = (value?: string | null) =>
+    String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//, '')
+        .replace(/\/$/, '');
 
 const EditorStyles = `
   /* Table Styles */
@@ -201,15 +272,69 @@ const EditorStyles = `
   .citation-link.hidden-citation {
     display: none;
   }
+
+  .ProseMirror .zenith-infographic-container {
+    display: flex;
+    justify-content: center;
+    margin: 1.75rem auto;
+    width: 100%;
+  }
+  .ProseMirror .zenith-infographic-container svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border-radius: 1rem;
+    box-shadow: 0 18px 40px hsl(var(--foreground) / 0.08);
+    background: white;
+  }
+  .ProseMirror .zenith-infographic-loading-shell,
+  .ProseMirror .zenith-infographic-error {
+    width: min(100%, 720px);
+    min-height: 180px;
+    border: 1px solid hsl(var(--border));
+    border-radius: 1rem;
+    background: linear-gradient(135deg, hsl(var(--background)), hsl(var(--muted) / 0.55));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.875rem;
+    padding: 1.25rem;
+    color: hsl(var(--foreground));
+  }
+  .ProseMirror .zenith-infographic-loading-copy,
+  .ProseMirror .zenith-infographic-error {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .ProseMirror .zenith-infographic-loading-copy span,
+  .ProseMirror .zenith-infographic-error span {
+    color: hsl(var(--muted-foreground));
+    font-size: 0.95rem;
+  }
+  .ProseMirror .zenith-infographic-loading-spinner {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 999px;
+    border: 3px solid hsl(var(--border));
+    border-top-color: hsl(var(--primary));
+    animation: zenith-spin 0.8s linear infinite;
+  }
+  @keyframes zenith-spin {
+    to { transform: rotate(360deg); }
+  }
 `;
 
 export const ArticleEditor: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const { user } = useAuth();
+    const { activeProject, projects } = useProject();
     const navigate = useNavigate();
+    const editorContainerRef = useRef<HTMLDivElement | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [isSuggesting, setIsSuggesting] = useState(false);
+    const [isGeneratingInfographic, setIsGeneratingInfographic] = useState(false);
     const [isDirty, setIsDirty] = useState(false);
 
     // Warn on unsaved changes (Browser Navigation)
@@ -248,10 +373,38 @@ export const ArticleEditor: React.FC = () => {
     // WordPress export state
     const [showWordPressModal, setShowWordPressModal] = useState(false);
     const [articleData, setArticleData] = useState<any>(null);
+    const [resolvedBrandTheme, setResolvedBrandTheme] = useState<{ accent?: string; text?: string; secondary?: string; neutral?: string } | null>(null);
 
     // Metrics & Affiliate State
     const [metrics, setMetrics] = useState<any>({});
     const [affiliateOpportunities, setAffiliateOpportunities] = useState<any>(null);
+    const citationAuthorityMeta = React.useMemo(() => rankCitationDomains(citations), [citations]);
+    const selectedDomainCount = React.useMemo(() => {
+        return new Set(
+            Array.from(selectedCitations)
+                .map((idx) => citationAuthorityMeta[idx]?.domain)
+                .filter(Boolean)
+        ).size;
+    }, [citationAuthorityMeta, selectedCitations]);
+    const isCuratedReferenceView = selectedCitations.size > 0 && selectedCitations.size < citations.length;
+
+    const materializeEditorHtml = React.useCallback((html: string) => materializeInfographicHtml(html), []);
+    const normalizeEditorHtml = React.useCallback((html: string) => normalizeInfographicHtmlForEditor(html), []);
+    const resolveInfographicTheme = React.useCallback(() => {
+        const computed = getComputedStyle(document.documentElement);
+        const appTheme = {
+            accent: cssColorTokenToHex(computed.getPropertyValue('--primary'), '#3b82f6'),
+            text: cssColorTokenToHex(computed.getPropertyValue('--foreground'), '#1e293b'),
+            secondary: cssColorTokenToHex(computed.getPropertyValue('--chart-2'), '#60a5fa'),
+            neutral: cssColorTokenToHex(computed.getPropertyValue('--muted-foreground'), '#94a3b8'),
+        };
+        return {
+            accent: resolvedBrandTheme?.accent || appTheme.accent,
+            text: resolvedBrandTheme?.text || appTheme.text,
+            secondary: resolvedBrandTheme?.secondary || appTheme.secondary,
+            neutral: resolvedBrandTheme?.neutral || appTheme.neutral,
+        };
+    }, [resolvedBrandTheme]);
 
     const extensions = React.useMemo(() => [
         StarterKit.configure({
@@ -277,6 +430,7 @@ export const ArticleEditor: React.FC = () => {
         TableCell,
         CharacterCount,
         HeadingIdExtension,
+        InfographicBlock,
     ], []);
 
     const editor = useEditor({
@@ -298,6 +452,67 @@ export const ArticleEditor: React.FC = () => {
             }
         },
     });
+
+    const hasTextSelection = !!editor && !editor.state.selection.empty && !!editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to).trim();
+
+    const findSelectedBlockPosition = () => {
+        if (!editor) return null;
+
+        const { $from } = editor.state.selection;
+        for (let depth = $from.depth; depth > 0; depth -= 1) {
+            const node = $from.node(depth);
+            if (node.isBlock) {
+                return editor.state.selection.$from.before(depth);
+            }
+        }
+
+        return editor.state.selection.from;
+    };
+
+    const findInfographicNodePosition = (requestId: string) => {
+        if (!editor) return null;
+
+        let foundPos: number | null = null;
+        editor.state.doc.descendants((node, pos) => {
+            if (node.type.name === 'infographicBlock' && node.attrs.requestId === requestId) {
+                foundPos = pos;
+                return false;
+            }
+            return true;
+        });
+
+        return foundPos;
+    };
+
+    const replaceInfographicNode = (requestId: string, attrs: Record<string, unknown>) => {
+        if (!editor) return false;
+
+        const pos = findInfographicNodePosition(requestId);
+        if (pos === null) return false;
+
+        const node = editor.state.doc.nodeAt(pos);
+        if (!node) return false;
+
+        const transaction = editor.state.tr.replaceWith(
+            pos,
+            pos + node.nodeSize,
+            editor.schema.nodes.infographicBlock.create(attrs)
+        );
+        editor.view.dispatch(transaction);
+        return true;
+    };
+
+    const removeInfographicNode = (requestId: string) => {
+        if (!editor) return;
+
+        const pos = findInfographicNodePosition(requestId);
+        if (pos === null) return;
+
+        const node = editor.state.doc.nodeAt(pos);
+        if (!node) return;
+
+        editor.view.dispatch(editor.state.tr.delete(pos, pos + node.nodeSize));
+    };
 
     const extractCitationsFromHtml = (html: string): any[] => {
         const parser = new DOMParser();
@@ -590,7 +805,7 @@ export const ArticleEditor: React.FC = () => {
 
                         content = normalizeCitations(content, parsedCitations, restoredSelected, d.include_in_text_citations ?? d.includeInTextCitations ?? true);
                     }
-                    editor.commands.setContent(content);
+                    editor.commands.setContent(normalizeEditorHtml(content));
                 }
 
                 // Store article data for WordPress export
@@ -607,11 +822,75 @@ export const ArticleEditor: React.FC = () => {
         fetchArticle();
     }, [id, user, editor]);
 
+    useEffect(() => {
+        const resolveBranding = async () => {
+            if (!user) return;
+
+            const articleDomain = normalizeDomain(articleData?.domain);
+            const articleProjectId = String(articleData?.project_id || articleData?.projectId || '').trim();
+
+            const projectById = articleProjectId
+                ? projects.find((project) => project.id === articleProjectId) || null
+                : null;
+            const projectByDomain = articleDomain
+                ? projects.find((project) => normalizeDomain(project.domain) === articleDomain) || null
+                : null;
+            const matchedProject: Project | null = projectById || projectByDomain || activeProject || null;
+
+            const projectTheme = matchedProject ? {
+                accent: normalizeHexColor(matchedProject.brand_primary_color),
+                text: normalizeHexColor(matchedProject.brand_text_color),
+                secondary: normalizeHexColor(matchedProject.brand_secondary_color),
+                neutral: normalizeHexColor(matchedProject.brand_neutral_color),
+            } : null;
+
+            const candidateDomain = articleDomain || normalizeDomain(matchedProject?.domain) || normalizeDomain(activeProject?.domain);
+            let wpOverride: { accent?: string; text?: string; secondary?: string; neutral?: string } | null = null;
+
+            if (candidateDomain) {
+                try {
+                    const { data: wpSite } = await supabase
+                        .from('wordPress_details')
+                        .select('brand_primary_color, brand_text_color, brand_secondary_color, brand_neutral_color')
+                        .eq('user_id', user.id)
+                        .eq('domain', candidateDomain)
+                        .maybeSingle();
+
+                    if (wpSite) {
+                        wpOverride = {
+                            accent: normalizeHexColor((wpSite as any).brand_primary_color),
+                            text: normalizeHexColor((wpSite as any).brand_text_color),
+                            secondary: normalizeHexColor((wpSite as any).brand_secondary_color),
+                            neutral: normalizeHexColor((wpSite as any).brand_neutral_color),
+                        };
+                    }
+                } catch (error) {
+                    console.warn('Brand override lookup failed; falling back to project/app theme.', error);
+                }
+            }
+
+            const merged = {
+                accent: wpOverride?.accent || projectTheme?.accent || '',
+                text: wpOverride?.text || projectTheme?.text || '',
+                secondary: wpOverride?.secondary || projectTheme?.secondary || '',
+                neutral: wpOverride?.neutral || projectTheme?.neutral || '',
+            };
+
+            if (merged.accent || merged.text || merged.secondary || merged.neutral) {
+                setResolvedBrandTheme(merged);
+            } else {
+                setResolvedBrandTheme(null);
+            }
+        };
+
+        resolveBranding();
+    }, [activeProject, articleData, projects, user]);
+
     const handleSave = async () => {
         if (!user || !id || !editor) return;
         setSaving(true);
         try {
-            const htmlContent = editor.getHTML();
+            const htmlContent = materializeEditorHtml(editor.getHTML());
             const selectedIndices = Array.from(selectedCitations);
 
             const { error } = await supabase
@@ -752,6 +1031,71 @@ export const ArticleEditor: React.FC = () => {
         if (!editor) return '';
         const { from, to } = editor.state.selection;
         return editor.state.doc.textBetween(from, to);
+    };
+
+    const handleGenerateInfographic = async () => {
+        if (!editor || !user || isGeneratingInfographic) return;
+
+        const selectedText = getSelectedText().trim();
+        const insertionPos = findSelectedBlockPosition();
+
+        if (!selectedText || insertionPos === null) {
+            alert('Highlight a paragraph or text selection first.');
+            return;
+        }
+
+        const requestId = `infographic-${Date.now()}`;
+        const theme = resolveInfographicTheme();
+        const placeholder = {
+            type: 'infographicBlock',
+            attrs: {
+                loading: true,
+                requestId,
+                svg: '',
+            },
+        };
+
+        editor.chain().focus().insertContentAt(insertionPos, placeholder).run();
+        setIsGeneratingInfographic(true);
+
+        try {
+            const response = await generateInfographicSvg({
+                llmModel: articleData?.LLM || articleData?.llmModel || articleData?.llm_model,
+                text: selectedText,
+                user_id: user.id,
+                theme,
+            });
+
+            const sanitizedSvg = sanitizeSvgMarkup(response.svg);
+            if (!sanitizedSvg.startsWith('<svg')) {
+                throw new Error('The generated infographic was not valid SVG.');
+            }
+
+            const replaced = replaceInfographicNode(requestId, {
+                loading: false,
+                requestId,
+                svg: encodeSvgMarkup(sanitizedSvg),
+            });
+
+            if (!replaced) {
+                editor.chain().focus().insertContent({
+                    type: 'infographicBlock',
+                    attrs: {
+                        loading: false,
+                        requestId,
+                        svg: encodeSvgMarkup(sanitizedSvg),
+                    },
+                }).run();
+            }
+
+            setIsDirty(true);
+        } catch (error) {
+            console.error('Error generating infographic:', error);
+            removeInfographicNode(requestId);
+            alert(error instanceof Error ? error.message : 'Failed to generate infographic');
+        } finally {
+            setIsGeneratingInfographic(false);
+        }
     };
 
     const setLink = () => {
@@ -1087,7 +1431,7 @@ export const ArticleEditor: React.FC = () => {
                                     if (articleData && editor) {
                                         setArticleData({
                                             ...articleData,
-                                            htmlArticle: editor.getHTML(),
+                                            htmlArticle: materializeEditorHtml(editor.getHTML()),
                                             Title: title,
                                             hook: hook,
                                             thesis: thesis,
@@ -1101,15 +1445,16 @@ export const ArticleEditor: React.FC = () => {
                                     }
                                     setShowWordPressModal(true);
                                 }}
-                                className="flex items-center gap-2 px-3 py-2 bg-accent text-accent-foreground rounded-lg hover:bg-accent/80 transition"
+                                disabled={isGeneratingInfographic}
+                                className="flex items-center gap-2 px-3 py-2 bg-accent text-accent-foreground rounded-lg hover:bg-accent/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <Globe className="w-4 h-4" />
                                 <span className="hidden sm:inline">Export to WP</span>
                             </button>
                             <button
                                 onClick={handleSave}
-                                disabled={saving}
-                                className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition shadow-lg"
+                                disabled={saving || isGeneratingInfographic}
+                                className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                                 Save Changes
@@ -1131,12 +1476,17 @@ export const ArticleEditor: React.FC = () => {
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
-                                    onClick={() => setShowReferenceSelector(!showReferenceSelector)}
+                                    onClick={() => setShowReferenceSelector(true)}
                                     className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition ${showReferenceSelector ? 'bg-accent text-accent-foreground' : 'bg-background text-foreground border border-border hover:bg-muted'}`}
                                 >
-                                    <ListOrdered className="w-4 h-4" />
-                                    References
+                                    <Filter className="w-4 h-4" />
+                                    Reference Filter
                                 </button>
+                                {isCuratedReferenceView && (
+                                    <span className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary border border-primary/30">
+                                        Curated: {selectedDomainCount || 0} domains
+                                    </span>
+                                )}
                                 <button
                                     onClick={() => setIsAddImageModalOpen(true)}
                                     className="flex items-center gap-2 px-3 py-1.5 bg-background border border-border rounded-lg hover:bg-muted transition text-sm text-foreground"
@@ -1196,33 +1546,8 @@ export const ArticleEditor: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* References Panel (Conditional) */}
-                        {showReferenceSelector && (
-                            <div className="bg-background rounded-xl shadow-sm border border-border p-6 mb-6">
-                                <div className="flex items-center justify-between mb-4">
-                                    <h3 className="font-semibold text-lg flex items-center gap-2">
-                                        <ListOrdered className="w-5 h-5 text-primary" />
-                                        Reference Manager
-                                    </h3>
-                                    <button
-                                        onClick={() => setShowReferenceSelector(false)}
-                                        className="text-muted-foreground hover:text-foreground"
-                                    >
-                                        ×
-                                    </button>
-                                </div>
-                                <ReferenceSelector
-                                    citations={citations}
-                                    selectedCitations={selectedCitations}
-                                    showInTextCitations={showInTextCitations}
-                                    onApply={(newSelected, newShowInText) => applyReferenceChanges(newSelected, newShowInText)}
-                                    onClose={() => setShowReferenceSelector(false)}
-                                />
-                            </div>
-                        )}
-
                         {/* Editor Toolbar */}
-                        <div className="bg-background rounded-xl shadow-sm border border-border overflow-hidden">
+                        <div ref={editorContainerRef} className="bg-background rounded-xl shadow-sm border border-border overflow-hidden">
                             {/* Toolbar Buttons */}
                             <div className="flex flex-wrap items-center gap-1 p-2 border-b border-border bg-muted/50 text-foreground sticky top-0 z-20">
                                 <ToolbarButton
@@ -1269,9 +1594,20 @@ export const ArticleEditor: React.FC = () => {
                                     tooltip="Add Image"
                                 />
                                 <ToolbarButton
+                                    onClick={handleGenerateInfographic}
+                                    disabled={!hasTextSelection || isGeneratingInfographic}
+                                    icon={isGeneratingInfographic ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChartColumn className="w-4 h-4" />}
+                                    tooltip="Generate Infographic from Selection"
+                                />
+                                <ToolbarButton
                                     onClick={handleSuggestInternalLinks}
                                     icon={isSuggesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
                                     tooltip="Suggest Internal Links from your WP Posts"
+                                />
+                                <ToolbarButton
+                                    onClick={() => setShowReferenceSelector(true)}
+                                    icon={<Filter className="w-4 h-4" />}
+                                    tooltip="Reference Filter"
                                 />
                                 <ToolbarButton
                                     onClick={addTable}
@@ -1602,6 +1938,9 @@ export const ArticleEditor: React.FC = () => {
                         <button onClick={() => { addImage(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
                             <ImageIcon className="w-4 h-4 text-muted-foreground" /> Insert Image
                         </button>
+                        <button onClick={() => { handleGenerateInfographic(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3 disabled:opacity-50" disabled={!hasTextSelection || isGeneratingInfographic}>
+                            {isGeneratingInfographic ? <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" /> : <ChartColumn className="w-4 h-4 text-muted-foreground" />} Generate Infographic
+                        </button>
                         <button onClick={() => { addTable(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
                             <TableIcon className="w-4 h-4 text-muted-foreground" /> Insert Table
                         </button>
@@ -1634,12 +1973,13 @@ export const ArticleEditor: React.FC = () => {
                         </button>
                         <button
                             onClick={() => {
-                                addImage();
+                                handleGenerateInfographic();
                                 setContextMenu(null);
                             }}
+                            disabled={!hasTextSelection || isGeneratingInfographic}
                             className="w-full text-left px-3 py-1.5 hover:bg-accent text-primary rounded-lg text-sm flex items-center gap-3 font-medium"
                         >
-                            <ImageIcon className="w-4 h-4" /> Generate Image from Selection
+                            {isGeneratingInfographic ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChartColumn className="w-4 h-4" />} Generate Infographic from Selection
                         </button>
                     </div>
                 </div>

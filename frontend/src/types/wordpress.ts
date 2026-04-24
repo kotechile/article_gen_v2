@@ -10,6 +10,10 @@ export interface WordPressSite {
     wpUserName: string;
     websiteDescription?: string;
     targetAudienceDescription?: string;
+    brand_primary_color?: string;
+    brand_text_color?: string;
+    brand_secondary_color?: string;
+    brand_neutral_color?: string;
 }
 
 export interface WordPressCategory {

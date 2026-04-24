@@ -145,6 +145,43 @@ export async function generateInfographic(
     return response.json();
 }
 
+export interface GenerateInfographicSvgRequest {
+    llmModel?: string;
+    text: string;
+    theme?: {
+        accent?: string;
+        text?: string;
+        neutral?: string;
+        secondary?: string;
+    };
+    user_id: string;
+}
+
+export interface GenerateInfographicSvgResponse {
+    model: string;
+    provider: string;
+    svg: string;
+}
+
+export async function generateInfographicSvg(
+    request: GenerateInfographicSvgRequest
+): Promise<GenerateInfographicSvgResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/v1/images/infographic/generate-svg`, {
+        method: 'POST',
+        headers: getHeaders({
+            'Content-Type': 'application/json',
+        }),
+        body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to generate infographic SVG');
+    }
+
+    return response.json();
+}
+
 /**
  * Save image metadata to database
  */
