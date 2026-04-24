@@ -152,8 +152,11 @@ def _build_svg_infographic_prompt(text, accent_color, text_color, secondary_colo
     secondary = secondary_color or accent_color
     neutral = neutral_color or "#94a3b8"
     return f"""System instruction:
-Act as a Senior Data Visualizer and SVG Developer.
-Analyze the provided text, extract the most important data points, steps, tradeoffs, or takeaways, and transform them into a professional, high-fidelity, full-color SVG infographic.
+Role: Senior SVG Architect & Creative Coder.
+
+Objective:
+Transform the input text into a high-end, custom-illustrated SVG infographic.
+Analyze the provided text, extract the most important data points, steps, tradeoffs, or takeaways, and visualize them with original geometry rather than generic UI cards.
 
 Output contract:
 - Return ONLY raw <svg> code.
@@ -165,7 +168,7 @@ Output contract:
 
 Visual design rules:
 - Use a modern, vibrant SaaS-style visual language with rich color, depth, contrast, and polish.
-- Favor bold editorial compositions, Bento Grid asymmetry, or subtle Glassmorphism only when it improves the story.
+- Favor bold editorial compositions, sculptural geometry, layered forms, and custom vector illustration.
 - Use viewBox="0 0 800 450" and ensure the SVG is responsive with width="100%" and height="auto".
 - Keep the background transparent overall; do not draw a flat full-canvas solid background rectangle. It is fine to use soft gradient glows, tinted panels, and translucent cards.
 - Use clean, bold sans-serif typography with strong contrast and a clear headline hierarchy.
@@ -180,8 +183,20 @@ Visual design rules:
 - Avoid dull monochrome results, washed-out navy slabs, or near-identical cards. The infographic should feel colorful and intentionally art-directed.
 - Use saturated fills, tinted surfaces, contrast-rich callouts, colored badges, and vivid section differentiation.
 - Include soft gradients using <linearGradient> where helpful for cards, highlights, or backgrounds.
+- Include <radialGradient> where helpful for focal glows, atmosphere, or dimensional depth.
 - Include subtle depth using <filter> effects such as soft drop shadows or glows.
-- Use colorful vector icons or simple geometric illustrations built from SVG primitives to represent the data points visually.
+- Use colorful vector icons, custom geometry, or simple geometric illustrations built from SVG primitives to represent the data points visually.
+- Apply layering and overlapping translucent shapes to create a sense of depth and three-dimensional space.
+
+Geometric requirements (strict):
+- Do NOT default to standard rectangles, rounded rectangles, or square cards as the main composition.
+- Use organic, fluid shapes and custom vector paths.
+- Include at least one organic blob background shape using a complex Bezier-curve <path d="M...">.
+- Use path variety: combine blobs, arcs, wedges, ribbons, rings, tapered bands, cutaway panels, or irregular containers.
+- Instead of generic cards, represent ideas using isometric 3D shapes, sculptural callouts, hand-drawn vector outlines, or content-relevant custom illustrated modules.
+- Connect ideas with curved lines, tapered lines, orbital arcs, or S-curves rather than straight divider lines.
+- Avoid any layout that reads like three standard boxes placed side by side.
+
 - Choose the infographic structure that best matches the source text. Valid structures include:
   - hero stat plus supporting callouts
   - comparison matrix
@@ -189,8 +204,9 @@ Visual design rules:
   - decision framework
   - split-panel pros/cons or tradeoff analysis
   - dashboard with 2 to 4 distinct modules
-  - card-based layout only when the content genuinely fits cards
-- Do not default to three equal-width cards. Use asymmetry, nesting, varied card sizes, or a non-card layout unless the content strongly calls for a three-part comparison.
+  - custom illustrated spatial composition
+  - card-based layout only as a fallback when the content genuinely cannot support a more expressive structure
+- Do not default to three equal-width cards. Use asymmetry, nesting, varied module sizes, curved sections, radial arrangements, or a non-card layout unless the content strongly calls for a simple comparison.
 - Vary the composition between generations when possible so outputs do not feel templated.
 - Create clear hierarchy with a concise title, strong focal area, and only as many sections as the content genuinely needs.
 - Favor balanced spacing, alignment, and visual clarity over decoration.
@@ -214,6 +230,7 @@ Technical rules:
 - Prefer straightforward shapes, labels, data markers, and simple icons built from SVG primitives.
 - Make the SVG production-ready and visually complete without relying on external CSS.
 - Use explicit x/y positioning and tspans for text layout instead of relying on automatic wrapping.
+- All styles must be inline or within a <style> block inside the SVG.
 
 Text to transform:
 \"\"\"{text.strip()}\"\"\"
