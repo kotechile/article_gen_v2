@@ -100,21 +100,58 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
         return data || [];
     };
 
-    const createManualDocument = async (title: string, content: string, collectionId: string): Promise<Document> => {
+    const createManualDocument = async (
+        title: string,
+        content: string,
+        collectionId: string,
+        collectionName: string
+    ): Promise<Document> => {
         const { data, error } = await supabase
             .from('lindex_documents')
             .insert([{
                 title,
-                parsedText: content, // Storing in parsedText as per Noodl manual example
+                parsedText: content,
                 user_id: userId,
                 collectionId,
                 source_type: 'manual',
-                in_vector_store: false // Will need processing likely
+                in_vector_store: false,
+                processing_status: 'pending',
             }])
             .select()
             .single();
 
         if (error) throw error;
+
+        const baseUrl = getRagBaseUrl(ragUrl);
+        const docId = String(data.id);
+        const response = await fetch(`${baseUrl}/upload_text`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+                docid: docId,
+                collection_name: collectionName,
+                text: content,
+                source_type: 'text',
+                metadata: {
+                    user_id: userId,
+                    title,
+                },
+            }),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            await supabase
+                .from('lindex_documents')
+                .delete()
+                .eq('id', data.id)
+                .eq('user_id', userId);
+            throw new Error(`Manual text upload failed: ${errorText || response.statusText}`);
+        }
+
         return data;
     };
 

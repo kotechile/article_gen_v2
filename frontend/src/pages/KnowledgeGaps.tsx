@@ -122,7 +122,7 @@ export const KnowledgeGaps: React.FC = () => {
     const handleManualEntry = async (title: string, content: string) => {
         if (!selectedCollection) return;
         try {
-            await service.createManualDocument(title, content, selectedCollection.id);
+            await service.createManualDocument(title, content, selectedCollection.id, selectedCollection.name);
             // Refresh
             const docs = await service.getDocuments(selectedCollection.id);
             setDocuments(docs);
