@@ -750,7 +750,7 @@ export const ArticleEditor: React.FC = () => {
                             tempHtml = tempHtml.replace(/\s*<hr>\s*<h2>References<\/h2>[\s\S]*$/i, '');
                             tempHtml = tempHtml.replace(/\s*<hr[^>]*>\s*<h2[^>]*>References<\/h2>[\s\S]*$/i, '');
 
-                            // Update in-text markers
+                            // Update in-text markers (linked markers first)
                             const citationRegex = /<a[^>]*class="citation-link"[^>]*>\[\^?(\d+)\]<\/a>|\[\^?(\d+)\]/g;
                             tempHtml = tempHtml.replace(citationRegex, (_match, p1, p2) => {
                                 // Try to get index from data attribute first (stable), fallback to text (unstable)
@@ -770,6 +770,35 @@ export const ArticleEditor: React.FC = () => {
 
                                 return `<a href="${url}" target="_blank" rel="noopener noreferrer" title="${linkTitle}" data-original-index="${originalIndex}" class="citation-link${visibilityClass}" style="color: hsl(var(--primary)); text-decoration: none; font-weight: 500; border-bottom: 1px dotted hsl(var(--primary));">[${newIndex}]</a>`;
                             });
+
+                            // Handle grouped plain markers like [^1, ^3] or [1, 3]
+                            const groupedCitationRegex = /\[(\^?\d+(?:\s*,\s*\^?\d+)*)\]/g;
+                            tempHtml = tempHtml.replace(groupedCitationRegex, (_match, group) => {
+                                const originalIndices = String(group)
+                                    .split(',')
+                                    .map(token => parseInt(token.replace('^', '').trim(), 10) - 1)
+                                    .filter((idx) => Number.isFinite(idx) && currentlySelected.has(idx));
+
+                                if (originalIndices.length === 0 || !showInText) return '';
+
+                                const links = originalIndices.map((originalIndex) => {
+                                    const newIndex = indexMap.get(originalIndex) || (originalIndex + 1);
+                                    const citation = currentCitations[originalIndex];
+                                    const url = citation?.url || '#';
+                                    const title = citation?.title || 'Source';
+                                    const sourceIndicator = citation?.source_type ? ` (${citation.source_type.toUpperCase()})` : '';
+                                    const linkTitle = `${title}${sourceIndicator}`;
+                                    return `<a href="${url}" target="_blank" rel="noopener noreferrer" title="${linkTitle}" data-original-index="${originalIndex}" class="citation-link" style="color: hsl(var(--primary)); text-decoration: none; font-weight: 500; border-bottom: 1px dotted hsl(var(--primary));">[${newIndex}]</a>`;
+                                });
+
+                                return links.join(', ');
+                            });
+
+                            // Strictly remove all in-text citation markers if disabled.
+                            if (!showInText) {
+                                tempHtml = tempHtml.replace(/<a[^>]*class="citation-link[^"]*"[^>]*>\[[^\]]+\]<\/a>/g, '');
+                                tempHtml = tempHtml.replace(/\[\^?\d+(?:\s*,\s*\^?\d+)*\]/g, '');
+                            }
 
                             // Rebuild References section
                             if (currentlySelected.size > 0) {
@@ -998,6 +1027,35 @@ export const ArticleEditor: React.FC = () => {
 
             return `<a href="${url}" target="_blank" rel="noopener noreferrer" title="${linkTitle}" data-original-index="${originalIndex}" class="citation-link${visibilityClass}" style="color: hsl(var(--primary)); text-decoration: none; font-weight: 500; border-bottom: 1px dotted hsl(var(--primary));">[${newIndex}]</a>`;
         });
+
+        // Handle grouped plain markers like [^1, ^3] or [1, 3]
+        const groupedCitationRegex = /\[(\^?\d+(?:\s*,\s*\^?\d+)*)\]/g;
+        htmlContent = htmlContent.replace(groupedCitationRegex, (_match, group) => {
+            const originalIndices = String(group)
+                .split(',')
+                .map(token => parseInt(token.replace('^', '').trim(), 10) - 1)
+                .filter((idx) => Number.isFinite(idx) && selectedIndices.has(idx));
+
+            if (originalIndices.length === 0 || !showInText) return '';
+
+            const links = originalIndices.map((originalIndex) => {
+                const newIndex = indexMap.get(originalIndex) || (originalIndex + 1);
+                const citation = citations[originalIndex];
+                const url = citation?.url || '#';
+                const title = citation?.title || 'Source';
+                const sourceIndicator = citation?.source_type ? ` (${citation.source_type.toUpperCase()})` : '';
+                const linkTitle = `${title}${sourceIndicator}`;
+                return `<a href="${url}" target="_blank" rel="noopener noreferrer" title="${linkTitle}" data-original-index="${originalIndex}" class="citation-link" style="color: hsl(var(--primary)); text-decoration: none; font-weight: 500; border-bottom: 1px dotted hsl(var(--primary));">[${newIndex}]</a>`;
+            });
+
+            return links.join(', ');
+        });
+
+        // Strictly remove all in-text citation markers if disabled.
+        if (!showInText) {
+            htmlContent = htmlContent.replace(/<a[^>]*class="citation-link[^"]*"[^>]*>\[[^\]]+\]<\/a>/g, '');
+            htmlContent = htmlContent.replace(/\[\^?\d+(?:\s*,\s*\^?\d+)*\]/g, '');
+        }
 
         // Step 2: Update References section at the end
         // Remove existing References section (handles various potential formats)
