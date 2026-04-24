@@ -153,7 +153,7 @@ def _build_svg_infographic_prompt(text, accent_color, text_color, secondary_colo
     neutral = neutral_color or "#94a3b8"
     return f"""System instruction:
 Act as a Senior Data Visualizer and SVG Developer.
-Analyze the provided text, extract the 3 to 5 most important data points, steps, or takeaways, and transform them into a professional, high-fidelity, full-color SVG infographic.
+Analyze the provided text, extract the most important data points, steps, tradeoffs, or takeaways, and transform them into a professional, high-fidelity, full-color SVG infographic.
 
 Output contract:
 - Return ONLY raw <svg> code.
@@ -164,8 +164,8 @@ Output contract:
 - Do not return a wireframe, grayscale mockup, or outline-only composition.
 
 Visual design rules:
-- Use a modern, vibrant SaaS-style visual language with rich color, depth, and polish.
-- Favor a Bento Grid or subtle Glassmorphism composition for cards and content groupings.
+- Use a modern, vibrant SaaS-style visual language with rich color, depth, contrast, and polish.
+- Favor bold editorial compositions, Bento Grid asymmetry, or subtle Glassmorphism only when it improves the story.
 - Use viewBox="0 0 800 450" and ensure the SVG is responsive with width="100%" and height="auto".
 - Keep the background transparent overall; do not draw a flat full-canvas solid background rectangle. It is fine to use soft gradient glows, tinted panels, and translucent cards.
 - Use clean, bold sans-serif typography with strong contrast and a clear headline hierarchy.
@@ -176,24 +176,36 @@ Visual design rules:
   - Accent: {accent_color}
   - Secondary accent: {secondary}
   - Neutral/supporting color: {neutral}
-- Treat the palette like a full-color system, not a minimal accent-only scheme. Use saturated fills, tinted surfaces, highlight chips, and contrast-rich callouts.
+- Expand that base palette into a vivid full-color system. Add 1 or 2 complementary highlight hues when helpful, such as electric blue, indigo, coral, amber, teal, or magenta.
+- Avoid dull monochrome results, washed-out navy slabs, or near-identical cards. The infographic should feel colorful and intentionally art-directed.
+- Use saturated fills, tinted surfaces, contrast-rich callouts, colored badges, and vivid section differentiation.
 - Include soft gradients using <linearGradient> where helpful for cards, highlights, or backgrounds.
 - Include subtle depth using <filter> effects such as soft drop shadows or glows.
 - Use colorful vector icons or simple geometric illustrations built from SVG primitives to represent the data points visually.
-- Create clear hierarchy with a concise title, 3 to 5 cards, steps, metrics, or labeled sections.
+- Choose the infographic structure that best matches the source text. Valid structures include:
+  - hero stat plus supporting callouts
+  - comparison matrix
+  - timeline or step flow
+  - decision framework
+  - split-panel pros/cons or tradeoff analysis
+  - dashboard with 2 to 4 distinct modules
+  - card-based layout only when the content genuinely fits cards
+- Do not default to three equal-width cards. Use asymmetry, nesting, varied card sizes, or a non-card layout unless the content strongly calls for a three-part comparison.
+- Vary the composition between generations when possible so outputs do not feel templated.
+- Create clear hierarchy with a concise title, strong focal area, and only as many sections as the content genuinely needs.
 - Favor balanced spacing, alignment, and visual clarity over decoration.
 
 Layout safety rules:
 - Build the composition on a disciplined grid with generous padding and gutters.
-- Reserve clear zones for title/subtitle, content cards, and footer/callout areas so sections never overlap.
-- Every card must have consistent internal padding before any text begins.
-- Do not let text overflow outside a card, badge, label, or panel boundary.
+- Reserve clear zones for title/subtitle, content modules, and footer/callout areas so sections never overlap.
+- Every card, panel, or chart module must have consistent internal padding before any text begins.
+- Do not let text overflow outside a card, panel, badge, label, or boundary.
 - Wrap all multi-line copy intentionally using separate <tspan> lines instead of a single long <text> line.
-- Keep titles short enough to fit cleanly. Card titles should be at most 2 lines.
-- Keep body copy brief and summarized. Card body copy should be at most 3 short lines.
+- Keep titles short enough to fit cleanly. Section titles should be at most 2 lines.
+- Keep body copy brief and summarized. Supporting copy should be at most 2 to 3 short lines per section.
 - If the source text is too long, summarize harder rather than shrinking text to an unreadable size.
 - Use shorter phrases, not sentences copied verbatim from the source paragraph.
-- Avoid any text collisions, clipping, or cross-card overlap.
+- Avoid any text collisions, clipping, or cross-module overlap.
 - Before finalizing, verify that all labels fit within the 800x450 canvas with comfortable margins.
 
 Technical rules:
