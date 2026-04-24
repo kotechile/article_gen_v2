@@ -275,9 +275,9 @@ export const KnowledgeGaps: React.FC = () => {
             `Delete collection "${targetName}"?`,
             '',
             'This will:',
-            '- remove the collection from lindex_collections',
-            '- delete linked lindex_documents rows',
-            '- delete indexed vectors reachable through the current Supabase RPC helpers',
+            '- delete associated lindex_documents rows',
+            '- delete the vector collection from vecs',
+            '- clear the backend engine cache for this collection',
             '',
             'This cannot be undone.',
         ].join('\n');
@@ -298,11 +298,15 @@ export const KnowledgeGaps: React.FC = () => {
 
         setDeletingCollection(true);
         try {
-            await service.deleteCollection(String(selectedCollection.id), targetName);
+            const result = await service.deleteCollection(targetName);
             const updatedCollections = collections.filter((collection) => collection.id !== selectedCollection.id);
             setCollections(updatedCollections);
             setSelectedCollection(updatedCollections[0] || null);
             setDocuments([]);
+
+            const deletedDocuments = result.deleted_documents_count ?? 0;
+            const vectorDeleted = result.vector_collection_deleted ? 'yes' : 'no';
+            alert(`Collection deleted. Documents removed: ${deletedDocuments}. Vector collection deleted: ${vectorDeleted}.`);
         } catch (error: any) {
             console.error('Delete collection failed', error);
             alert(error?.message || 'Failed to delete collection');
@@ -310,8 +314,6 @@ export const KnowledgeGaps: React.FC = () => {
             setDeletingCollection(false);
         }
     };
-
-
 
     if (!user) {
         return (

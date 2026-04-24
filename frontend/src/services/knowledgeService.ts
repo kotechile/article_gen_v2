@@ -37,52 +37,36 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
         return data;
     };
 
-    const deleteCollection = async (collectionId: string, collectionName: string): Promise<void> => {
-        const normalizedCollectionName = collectionName.trim();
+    const deleteCollection = async (
+        collectionName: string
+    ): Promise<{
+        status: string;
+        collection_name: string;
+        collection_id?: number | string;
+        collection_table?: string;
+        deleted_documents_count?: number;
+        documents_found_in_collection?: number;
+        vector_collection_deleted?: boolean;
+        engine_cache_cleared?: boolean;
+    }> => {
+        const baseUrl = getRagBaseUrl(ragUrl);
+        const response = await fetch(`${baseUrl}/collections/delete`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+                collection_name: collectionName.trim(),
+            }),
+        });
 
-        let vectorDocIds: string[] = [];
-        try {
-            const { data, error } = await supabase.rpc('get_collection_docids', {
-                target_collection: normalizedCollectionName,
-            });
-
-            if (error) {
-                throw error;
-            }
-
-            vectorDocIds = (data || [])
-                .map((row: { docid?: string | null }) => row?.docid?.trim())
-                .filter((docid: string | undefined): docid is string => Boolean(docid));
-        } catch (error) {
-            console.warn(`Unable to enumerate vector docids for collection '${normalizedCollectionName}'.`, error);
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Collection delete failed: ${errorText || response.statusText}`);
         }
 
-        for (const docId of vectorDocIds) {
-            const { error } = await supabase.rpc('delete_vector_by_docid', {
-                collection_name_param: normalizedCollectionName,
-                doc_id_param: docId,
-            });
-
-            if (error) {
-                throw error;
-            }
-        }
-
-        const { error: docsError } = await supabase
-            .from('lindex_documents')
-            .delete()
-            .eq('user_id', userId)
-            .eq('collectionId', collectionId);
-
-        if (docsError) throw docsError;
-
-        const { error: collectionError } = await supabase
-            .from('lindex_collections')
-            .delete()
-            .eq('id', collectionId)
-            .eq('user_id', userId);
-
-        if (collectionError) throw collectionError;
+        return await response.json();
     };
 
     // --- Documents ---
