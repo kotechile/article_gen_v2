@@ -886,33 +886,58 @@ export const ArticleEditor: React.FC = () => {
         resolveBranding();
     }, [activeProject, articleData, projects, user]);
 
+    const persistArticle = React.useCallback(async () => {
+        if (!user || !id || !editor) {
+            throw new Error('Editor is not ready yet.');
+        }
+
+        const htmlContent = materializeEditorHtml(editor.getHTML());
+        const selectedIndices = Array.from(selectedCitations);
+
+        const payload = {
+            Title: title,
+            hook: hook,
+            thesis: thesis,
+            deck: deck,
+            htmlArticle: htmlContent,
+            featuredImageURL: featuredImage?.url || null,
+            ImageAuthor: featuredImage?.author || null,
+            mediaAltText: featuredImage?.alt || null,
+            mediaTitle: featuredImage?.title || null,
+            mediaCaption: featuredImage?.caption || null,
+            include_in_text_citations: showInTextCitations,
+            selected_citations: JSON.stringify(selectedIndices)
+        };
+
+        const { error } = await supabase
+            .from('Titles')
+            .update(payload)
+            .eq('id', id);
+
+        if (error) throw error;
+
+        setArticleData((current: any) => current ? { ...current, ...payload } : current);
+        setIsDirty(false);
+        return htmlContent;
+    }, [
+        user,
+        id,
+        editor,
+        materializeEditorHtml,
+        selectedCitations,
+        title,
+        hook,
+        thesis,
+        deck,
+        featuredImage,
+        showInTextCitations
+    ]);
+
     const handleSave = async () => {
         if (!user || !id || !editor) return;
         setSaving(true);
         try {
-            const htmlContent = materializeEditorHtml(editor.getHTML());
-            const selectedIndices = Array.from(selectedCitations);
-
-            const { error } = await supabase
-                .from('Titles')
-                .update({
-                    Title: title,
-                    hook: hook,
-                    thesis: thesis,
-                    deck: deck, // Save the new deck state
-                    htmlArticle: htmlContent,
-                    featuredImageURL: featuredImage?.url || null,
-                    ImageAuthor: featuredImage?.author || null,
-                    mediaAltText: featuredImage?.alt || null,
-                    mediaTitle: featuredImage?.title || null,
-                    mediaCaption: featuredImage?.caption || null,
-                    include_in_text_citations: showInTextCitations,
-                    selected_citations: JSON.stringify(selectedIndices)
-                })
-                .eq('id', id);
-
-            if (error) throw error;
-            setIsDirty(false);
+            await persistArticle();
             alert('Changes saved successfully!');
             // navigate('/my-articles'); // Keep user on page
         } catch (error) {
@@ -1089,6 +1114,7 @@ export const ArticleEditor: React.FC = () => {
             }
 
             setIsDirty(true);
+            await persistArticle();
         } catch (error) {
             console.error('Error generating infographic:', error);
             removeInfographicNode(requestId);
