@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/auth-context';
 import { getKnowledgeService } from '../services/knowledgeService';
 import { CollectionSelector } from '../components/knowledge/CollectionSelector';
@@ -34,6 +34,7 @@ export const KnowledgeGaps: React.FC = () => {
 
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [showManualModal, setShowManualModal] = useState(false);
+    const deletingCollectionRef = useRef(false);
 
     const refreshCollections = async (preferredCollectionId?: string | number | null) => {
         try {
@@ -281,7 +282,7 @@ export const KnowledgeGaps: React.FC = () => {
     };
 
     const handleCollectionDelete = async () => {
-        if (!selectedCollection) return;
+        if (!selectedCollection || deletingCollectionRef.current) return;
 
         const targetName = selectedCollection.name;
         const warningMessage = [
@@ -309,13 +310,13 @@ export const KnowledgeGaps: React.FC = () => {
             return;
         }
 
+        deletingCollectionRef.current = true;
         setDeletingCollection(true);
         try {
             const result = await service.deleteCollection(targetName);
             await refreshCollections();
             setDocuments([]);
             setSelectedDocumentIds(new Set());
-            setDeletingCollection(false);
 
             const deletedDocuments = result.deleted_documents_count ?? 0;
             const vectorDeleted = result.vector_collection_deleted ? 'yes' : 'no';
@@ -324,6 +325,7 @@ export const KnowledgeGaps: React.FC = () => {
             console.error('Delete collection failed', error);
             alert(error?.message || 'Failed to delete collection');
         } finally {
+            deletingCollectionRef.current = false;
             setDeletingCollection(false);
         }
     };
@@ -363,7 +365,7 @@ export const KnowledgeGaps: React.FC = () => {
                     <button
                         type="button"
                         onClick={handleCollectionDelete}
-                        disabled={!selectedCollection || deletingCollection}
+                        disabled={!selectedCollection}
                         className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-400 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                         <Trash2 className="h-4 w-4" />
