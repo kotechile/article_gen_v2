@@ -170,6 +170,7 @@ Visual design rules:
 - Keep the background transparent overall; do not draw a flat full-canvas solid background rectangle. It is fine to use soft gradient glows, tinted panels, and translucent cards.
 - Use clean, bold sans-serif typography with strong contrast and a clear headline hierarchy.
 - Ensure all text is large enough and high-contrast enough to be legible inside an article body on desktop and mobile.
+- Never place light text on a light card or dark text on a dark card. Maintain strong contrast in every section.
 - Use this palette consistently:
   - Primary text: {text_color}
   - Accent: {accent_color}
@@ -182,11 +183,25 @@ Visual design rules:
 - Create clear hierarchy with a concise title, 3 to 5 cards, steps, metrics, or labeled sections.
 - Favor balanced spacing, alignment, and visual clarity over decoration.
 
+Layout safety rules:
+- Build the composition on a disciplined grid with generous padding and gutters.
+- Reserve clear zones for title/subtitle, content cards, and footer/callout areas so sections never overlap.
+- Every card must have consistent internal padding before any text begins.
+- Do not let text overflow outside a card, badge, label, or panel boundary.
+- Wrap all multi-line copy intentionally using separate <tspan> lines instead of a single long <text> line.
+- Keep titles short enough to fit cleanly. Card titles should be at most 2 lines.
+- Keep body copy brief and summarized. Card body copy should be at most 3 short lines.
+- If the source text is too long, summarize harder rather than shrinking text to an unreadable size.
+- Use shorter phrases, not sentences copied verbatim from the source paragraph.
+- Avoid any text collisions, clipping, or cross-card overlap.
+- Before finalizing, verify that all labels fit within the 800x450 canvas with comfortable margins.
+
 Technical rules:
 - Avoid scripts, animation, foreignObject, external assets, and embedded raster images.
 - Keep the SVG self-contained.
 - Prefer straightforward shapes, labels, data markers, and simple icons built from SVG primitives.
 - Make the SVG production-ready and visually complete without relying on external CSS.
+- Use explicit x/y positioning and tspans for text layout instead of relying on automatic wrapping.
 
 Text to transform:
 \"\"\"{text.strip()}\"\"\"
