@@ -8,7 +8,7 @@ import { ManualEntryModal } from '../components/knowledge/ManualEntryModal';
 import { GapAnalysisTable } from '../components/knowledge/GapAnalysisTable';
 import { ActionSuggestionsList } from '../components/knowledge/ActionSuggestionsList';
 import type { Collection, Document, Title, ManualAction } from '../types/knowledge';
-import { Upload, PlusCircle, BookOpen, Search, ClipboardList, Loader2 } from 'lucide-react';
+import { Upload, PlusCircle, BookOpen, Search, ClipboardList, Loader2, Trash2 } from 'lucide-react';
 
 export const KnowledgeGaps: React.FC = () => {
     const { user } = useAuth();
@@ -28,6 +28,7 @@ export const KnowledgeGaps: React.FC = () => {
     const [loadingDocs, setLoadingDocs] = useState(false);
     const [loadingTitles, setLoadingTitles] = useState(false);
     const [loadingActions, setLoadingActions] = useState(false);
+    const [deletingCollection, setDeletingCollection] = useState(false);
 
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [showManualModal, setShowManualModal] = useState(false);
@@ -191,6 +192,50 @@ export const KnowledgeGaps: React.FC = () => {
         }
     };
 
+    const handleCollectionDelete = async () => {
+        if (!selectedCollection) return;
+
+        const targetName = selectedCollection.name;
+        const warningMessage = [
+            `Delete collection "${targetName}"?`,
+            '',
+            'This will:',
+            '- remove the collection from lindex_collections',
+            '- delete linked lindex_documents rows',
+            '- delete indexed vectors reachable through the current Supabase RPC helpers',
+            '',
+            'This cannot be undone.',
+        ].join('\n');
+
+        if (!window.confirm(warningMessage)) {
+            return;
+        }
+
+        const confirmation = window.prompt(
+            `Type the collection name to confirm deletion:\n\n${targetName}`,
+            ''
+        );
+
+        if (confirmation !== targetName) {
+            alert('Collection name did not match. Delete cancelled.');
+            return;
+        }
+
+        setDeletingCollection(true);
+        try {
+            await service.deleteCollection(String(selectedCollection.id), targetName);
+            const updatedCollections = collections.filter((collection) => collection.id !== selectedCollection.id);
+            setCollections(updatedCollections);
+            setSelectedCollection(updatedCollections[0] || null);
+            setDocuments([]);
+        } catch (error: any) {
+            console.error('Delete collection failed', error);
+            alert(error?.message || 'Failed to delete collection');
+        } finally {
+            setDeletingCollection(false);
+        }
+    };
+
 
 
     if (!user) {
@@ -204,7 +249,7 @@ export const KnowledgeGaps: React.FC = () => {
     return (
             <div className="space-y-8">
             {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
                     <h1 className="text-3xl font-bold text-foreground">
                         Knowledge Gaps
@@ -214,14 +259,27 @@ export const KnowledgeGaps: React.FC = () => {
                     </p>
                 </div>
 
-                <div className="flex items-center gap-3">
-                    <span className="text-sm font-medium">Active Collection:</span>
-                    <CollectionSelector
-                        collections={collections}
-                        selectedCollection={selectedCollection}
-                        onSelect={setSelectedCollection}
-                        onCreateCollection={handleCollectionCreate}
-                    />
+                <div className="w-full max-w-full space-y-3 md:w-auto md:min-w-[18rem] md:max-w-[24rem]">
+                    <div className="space-y-2">
+                        <span className="block text-sm font-medium text-foreground">Active Collection</span>
+                        <CollectionSelector
+                            collections={collections}
+                            selectedCollection={selectedCollection}
+                            onSelect={setSelectedCollection}
+                            onCreateCollection={handleCollectionCreate}
+                            disabled={deletingCollection}
+                        />
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={handleCollectionDelete}
+                        disabled={!selectedCollection || deletingCollection}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-400 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        <Trash2 className="h-4 w-4" />
+                        <span>{deletingCollection ? 'Deleting Collection…' : 'Delete Collection'}</span>
+                    </button>
                 </div>
             </div>
 

@@ -37,6 +37,54 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
         return data;
     };
 
+    const deleteCollection = async (collectionId: string, collectionName: string): Promise<void> => {
+        const normalizedCollectionName = collectionName.trim();
+
+        let vectorDocIds: string[] = [];
+        try {
+            const { data, error } = await supabase.rpc('get_collection_docids', {
+                target_collection: normalizedCollectionName,
+            });
+
+            if (error) {
+                throw error;
+            }
+
+            vectorDocIds = (data || [])
+                .map((row: { docid?: string | null }) => row?.docid?.trim())
+                .filter((docid: string | undefined): docid is string => Boolean(docid));
+        } catch (error) {
+            console.warn(`Unable to enumerate vector docids for collection '${normalizedCollectionName}'.`, error);
+        }
+
+        for (const docId of vectorDocIds) {
+            const { error } = await supabase.rpc('delete_vector_by_docid', {
+                collection_name_param: normalizedCollectionName,
+                doc_id_param: docId,
+            });
+
+            if (error) {
+                throw error;
+            }
+        }
+
+        const { error: docsError } = await supabase
+            .from('lindex_documents')
+            .delete()
+            .eq('user_id', userId)
+            .eq('collectionId', collectionId);
+
+        if (docsError) throw docsError;
+
+        const { error: collectionError } = await supabase
+            .from('lindex_collections')
+            .delete()
+            .eq('id', collectionId)
+            .eq('user_id', userId);
+
+        if (collectionError) throw collectionError;
+    };
+
     // --- Documents ---
 
     const getDocuments = async (collectionId: string): Promise<Document[]> => {
@@ -269,6 +317,7 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
     return {
         getCollections,
         createCollection,
+        deleteCollection,
         getDocuments,
         createManualDocument,
         uploadFile,

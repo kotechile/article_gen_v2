@@ -7,9 +7,16 @@ interface CollectionSelectorProps {
     selectedCollection: Collection | null;
     onSelect: (collection: Collection) => void;
     onCreateCollection: (name: string) => Promise<void>;
+    disabled?: boolean;
 }
 
-export const CollectionSelector: React.FC<CollectionSelectorProps> = ({ collections, selectedCollection, onSelect, onCreateCollection }) => {
+export const CollectionSelector: React.FC<CollectionSelectorProps> = ({
+    collections,
+    selectedCollection,
+    onSelect,
+    onCreateCollection,
+    disabled = false,
+}) => {
     const [isOpen, setIsOpen] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
     const [newCollectionName, setNewCollectionName] = useState('');
@@ -26,16 +33,17 @@ export const CollectionSelector: React.FC<CollectionSelectorProps> = ({ collecti
         <div className="relative">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center justify-between w-64 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                disabled={disabled}
+                className="flex w-full max-w-full items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-2 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700 md:w-72"
             >
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-700 dark:text-gray-200">
                     {selectedCollection ? selectedCollection.name : "Select Collection"}
                 </span>
                 <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {isOpen && (
-                <div className="absolute top-full left-0 mt-2 w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-40 p-2">
+                <div className="absolute right-0 top-full z-40 mt-2 w-[min(100vw-2rem,20rem)] max-w-full rounded-lg border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-800">
                     {/* List */}
                     <div className="max-h-60 overflow-y-auto mb-2 space-y-1">
                         {collections.map(col => (
@@ -45,7 +53,7 @@ export const CollectionSelector: React.FC<CollectionSelectorProps> = ({ collecti
                                     onSelect(col);
                                     setIsOpen(false);
                                 }}
-                                className={`w-full text-left px-3 py-2 rounded-md text-sm ${selectedCollection?.id === col.id ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                                className={`w-full truncate rounded-md px-3 py-2 text-left text-sm ${selectedCollection?.id === col.id ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'}`}
                             >
                                 {col.name}
                             </button>
