@@ -123,7 +123,9 @@ export const KnowledgeGaps: React.FC = () => {
     };
 
     const handleManualEntry = async (title: string, content: string) => {
-        if (!selectedCollection) return;
+        if (!selectedCollection) {
+            throw new Error("No collection selected.");
+        }
         try {
             await service.createManualDocument(title, content, selectedCollection.id, selectedCollection.name);
             // Refresh
@@ -402,6 +404,7 @@ export const KnowledgeGaps: React.FC = () => {
                                 )}
                                 <button
                                     onClick={() => setShowManualModal(true)}
+                                    disabled={!selectedCollection}
                                     className="flex items-center gap-2 px-4 py-2 text-primary bg-primary/10 hover:bg-primary/15 rounded-lg transition-colors text-sm font-medium"
                                 >
                                     <PlusCircle className="w-4 h-4" />

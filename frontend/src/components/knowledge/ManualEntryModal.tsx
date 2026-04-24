@@ -22,10 +22,6 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
             setError("Title and content are required.");
             return;
         }
-        if (!currentCollection) {
-            setError("No collection selected.");
-            return;
-        }
 
         setIsSubmitting(true);
         setError(null);
@@ -57,6 +53,11 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
                 <div className="p-6 flex flex-col flex-1 overflow-hidden space-y-6">
 
                     <div className="space-y-2 shrink-0">
+                        {currentCollection?.name && (
+                            <p className="text-xs uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">
+                                Collection: {currentCollection.name}
+                            </p>
+                        )}
                         <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                             Title
                         </label>
