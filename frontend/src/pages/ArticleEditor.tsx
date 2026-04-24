@@ -915,13 +915,19 @@ export const ArticleEditor: React.FC = () => {
         resolveBranding();
     }, [activeProject, articleData, projects, user]);
 
-    const persistArticle = React.useCallback(async () => {
+    const persistArticle = React.useCallback(async (options?: {
+        selectedCitations?: Set<number>;
+        showInTextCitations?: boolean;
+        htmlContent?: string;
+    }) => {
         if (!user || !id || !editor) {
             throw new Error('Editor is not ready yet.');
         }
 
-        const htmlContent = materializeEditorHtml(editor.getHTML());
-        const selectedIndices = Array.from(selectedCitations);
+        const htmlContent = options?.htmlContent || materializeEditorHtml(editor.getHTML());
+        const selectedCitationSet = options?.selectedCitations || selectedCitations;
+        const selectedIndices = Array.from(selectedCitationSet);
+        const includeInText = options?.showInTextCitations ?? showInTextCitations;
 
         const payload = {
             Title: title,
@@ -934,7 +940,7 @@ export const ArticleEditor: React.FC = () => {
             mediaAltText: featuredImage?.alt || null,
             mediaTitle: featuredImage?.title || null,
             mediaCaption: featuredImage?.caption || null,
-            include_in_text_citations: showInTextCitations,
+            include_in_text_citations: includeInText,
             selected_citations: JSON.stringify(selectedIndices)
         };
 
@@ -977,7 +983,7 @@ export const ArticleEditor: React.FC = () => {
         }
     };
 
-    const applyReferenceChanges = (selectedIndices: Set<number>, showInText: boolean) => {
+    const applyReferenceChanges = async (selectedIndices: Set<number>, showInText: boolean) => {
         if (!editor) return;
 
         // Update state
@@ -1108,6 +1114,25 @@ export const ArticleEditor: React.FC = () => {
 
         // Update editor content
         editor.commands.setContent(htmlContent);
+
+        // Persist filter changes immediately so refresh and WP export keep the curated view.
+        try {
+            const persistedHtml = materializeEditorHtml(htmlContent);
+            await persistArticle({
+                selectedCitations: selectedIndices,
+                showInTextCitations: showInText,
+                htmlContent: persistedHtml,
+            });
+            setArticleData((current: any) => current ? {
+                ...current,
+                htmlArticle: persistedHtml,
+                include_in_text_citations: showInText,
+                selected_citations: JSON.stringify(Array.from(selectedIndices)),
+            } : current);
+        } catch (error) {
+            console.error('Error persisting reference filter changes:', error);
+            alert('Filter applied in editor, but failed to persist. Please click Save Changes.');
+        }
     };
 
     const getSelectedText = (): string => {
@@ -1520,6 +1545,8 @@ export const ArticleEditor: React.FC = () => {
                                             hook: hook,
                                             thesis: thesis,
                                             deck: deck,
+                                            selected_citations: JSON.stringify(Array.from(selectedCitations)),
+                                            include_in_text_citations: showInTextCitations,
                                             featuredImageUrl: featuredImage?.url,
                                             ImageAuthor: featuredImage?.author,
                                             mediaAltText: featuredImage?.alt,

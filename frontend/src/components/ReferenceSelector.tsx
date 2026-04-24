@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { X, Check, Filter, Globe } from 'lucide-react';
-import { rankCitationDomains, topDomains } from '../lib/citationAuthority';
+import { rankCitationDomains } from '../lib/citationAuthority';
 
 interface Citation {
     id?: string;
@@ -21,7 +21,7 @@ interface ReferenceSelectorProps {
     selectedCitations: Set<number>;
     showInTextCitations: boolean;
     onClose: () => void;
-    onApply: (selectedIndices: Set<number>, showInText: boolean) => void;
+    onApply: (selectedIndices: Set<number>, showInText: boolean) => void | Promise<void>;
 }
 
 export const ReferenceSelector: React.FC<ReferenceSelectorProps> = ({
@@ -35,34 +35,51 @@ export const ReferenceSelector: React.FC<ReferenceSelectorProps> = ({
     const uniqueDomainCount = useMemo(() => new Set(authorityMeta.map((item) => item.domain)).size, [authorityMeta]);
 
     const inferredInitialMode = initialSelected.size < citations.length ? 'curated' : 'all';
-    const inferredInitialDomainLimit = Math.max(
+    const inferredInitialCitationLimit = Math.max(
         1,
         Math.min(
-            uniqueDomainCount || 1,
-            new Set(Array.from(initialSelected).map((index) => authorityMeta[index]?.domain).filter(Boolean)).size || 5
+            citations.length || 1,
+            initialSelected.size || Math.min(10, citations.length || 1)
         )
     );
 
     const [filterMode, setFilterMode] = useState<'all' | 'curated'>(inferredInitialMode);
-    const [topDomainLimit, setTopDomainLimit] = useState<number>(inferredInitialDomainLimit);
+    const [topCitationLimit, setTopCitationLimit] = useState<number>(inferredInitialCitationLimit);
     const [showInText, setShowInText] = useState(initialShowInText);
+    const [isApplying, setIsApplying] = useState(false);
 
     const curatedIndices = useMemo(() => {
-        const selectedDomains = new Set(topDomains(citations, topDomainLimit));
-        const indices = citations
-            .map((_, index) => ({ index, domain: authorityMeta[index]?.domain || 'unknown' }))
-            .filter((item) => selectedDomains.has(item.domain))
+        if (!citations.length) return new Set<number>();
+        const limit = Math.max(1, Math.min(topCitationLimit, citations.length));
+        const ranked = citations
+            .map((_, index) => ({
+                index,
+                domainRank: authorityMeta[index]?.domainRank ?? Number.MAX_SAFE_INTEGER,
+                domainFrequency: authorityMeta[index]?.domainFrequency ?? 0,
+            }))
+            .sort((a, b) => {
+                if (a.domainRank !== b.domainRank) return a.domainRank - b.domainRank;
+                if (a.domainFrequency !== b.domainFrequency) return b.domainFrequency - a.domainFrequency;
+                return a.index - b.index;
+            })
+            .slice(0, limit)
             .map((item) => item.index);
-        return new Set(indices);
-    }, [authorityMeta, citations, topDomainLimit]);
+
+        return new Set(ranked);
+    }, [authorityMeta, citations, topCitationLimit]);
 
     const appliedSelection = filterMode === 'all'
         ? new Set(citations.map((_, i) => i))
         : curatedIndices;
 
-    const handleApply = () => {
-        onApply(appliedSelection, showInText);
-        onClose();
+    const handleApply = async () => {
+        try {
+            setIsApplying(true);
+            await onApply(appliedSelection, showInText);
+            onClose();
+        } finally {
+            setIsApplying(false);
+        }
     };
 
     const currentDomainSummary = filterMode === 'all'
@@ -112,16 +129,16 @@ export const ReferenceSelector: React.FC<ReferenceSelectorProps> = ({
                     {filterMode === 'curated' && (
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-foreground" htmlFor="top-domain-limit">
-                                Show Top [{topDomainLimit}] References (by domain authority)
+                                Show Top [{topCitationLimit}] References (ranked by domain authority)
                             </label>
                             <input
                                 id="top-domain-limit"
                                 type="range"
                                 min={1}
-                                max={Math.max(uniqueDomainCount, 1)}
+                                max={Math.max(citations.length, 1)}
                                 step={1}
-                                value={Math.min(topDomainLimit, Math.max(uniqueDomainCount, 1))}
-                                onChange={(e) => setTopDomainLimit(parseInt(e.target.value, 10) || 1)}
+                                value={Math.min(topCitationLimit, Math.max(citations.length, 1))}
+                                onChange={(e) => setTopCitationLimit(parseInt(e.target.value, 10) || 1)}
                                 className="w-full"
                             />
                             <p className="text-xs text-muted-foreground">
@@ -211,7 +228,7 @@ export const ReferenceSelector: React.FC<ReferenceSelectorProps> = ({
 
                 <div className="p-6 border-t border-border flex items-center justify-between gap-3">
                     <p className="text-xs text-muted-foreground">
-                        Active filter: {filterMode === 'all' ? 'Display All' : `Top ${topDomainLimit} domains`}.
+                        Active filter: {filterMode === 'all' ? 'Display All' : `Top ${topCitationLimit} citations`}.
                     </p>
                     <div className="flex items-center gap-3">
                         <button
@@ -222,10 +239,11 @@ export const ReferenceSelector: React.FC<ReferenceSelectorProps> = ({
                         </button>
                         <button
                             onClick={handleApply}
+                            disabled={isApplying}
                             className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-medium text-sm transition"
                         >
                             <Check className="w-4 h-4" />
-                            Apply Filter
+                            {isApplying ? 'Applying...' : 'Apply Filter'}
                         </button>
                     </div>
                 </div>
