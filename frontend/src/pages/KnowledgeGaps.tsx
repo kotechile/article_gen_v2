@@ -29,6 +29,8 @@ export const KnowledgeGaps: React.FC = () => {
     const [loadingTitles, setLoadingTitles] = useState(false);
     const [loadingActions, setLoadingActions] = useState(false);
     const [deletingCollection, setDeletingCollection] = useState(false);
+    const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
+    const [deletingDocumentIds, setDeletingDocumentIds] = useState<Set<string>>(new Set());
 
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [showManualModal, setShowManualModal] = useState(false);
@@ -59,6 +61,7 @@ export const KnowledgeGaps: React.FC = () => {
             try {
                 const docs = await service.getDocuments(selectedCollection.id);
                 setDocuments(docs);
+                setSelectedDocumentIds(new Set());
             } catch (e) {
                 console.error("Error loading docs", e);
             } finally {
@@ -129,6 +132,76 @@ export const KnowledgeGaps: React.FC = () => {
         } catch (e: any) {
             throw new Error(e.message || "Entry failed");
         }
+    };
+
+    const refreshDocuments = async () => {
+        if (!selectedCollection) return;
+        const docs = await service.getDocuments(selectedCollection.id);
+        setDocuments(docs);
+        setSelectedDocumentIds((current) => {
+            const existingIds = new Set(docs.map((doc) => String(doc.id)));
+            return new Set([...current].filter((id) => existingIds.has(id)));
+        });
+    };
+
+    const handleToggleDocumentSelected = (documentId: string, checked: boolean) => {
+        setSelectedDocumentIds((current) => {
+            const next = new Set(current);
+            if (checked) {
+                next.add(documentId);
+            } else {
+                next.delete(documentId);
+            }
+            return next;
+        });
+    };
+
+    const handleToggleAllDocuments = (checked: boolean) => {
+        if (checked) {
+            setSelectedDocumentIds(new Set(documents.map((doc) => String(doc.id))));
+            return;
+        }
+        setSelectedDocumentIds(new Set());
+    };
+
+    const handleDeleteDocuments = async (documentIds: string[]) => {
+        if (!selectedCollection || documentIds.length === 0) return;
+
+        const warning = documentIds.length === 1
+            ? 'Delete this document from the collection and RAG backend? This cannot be undone.'
+            : `Delete ${documentIds.length} selected documents from the collection and RAG backend? This cannot be undone.`;
+
+        if (!window.confirm(warning)) {
+            return;
+        }
+
+        setDeletingDocumentIds((current) => new Set([...current, ...documentIds]));
+        try {
+            const result = await service.deleteDocuments(selectedCollection.name, documentIds);
+            await refreshDocuments();
+            const failed = result.failed_documents?.length || 0;
+            const missing = result.missing_document_ids?.length || 0;
+            if (failed > 0 || missing > 0) {
+                alert(`Delete completed with issues. Failed: ${failed}, Missing: ${missing}.`);
+            }
+        } catch (error: any) {
+            console.error('Delete documents failed', error);
+            alert(error?.message || 'Failed to delete documents');
+        } finally {
+            setDeletingDocumentIds((current) => {
+                const next = new Set(current);
+                documentIds.forEach((id) => next.delete(id));
+                return next;
+            });
+        }
+    };
+
+    const handleDeleteSingleDocument = async (documentId: string) => {
+        await handleDeleteDocuments([documentId]);
+    };
+
+    const handleDeleteSelectedDocuments = async () => {
+        await handleDeleteDocuments([...selectedDocumentIds]);
     };
 
     const handleStartGapFill = async (titlesToProcess: Title[]) => {
@@ -297,7 +370,7 @@ export const KnowledgeGaps: React.FC = () => {
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'documents' ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
                 >
                     <BookOpen className="w-4 h-4" />
-                    RAG Collections
+                    Documents
                 </button>
                 <button
                     onClick={() => setActiveTab('actions')}
@@ -313,11 +386,20 @@ export const KnowledgeGaps: React.FC = () => {
 
                 {activeTab === 'documents' && (
                     <div className="space-y-6">
-                        <div className="flex justify-between items-center">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                             <h2 className="text-xl font-semibold text-foreground">
                                 Collection Documents
                             </h2>
-                            <div className="flex gap-3">
+                            <div className="flex flex-wrap gap-3">
+                                {selectedDocumentIds.size > 0 && (
+                                    <button
+                                        onClick={handleDeleteSelectedDocuments}
+                                        className="flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-400 transition hover:bg-red-500/15"
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                        Delete Selected ({selectedDocumentIds.size})
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => setShowManualModal(true)}
                                     className="flex items-center gap-2 px-4 py-2 text-primary bg-primary/10 hover:bg-primary/15 rounded-lg transition-colors text-sm font-medium"
@@ -334,7 +416,15 @@ export const KnowledgeGaps: React.FC = () => {
                                 </button>
                             </div>
                         </div>
-                        <DocumentsTable documents={documents} isLoading={loadingDocs} />
+                        <DocumentsTable
+                            documents={documents}
+                            isLoading={loadingDocs}
+                            selectedIds={selectedDocumentIds}
+                            onToggleSelected={handleToggleDocumentSelected}
+                            onToggleAll={handleToggleAllDocuments}
+                            onDeleteDocument={handleDeleteSingleDocument}
+                            deletingIds={deletingDocumentIds}
+                        />
                     </div>
                 )}
 

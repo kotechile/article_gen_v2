@@ -1,13 +1,26 @@
 import React from 'react';
 import type { Document } from '../../types/knowledge';
-import { FileText, Loader, AlertTriangle, CheckCircle, File } from 'lucide-react';
+import { FileText, Loader, AlertTriangle, CheckCircle, File, Trash2 } from 'lucide-react';
 
 interface DocumentsTableProps {
     documents: Document[];
     isLoading: boolean;
+    selectedIds: Set<string>;
+    onToggleSelected: (documentId: string, checked: boolean) => void;
+    onToggleAll: (checked: boolean) => void;
+    onDeleteDocument: (documentId: string) => void;
+    deletingIds: Set<string>;
 }
 
-export const DocumentsTable: React.FC<DocumentsTableProps> = ({ documents, isLoading }) => {
+export const DocumentsTable: React.FC<DocumentsTableProps> = ({
+    documents,
+    isLoading,
+    selectedIds,
+    onToggleSelected,
+    onToggleAll,
+    onDeleteDocument,
+    deletingIds,
+}) => {
 
     const getStatusIcon = (status?: string) => {
         switch (status) {
@@ -31,21 +44,45 @@ export const DocumentsTable: React.FC<DocumentsTableProps> = ({ documents, isLoa
         );
     }
 
+    const allSelected = documents.length > 0 && documents.every((doc) => selectedIds.has(String(doc.id)));
+
     return (
         <div className="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-xl">
             <table className="w-full text-left text-sm">
                 <thead>
                     <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                        <th className="px-4 py-4 w-12">
+                            <input
+                                type="checkbox"
+                                aria-label="Select all documents"
+                                checked={allSelected}
+                                onChange={(e) => onToggleAll(e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 bg-transparent text-indigo-500 focus:ring-indigo-500"
+                            />
+                        </th>
                         <th className="px-6 py-4 font-medium text-gray-500 dark:text-gray-400">ID</th>
                         <th className="px-6 py-4 font-medium text-gray-500 dark:text-gray-400">Title</th>
                         <th className="px-6 py-4 font-medium text-gray-500 dark:text-gray-400">Created At</th>
                         <th className="px-6 py-4 font-medium text-gray-500 dark:text-gray-400">Status</th>
                         <th className="px-6 py-4 font-medium text-gray-500 dark:text-gray-400 text-right">Type</th>
+                        <th className="px-6 py-4 font-medium text-gray-500 dark:text-gray-400 text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-gray-900">
-                    {documents.map((doc) => (
+                    {documents.map((doc) => {
+                        const docId = String(doc.id);
+                        const isDeleting = deletingIds.has(docId);
+                        return (
                         <tr key={doc.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                            <td className="px-4 py-4">
+                                <input
+                                    type="checkbox"
+                                    aria-label={`Select ${doc.title}`}
+                                    checked={selectedIds.has(docId)}
+                                    onChange={(e) => onToggleSelected(docId, e.target.checked)}
+                                    className="h-4 w-4 rounded border-gray-300 bg-transparent text-indigo-500 focus:ring-indigo-500"
+                                />
+                            </td>
                             <td className="px-6 py-4 text-gray-400 font-mono text-xs">{String(doc.id).slice(0, 8)}...</td>
                             <td className="px-6 py-4 font-medium text-gray-900 dark:text-gray-200">
                                 {doc.title}
@@ -67,8 +104,19 @@ export const DocumentsTable: React.FC<DocumentsTableProps> = ({ documents, isLoa
                                     {doc.source_type}
                                 </span>
                             </td>
+                            <td className="px-6 py-4 text-right">
+                                <button
+                                    type="button"
+                                    onClick={() => onDeleteDocument(docId)}
+                                    disabled={isDeleting}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                    {isDeleting ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                    <span>Delete</span>
+                                </button>
+                            </td>
                         </tr>
-                    ))}
+                    )})}
                 </tbody>
             </table>
         </div>

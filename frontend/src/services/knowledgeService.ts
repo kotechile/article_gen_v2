@@ -100,6 +100,50 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
         return data || [];
     };
 
+    const deleteDocuments = async (
+        collectionName: string,
+        documentIds: Array<string | number>
+    ): Promise<{
+        deleted_documents?: Array<string | number>;
+        missing_document_ids?: Array<string | number>;
+        failed_documents?: Array<string | number>;
+        total_vector_chunks_deleted?: number;
+    }> => {
+        const normalizedIds = documentIds.map((id) => String(id));
+        if (normalizedIds.length === 0) {
+            return {
+                deleted_documents: [],
+                missing_document_ids: [],
+                failed_documents: [],
+                total_vector_chunks_deleted: 0,
+            };
+        }
+
+        const baseUrl = getRagBaseUrl(ragUrl);
+        const payload = normalizedIds.length === 1
+            ? { document_id: normalizedIds[0], user_id: userId }
+            : { document_ids: normalizedIds, user_id: userId };
+
+        const response = await fetch(
+            `${baseUrl}/collections/${encodeURIComponent(collectionName)}/documents/delete`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            }
+        );
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Document delete failed: ${errorText || response.statusText}`);
+        }
+
+        return await response.json();
+    };
+
     const createManualDocument = async (
         title: string,
         content: string,
@@ -356,6 +400,7 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
         createCollection,
         deleteCollection,
         getDocuments,
+        deleteDocuments,
         createManualDocument,
         uploadFile,
         getDocumentStatus,
