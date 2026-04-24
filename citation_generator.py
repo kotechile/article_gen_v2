@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 import re
 from datetime import datetime
+from urllib.parse import urlparse
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -42,6 +43,10 @@ class Citation:
     title: str
     author: Optional[str] = None
     url: Optional[str] = None
+    domain: Optional[str] = None
+    domain_rank: Optional[int] = None
+    domain_frequency: int = 0
+    authority_score: float = 0.0
     publication_date: Optional[str] = None
     publisher: Optional[str] = None
     journal: Optional[str] = None
@@ -213,9 +218,70 @@ class CitationGenerator:
                 self.logger.error(f"Error extracting citation from evidence: {str(e)}")
                 continue
         
+        self._apply_domain_authority_ranking(citations)
         self.logger.info(f"Extracted {len(citations)} citations from {len(evidence)} evidence items (skipped {len(evidence) - len(citations)} items without valid content)")
         return citations
     
+
+    def _extract_root_domain(self, url: str) -> str:
+        """Extract a normalized root domain from a URL."""
+        if not url:
+            return "unknown"
+
+        multipart_suffixes = {
+            "co.uk", "org.uk", "gov.uk", "ac.uk", "co.jp", "com.au", "net.au", "org.au", "co.nz", "com.br"
+        }
+
+        try:
+            parsed = urlparse(url if re.match(r"^https?://", url, re.IGNORECASE) else f"https://{url}")
+            host = (parsed.hostname or "").lower()
+        except Exception:
+            return "unknown"
+
+        if not host:
+            return "unknown"
+        if host.startswith("www."):
+            host = host[4:]
+
+        parts = [part for part in host.split(".") if part]
+        if len(parts) <= 2:
+            return host
+
+        last_two = ".".join(parts[-2:])
+        if last_two in multipart_suffixes and len(parts) >= 3:
+            return f"{parts[-3]}.{last_two}"
+
+        return last_two
+
+    def _apply_domain_authority_ranking(self, citations: List[Citation]) -> None:
+        """Annotate citations with domain-based authority metrics."""
+        if not citations:
+            return
+
+        domain_counts: Dict[str, int] = {}
+        for citation in citations:
+            domain = self._extract_root_domain(citation.url or "")
+            citation.domain = domain
+            domain_counts[domain] = domain_counts.get(domain, 0) + 1
+
+        ranked_domains = sorted(domain_counts.items(), key=lambda item: (-item[1], item[0]))
+        rank_lookup = {domain: idx + 1 for idx, (domain, _count) in enumerate(ranked_domains)}
+        max_frequency = max(domain_counts.values()) if domain_counts else 1
+
+        for citation in citations:
+            frequency = domain_counts.get(citation.domain or "unknown", 0)
+            citation.domain_frequency = frequency
+            citation.domain_rank = rank_lookup.get(citation.domain or "unknown", len(ranked_domains))
+            citation.authority_score = round(frequency / max_frequency, 4) if max_frequency else 0.0
+            citation.metadata = citation.metadata or {}
+            citation.metadata.update({
+                "domain": citation.domain,
+                "domain_rank": citation.domain_rank,
+                "domain_frequency": citation.domain_frequency,
+                "authority_score": citation.authority_score,
+                "total_unique_domains": len(domain_counts),
+            })
+
     def _determine_source_type(self, evidence: Dict[str, Any]) -> SourceType:
         """Determine the type of source based on evidence metadata."""
         source = evidence.get('source', '').lower()
