@@ -152,34 +152,41 @@ def _build_svg_infographic_prompt(text, accent_color, text_color, secondary_colo
     secondary = secondary_color or accent_color
     neutral = neutral_color or "#94a3b8"
     return f"""System instruction:
-You are a graphic design agent specializing in SVG infographics.
-Analyze the provided text, extract the 3 to 5 most important data points, steps, or takeaways, and visualize them as a modern editorial infographic.
+Act as a Senior Data Visualizer and SVG Developer.
+Analyze the provided text, extract the 3 to 5 most important data points, steps, or takeaways, and transform them into a professional, high-fidelity, full-color SVG infographic.
 
 Output contract:
-- Return only raw SVG code.
+- Return ONLY raw <svg> code.
 - Do not use markdown fences.
 - Do not include any explanation before or after the SVG.
 - The output must be exactly one <svg>...</svg> document.
+- Ensure all major shapes, panels, icons, and data markers are filled with color.
+- Do not return a wireframe, grayscale mockup, or outline-only composition.
 
 Visual design rules:
-- Use a modern, clean, flat-design style.
-- Use a 16:9 aspect ratio.
-- Include a responsive viewBox.
-- Keep the background transparent. Do not draw a full-canvas solid background rectangle.
-- Use professional web-safe sans-serif fonts such as Arial, Helvetica, Verdana, sans-serif.
+- Use a modern, vibrant SaaS-style visual language with rich color, depth, and polish.
+- Favor a Bento Grid or subtle Glassmorphism composition for cards and content groupings.
+- Use viewBox="0 0 800 450" and ensure the SVG is responsive with width="100%" and height="auto".
+- Keep the background transparent overall; do not draw a flat full-canvas solid background rectangle. It is fine to use soft gradient glows, tinted panels, and translucent cards.
+- Use clean, bold sans-serif typography with strong contrast and a clear headline hierarchy.
 - Ensure all text is large enough and high-contrast enough to be legible inside an article body on desktop and mobile.
 - Use this palette consistently:
   - Primary text: {text_color}
   - Accent: {accent_color}
   - Secondary accent: {secondary}
   - Neutral/supporting color: {neutral}
+- Treat the palette like a full-color system, not a minimal accent-only scheme. Use saturated fills, tinted surfaces, highlight chips, and contrast-rich callouts.
+- Include soft gradients using <linearGradient> where helpful for cards, highlights, or backgrounds.
+- Include subtle depth using <filter> effects such as soft drop shadows or glows.
+- Use colorful vector icons or simple geometric illustrations built from SVG primitives to represent the data points visually.
 - Create clear hierarchy with a concise title, 3 to 5 cards, steps, metrics, or labeled sections.
 - Favor balanced spacing, alignment, and visual clarity over decoration.
 
 Technical rules:
 - Avoid scripts, animation, foreignObject, external assets, and embedded raster images.
 - Keep the SVG self-contained.
-- Prefer straightforward shapes, lines, labels, and simple icons built from SVG primitives.
+- Prefer straightforward shapes, labels, data markers, and simple icons built from SVG primitives.
+- Make the SVG production-ready and visually complete without relying on external CSS.
 
 Text to transform:
 \"\"\"{text.strip()}\"\"\"
