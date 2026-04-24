@@ -35,21 +35,34 @@ export const KnowledgeGaps: React.FC = () => {
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [showManualModal, setShowManualModal] = useState(false);
 
+    const refreshCollections = async (preferredCollectionId?: string | number | null) => {
+        try {
+            const cols = await service.getCollections();
+            setCollections(cols);
+
+            if (cols.length === 0) {
+                setSelectedCollection(null);
+                setDocuments([]);
+                return cols;
+            }
+
+            const preferredId = preferredCollectionId != null ? String(preferredCollectionId) : null;
+            const nextSelected = preferredId
+                ? cols.find((collection) => String(collection.id) === preferredId) || cols[0]
+                : cols.find((collection) => String(collection.id) === String(selectedCollection?.id)) || cols[0];
+
+            setSelectedCollection(nextSelected);
+            return cols;
+        } catch (error) {
+            console.error("Failed to load collections", error);
+            throw error;
+        }
+    };
+
     // Initial Load - Collections
     useEffect(() => {
         if (!user) return;
-        const loadCollections = async () => {
-            try {
-                const cols = await service.getCollections();
-                setCollections(cols);
-                if (cols.length > 0 && !selectedCollection) {
-                    setSelectedCollection(cols[0]);
-                }
-            } catch (error) {
-                console.error("Failed to load collections", error);
-            }
-        };
-        loadCollections();
+        refreshCollections();
     }, [user, service]);
 
     // Load Documents when Collection changes
@@ -299,10 +312,10 @@ export const KnowledgeGaps: React.FC = () => {
         setDeletingCollection(true);
         try {
             const result = await service.deleteCollection(targetName);
-            const updatedCollections = collections.filter((collection) => collection.id !== selectedCollection.id);
-            setCollections(updatedCollections);
-            setSelectedCollection(updatedCollections[0] || null);
+            await refreshCollections();
             setDocuments([]);
+            setSelectedDocumentIds(new Set());
+            setDeletingCollection(false);
 
             const deletedDocuments = result.deleted_documents_count ?? 0;
             const vectorDeleted = result.vector_collection_deleted ? 'yes' : 'no';
@@ -344,7 +357,6 @@ export const KnowledgeGaps: React.FC = () => {
                             selectedCollection={selectedCollection}
                             onSelect={setSelectedCollection}
                             onCreateCollection={handleCollectionCreate}
-                            disabled={deletingCollection}
                         />
                     </div>
 
