@@ -118,8 +118,15 @@ def _resolve_infographic_llm(client, llm_model=None):
     if not api_key:
         raise ValueError("Selected LLM provider is missing an API key")
 
+    default_model_name = ''
+    default_result = _query_llm_provider_rows(client, [('is_default', True)], require_active=True)
+    if default_result.data:
+        default_model_name = (default_result.data[0].get('model_name') or '').strip()
+
     provider_name = (provider_row.get('provider') or provider_row.get('provider_name') or 'google').strip().lower()
-    model_name = (provider_row.get('model_name') or model_hint or 'gemini-1.5-flash').strip()
+    model_name = (provider_row.get('model_name') or model_hint or default_model_name).strip()
+    if not model_name:
+        raise ValueError("No default LLM model is configured in llm_providers")
     return {
         'api_key': api_key,
         'base_url': base_url,
