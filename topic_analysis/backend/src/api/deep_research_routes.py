@@ -65,6 +65,7 @@ async def trigger_deep_gap_fill(
                 
                 if result['success']:
                     dossier = result.get("research_dossier") or {}
+                    citations = result.get("citations") or []
                     dossier_quality_score = int(dossier.get("dossier_quality_score", 0) or 0)
                     dossier_status = "ready" if dossier_quality_score >= 30 else "needs_review"
                     update_payload = {
@@ -74,6 +75,9 @@ async def trigger_deep_gap_fill(
                         'dossier_last_updated_at': result.get('research_dossier', {}).get('generated_at'),
                         'dossier_quality_score': dossier_quality_score,
                     }
+                    if citations:
+                        update_payload['citations'] = citations
+                        update_payload['selected_citations'] = list(range(len(citations)))
                     try:
                         supabase.table('Titles').update(update_payload).eq('id', title_id).execute()
                     except Exception as update_error:

@@ -783,6 +783,197 @@ def _build_dossier_evidence(
     return _dedupe_evidence_items(evidence)
 
 
+def _apply_dossier_context(
+    research_data: Dict[str, Any],
+    research_dossier: Any,
+    dossier_status: Optional[str],
+    dossier_quality_score: Optional[int],
+    prior_citations: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Hydrate dossier and citation context onto research_data and return the gate result."""
+    gate = _validate_research_dossier(
+        dossier=research_dossier,
+        dossier_status=dossier_status,
+        dossier_quality_score=dossier_quality_score,
+    )
+    research_data['dossier_status'] = dossier_status
+    research_data['dossier_quality_score'] = dossier_quality_score
+    research_data['dossier_gate'] = gate
+    research_data['dossier_validated'] = gate.get("valid", False)
+
+    if prior_citations:
+        research_data['prior_citations'] = prior_citations
+    else:
+        research_data.pop('prior_citations', None)
+
+    if gate.get("valid"):
+        research_data['research_dossier'] = research_dossier
+        research_data.pop('research_dossier_raw', None)
+    else:
+        research_data.pop('research_dossier', None)
+        if research_dossier:
+            research_data['research_dossier_raw'] = research_dossier
+        else:
+            research_data.pop('research_dossier_raw', None)
+
+    return gate
+
+
+def _refresh_dossier_via_deep_research(
+    article_id: str,
+    title_row: Dict[str, Any],
+    research_data: Dict[str, Any],
+    supabase: Any,
+    reason: str,
+) -> Dict[str, Any]:
+    """Run inline Deep Research refresh when dossier-backed generation lacks reusable grounding."""
+    from topic_analysis.backend.src.services.research.deep_research_service import DeepResearchService
+
+    outline = (
+        title_row.get('content_outline')
+        or title_row.get('title')
+        or title_row.get('Title')
+        or research_data.get('draft_title')
+        or research_data.get('brief')
+    )
+    user_id = str(
+        title_row.get('user_id')
+        or title_row.get('updated_by')
+        or research_data.get('user_id')
+        or ""
+    ).strip()
+    collection_name = (
+        research_data.get('rag_collection')
+        or research_data.get('rag_collection_name')
+        or title_row.get('rag_collection_name')
+        or "deep_research_collection"
+    )
+
+    if not outline:
+        raise RuntimeError(
+            f"Dossier preflight failed for article {article_id}: cannot refresh Deep Research without an outline."
+        )
+    if not user_id:
+        raise RuntimeError(
+            f"Dossier preflight failed for article {article_id}: cannot refresh Deep Research without a user_id."
+        )
+
+    logger.warning(
+        "Refreshing dossier inline for article %s because %s",
+        article_id,
+        reason,
+    )
+    try:
+        supabase.table('Titles').update({'dossier_status': 'refreshing'}).eq('id', article_id).execute()
+    except Exception as status_error:
+        logger.warning("Unable to mark dossier as refreshing for %s: %s", article_id, status_error)
+
+    service = DeepResearchService()
+    refresh_result = asyncio.run(
+        service.perform_deep_research(
+            title_id=article_id,
+            outline=outline,
+            user_id=user_id,
+            collection_name=collection_name,
+        )
+    )
+    if not refresh_result.get("success"):
+        raise RuntimeError(
+            f"Deep Research refresh failed for article {article_id}: {refresh_result.get('error') or 'unknown error'}"
+        )
+
+    refreshed_dossier = refresh_result.get("research_dossier") or {}
+    refreshed_citations = _parse_citations_payload(refresh_result.get("citations"))
+    refreshed_quality_score = int(refreshed_dossier.get("dossier_quality_score", 0) or 0)
+    refreshed_status = "ready" if refreshed_quality_score >= DOSSIER_MIN_QUALITY_SCORE else "needs_review"
+
+    update_payload = {
+        'research_dossier': refreshed_dossier,
+        'dossier_status': refreshed_status,
+        'dossier_last_updated_at': refreshed_dossier.get('generated_at'),
+        'dossier_quality_score': refreshed_quality_score,
+    }
+    if refreshed_citations:
+        update_payload['citations'] = refreshed_citations
+        update_payload['selected_citations'] = list(range(len(refreshed_citations)))
+
+    try:
+        supabase.table('Titles').update(update_payload).eq('id', article_id).execute()
+    except Exception as update_error:
+        logger.warning("Failed to persist refreshed dossier state for %s: %s", article_id, update_error)
+
+    return {
+        "research_dossier": refreshed_dossier,
+        "dossier_status": refreshed_status,
+        "dossier_quality_score": refreshed_quality_score,
+        "prior_citations": refreshed_citations,
+    }
+
+
+def _ensure_dossier_prerequisites(
+    article_id: str,
+    title_row: Dict[str, Any],
+    research_data: Dict[str, Any],
+    supabase: Any,
+    use_dossier_context: bool,
+) -> None:
+    """Ensure dossier-backed modes have reusable dossier and citations before generation continues."""
+    if not use_dossier_context:
+        return
+
+    research_dossier = title_row.get('research_dossier')
+    dossier_status = title_row.get('dossier_status')
+    dossier_quality_score = title_row.get('dossier_quality_score')
+    prior_citations = _parse_citations_payload(title_row.get('citations'))
+
+    gate = _apply_dossier_context(
+        research_data=research_data,
+        research_dossier=research_dossier,
+        dossier_status=dossier_status,
+        dossier_quality_score=dossier_quality_score,
+        prior_citations=prior_citations,
+    )
+
+    if gate.get("valid") and prior_citations:
+        logger.info(
+            "Dossier preflight satisfied for article %s using stored dossier and %s citations",
+            article_id,
+            len(prior_citations),
+        )
+        return
+
+    refresh_reason = "missing_or_invalid_dossier"
+    if gate.get("valid") and not prior_citations:
+        refresh_reason = "missing_prior_citations"
+
+    refreshed = _refresh_dossier_via_deep_research(
+        article_id=article_id,
+        title_row=title_row,
+        research_data=research_data,
+        supabase=supabase,
+        reason=refresh_reason,
+    )
+
+    refreshed_gate = _apply_dossier_context(
+        research_data=research_data,
+        research_dossier=refreshed.get("research_dossier"),
+        dossier_status=refreshed.get("dossier_status"),
+        dossier_quality_score=refreshed.get("dossier_quality_score"),
+        prior_citations=refreshed.get("prior_citations"),
+    )
+    refreshed_citations = _parse_citations_payload(refreshed.get("prior_citations"))
+
+    if not refreshed_gate.get("valid"):
+        raise RuntimeError(
+            f"Dossier preflight failed for article {article_id}: Deep Research refresh did not produce a valid dossier "
+            f"(reason={refreshed_gate.get('reason')})."
+        )
+    if not refreshed_citations:
+        raise RuntimeError(
+            f"Dossier preflight failed for article {article_id}: Deep Research refresh produced no reusable citations."
+        )
+
+
 def _dedupe_evidence_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Deduplicate evidence without collapsing distinct dossier sources that share a summary."""
     seen = set()
@@ -1022,44 +1213,38 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                 if response.data and len(response.data) > 0:
                     title_row = response.data[0]
                     content_outline = title_row.get('content_outline')
-                    research_dossier = title_row.get('research_dossier')
-                    dossier_status = title_row.get('dossier_status')
-                    dossier_quality_score = title_row.get('dossier_quality_score')
-                    prior_citations = _parse_citations_payload(title_row.get('citations'))
-                    if prior_citations:
-                        research_data['prior_citations'] = prior_citations
-                        logger.info(
-                            "Loaded %s prior citations for article %s as regeneration fallback evidence",
-                            len(prior_citations),
-                            article_id,
-                        )
                     if content_outline:
                         logger.info(f"Found content_outline for article {article_id}: {str(content_outline)[:100]}...")
                         research_data['content_outline'] = content_outline
                     else:
                         logger.info(f"No content_outline found in DB for article {article_id}")
-                    if research_dossier:
-                        gate = _validate_research_dossier(
-                            dossier=research_dossier,
-                            dossier_status=dossier_status,
-                            dossier_quality_score=dossier_quality_score,
+                    current_source_caps = _normalize_source_strategy(research_data)
+                    use_dossier_context = (
+                        current_source_caps["use_dossier"]
+                        if _is_source_strategy_refactor_enabled()
+                        else True
+                    )
+                    _ensure_dossier_prerequisites(
+                        article_id=article_id,
+                        title_row=title_row,
+                        research_data=research_data,
+                        supabase=supabase,
+                        use_dossier_context=use_dossier_context,
+                    )
+                    if research_data.get('prior_citations'):
+                        logger.info(
+                            "Loaded %s prior citations for article %s as dossier-backed evidence",
+                            len(research_data['prior_citations']),
+                            article_id,
                         )
-                        research_data['dossier_status'] = dossier_status
-                        research_data['dossier_quality_score'] = dossier_quality_score
-                        research_data['dossier_gate'] = gate
-                        research_data['dossier_validated'] = gate.get("valid", False)
-                        if gate.get("valid"):
-                            research_data['research_dossier'] = research_dossier
-                        else:
-                            # Keep raw dossier for observability, but do not use as trusted context.
-                            research_data['research_dossier_raw'] = research_dossier
+                    if research_data.get('dossier_gate'):
                         logger.info(
                             "Loaded research dossier for article %s (status=%s, quality_score=%s, valid=%s, reason=%s)",
                             article_id,
-                            dossier_status,
-                            dossier_quality_score,
-                            gate.get("valid"),
-                            gate.get("reason"),
+                            research_data.get('dossier_status'),
+                            research_data.get('dossier_quality_score'),
+                            research_data['dossier_gate'].get("valid"),
+                            research_data['dossier_gate'].get("reason"),
                         )
 
                     # Keyword handoff hydration (Titles-only authoritative source).
@@ -3860,6 +4045,14 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         claim_bundles = result.get('claim_bundles', [])
         research_data = result.get('research_data', {})
         include_in_text_citations = research_data.get('include_in_text_citations', True)
+        prior_citations = _parse_citations_payload(research_data.get('prior_citations'))
+
+        if not citations and prior_citations:
+            logger.warning(
+                "Finalization preserving %s prior citations because this regeneration produced none",
+                len(prior_citations),
+            )
+            citations = prior_citations
         
         # Debug logging
         logger.info(f"Finalization debug - Structure keys: {list(structure.keys())}")

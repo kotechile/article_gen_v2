@@ -164,6 +164,7 @@ class DeepResearchService:
                 "report_preview": report_content[:200] + "...",
                 "upload_status": upload_success,
                 "citations_count": len(collected_citations),
+                "citations": collected_citations,
                 "research_dossier": research_dossier,
             }
 
