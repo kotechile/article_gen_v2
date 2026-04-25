@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import type { Collection, Document, Title, ManualAction } from '../types/knowledge';
+import type { Collection, Document, Title, ManualAction, RagQueryResponse } from '../types/knowledge';
 
 interface KnowledgeServiceDeps {
     userId: string;
@@ -13,6 +13,51 @@ function getRagBaseUrl(ragUrl?: string): string {
 }
 
 export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) => {
+    const getAvailableLlmModels = async (): Promise<string[]> => {
+        const queryAttempts: Array<{
+            select: string;
+            activeOnly: boolean;
+        }> = [
+            {
+                select: 'model_name, is_active, is_default',
+                activeOnly: true,
+            },
+            {
+                select: 'model_name, is_active, is_default',
+                activeOnly: false,
+            },
+            {
+                select: 'model_name, is_default',
+                activeOnly: false,
+            },
+            {
+                select: 'model_name',
+                activeOnly: false,
+            },
+        ];
+
+        for (const attempt of queryAttempts) {
+            let query = supabase.from('llm_providers').select(attempt.select);
+            if (attempt.activeOnly) {
+                query = query.eq('is_active', true);
+            }
+
+            const { data, error } = await query;
+            if (error) {
+                continue;
+            }
+
+            const models = (Array.isArray(data) ? data : [])
+                .map((row: any) => String(row?.model_name || '').trim())
+                .filter(Boolean);
+
+            if (models.length > 0) {
+                return Array.from(new Set(models));
+            }
+        }
+
+        return [];
+    };
 
     // --- Collections ---
 
@@ -338,6 +383,39 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
         return await response.json();
     };
 
+    const queryCollection = async (params: {
+        endpoint: '/query_simple' | '/query_hybrid_enhanced' | '/query_agentic_iterative' | '/query_truly_agentic' | '/query_agentic_fixed';
+        payload: Record<string, unknown>;
+    }): Promise<RagQueryResponse> => {
+        const baseUrl = getRagBaseUrl(ragUrl);
+        const response = await fetch(`${baseUrl}${params.endpoint}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify(params.payload),
+        });
+
+        let result: RagQueryResponse | null = null;
+        try {
+            result = await response.json();
+        } catch {
+            result = null;
+        }
+
+        if (!response.ok) {
+            const message = result?.error || `${response.status} ${response.statusText}`.trim();
+            throw new Error(`Collection query failed: ${message}`);
+        }
+
+        if (!result) {
+            throw new Error('Collection query failed: empty response from RAG service');
+        }
+
+        return result;
+    };
+
 
     // --- Manual Actions ---
 
@@ -392,6 +470,8 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
         fillKnowledgeGaps,
         enhanceKnowledge,
         fillKnowledgeGapsDeep,
+        getAvailableLlmModels,
+        queryCollection,
         getManualActions,
         updateManualActionStatus,
         deleteManualAction

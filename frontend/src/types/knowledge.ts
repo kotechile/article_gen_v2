@@ -79,3 +79,21 @@ export interface GapAnalysisResult {
     enhancedCount?: number;
     closedCount?: number;
 }
+
+export interface RagDocumentUsage {
+    doc_id?: string;
+    title?: string;
+    author?: string;
+    chunks_contributed?: number;
+    importance_weight?: number;
+}
+
+export interface RagQueryResponse {
+    status: string;
+    response?: string;
+    error?: string;
+    method?: string;
+    time_seconds?: number;
+    source_attribution?: string[];
+    documents_used?: RagDocumentUsage[];
+}

@@ -5,10 +5,12 @@ import { CollectionSelector } from '../components/knowledge/CollectionSelector';
 import { DocumentsTable } from '../components/knowledge/DocumentsTable';
 import { UploadModal } from '../components/knowledge/UploadModal';
 import { ManualEntryModal } from '../components/knowledge/ManualEntryModal';
+import { RagQueryModal } from '../components/knowledge/RagQueryModal';
 import { GapAnalysisTable } from '../components/knowledge/GapAnalysisTable';
 import { ActionSuggestionsList } from '../components/knowledge/ActionSuggestionsList';
 import type { Collection, Document, Title, ManualAction } from '../types/knowledge';
 import { Upload, PlusCircle, BookOpen, Search, ClipboardList, Loader2, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export const KnowledgeGaps: React.FC = () => {
     const { user } = useAuth();
@@ -34,6 +36,8 @@ export const KnowledgeGaps: React.FC = () => {
 
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [showManualModal, setShowManualModal] = useState(false);
+    const [showQueryModal, setShowQueryModal] = useState(false);
+    const [llmModels, setLlmModels] = useState<string[]>([]);
     const deletingCollectionRef = useRef(false);
 
     const refreshCollections = async (preferredCollectionId?: string | number | null) => {
@@ -60,10 +64,31 @@ export const KnowledgeGaps: React.FC = () => {
         }
     };
 
+    const clearDeletingCollectionState = () => {
+        deletingCollectionRef.current = false;
+        setDeletingCollection(false);
+    };
+
     // Initial Load - Collections
     useEffect(() => {
         if (!user) return;
         refreshCollections();
+    }, [user, service]);
+
+    useEffect(() => {
+        if (!user) return;
+
+        const loadLlmModels = async () => {
+            try {
+                const models = await service.getAvailableLlmModels();
+                setLlmModels(models);
+            } catch (error) {
+                console.error('Failed to load LLM models', error);
+                setLlmModels([]);
+            }
+        };
+
+        loadLlmModels();
     }, [user, service]);
 
     // Load Documents when Collection changes
@@ -220,6 +245,75 @@ export const KnowledgeGaps: React.FC = () => {
         await handleDeleteDocuments([...selectedDocumentIds]);
     };
 
+    const handleCollectionQuery = async (params: {
+        queryType: 'simple' | 'hybrid' | 'agentic_iterative' | 'truly_agentic' | 'agentic_fixed';
+        llm: string;
+        query: string;
+        numResults: number;
+        topK: number;
+        balanceEmphasis: string;
+        maxIterations: number;
+        maxDocs: number;
+        verboseMode: 'concise' | 'balanced' | 'detailed';
+    }) => {
+        if (!selectedCollection) {
+            throw new Error('Select a collection before searching.');
+        }
+
+        const basePayload = {
+            query: params.query,
+            collection_name: selectedCollection.name,
+            llm: params.llm,
+        };
+
+        const requestMap = {
+            simple: {
+                endpoint: '/query_simple' as const,
+                payload: {
+                    ...basePayload,
+                    num_results: params.numResults,
+                    balance_emphasis: params.balanceEmphasis,
+                },
+            },
+            hybrid: {
+                endpoint: '/query_hybrid_enhanced' as const,
+                payload: {
+                    ...basePayload,
+                    top_k: params.topK,
+                    balance_emphasis: params.balanceEmphasis,
+                },
+            },
+            agentic_iterative: {
+                endpoint: '/query_agentic_iterative' as const,
+                payload: {
+                    ...basePayload,
+                    max_iterations: params.maxIterations,
+                },
+            },
+            truly_agentic: {
+                endpoint: '/query_truly_agentic' as const,
+                payload: basePayload,
+            },
+            agentic_fixed: {
+                endpoint: '/query_agentic_fixed' as const,
+                payload: {
+                    ...basePayload,
+                    max_docs: params.maxDocs,
+                    verbose_mode: params.verboseMode,
+                },
+            },
+        };
+
+        const request = requestMap[params.queryType];
+        const result = await service.queryCollection(request);
+
+        if (result.status !== 'success') {
+            toast.error(result.error || 'Query failed.');
+        }
+
+        return result;
+    };
+
     const handleStartGapFill = async (titlesToProcess: Title[]) => {
         if (!selectedCollection) {
             alert("Please select a collection to store the enhanced knowledge.");
@@ -317,16 +411,19 @@ export const KnowledgeGaps: React.FC = () => {
             await refreshCollections();
             setDocuments([]);
             setSelectedDocumentIds(new Set());
+            clearDeletingCollectionState();
 
             const deletedDocuments = result.deleted_documents_count ?? 0;
             const vectorDeleted = result.vector_collection_deleted ? 'yes' : 'no';
-            alert(`Collection deleted. Documents removed: ${deletedDocuments}. Vector collection deleted: ${vectorDeleted}.`);
+            window.setTimeout(() => {
+                alert(`Collection deleted. Documents removed: ${deletedDocuments}. Vector collection deleted: ${vectorDeleted}.`);
+            }, 0);
         } catch (error: any) {
+            clearDeletingCollectionState();
             console.error('Delete collection failed', error);
             alert(error?.message || 'Failed to delete collection');
         } finally {
-            deletingCollectionRef.current = false;
-            setDeletingCollection(false);
+            clearDeletingCollectionState();
         }
     };
 
@@ -361,6 +458,16 @@ export const KnowledgeGaps: React.FC = () => {
                             onCreateCollection={handleCollectionCreate}
                         />
                     </div>
+
+                    <button
+                        type="button"
+                        onClick={() => setShowQueryModal(true)}
+                        disabled={!selectedCollection}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-md transition hover:bg-primary/90 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        <Search className="h-4 w-4" />
+                        <span>Query Collection</span>
+                    </button>
 
                     <button
                         type="button"
@@ -490,6 +597,13 @@ export const KnowledgeGaps: React.FC = () => {
                 onClose={() => setShowManualModal(false)}
                 currentCollection={selectedCollection}
                 onSubmit={handleManualEntry}
+            />
+            <RagQueryModal
+                isOpen={showQueryModal}
+                onClose={() => setShowQueryModal(false)}
+                currentCollection={selectedCollection}
+                llmModels={llmModels}
+                onSearch={handleCollectionQuery}
             />
         </div>
     );
