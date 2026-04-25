@@ -642,6 +642,9 @@ export const ArticleEditor: React.FC = () => {
                 } catch (e) {
                     console.error('Failed to parse citations:', e);
                 }
+                if (!Array.isArray(parsedCitations)) {
+                    parsedCitations = [];
+                }
 
                 let content = d.htmlArticle || d.htmlarticle || '';
 
@@ -703,11 +706,19 @@ export const ArticleEditor: React.FC = () => {
                     if (selectedData) {
                         const parsedSelected = typeof selectedData === 'string' ? JSON.parse(selectedData) : selectedData;
                         if (Array.isArray(parsedSelected)) {
-                            restoredSelected = new Set(parsedSelected);
+                            const validSelected = parsedSelected
+                                .map((value) => Number(value))
+                                .filter((idx) => Number.isInteger(idx) && idx >= 0 && idx < parsedCitations.length);
+                            restoredSelected = new Set(validSelected);
                         }
                     }
                 } catch (e) {
                     console.error('Failed to restore selected citations:', e);
+                }
+                if (parsedCitations.length === 0) {
+                    restoredSelected = new Set<number>();
+                } else if (restoredSelected.size === 0) {
+                    restoredSelected = new Set<number>(parsedCitations.map((_, i) => i));
                 }
                 setSelectedCitations(restoredSelected);
 
@@ -806,10 +817,10 @@ export const ArticleEditor: React.FC = () => {
                                 sortedSelected.forEach((originalIndex, i) => {
                                     const citation = currentCitations[originalIndex];
                                     const citationNumber = i + 1;
-                                    const titleStr = citation.title || citation.source_title || 'Unknown Source';
-                                    const url = citation.url || '#';
-                                    const author = citation.author || '';
-                                    const publicationDate = citation.publication_date || '';
+                                    const titleStr = citation?.title || citation?.source_title || 'Unknown Source';
+                                    const url = citation?.url || '#';
+                                    const author = citation?.author || '';
+                                    const publicationDate = citation?.publication_date || '';
 
                                     referencesHTML += `<p><strong>[${citationNumber}]</strong> `;
                                     if (author && author !== 'Unknown Author') {
