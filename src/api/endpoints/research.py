@@ -7,6 +7,7 @@ monitoring, and retrieving research tasks.
 
 import logging
 import json
+import os
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, current_app
 from flask_limiter import Limiter
@@ -30,6 +31,56 @@ from llm_client import create_llm_client
 
 
 logger = logging.getLogger(__name__)
+
+_SOURCE_STRATEGIES = {
+    "dossier_only",
+    "dossier_plus_rag",
+    "dossier_plus_rag_plus_live_web",
+    "rag_only",
+}
+
+
+def _normalize_source_strategy_payload(data: dict) -> None:
+    """
+    Normalize source strategy and keep legacy booleans in sync.
+
+    During rollout we keep both representations:
+    - `source_strategy` (new source of truth when flag enabled)
+    - `rag_enabled` / `claims_research_enabled` (legacy compatibility)
+    """
+    if not isinstance(data, dict):
+        return
+
+    requested_strategy = str(data.get("source_strategy") or "").strip().lower()
+    rag_enabled = bool(data.get("rag_enabled", False))
+    claims_enabled = bool(data.get("claims_research_enabled", True))
+
+    if requested_strategy in _SOURCE_STRATEGIES:
+        strategy = requested_strategy
+    else:
+        if rag_enabled and claims_enabled:
+            strategy = "dossier_plus_rag_plus_live_web"
+        elif rag_enabled:
+            strategy = "dossier_plus_rag"
+        else:
+            strategy = "dossier_only"
+
+    # Keep strategy as normalized canonical field.
+    data["source_strategy"] = strategy
+
+    # Keep legacy booleans aligned to avoid regressions in old code paths.
+    if strategy == "dossier_only":
+        data["rag_enabled"] = False
+        data["claims_research_enabled"] = False
+    elif strategy == "dossier_plus_rag":
+        data["rag_enabled"] = True
+        data["claims_research_enabled"] = False
+    elif strategy == "dossier_plus_rag_plus_live_web":
+        data["rag_enabled"] = True
+        data["claims_research_enabled"] = True
+    elif strategy == "rag_only":
+        data["rag_enabled"] = True
+        data["claims_research_enabled"] = False
 
 # Create blueprint
 research_bp = Blueprint('research', __name__, url_prefix='/api/v1')
@@ -145,6 +196,13 @@ def create_research_task():
             # Map rag_collection_name to rag_collection if rag_collection not provided
             if 'rag_collection' not in data and 'rag_collection_name' in data and data.get('rag_collection_name'):
                 data['rag_collection'] = data['rag_collection_name']
+
+            # Normalize source strategy only when rollout is enabled or explicitly provided.
+            source_strategy_rollout = (
+                os.environ.get("SOURCE_STRATEGY_REFACTOR_ENABLED", "false").strip().lower() == "true"
+            )
+            if source_strategy_rollout or data.get("source_strategy"):
+                _normalize_source_strategy_payload(data)
         
         if not data:
             return jsonify(ErrorResponse(
@@ -173,7 +231,14 @@ def create_research_task():
         # fields not in Pydantic model (e.g., rag_collection_name, use_verbalized_sampling, etc.)
         task_data = research_request.dict()
         # Add additional fields from original data that tasks.py expects
-        extra_fields = ['rag_collection_name', 'use_verbalized_sampling', 'rag_balance_emphasis', 'draft_title', 'article_id']
+        extra_fields = [
+            'rag_collection_name',
+            'use_verbalized_sampling',
+            'rag_balance_emphasis',
+            'draft_title',
+            'article_id',
+            'source_strategy',
+        ]
         for field in extra_fields:
             if field in data and field not in task_data:
                 task_data[field] = data[field]

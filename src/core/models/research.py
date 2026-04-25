@@ -59,6 +59,10 @@ class ResearchRequest(BaseModel):
     claims_research_enabled: bool = Field(default=True, description="Enable claims research")
     rag_enabled: bool = Field(default=True, description="Enable RAG evidence collection")
     include_in_text_citations: bool = Field(default=True, description="Include in-text citation references like [^1], [^2] in the content")
+    source_strategy: Optional[str] = Field(
+        default=None,
+        description="Optional source strategy: dossier_only, dossier_plus_rag, dossier_plus_rag_plus_live_web, rag_only",
+    )
     
     # RAG Configuration (optional)
     rag_collection: Optional[str] = Field(None, description="RAG collection name")
@@ -78,6 +82,22 @@ class ResearchRequest(BaseModel):
         if values.get('rag_enabled') and values.get('rag_collection') and not v:
             raise ValueError('rag_llm_provider is required when rag_collection is provided')
         return v
+
+    @validator('source_strategy')
+    def validate_source_strategy(cls, v):
+        """Validate supported source strategies when provided."""
+        if v is None:
+            return v
+        normalized = str(v).strip().lower()
+        supported = {
+            "dossier_only",
+            "dossier_plus_rag",
+            "dossier_plus_rag_plus_live_web",
+            "rag_only",
+        }
+        if normalized not in supported:
+            raise ValueError(f"source_strategy must be one of: {', '.join(sorted(supported))}")
+        return normalized
     
     class Config:
         use_enum_values = True

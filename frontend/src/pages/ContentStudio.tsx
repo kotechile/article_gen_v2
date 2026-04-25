@@ -64,6 +64,7 @@ interface ArticleData {
     rag_collection_name?: string;
     rag_query_type?: string;
     rag_balance_emphasis?: string;
+    source_strategy?: string;
     // Metrics
     seo_optimization_score?: number;
     readability_score?: number;
@@ -337,6 +338,22 @@ function buildRefinementSignature(
     ].join('||');
 }
 
+function inferSourceMode(params: {
+    sourceStrategy?: string | null;
+    ragCollection?: string | null;
+    claimsValidation?: boolean;
+}): string {
+    const explicit = String(params.sourceStrategy || '').trim();
+    if (explicit && SOURCE_MODE_OPTIONS.some((opt) => opt.value === explicit)) {
+        return explicit;
+    }
+
+    const hasRag = Boolean(String(params.ragCollection || '').trim());
+    const claimsValidation = Boolean(params.claimsValidation);
+    if (!hasRag) return 'dossier_only';
+    return claimsValidation ? 'dossier_plus_rag_plus_live_web' : 'dossier_plus_rag';
+}
+
 const TONE_OPTIONS = [
     { label: "Academic", value: "academic" },
     { label: "Journalistic", value: "journalistic" },
@@ -361,6 +378,16 @@ const EMPHASIS_OPTIONS = [
     { label: "News Focused", value: "news_focused" },
     { label: "Auto", value: "auto" },
 ];
+
+const SOURCE_MODE_OPTIONS = [
+    { label: "Dossier only", value: "dossier_only" },
+    { label: "Dossier + RAG", value: "dossier_plus_rag" },
+    { label: "Dossier + RAG + Live Web Refresh", value: "dossier_plus_rag_plus_live_web" },
+    { label: "RAG only", value: "rag_only" },
+];
+
+const SOURCE_STRATEGY_REFACTOR_ENABLED =
+    String(import.meta.env.VITE_SOURCE_STRATEGY_REFACTOR_ENABLED || 'false').toLowerCase() === 'true';
 
 export const ContentStudio: React.FC = () => {
     const { user } = useAuth();
@@ -399,6 +426,7 @@ export const ContentStudio: React.FC = () => {
         ragCollection: '',
         ragQueryType: '/query_hybrid_enhanced',
         emphasis: 'balanced',
+        sourceMode: 'dossier_only',
         claimsValidation: true,
         // Add Metrics Explanations to UI <!-- id: 3 -->
         llmModel: '',
@@ -482,6 +510,11 @@ export const ContentStudio: React.FC = () => {
                     ragCollection: normalizedArticle.rag_collection_name || '',
                     ragQueryType: normalizedArticle.rag_query_type || '/query_hybrid_enhanced',
                     emphasis: normalizedArticle.rag_balance_emphasis || 'balanced',
+                    sourceMode: inferSourceMode({
+                        sourceStrategy: normalizedArticle.source_strategy,
+                        ragCollection: normalizedArticle.rag_collection_name || '',
+                        claimsValidation: false,
+                    }),
                     claimsValidation: true,
                     llmModel: resolveInitialLlmModel(normalizedArticle.LLM, normalizedLlmRows),
                 });
@@ -498,7 +531,18 @@ export const ContentStudio: React.FC = () => {
 
     // Handle Input Changes
     const handleChange = (field: string, value: any) => {
-        setFormData(prev => ({ ...prev, [field]: value }));
+        setFormData((prev) => {
+            const next = { ...prev, [field]: value };
+            if (SOURCE_STRATEGY_REFACTOR_ENABLED && field === 'ragCollection') {
+                const hasRag = Boolean(String(value || '').trim());
+                if (!hasRag) {
+                    next.sourceMode = 'dossier_only';
+                } else if (prev.sourceMode === 'dossier_only') {
+                    next.sourceMode = 'dossier_plus_rag';
+                }
+            }
+            return next;
+        });
     };
 
     const formatReadingTime = (value?: number | string | null) => {
@@ -843,6 +887,18 @@ export const ContentStudio: React.FC = () => {
 
             let generationBrief = effectiveDescription;
             let seodirective = '';
+            const selectedSourceMode = SOURCE_STRATEGY_REFACTOR_ENABLED
+                ? inferSourceMode({
+                    sourceStrategy: formData.sourceMode,
+                    ragCollection: formData.ragCollection,
+                    claimsValidation: formData.claimsValidation,
+                })
+                : inferSourceMode({
+                    ragCollection: formData.ragCollection,
+                    claimsValidation: formData.claimsValidation,
+                });
+            const strategyUsesRag = ['dossier_plus_rag', 'dossier_plus_rag_plus_live_web', 'rag_only'].includes(selectedSourceMode);
+            const strategyUsesLiveWeb = selectedSourceMode === 'dossier_plus_rag_plus_live_web';
 
             if (seoShiftEnabled && primaryKw) {
                 const geoCtx = computeGEOContext(primaryKw, article?.domain);
@@ -893,10 +949,13 @@ export const ContentStudio: React.FC = () => {
                 depth: formData.emphasis === 'balanced' ? 'standard' : 'comprehensive',
                 tone: formData.tone,
                 target_word_count: parseInt(formData.articleLength, 10),
-                claims_research_enabled: formData.claimsValidation,
-                rag_enabled: !!formData.ragCollection,
+                source_strategy: selectedSourceMode,
+                claims_research_enabled: strategyUsesLiveWeb,
+                rag_enabled: strategyUsesRag && !!formData.ragCollection,
                 rag_collection_name: formData.ragCollection,
-                rag_endpoint: appSettings.rag_url + formData.ragQueryType,
+                rag_endpoint: (strategyUsesRag && formData.ragCollection)
+                    ? appSettings.rag_url + formData.ragQueryType
+                    : undefined,
                 rag_balance_emphasis: formData.emphasis,
                 article_id: articleId,
             };
@@ -978,6 +1037,13 @@ export const ContentStudio: React.FC = () => {
         if (score < 70) return 'text-chart-4';
         return 'text-destructive';
     };
+
+    const selectedSourceMode = inferSourceMode({
+        sourceStrategy: formData.sourceMode,
+        ragCollection: formData.ragCollection,
+        claimsValidation: formData.claimsValidation,
+    });
+    const sourceModeUsesRag = ['dossier_plus_rag', 'dossier_plus_rag_plus_live_web', 'rag_only'].includes(selectedSourceMode);
 
     return (
         <div className="max-w-5xl mx-auto space-y-6">
@@ -1169,24 +1235,48 @@ export const ContentStudio: React.FC = () => {
                         </div>
 
                         <div className="pt-4 border-t border-border">
-                            <h4 className="text-sm font-medium text-foreground mb-3">RAG & Research</h4>
+                            <h4 className="text-sm font-medium text-foreground mb-3">
+                                {SOURCE_STRATEGY_REFACTOR_ENABLED ? 'Sources' : 'RAG & Research'}
+                            </h4>
                             <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">RAG Collection</label>
-                                    <select
-                                        className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
-                                        value={formData.ragCollection}
-                                        onChange={(e) => handleChange('ragCollection', e.target.value)}
-                                    >
-                                        <option value="">None (Disabled)</option>
-                                        {ragCollections.map(col => <option key={col.id} value={col.name}>{col.name}</option>)}
-                                    </select>
-                                </div>
+                                {SOURCE_STRATEGY_REFACTOR_ENABLED && (
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Source Mode</label>
+                                        <select
+                                            className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
+                                            value={selectedSourceMode}
+                                            onChange={(e) => handleChange('sourceMode', e.target.value)}
+                                        >
+                                            {SOURCE_MODE_OPTIONS.map((opt) => (
+                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                            ))}
+                                        </select>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            Use Deep Research dossier as baseline; optionally add private RAG knowledge and live web refresh.
+                                        </p>
+                                    </div>
+                                )}
+
+                                {(!SOURCE_STRATEGY_REFACTOR_ENABLED || sourceModeUsesRag) && (
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">RAG Collection</label>
+                                        <select
+                                            className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
+                                            value={formData.ragCollection}
+                                            onChange={(e) => handleChange('ragCollection', e.target.value)}
+                                        >
+                                            <option value="">None (Disabled)</option>
+                                            {ragCollections.map(col => <option key={col.id} value={col.name}>{col.name}</option>)}
+                                        </select>
+                                    </div>
+                                )}
 
                                 {formData.ragCollection && (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div>
-                                            <label className="block text-sm font-medium mb-1">Query Type</label>
+                                            <label className="block text-sm font-medium mb-1">
+                                                {SOURCE_STRATEGY_REFACTOR_ENABLED ? 'Advanced RAG: Query Type' : 'Query Type'}
+                                            </label>
                                             <select
                                                 className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
                                                 value={formData.ragQueryType}
@@ -1196,7 +1286,9 @@ export const ContentStudio: React.FC = () => {
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium mb-1">Emphasis</label>
+                                            <label className="block text-sm font-medium mb-1">
+                                                {SOURCE_STRATEGY_REFACTOR_ENABLED ? 'Advanced RAG: Emphasis' : 'Emphasis'}
+                                            </label>
                                             <select
                                                 className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
                                                 value={formData.emphasis}
@@ -1208,16 +1300,18 @@ export const ContentStudio: React.FC = () => {
                                     </div>
                                 )}
 
-                                <div className="flex items-center gap-2 mt-2">
-                                    <input
-                                        type="checkbox"
-                                        id="claims"
-                                        className="w-4 h-4 rounded border-border text-primary focus:ring-ring"
-                                        checked={formData.claimsValidation}
-                                        onChange={(e) => handleChange('claimsValidation', e.target.checked)}
-                                    />
-                                    <label htmlFor="claims" className="text-sm">Enable Claims Validation (Web Search)</label>
-                                </div>
+                                {!SOURCE_STRATEGY_REFACTOR_ENABLED && (
+                                    <div className="flex items-center gap-2 mt-2">
+                                        <input
+                                            type="checkbox"
+                                            id="claims"
+                                            className="w-4 h-4 rounded border-border text-primary focus:ring-ring"
+                                            checked={formData.claimsValidation}
+                                            onChange={(e) => handleChange('claimsValidation', e.target.checked)}
+                                        />
+                                        <label htmlFor="claims" className="text-sm">Enable Claims Validation (Web Search)</label>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

@@ -95,6 +95,48 @@ _CONTRADICTION_MARKERS = (
     "contrary", "disputed", "mixed", "unclear", "inconclusive", "no consensus",
 )
 _SOURCE_TYPES = ("expert", "primary", "secondary", "commercial", "community")
+_SOURCE_STRATEGIES = {
+    "dossier_only",
+    "dossier_plus_rag",
+    "dossier_plus_rag_plus_live_web",
+    "rag_only",
+}
+
+
+def _is_source_strategy_refactor_enabled() -> bool:
+    return os.environ.get("SOURCE_STRATEGY_REFACTOR_ENABLED", "false").strip().lower() == "true"
+
+
+def _normalize_source_strategy(research_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize source strategy into explicit capability flags.
+
+    The new strategy controls whether we can use:
+    - dossier context
+    - RAG evidence
+    - live web refresh (Linkup/Tavily)
+    """
+    requested = str(research_data.get("source_strategy") or "").strip().lower()
+    rag_enabled = bool(research_data.get("rag_enabled", False))
+    claims_enabled = bool(research_data.get("claims_research_enabled", True))
+
+    if requested in _SOURCE_STRATEGIES:
+        strategy = requested
+    else:
+        if rag_enabled and claims_enabled:
+            strategy = "dossier_plus_rag_plus_live_web"
+        elif rag_enabled:
+            strategy = "dossier_plus_rag"
+        else:
+            strategy = "dossier_only"
+
+    capabilities = {
+        "strategy": strategy,
+        "use_dossier": strategy in {"dossier_only", "dossier_plus_rag", "dossier_plus_rag_plus_live_web"},
+        "use_rag": strategy in {"dossier_plus_rag", "dossier_plus_rag_plus_live_web", "rag_only"},
+        "use_live_web": strategy == "dossier_plus_rag_plus_live_web",
+    }
+    return capabilities
 
 
 def _load_keyword_gate_settings() -> Dict[str, Any]:
@@ -785,6 +827,16 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
     """
     task_id = self.request.id
     logger.info(f"Starting research task {task_id} with data: {research_data}")
+    if _is_source_strategy_refactor_enabled():
+        source_caps = _normalize_source_strategy(research_data)
+        logger.info(
+            "Normalized source strategy for task %s: %s (dossier=%s, rag=%s, live_web=%s)",
+            task_id,
+            source_caps["strategy"],
+            source_caps["use_dossier"],
+            source_caps["use_rag"],
+            source_caps["use_live_web"],
+        )
     result: Dict[str, Any] = {
         'task_id': task_id,
         'status': TASK_STATUS['PENDING'],
@@ -1099,7 +1151,7 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     # Serialize citations for storage
                     citations_json = json.dumps(final_content.get('citations', []))
                     final_quality_decision = final_content.get('generation_status', 'Created')
-                    lifecycle_status = 'Written'
+                    lifecycle_status = 'Editing'
                     
                     core_updates = {
                         'status': lifecycle_status,
@@ -1352,7 +1404,14 @@ def _extract_claims(result: Dict[str, Any], task_instance: Any = None) -> Dict[s
                 }
             )
         research_data = result.get('research_data', {})
-        research_dossier = research_data.get('research_dossier') if research_data.get('dossier_validated', True) else {}
+        source_strategy_enabled = _is_source_strategy_refactor_enabled()
+        source_caps = _normalize_source_strategy(research_data)
+        use_dossier_context = source_caps["use_dossier"] if source_strategy_enabled else True
+        research_dossier = (
+            research_data.get('research_dossier')
+            if use_dossier_context and research_data.get('dossier_validated', True)
+            else {}
+        )
         brief = research_data.get('brief', '')
         keywords = research_data.get('keywords', '')
 
@@ -1539,7 +1598,10 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
         selected_secondary = [kw for kw in ranked_keywords[1:] if kw != selected_primary][:12]
 
         # Derive supporting GEO context for downstream writing + dashboard visibility.
-        research_dossier = research_data.get('research_dossier') or {}
+        source_strategy_enabled = _is_source_strategy_refactor_enabled()
+        source_caps = _normalize_source_strategy(research_data)
+        use_dossier_context = source_caps["use_dossier"] if source_strategy_enabled else True
+        research_dossier = (research_data.get('research_dossier') or {}) if use_dossier_context else {}
         supporting_entities: List[str] = []
         priority_questions: List[str] = []
         if isinstance(research_dossier, dict):
@@ -1698,6 +1760,17 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
             )
         logger.info("🔍 Starting evidence collection stage...")
         research_data = result.get('research_data', {})
+        source_strategy_enabled = _is_source_strategy_refactor_enabled()
+        source_caps = _normalize_source_strategy(research_data)
+        use_dossier_context = source_caps["use_dossier"] if source_strategy_enabled else True
+        if source_strategy_enabled:
+            logger.info(
+                "Source strategy active: %s (dossier=%s, rag=%s, live_web=%s)",
+                source_caps["strategy"],
+                source_caps["use_dossier"],
+                source_caps["use_rag"],
+                source_caps["use_live_web"],
+            )
         claims = result.get('claims', [])
         brief = research_data.get('brief', '')
         keywords = research_data.get('keywords', '')
@@ -1712,7 +1785,7 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
         keyword_strategy_terms = [k for k in keyword_strategy_terms if k]
         keyword_strategy_text = ", ".join(keyword_strategy_terms)
         target_intent = str(research_data.get('selected_keyword_intent') or research_data.get('target_intent') or '').strip().lower()
-        research_dossier = research_data.get('research_dossier') or {}
+        research_dossier = (research_data.get('research_dossier') or {}) if use_dossier_context else {}
         
         logger.info(f"📊 Claims count: {len(claims)}")
         logger.info(f"📝 Brief length: {len(brief)} chars")
@@ -1725,7 +1798,11 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
         web_sources = 0
         
         # Collect evidence from RAG if enabled
-        rag_enabled = research_data.get('rag_enabled', False)
+        rag_enabled = (
+            source_caps["use_rag"]
+            if source_strategy_enabled
+            else research_data.get('rag_enabled', False)
+        )
         # We check endpoint validity inside the block now to allow fallback to config
         if rag_enabled:
             # Update sub-progress
@@ -1753,12 +1830,6 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
             
             if rag_enabled and rag_endpoint:
                 logger.info(f"🔍 RAG search enabled - query target: {rag_endpoint}")
-                
-                # Ensure endpoint is full URL to query path
-                if not rag_endpoint.endswith('/query_hybrid_enhanced'):
-                    base_url = rag_endpoint.rstrip('/')
-                    rag_endpoint = f"{base_url}/query_hybrid_enhanced"
-                    logger.info(f"Adjusted RAG endpoint to: {rag_endpoint}")
             
             try:
                 # Use provided collection - no default, require explicit collection name
@@ -1867,7 +1938,11 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
         
         # Assess RAG coverage to determine if Linkup search is needed
         # Only assess if RAG was actually enabled and used
-        rag_enabled = research_data.get('rag_enabled', False)
+        rag_enabled = (
+            source_caps["use_rag"]
+            if source_strategy_enabled
+            else research_data.get('rag_enabled', False)
+        )
         # Filter RAG evidence to only include items with actual content
         rag_evidence = [e for e in evidence if e.get('source_type') == 'rag' and e.get('content') and e.get('content').strip()]
         config = get_config()
@@ -1925,7 +2000,11 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
         
         # Collect evidence from web search if claims research is enabled
         # Default to True (consistent with app.py) - web search should run unless explicitly disabled
-        claims_research_enabled = research_data.get('claims_research_enabled', True)
+        claims_research_enabled = (
+            source_caps["use_live_web"]
+            if source_strategy_enabled
+            else research_data.get('claims_research_enabled', True)
+        )
         research_provider_strategy = str(
             research_data.get('research_provider_strategy') or
             os.getenv('RESEARCH_PROVIDER_STRATEGY', 'hybrid')
@@ -1934,47 +2013,54 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
             logger.warning(f"Unknown research_provider_strategy '{research_provider_strategy}', defaulting to hybrid")
             research_provider_strategy = 'hybrid'
         
-        # Auto-enable LinkUp in scenarios where RAG doesn't provide sufficient evidence:
-        # 1. RAG is disabled at the flag level
-        # 2. RAG was enabled but failed to collect evidence (no collection, connection error, etc.)
-        # 3. RAG was enabled but coverage is insufficient
-        # This ensures we have evidence for content generation
-        # Only override if claims_research_enabled was explicitly set to False
-        if not rag_enabled:
-            if 'claims_research_enabled' not in research_data:
-                # Not explicitly set, default to True when RAG is disabled
-                claims_research_enabled = True
-                logger.info("RAG disabled - enabling Linkup by default (claims_research not explicitly disabled)")
-            elif not claims_research_enabled:
-                logger.info("Both RAG and Linkup are disabled - proceeding without external evidence sources")
-            else:
-                # RAG is disabled but claims_research_enabled is explicitly True - use Linkup
-                logger.info("RAG disabled but claims_research_enabled is True - will use Linkup for evidence collection")
-        elif rag_enabled and len(rag_evidence) == 0:
-            # RAG was enabled but failed to collect evidence - auto-enable LinkUp as fallback
-            if 'claims_research_enabled' not in research_data:
-                # Not explicitly disabled, enable LinkUp as fallback
-                claims_research_enabled = True
-                logger.info("RAG enabled but no valid evidence collected - enabling Linkup as fallback (claims_research not explicitly disabled)")
-            elif not claims_research_enabled:
-                logger.info("RAG enabled but no valid evidence collected, and Linkup is explicitly disabled - proceeding without evidence sources")
-        elif rag_enabled and not rag_coverage.get('sufficient', False):
-            # RAG was enabled but coverage is insufficient - ensure Linkup is used
+        if source_strategy_enabled:
             if claims_research_enabled:
-                logger.info(f"RAG coverage insufficient ({rag_coverage['source_count']} sources, relevance: {rag_coverage['avg_relevance']:.2f}) - Linkup will be used to supplement")
-            elif 'claims_research_enabled' not in research_data:
-                # Not explicitly disabled, enable LinkUp as fallback when RAG is insufficient
-                claims_research_enabled = True
-                logger.info("RAG coverage insufficient - enabling Linkup as fallback (claims_research not explicitly disabled)")
+                logger.info(
+                    "Live web refresh explicitly enabled by source strategy '%s'",
+                    source_caps["strategy"],
+                )
+            else:
+                logger.info(
+                    "Live web refresh disabled by source strategy '%s' - skipping Linkup/Tavily",
+                    source_caps["strategy"],
+                )
+        else:
+            # Legacy behavior (pre-source-strategy): auto-enable web fallback in specific scenarios.
+            if not rag_enabled:
+                if 'claims_research_enabled' not in research_data:
+                    # Not explicitly set, default to True when RAG is disabled
+                    claims_research_enabled = True
+                    logger.info("RAG disabled - enabling Linkup by default (claims_research not explicitly disabled)")
+                elif not claims_research_enabled:
+                    logger.info("Both RAG and Linkup are disabled - proceeding without external evidence sources")
+                else:
+                    # RAG is disabled but claims_research_enabled is explicitly True - use Linkup
+                    logger.info("RAG disabled but claims_research_enabled is True - will use Linkup for evidence collection")
+            elif rag_enabled and len(rag_evidence) == 0:
+                # RAG was enabled but failed to collect evidence - auto-enable LinkUp as fallback
+                if 'claims_research_enabled' not in research_data:
+                    # Not explicitly disabled, enable LinkUp as fallback
+                    claims_research_enabled = True
+                    logger.info("RAG enabled but no valid evidence collected - enabling Linkup as fallback (claims_research not explicitly disabled)")
+                elif not claims_research_enabled:
+                    logger.info("RAG enabled but no valid evidence collected, and Linkup is explicitly disabled - proceeding without evidence sources")
+            elif rag_enabled and not rag_coverage.get('sufficient', False):
+                # RAG was enabled but coverage is insufficient - ensure Linkup is used
+                if claims_research_enabled:
+                    logger.info(f"RAG coverage insufficient ({rag_coverage['source_count']} sources, relevance: {rag_coverage['avg_relevance']:.2f}) - Linkup will be used to supplement")
+                elif 'claims_research_enabled' not in research_data:
+                    # Not explicitly disabled, enable LinkUp as fallback when RAG is insufficient
+                    claims_research_enabled = True
+                    logger.info("RAG coverage insufficient - enabling Linkup as fallback (claims_research not explicitly disabled)")
         
         web_evidence = []
         if claims_research_enabled:
             # Determine if Linkup search is needed based on RAG coverage
             request_depth = research_data.get('depth', 'standard')
             
-            # Skip Linkup entirely if RAG coverage is sufficient and depth is not 'deep'
-            # But ONLY if RAG was actually enabled and provided sufficient coverage
-            if rag_enabled and rag_coverage['sufficient'] and request_depth != 'deep':
+            # Legacy mode: skip Linkup when RAG coverage is sufficient.
+            # Source-strategy mode: if live web is enabled, always run it.
+            if (not source_strategy_enabled) and rag_enabled and rag_coverage['sufficient'] and request_depth != 'deep':
                 logger.info(f"⏭️  Skipping Linkup search - RAG coverage is sufficient "
                           f"({rag_coverage['source_count']} sources, relevance: {rag_coverage['avg_relevance']:.2f})")
             else:
@@ -2435,7 +2521,10 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
         keyword_strategy_terms = [k for k in keyword_strategy_terms if k]
         keyword_strategy_text = ", ".join(keyword_strategy_terms)
         target_intent = str(research_data.get('selected_keyword_intent') or research_data.get('target_intent') or '').strip().lower()
-        research_dossier = research_data.get('research_dossier') or {}
+        source_strategy_enabled = _is_source_strategy_refactor_enabled()
+        source_caps = _normalize_source_strategy(research_data)
+        use_dossier_context = source_caps["use_dossier"] if source_strategy_enabled else True
+        research_dossier = (research_data.get('research_dossier') or {}) if use_dossier_context else {}
         
         # Create a focused section query that prioritizes keywords and specific content
         # Extract the main topic from the brief (first sentence or key phrases)
@@ -2501,9 +2590,14 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
         logger.info(f"  - Balance Emphasis: '{research_data.get('rag_balance_emphasis', 'auto')}'")
         
         section_evidence = []
+        # Reuse pre-computed strategy capabilities for source routing below.
         
         # Step 1: Try to collect RAG evidence if RAG is enabled
-        rag_enabled = research_data.get('rag_enabled', False)
+        rag_enabled = (
+            source_caps["use_rag"]
+            if source_strategy_enabled
+            else research_data.get('rag_enabled', False)
+        )
         if rag_enabled and research_data.get('rag_endpoint'):
             rag_collection = research_data.get('rag_collection') or research_data.get('rag_collection_name')
             if rag_collection:
@@ -2548,7 +2642,11 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
                 logger.warning(f"  - No RAG collection specified for section, skipping RAG search")
         
         # Step 2: Assess RAG coverage and use Linkup if needed and enabled
-        claims_research_enabled = research_data.get('claims_research_enabled', True)
+        claims_research_enabled = (
+            source_caps["use_live_web"]
+            if source_strategy_enabled
+            else research_data.get('claims_research_enabled', True)
+        )
         if claims_research_enabled:
             config = get_config()
             optimization_config = config.linkup_optimization
@@ -2562,7 +2660,10 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
             # Determine if we need Linkup
             need_linkup = False
             
-            if rag_enabled:
+            if source_strategy_enabled and source_caps["use_live_web"]:
+                need_linkup = True
+                logger.info(f"  - Source strategy enables live web refresh - using Linkup/Tavily for section")
+            elif rag_enabled:
                 # If RAG is enabled, assess coverage to see if Linkup is needed
                 # Use lower thresholds for section-specific evidence (sections need less evidence than full article)
                 section_min_sources = max(1, optimization_config.rag_coverage_min_sources - 1)  # At least 1 source for section
@@ -2808,8 +2909,18 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
         # Phase 4 hybrid orchestration:
         # 1) collect section-specific evidence in parallel (fast IO step)
         # 2) generate section prose sequentially with live memory for coherence
-        claims_research_enabled = research_data.get('claims_research_enabled', True)
-        rag_enabled = research_data.get('rag_enabled', False)
+        source_strategy_enabled = _is_source_strategy_refactor_enabled()
+        source_caps = _normalize_source_strategy(research_data)
+        claims_research_enabled = (
+            source_caps["use_live_web"]
+            if source_strategy_enabled
+            else research_data.get('claims_research_enabled', True)
+        )
+        rag_enabled = (
+            source_caps["use_rag"]
+            if source_strategy_enabled
+            else research_data.get('rag_enabled', False)
+        )
         section_specific_map: Dict[int, List[Dict[str, Any]]] = {}
         all_section_evidence = []
         seen_urls = {ev.get('source') for ev in evidence if ev.get('source')}

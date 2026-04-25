@@ -75,6 +75,7 @@ class Config:
     RESEARCH_PROVIDER_STRATEGY: str = os.environ.get('RESEARCH_PROVIDER_STRATEGY', 'hybrid')
     DEEP_RESEARCH_PROVIDER: str = os.environ.get('DEEP_RESEARCH_PROVIDER', 'tavily')
     RESEARCH_PROVIDER_EXPERIMENT_ENABLED: bool = os.environ.get('RESEARCH_PROVIDER_EXPERIMENT_ENABLED', 'false').lower() == 'true'
+    SOURCE_STRATEGY_REFACTOR_ENABLED: bool = os.environ.get('SOURCE_STRATEGY_REFACTOR_ENABLED', 'false').lower() == 'true'
     
     # Celery configuration
     CELERY_BROKER_URL: str = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
