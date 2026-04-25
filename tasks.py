@@ -656,6 +656,156 @@ def _validate_research_dossier(
     }
 
 
+def _parse_citations_payload(raw_citations: Any) -> List[Dict[str, Any]]:
+    """Normalize citation payloads from JSONB, text, or already-decoded lists."""
+    value = raw_citations
+    for _ in range(2):
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            try:
+                value = json.loads(stripped)
+            except Exception:
+                return []
+        else:
+            break
+
+    if not isinstance(value, list):
+        return []
+
+    citations: List[Dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            citations.append(item)
+    return citations
+
+
+def _citation_to_evidence(citation: Dict[str, Any], index: int, source_label: str = "dossier") -> Optional[Dict[str, Any]]:
+    """Convert a stored citation/source entry into evidence usable by citation generation."""
+    if not isinstance(citation, dict):
+        return None
+
+    metadata = citation.get("metadata") if isinstance(citation.get("metadata"), dict) else {}
+    title = str(
+        citation.get("title")
+        or citation.get("source_title")
+        or citation.get("name")
+        or metadata.get("title")
+        or f"Dossier Source {index + 1}"
+    ).strip()
+    url = str(
+        citation.get("url")
+        or citation.get("source")
+        or citation.get("link")
+        or metadata.get("url")
+        or ""
+    ).strip()
+    content_parts = [
+        citation.get("content"),
+        citation.get("content_excerpt"),
+        citation.get("excerpt"),
+        citation.get("snippet"),
+        citation.get("summary"),
+        citation.get("source"),
+        title,
+    ]
+    content = " ".join(str(part).strip() for part in content_parts if str(part or "").strip())
+    if not content:
+        return None
+
+    merged_metadata = {
+        **metadata,
+        "title": title,
+        "url": url,
+        "source_label": source_label,
+        "author": citation.get("author") or metadata.get("author") or "",
+        "publisher": citation.get("publisher") or metadata.get("publisher") or "",
+        "published_date": (
+            citation.get("publication_date")
+            or citation.get("published_date")
+            or citation.get("date")
+            or metadata.get("published_date")
+            or metadata.get("datePublished")
+            or ""
+        ),
+    }
+    return {
+        "source": url or f"{source_label}://source-{index + 1}",
+        "url": url,
+        "title": title,
+        "source_title": title,
+        "content": content,
+        "relevance_score": float(citation.get("relevance_score") or citation.get("relevance") or 0.82),
+        "credibility_score": float(citation.get("credibility_score") or citation.get("authority_score") or 0.78),
+        "quality_score": float(citation.get("quality_score") or 0.80),
+        "source_type": source_label,
+        "metadata": merged_metadata,
+    }
+
+
+def _build_dossier_evidence(
+    research_dossier: Any,
+    prior_citations: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """Build citation-grade evidence from structured dossier sources and prior citations."""
+    evidence: List[Dict[str, Any]] = []
+    if isinstance(research_dossier, dict):
+        summary = str(research_dossier.get("summary") or "").strip()
+        source_map = research_dossier.get("source_map") or []
+        if isinstance(source_map, list):
+            for idx, source in enumerate(source_map):
+                if not isinstance(source, dict):
+                    continue
+                source_payload = dict(source)
+                if summary and not any(source_payload.get(k) for k in ("content", "summary", "snippet", "excerpt")):
+                    source_payload["summary"] = summary[:700]
+                ev = _citation_to_evidence(source_payload, idx, source_label="dossier")
+                if ev:
+                    evidence.append(ev)
+
+        stats = research_dossier.get("important_statistics") or []
+        if isinstance(stats, list):
+            for offset, stat in enumerate(stats):
+                if isinstance(stat, dict):
+                    stat_payload = dict(stat)
+                else:
+                    stat_payload = {"title": "Dossier statistic", "content": str(stat)}
+                ev = _citation_to_evidence(stat_payload, len(evidence) + offset, source_label="dossier")
+                if ev:
+                    evidence.append(ev)
+
+    for idx, citation in enumerate(prior_citations or []):
+        ev = _citation_to_evidence(citation, idx, source_label="dossier_prior_citation")
+        if ev:
+            evidence.append(ev)
+
+    return _dedupe_evidence_items(evidence)
+
+
+def _dedupe_evidence_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Deduplicate evidence without collapsing distinct dossier sources that share a summary."""
+    seen = set()
+    unique: List[Dict[str, Any]] = []
+    for item in items or []:
+        key = (
+            str(item.get("url") or item.get("source") or "").strip().lower(),
+            str(item.get("title") or item.get("source_title") or "").strip().lower(),
+        )
+        if not any(key):
+            key = (str(item.get("content") or "")[:180].strip().lower(), "")
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+    return unique
+
+
+def _merge_evidence_items(primary: List[Dict[str, Any]], supplemental: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Merge two evidence lists while preserving order and source diversity."""
+    return _dedupe_evidence_items((primary or []) + (supplemental or []))
+
+
 def _build_confidence_map(claim_bundles: List[Dict[str, Any]], html_content: str) -> Dict[str, Any]:
     """Build claim/paragraph confidence map for review and gating."""
     high_conf = []
@@ -875,6 +1025,14 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     research_dossier = title_row.get('research_dossier')
                     dossier_status = title_row.get('dossier_status')
                     dossier_quality_score = title_row.get('dossier_quality_score')
+                    prior_citations = _parse_citations_payload(title_row.get('citations'))
+                    if prior_citations:
+                        research_data['prior_citations'] = prior_citations
+                        logger.info(
+                            "Loaded %s prior citations for article %s as regeneration fallback evidence",
+                            len(prior_citations),
+                            article_id,
+                        )
                     if content_outline:
                         logger.info(f"Found content_outline for article {article_id}: {str(content_outline)[:100]}...")
                         research_data['content_outline'] = content_outline
@@ -1146,10 +1304,10 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     
                     logger.info(f"Content lengths - Text: {len(article_text)}, HTML: {len(html_article)}")
                     
-                    import json
-                    
-                    # Serialize citations for storage
-                    citations_json = json.dumps(final_content.get('citations', []))
+                    citations_payload = final_content.get('citations', [])
+                    if not isinstance(citations_payload, list):
+                        citations_payload = _parse_citations_payload(citations_payload)
+                    selected_citation_indices = list(range(len(citations_payload)))
                     final_quality_decision = final_content.get('generation_status', 'Created')
                     lifecycle_status = 'Editing'
                     
@@ -1181,7 +1339,8 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         'quality_report': final_content.get('quality_report', {}),
                         'confidence_map': final_content.get('confidence_map', {}),
                         'quality_gate': final_content.get('quality_gate', {}),
-                        'citations': citations_json,  # Store citations as JSON for Reference Selector
+                        'citations': citations_payload,
+                        'selected_citations': selected_citation_indices,
                         'keyword_candidates_json': final_content.get('keyword_candidates_json', []),
                         'keyword_clusters_json': final_content.get('keyword_clusters_json', []),
                         'keyword_research_status': final_content.get('keyword_research_status', ''),
@@ -1786,6 +1945,12 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
         keyword_strategy_text = ", ".join(keyword_strategy_terms)
         target_intent = str(research_data.get('selected_keyword_intent') or research_data.get('target_intent') or '').strip().lower()
         research_dossier = (research_data.get('research_dossier') or {}) if use_dossier_context else {}
+        prior_citations = _parse_citations_payload(research_data.get('prior_citations')) if use_dossier_context else []
+        dossier_evidence = _build_dossier_evidence(research_dossier, prior_citations) if use_dossier_context else []
+        if dossier_evidence:
+            logger.info("📚 Loaded %s dossier/prior citation evidence sources", len(dossier_evidence))
+        elif use_dossier_context:
+            logger.warning("⚠️ Source strategy expects dossier context, but no citation-grade dossier evidence was available")
         
         logger.info(f"📊 Claims count: {len(claims)}")
         logger.info(f"📝 Brief length: {len(brief)} chars")
@@ -2209,28 +2374,33 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 }
             )
         
-        combined_evidence = evidence + web_evidence
-        # Simple content-based deduplication
-        seen_content = set()
-        unique_evidence = []
-        for item in combined_evidence:
-            content_hash = hash(item.get('content', '')[:100])
-            if content_hash not in seen_content:
-                seen_content.add(content_hash)
-                unique_evidence.append(item)
+        combined_evidence = dossier_evidence + evidence + web_evidence
+        evidence = _dedupe_evidence_items(combined_evidence)
+        logger.info(
+            "📈 Total combined evidence items: %s (dossier=%s, RAG=%s, web=%s)",
+            len(evidence),
+            len(dossier_evidence),
+            rag_sources,
+            web_sources,
+        )
         
-        evidence = unique_evidence
-        logger.info(f"📈 Total combined evidence items: {len(evidence)} (from RAG and Web)")
-        
-        # If no evidence collected, continue without evidence instead of using mock
         if not evidence:
+            message = (
+                f"No citation-grade evidence collected for source strategy '{source_caps['strategy']}'. "
+                "Generation was stopped to avoid publishing an ungrounded article."
+            )
+            if source_strategy_enabled:
+                logger.error(message)
+                raise RuntimeError(message)
             logger.info("No evidence collected - proceeding without evidence sources")
         
         logger.info(f"Collected {len(evidence)} total evidence sources")
         
         return {
             'evidence': evidence,
+            'citation_seed_evidence': evidence,
             'stage_data': {
+                'dossier_sources': len(dossier_evidence),
                 'rag_sources': rag_sources,
                 'web_sources': web_sources,
                 'total_sources': len(evidence)
@@ -2239,6 +2409,8 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
         
     except Exception as e:
         logger.error(f"Error in evidence collection: {str(e)}")
+        if _is_source_strategy_refactor_enabled():
+            raise
         return {'evidence': [], 'stage_data': {'rag_sources': 0, 'web_sources': 0, 'error': str(e)}}
 
 def _rank_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
@@ -3100,11 +3272,13 @@ def _generate_citations(result: Dict[str, Any]) -> Dict[str, Any]:
         research_data = result.get('research_data', {})
         # Use aggregated evidence from content generation if available, otherwise use ranked evidence
         evidence = result.get('aggregated_evidence') or result.get('ranked_evidence', [])
+        citation_seed_evidence = result.get('citation_seed_evidence') or []
+        evidence = _merge_evidence_items(evidence, citation_seed_evidence)
         content = result.get('content', {})
         
         # Debug logging
         logger.info(f"🔍 Citation generation debug - Evidence count: {len(evidence)}")
-        logger.info(f"🔍 Citation generation debug - Evidence source: {'aggregated_evidence' if result.get('aggregated_evidence') else 'ranked_evidence'}")
+        logger.info(f"🔍 Citation generation debug - Evidence source: {'aggregated_evidence' if result.get('aggregated_evidence') else 'ranked_evidence'} + citation_seed_evidence={len(citation_seed_evidence)}")
         logger.info(f"🔍 Citation generation debug - Evidence keys: {list(evidence[0].keys()) if evidence else 'No evidence'}")
         logger.info(f"🔍 Citation generation debug - Content sections: {len(content.get('sections', []))}")
         
@@ -3972,7 +4146,10 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         try:
             from src.services.article_quality_evaluator import build_article_quality_report
 
-            evidence_for_quality = result.get('aggregated_evidence') or result.get('ranked_evidence') or result.get('evidence') or []
+            evidence_for_quality = _merge_evidence_items(
+                result.get('aggregated_evidence') or result.get('ranked_evidence') or result.get('evidence') or [],
+                result.get('citation_seed_evidence') or [],
+            )
             quality_report = build_article_quality_report(
                 title=title,
                 html_content=htmlArticle,

@@ -19,6 +19,16 @@ class _Counters:
     def __init__(self):
         self.rag_calls = 0
         self.linkup_calls = 0
+        self.rag_results = [
+            SimpleNamespace(
+                source="rag://doc1",
+                content="RAG evidence content",
+                metadata={"title": "Doc 1"},
+                relevance_score=0.9,
+                credibility_score=0.8,
+                similarity_score=0.85,
+            )
+        ]
 
 
 def _patch_dependencies(monkeypatch, counters: _Counters):
@@ -56,16 +66,7 @@ def _patch_dependencies(monkeypatch, counters: _Counters):
             return SimpleNamespace(
                 success=True,
                 error=None,
-                results=[
-                    SimpleNamespace(
-                        source="rag://doc1",
-                        content="RAG evidence content",
-                        metadata={"title": "Doc 1"},
-                        relevance_score=0.9,
-                        credibility_score=0.8,
-                        similarity_score=0.85,
-                    )
-                ],
+                results=counters.rag_results,
             )
 
     class DummyLinkupClient:
@@ -101,6 +102,30 @@ def _base_result(strategy: str):
             "rag_endpoint": "http://rag.local/query_simple",
             "rag_collection": "mortgage_notes",
             "rag_balance_emphasis": "balanced",
+            "research_dossier": {
+                "version": "test",
+                "summary": "Deep Research says 2026 mortgage prepayment decisions depend on rates, liquidity, taxes, and opportunity cost.",
+                "primary_claims": [
+                    {"claim": "Prepayment decisions should compare mortgage APR against expected after-tax investment returns."},
+                    {"claim": "Emergency liquidity changes whether extra principal payments are prudent."},
+                ],
+                "source_map": [
+                    {
+                        "title": "Federal mortgage rate data",
+                        "url": "https://example.gov/mortgage-rates",
+                        "source": "Government mortgage rate dataset",
+                    },
+                    {
+                        "title": "Market return assumptions",
+                        "url": "https://example.org/market-outlook",
+                        "source": "Institutional market outlook",
+                    },
+                ],
+                "source_quality_summary": {"source_count": 2},
+                "dossier_quality_score": 40,
+            },
+            "dossier_status": "ready",
+            "dossier_validated": True,
         },
         "claims": [{"claim": "Prepaying principal can reduce total interest paid."}],
     }
@@ -114,8 +139,10 @@ def test_mode_dossier_only_skips_rag_and_web(monkeypatch):
 
     assert counters.rag_calls == 0
     assert counters.linkup_calls == 0
+    assert result["stage_data"]["dossier_sources"] == 2
     assert result["stage_data"]["rag_sources"] == 0
     assert result["stage_data"]["web_sources"] == 0
+    assert len(result["citation_seed_evidence"]) == 2
 
 
 def test_mode_dossier_plus_rag_uses_rag_only(monkeypatch):
@@ -126,8 +153,10 @@ def test_mode_dossier_plus_rag_uses_rag_only(monkeypatch):
 
     assert counters.rag_calls == 1
     assert counters.linkup_calls == 0
+    assert result["stage_data"]["dossier_sources"] == 2
     assert result["stage_data"]["rag_sources"] >= 1
     assert result["stage_data"]["web_sources"] == 0
+    assert len(result["citation_seed_evidence"]) >= 3
 
 
 def test_mode_dossier_plus_rag_plus_live_web_uses_both_sources(monkeypatch):
@@ -138,6 +167,7 @@ def test_mode_dossier_plus_rag_plus_live_web_uses_both_sources(monkeypatch):
 
     assert counters.rag_calls == 1
     assert counters.linkup_calls >= 1
+    assert result["stage_data"]["dossier_sources"] == 2
     assert result["stage_data"]["rag_sources"] >= 1
     assert result["stage_data"]["web_sources"] >= 1
 
@@ -150,6 +180,7 @@ def test_mode_rag_only_uses_rag_without_web(monkeypatch):
 
     assert counters.rag_calls == 1
     assert counters.linkup_calls == 0
+    assert result["stage_data"]["dossier_sources"] == 0
     assert result["stage_data"]["rag_sources"] >= 1
     assert result["stage_data"]["web_sources"] == 0
 
@@ -169,3 +200,28 @@ def test_legacy_inference_defaults_to_dual_source_when_rag_and_claims_enabled(mo
     assert counters.linkup_calls >= 1
     assert result["stage_data"]["rag_sources"] >= 1
     assert result["stage_data"]["web_sources"] >= 1
+
+
+def test_dossier_plus_rag_empty_rag_preserves_dossier_evidence(monkeypatch):
+    counters = _Counters()
+    counters.rag_results = []
+    _patch_dependencies(monkeypatch, counters)
+
+    result = tasks._collect_evidence(_base_result("dossier_plus_rag"))
+
+    assert counters.rag_calls == 1
+    assert counters.linkup_calls == 0
+    assert result["stage_data"]["dossier_sources"] == 2
+    assert result["stage_data"]["rag_sources"] == 0
+    assert len(result["citation_seed_evidence"]) == 2
+
+
+def test_source_strategy_raises_when_no_allowed_source_has_evidence(monkeypatch):
+    counters = _Counters()
+    _patch_dependencies(monkeypatch, counters)
+    result_data = _base_result("dossier_only")
+    result_data["research_data"].pop("research_dossier")
+    result_data["research_data"]["prior_citations"] = []
+
+    with pytest.raises(RuntimeError, match="No citation-grade evidence collected"):
+        tasks._collect_evidence(result_data)
