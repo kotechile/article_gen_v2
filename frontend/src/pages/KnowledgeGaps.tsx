@@ -451,32 +451,37 @@ export const KnowledgeGaps: React.FC = () => {
                 <div className="w-full max-w-full space-y-3 md:w-auto md:min-w-[18rem] md:max-w-[24rem]">
                     <div className="space-y-2">
                         <span className="block text-sm font-medium text-foreground">Active Collection</span>
-                        <CollectionSelector
-                            collections={collections}
-                            selectedCollection={selectedCollection}
-                            onSelect={setSelectedCollection}
-                            onCreateCollection={handleCollectionCreate}
-                        />
+                        <div className="flex items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={handleCollectionDelete}
+                                disabled={!selectedCollection}
+                                aria-label={deletingCollection ? 'Deleting collection' : 'Delete collection'}
+                                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                {deletingCollection ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Trash2 className="h-4 w-4" />
+                                )}
+                            </button>
+                            <CollectionSelector
+                                collections={collections}
+                                selectedCollection={selectedCollection}
+                                onSelect={setSelectedCollection}
+                                onCreateCollection={handleCollectionCreate}
+                            />
+                        </div>
                     </div>
 
                     <button
                         type="button"
                         onClick={() => setShowQueryModal(true)}
                         disabled={!selectedCollection}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-md transition hover:bg-primary/90 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 md:w-72"
                     >
-                        <Search className="h-4 w-4" />
+                        <Search className="h-4 w-4 text-gray-500 dark:text-gray-400" />
                         <span>Query Collection</span>
-                    </button>
-
-                    <button
-                        type="button"
-                        onClick={handleCollectionDelete}
-                        disabled={!selectedCollection}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-400 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                        <Trash2 className="h-4 w-4" />
-                        <span>{deletingCollection ? 'Deleting Collection…' : 'Delete Collection'}</span>
                     </button>
                 </div>
             </div>

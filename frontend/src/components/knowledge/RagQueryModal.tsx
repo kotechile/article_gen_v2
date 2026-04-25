@@ -34,6 +34,7 @@ const QUERY_TYPE_OPTIONS: Array<{ label: string; value: QueryType }> = [
 const DEFAULT_LLM_MODELS = ['gpt-4o', 'deepseek', 'claude-3-5-sonnet'];
 const DEFAULT_BALANCE_OPTIONS = ['balanced', 'comprehensive', 'news_focused', 'auto'];
 const DEFAULT_RESPONSE: RagQueryResponse | null = null;
+const SELECT_CONTROL_CLASS = 'h-12 w-full rounded-xl border border-gray-300 bg-white px-4 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white';
 
 function escapeHtml(value: string): string {
     return value
@@ -237,7 +238,7 @@ export const RagQueryModal: React.FC<RagQueryModalProps> = ({
                                 <select
                                     value={queryType}
                                     onChange={(e) => setQueryType(e.target.value as QueryType)}
-                                    className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                                    className={SELECT_CONTROL_CLASS}
                                 >
                                     {QUERY_TYPE_OPTIONS.map((option) => (
                                         <option key={option.value} value={option.value}>
@@ -254,7 +255,7 @@ export const RagQueryModal: React.FC<RagQueryModalProps> = ({
                                 <select
                                     value={llm}
                                     onChange={(e) => setLlm(e.target.value)}
-                                    className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                                    className={SELECT_CONTROL_CLASS}
                                 >
                                     {modelOptions.map((model) => (
                                         <option key={model} value={model}>
@@ -292,7 +293,7 @@ export const RagQueryModal: React.FC<RagQueryModalProps> = ({
                                         <select
                                             value={verboseMode}
                                             onChange={(e) => setVerboseMode(e.target.value as VerboseMode)}
-                                            className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                                            className={SELECT_CONTROL_CLASS}
                                         >
                                             <option value="concise">concise</option>
                                             <option value="balanced">balanced</option>
