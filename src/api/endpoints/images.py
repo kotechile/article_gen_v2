@@ -181,6 +181,10 @@ Visual design rules:
 - Use clean, bold sans-serif typography with strong contrast and a clear headline hierarchy.
 - Ensure all text is large enough and high-contrast enough to be legible inside an article body on desktop and mobile.
 - Never place light text on a light card or dark text on a dark card. Maintain strong contrast in every section.
+- The main title and subtitle must always sit on a clearly contrasting area and remain immediately readable at first glance.
+- Do not place headline text over blobs, gradients, or illustrations unless you add a solid/tinted backing shape or another clear contrast layer behind the text.
+- Do not use low-opacity text for primary information. Headings, subtitles, key metrics, and labels must be fully legible foreground elements, not decorative background text.
+- If a background shape passes behind text, either move the text, recolor the text, or add a dedicated text container so contrast stays strong.
 - Use this palette consistently:
   - Primary text: {text_color}
   - Accent: {accent_color}
@@ -223,12 +227,14 @@ Layout safety rules:
 - Reserve clear zones for title/subtitle, content modules, and footer/callout areas so sections never overlap.
 - Every card, panel, or chart module must have consistent internal padding before any text begins.
 - Do not let text overflow outside a card, panel, badge, label, or boundary.
+- Keep decorative background geometry away from headline text unless contrast is explicitly protected.
 - Wrap all multi-line copy intentionally using separate <tspan> lines instead of a single long <text> line.
 - Keep titles short enough to fit cleanly. Section titles should be at most 2 lines.
 - Keep body copy brief and summarized. Supporting copy should be at most 2 to 3 short lines per section.
 - If the source text is too long, summarize harder rather than shrinking text to an unreadable size.
 - Use shorter phrases, not sentences copied verbatim from the source paragraph.
 - Avoid any text collisions, clipping, or cross-module overlap.
+- Before finalizing, perform a contrast check mentally: if any text risks blending into its immediate background, adjust the fill colors or add a backing layer.
 - Before finalizing, verify that all labels fit within the 800x450 canvas with comfortable margins.
 
 Technical rules:
