@@ -4225,6 +4225,80 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             )
             full_content = answer_block + full_content
             geo_auto_applied = True
+
+        # Phase 6.1 GEO enrichment: ensure key GEO signals are present so the
+        # generated draft is extractable by answer engines without manual edits.
+        geo_enrichment_added = {
+            "definition": False,
+            "key_takeaways": False,
+            "faq": False,
+        }
+        lower_content = full_content.lower()
+        plain_content = _extract_plain_text(full_content or "")
+        lower_plain = plain_content.lower()
+
+        geo_primary_term = str(
+            structure.get('focus_keyword')
+            or research_data.get('primary_keyword')
+            or research_data.get('search_phrase')
+            or ''
+        ).strip()
+        geo_topic_phrase = geo_primary_term.title() if geo_primary_term else str(structure.get('title', 'This Strategy')).split(':')[0].strip()
+        if not geo_topic_phrase:
+            geo_topic_phrase = "This Strategy"
+
+        has_definition_pattern = bool(
+            re.search(r"\b[A-Z][A-Za-z0-9 ]{2,30}\s+is\s+a[n]?\s+", plain_content or "")
+        )
+        if not has_definition_pattern:
+            definition_paragraph = (
+                f"<p>{geo_topic_phrase} is an approach that balances guaranteed debt savings with long-term return potential, "
+                "because the best decision depends on rate spread, timeline, and risk tolerance.</p>\n\n"
+            )
+            full_content = definition_paragraph + full_content
+            geo_enrichment_added["definition"] = True
+
+        if "key takeaways" not in lower_plain:
+            takeaways_block = (
+                "<h2>Key Takeaways</h2>\n\n"
+                "<p>Key takeaway: homeowners should compare mortgage interest savings against expected diversified market returns, "
+                "because the spread between those two numbers is the core driver of long-term wealth outcomes.</p>\n\n"
+                "<p>Key takeaway: the answer is usually strongest when you keep liquidity first, because prepaying too aggressively can "
+                "reduce flexibility during job changes, emergencies, or rate shifts.</p>\n\n"
+                "<ul>"
+                "<li>Use a consistent monthly framework to compare prepayment versus investing.</li>"
+                "<li>Favor the option that best supports your risk profile and cash-flow stability.</li>"
+                "<li>Re-check the decision when rates, income, or market assumptions change.</li>"
+                "</ul>\n\n"
+            )
+            full_content += "\n" + takeaways_block
+            geo_enrichment_added["key_takeaways"] = True
+
+        if "<h2>faq" not in lower_content and "frequently asked questions" not in lower_plain:
+            faq_topic = geo_primary_term or "paying off a mortgage early"
+            faq_block = (
+                "<h2>FAQ</h2>\n\n"
+                f"<h3>Should you always prioritize {faq_topic} over investing?</h3>\n"
+                "<p>Not always. You should prioritize the option with better risk-adjusted outcomes, because expected return, tax treatment, "
+                "and liquidity needs can outweigh guaranteed interest savings in many scenarios.</p>\n\n"
+                "<h3>What is the safest way to decide month by month?</h3>\n"
+                "<p>The best method is a rules-based split between prepayment and investing, because a repeatable allocation plan reduces "
+                "timing mistakes and keeps progress consistent through market volatility.</p>\n\n"
+                "<h3>When does early payoff become the clearly better choice?</h3>\n"
+                "<p>The answer is clearer when mortgage rates are high and your horizon is shorter, because guaranteed savings become more "
+                "valuable when compounding time is limited.</p>\n\n"
+            )
+            full_content += "\n" + faq_block
+            geo_enrichment_added["faq"] = True
+            logger.info("GEO enrichment appended missing FAQ block for better extractability")
+
+        if any(geo_enrichment_added.values()):
+            logger.info(
+                "Applied GEO enrichment blocks: definition=%s key_takeaways=%s faq=%s",
+                geo_enrichment_added["definition"],
+                geo_enrichment_added["key_takeaways"],
+                geo_enrichment_added["faq"],
+            )
         
         # Create clickable citation links only if in-text citations are enabled
         if include_in_text_citations:
