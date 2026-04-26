@@ -242,6 +242,7 @@ Visual design rules:
 - Use a modern, vibrant SaaS-style visual language with rich color, depth, contrast, and polish.
 - Favor bold editorial compositions, sculptural geometry, layered forms, and custom vector illustration.
 - Use viewBox="0 0 800 450" and ensure the SVG is responsive with width="100%" and height="auto".
+- Prioritize whitespace and readability over filling every part of the canvas. A clean, breathable composition is better than a dense one.
 - Keep the background transparent overall; do not draw a flat full-canvas solid background rectangle. It is fine to use soft gradient glows, tinted panels, and translucent cards.
 - Use clean, bold sans-serif typography with strong contrast and a clear headline hierarchy.
 - Ensure all text is large enough and high-contrast enough to be legible inside an article body on desktop and mobile.
@@ -285,19 +286,29 @@ Geometric requirements (strict):
 - Do not default to three equal-width cards. Use asymmetry, nesting, varied module sizes, curved sections, radial arrangements, or a non-card layout unless the content strongly calls for a simple comparison.
 - Vary the composition between generations when possible so outputs do not feel templated.
 - Create clear hierarchy with a concise title, strong focal area, and only as many sections as the content genuinely needs.
+- Prefer 2 or 3 strong content modules over 4 or more cramped ones.
+- If the content can be communicated with fewer elements, remove elements rather than shrinking padding or text.
 - Favor balanced spacing, alignment, and visual clarity over decoration.
 
 Layout safety rules:
 - Build the composition on a disciplined grid with generous padding and gutters.
+- Keep a clear outer safe area on all sides of the 800x450 canvas. Leave at least 36px margin from every canvas edge, and prefer 44px to 52px when space allows.
+- Keep title and subtitle inside their own protected header zone with comfortable breathing room above, below, and to the sides.
+- Leave at least 24px gutter between major modules; increase to 28px or 32px when using large modules.
 - Reserve clear zones for title/subtitle, content modules, and footer/callout areas so sections never overlap.
 - Every card, panel, or chart module must have consistent internal padding before any text begins.
+- Every major module must have at least 22px internal padding on all sides; prefer 24px to 28px for larger stat blocks.
+- Keep icons, labels, big numbers, and supporting copy separated with visible breathing room. Do not stack them tightly.
 - Do not let text overflow outside a card, panel, badge, label, or boundary.
 - Keep decorative background geometry away from headline text unless contrast is explicitly protected.
 - Wrap all multi-line copy intentionally using separate <tspan> lines instead of a single long <text> line.
 - Keep titles short enough to fit cleanly. Section titles should be at most 2 lines.
 - Keep body copy brief and summarized. Supporting copy should be at most 2 to 3 short lines per section.
+- Avoid long horizontal text runs that force other elements too close to the edges.
 - If the source text is too long, summarize harder rather than shrinking text to an unreadable size.
 - Use shorter phrases, not sentences copied verbatim from the source paragraph.
+- Do not add extra badges, dividers, background ornaments, or micro-labels unless they improve clarity.
+- If a row starts to feel crowded, break it into fewer larger blocks or move one item to a lower row instead of compressing everything.
 - Avoid any text collisions, clipping, or cross-module overlap.
 - Before finalizing, perform a contrast check mentally: if any text risks blending into its immediate background, adjust the fill colors or add a backing layer.
 - Before finalizing, verify that all labels fit within the 800x450 canvas with comfortable margins.
