@@ -185,6 +185,29 @@ const normalizeDomain = (value?: string | null) =>
         .replace(/^https?:\/\//, '')
         .replace(/\/$/, '');
 
+const normalizeResidualMarkdownHeadings = (html: string): string => {
+    if (!html) return html;
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    doc.querySelectorAll('p').forEach((paragraph) => {
+        // Ignore rich blocks where text-only conversion could remove structure.
+        if (paragraph.querySelector('img,svg,table,pre,code,blockquote,ul,ol,li')) return;
+
+        const raw = (paragraph.textContent || '').replace(/\u00a0/g, ' ').trim();
+        const match = raw.match(/^(#{1,6})\s+(.+)$/);
+        if (!match) return;
+
+        const level = Math.min(match[1].length, 6);
+        const heading = doc.createElement(`h${level}`);
+        heading.textContent = match[2].trim();
+        paragraph.replaceWith(heading);
+    });
+
+    return doc.body.innerHTML;
+};
+
 const EditorStyles = `
   /* Table Styles */
   .ProseMirror table {
@@ -845,7 +868,8 @@ export const ArticleEditor: React.FC = () => {
 
                         content = normalizeCitations(content, parsedCitations, restoredSelected, d.include_in_text_citations ?? d.includeInTextCitations ?? true);
                     }
-                    editor.commands.setContent(normalizeEditorHtml(content));
+                    const cleanedContent = normalizeResidualMarkdownHeadings(content);
+                    editor.commands.setContent(normalizeEditorHtml(cleanedContent));
                 }
 
                 // Store article data for WordPress export

@@ -332,6 +332,8 @@ def _normalize_markdown_artifacts_to_html(raw_text: str) -> str:
         return ""
 
     normalized = text.replace("\r\n", "\n")
+    # Normalize escaped markdown hash entities that occasionally leak from LLM HTML.
+    normalized = normalized.replace("&#35;", "#").replace("&#x23;", "#").replace("&num;", "#")
 
     # Convert inline pseudo-bullets into real list lines before list parsing.
     if " - " in normalized and "<li" not in normalized:
@@ -408,6 +410,13 @@ def _normalize_markdown_artifacts_to_html(raw_text: str) -> str:
 
     normalized = re.sub(
         r"<p>\s*(#{1,6})\s+(.+?)\s*</p>",
+        _replace_wrapped_heading,
+        normalized,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    # Also support headings emitted inside a paragraph after a line break.
+    normalized = re.sub(
+        r"<p>\s*<br\s*/?>\s*(#{1,6})\s+(.+?)\s*</p>",
         _replace_wrapped_heading,
         normalized,
         flags=re.IGNORECASE | re.DOTALL,

@@ -11,6 +11,7 @@ import io
 import base64
 import asyncio
 import re
+import html
 import requests
 from datetime import datetime
 from flask import Blueprint, request, jsonify, current_app
@@ -140,12 +141,17 @@ def _extract_svg_markup(content):
         return ""
 
     cleaned = str(content).strip()
+    cleaned = html.unescape(cleaned)
     cleaned = re.sub(r'^```(?:svg|xml)?\s*', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\s*```$', '', cleaned)
 
     match = re.search(r'(<svg[\s\S]*?</svg>)', cleaned, flags=re.IGNORECASE)
     if match:
         cleaned = match.group(1).strip()
+    else:
+        escaped_match = re.search(r'(&lt;svg[\s\S]*?&lt;/svg&gt;)', str(content), flags=re.IGNORECASE)
+        if escaped_match:
+            cleaned = html.unescape(escaped_match.group(1)).strip()
 
     if cleaned.lower().startswith('<?xml'):
         xml_end = cleaned.find('?>')
@@ -925,32 +931,49 @@ def generate_infographic_svg():
                 status=500
             ).dict()), 500
 
-        llm_config = _resolve_infographic_llm(client, llm_model)
-        ProviderClass = get_provider_class(llm_config['provider_name'])
-        llm = ProviderClass(
-            api_key=llm_config['api_key'],
-            model_name=llm_config['model_name'],
-            base_url=llm_config['base_url']
-        )
+        selected_llm_config = _resolve_infographic_llm(client, llm_model)
+        default_llm_config = _resolve_infographic_llm(client, None)
 
-        # Keep this request under gateway timeout budgets: one generation pass with
-        # a leaner token budget is more reliable than multi-pass retries.
+        llm_attempts = [selected_llm_config]
+        if (
+            default_llm_config.get('provider_name') != selected_llm_config.get('provider_name')
+            or default_llm_config.get('model_name') != selected_llm_config.get('model_name')
+        ):
+            llm_attempts.append(default_llm_config)
+
+        # If the explicitly selected model is a reasoning profile, try default first.
+        selected_model_name = str(selected_llm_config.get('model_name') or '').lower()
+        if 'reasoner' in selected_model_name and len(llm_attempts) > 1:
+            llm_attempts = [default_llm_config, selected_llm_config]
+
         prompt = _build_svg_infographic_prompt(text, accent_color, text_color, secondary_color, neutral_color)
-        response = asyncio.run(llm.generate(
-            prompt,
-            temperature=0.2,
-            max_tokens=1800,
-            top_p=0.9,
-        ))
-        svg_markup = _extract_svg_markup(response.content)
+        svg_markup = ""
+        used_llm_config = selected_llm_config
+        for candidate in llm_attempts:
+            ProviderClass = get_provider_class(candidate['provider_name'])
+            llm = ProviderClass(
+                api_key=candidate['api_key'],
+                model_name=candidate['model_name'],
+                base_url=candidate['base_url']
+            )
+            response = asyncio.run(llm.generate(
+                prompt,
+                temperature=0.2,
+                max_tokens=1400,
+                top_p=0.9,
+            ))
+            svg_markup = _extract_svg_markup(response.content)
+            if svg_markup.lower().startswith('<svg'):
+                used_llm_config = candidate
+                break
 
         if not svg_markup.lower().startswith('<svg'):
             raise ValueError("LLM did not return a valid SVG document")
 
         return jsonify({
             "svg": svg_markup,
-            "provider": llm_config['provider_name'],
-            "model": llm_config['model_name'],
+            "provider": used_llm_config['provider_name'],
+            "model": used_llm_config['model_name'],
         }), 200
 
     except Exception as e:

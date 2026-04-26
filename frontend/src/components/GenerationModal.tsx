@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { supabase } from '../lib/supabase';
-import { Loader2, AlertCircle, X } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
 import { updateArticleAfterGeneration } from '../lib/contentParser';
 import { useAuth } from '../context/auth-context';
 
@@ -10,7 +10,7 @@ interface GenerationModalProps {
     taskId?: string | null;
     isOpen: boolean;
     onClose: () => void;
-    onComplete: () => void;
+    onComplete: (articleId: string) => void;
 }
 
 export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, taskId, isOpen, onClose, onComplete }) => {
@@ -58,7 +58,7 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                             }
                         }
 
-                        setTimeout(onComplete, 1500);
+                        setTimeout(() => onComplete(articleId), 1500);
                         clearInterval(pollInterval);
                         return;
                     }
@@ -146,10 +146,14 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
 
                     if (!hasUpdatedRef.current && user?.id) {
                         hasUpdatedRef.current = true;
-                        await updateArticleAfterGeneration(articleId);
+                        try {
+                            await updateArticleAfterGeneration(articleId);
+                        } catch (updateErr) {
+                            console.error("Failed to update ToC:", updateErr);
+                        }
                     }
 
-                    setTimeout(() => { onComplete(); }, 1500);
+                    setTimeout(() => { onComplete(articleId); }, 1500);
                     clearInterval(pollInterval);
                 } else if (currentStatus.includes('Error') || currentStatus.includes('Failed')) {
                     setError('Generation failed (DB status).');
@@ -191,11 +195,6 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-6 border border-gray-100 dark:border-gray-700">
                 <div className="flex items-center justify-between mb-6">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Generating Article</h3>
-                    {!error && (
-                        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                            <X className="w-5 h-5" />
-                        </button>
-                    )}
                 </div>
 
                 {error ? (

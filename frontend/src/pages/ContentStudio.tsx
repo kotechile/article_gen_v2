@@ -1609,10 +1609,13 @@ export const ContentStudio: React.FC = () => {
                     setShowProgress(false);
                     setTaskId(null);
                 }}
-                onComplete={() => {
+                onComplete={(completedArticleId) => {
                     setShowProgress(false);
                     setTaskId(null);
-                    navigate(`/article-editor/${articleId}`);
+                    const targetId = completedArticleId || articleId || article?.id;
+                    if (targetId) {
+                        navigate(`/article-editor/${targetId}`);
+                    }
                 }}
             />
 
