@@ -74,6 +74,19 @@ def _extract_openai_compatible_content(data: Dict[str, Any]) -> str:
 
     return ""
 
+
+def _compact_json_for_log(value: Any, limit: int = 4000) -> str:
+    """Serialize diagnostic payloads for temporary troubleshooting logs."""
+    try:
+        serialized = json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        serialized = str(value)
+
+    if len(serialized) > limit:
+        return f"{serialized[:limit]}...[truncated]"
+
+    return serialized
+
 class GeminiProvider(LLMProvider):
     """Google Gemini Provider"""
     
@@ -159,9 +172,11 @@ class OpenAIProvider(LLMProvider):
                  content = _extract_openai_compatible_content(data)
                  if not content:
                     logger.warning(
-                        "OpenAI-compatible response did not contain text content for model=%s. Top-level keys=%s",
+                        "OpenAI-compatible response did not contain text content for model=%s. Top-level keys=%s choice_dump=%s full_response=%s",
                         self.model_name,
                         sorted(data.keys()),
+                        _compact_json_for_log((data.get("choices") or [None])[0]),
+                        _compact_json_for_log(data),
                     )
                  usage = data.get("usage", {})
                  
