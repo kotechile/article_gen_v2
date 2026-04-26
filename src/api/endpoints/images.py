@@ -160,6 +160,41 @@ def _extract_svg_markup(content):
     return cleaned
 
 
+def _sanitize_svg_markup(svg_markup):
+    if not svg_markup:
+        return ""
+
+    sanitized = str(svg_markup)
+    sanitized = sanitized.replace("\x00", "")
+    sanitized = re.sub(r"[\x01-\x08\x0B\x0C\x0E-\x1F]", "", sanitized)
+    sanitized = re.sub(r"&(?!#\d+;|#x[0-9A-Fa-f]+;|[A-Za-z][A-Za-z0-9._:-]*;)", "&amp;", sanitized)
+
+    if "<svg" in sanitized and "</svg>" not in sanitized:
+        sanitized = f"{sanitized}</svg>"
+
+    return sanitized.strip()
+
+
+def _get_svg_error_context(svg_markup, validation_error, radius=120):
+    if not svg_markup or not validation_error:
+        return ""
+
+    match = re.search(r"line (\d+), column (\d+)", str(validation_error))
+    if not match:
+        return ""
+
+    line_no = int(match.group(1))
+    column_no = int(match.group(2))
+    lines = str(svg_markup).splitlines()
+    if line_no < 1 or line_no > len(lines):
+        return ""
+
+    line = lines[line_no - 1]
+    start = max(0, column_no - radius)
+    end = min(len(line), column_no + radius)
+    return line[start:end]
+
+
 def _get_svg_validation_error(svg_markup):
     if not svg_markup:
         return "empty svg markup"
@@ -1033,22 +1068,28 @@ def generate_infographic_svg():
                 svg_markup = _extract_svg_markup(raw_content)
                 validation_error = _get_svg_validation_error(svg_markup)
                 if validation_error:
+                    local_repair_markup = _sanitize_svg_markup(svg_markup)
+                    local_repair_error = _get_svg_validation_error(local_repair_markup)
                     logger.warning(
-                        "Infographic SVG draft was not valid XML for provider=%s model=%s. Validation error: %s Extracted length: %s Extracted prefix: %s Raw prefix: %s",
+                        "Infographic SVG draft was not valid XML for provider=%s model=%s. Validation error: %s Extracted length: %s Error context: %s Extracted prefix: %s Raw prefix: %s",
                         candidate.get('provider_name'),
                         candidate.get('model_name'),
                         validation_error,
                         len(str(svg_markup or '')),
+                        _get_svg_error_context(svg_markup, validation_error),
                         str(svg_markup or '')[:500],
                         str(raw_content or '')[:500],
                     )
-                    repaired_content = _generate_svg_with_candidate(
-                        candidate,
-                        prompt,
-                        repair=True,
-                        source_content=svg_markup or raw_content,
-                    )
-                    svg_markup = _extract_svg_markup(repaired_content)
+                    if local_repair_error is None:
+                        svg_markup = local_repair_markup
+                    else:
+                        repaired_content = _generate_svg_with_candidate(
+                            candidate,
+                            prompt,
+                            repair=True,
+                            source_content=local_repair_markup or svg_markup or raw_content,
+                        )
+                        svg_markup = _extract_svg_markup(repaired_content)
                 if _is_valid_svg_markup(svg_markup):
                     used_llm_config = candidate
                     break
