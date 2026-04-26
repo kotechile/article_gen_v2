@@ -262,6 +262,38 @@ def _normalize_infographic_model_name(provider_name, model_name):
     return model
 
 
+def _build_svg_repair_prompt(raw_content):
+    return f"""Return ONLY a valid standalone SVG document.
+
+Requirements:
+- Output exactly one <svg>...</svg> document.
+- Do not include markdown fences.
+- Do not include commentary or explanation.
+- Preserve the intended infographic content and styling as much as possible.
+- If the draft contains markdown, prose, or escaped XML, convert it into clean SVG.
+- Use viewBox="0 0 800 450", width="100%", and height="auto".
+
+Draft to repair:
+\"\"\"{str(raw_content or '').strip()}\"\"\""""
+
+
+def _generate_svg_with_candidate(candidate, prompt, repair=False, source_content=None):
+    ProviderClass = get_provider_class(candidate['provider_name'])
+    llm = ProviderClass(
+        api_key=candidate['api_key'],
+        model_name=candidate['model_name'],
+        base_url=candidate['base_url']
+    )
+    effective_prompt = _build_svg_repair_prompt(source_content) if repair else prompt
+    response = asyncio.run(llm.generate(
+        effective_prompt,
+        temperature=0.2,
+        max_tokens=2200 if repair else 2600,
+        top_p=0.9,
+    ))
+    return response.content
+
+
 def upload_to_supabase_storage(file_data: bytes, filename: str, user_id: str, content_type: str = 'image/jpeg') -> str:
     """
     Upload image to Supabase storage.
@@ -958,19 +990,22 @@ def generate_infographic_svg():
         last_error = None
         for candidate in llm_attempts:
             try:
-                ProviderClass = get_provider_class(candidate['provider_name'])
-                llm = ProviderClass(
-                    api_key=candidate['api_key'],
-                    model_name=candidate['model_name'],
-                    base_url=candidate['base_url']
-                )
-                response = asyncio.run(llm.generate(
-                    prompt,
-                    temperature=0.2,
-                    max_tokens=1400,
-                    top_p=0.9,
-                ))
-                svg_markup = _extract_svg_markup(response.content)
+                raw_content = _generate_svg_with_candidate(candidate, prompt)
+                svg_markup = _extract_svg_markup(raw_content)
+                if not svg_markup.lower().startswith('<svg'):
+                    logger.warning(
+                        "Infographic SVG draft was not valid XML for provider=%s model=%s. Raw prefix: %s",
+                        candidate.get('provider_name'),
+                        candidate.get('model_name'),
+                        str(raw_content or '')[:500],
+                    )
+                    repaired_content = _generate_svg_with_candidate(
+                        candidate,
+                        prompt,
+                        repair=True,
+                        source_content=raw_content,
+                    )
+                    svg_markup = _extract_svg_markup(repaired_content)
                 if svg_markup.lower().startswith('<svg'):
                     used_llm_config = candidate
                     break
