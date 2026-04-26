@@ -38,6 +38,7 @@ beautifulsoup4
 
 # Database
 sqlalchemy
+psycopg2-binary
 alembic
 supabase
 
@@ -71,4 +72,3 @@ playwright
 # transformers>=4.32.0   # For local model inference
 llama-index
 tavily-python
-

@@ -10,6 +10,13 @@ import logging
 from typing import Any, Optional
 from supabase import create_client, Client
 
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+except Exception:  # pragma: no cover - optional runtime fallback
+    psycopg2 = None
+    RealDictCursor = None
+
 logger = logging.getLogger(__name__)
 
 # Cache for Supabase client
@@ -32,6 +39,40 @@ _LLM_ROLE_ALIASES = {
     "final review": LLM_ROLE_FINAL_REVIEW,
     "toc": LLM_ROLE_TOC,
 }
+
+
+def _get_database_url() -> Optional[str]:
+    return (
+        os.environ.get('DATABASE_URL')
+        or os.environ.get('DB_URL')
+        or None
+    )
+
+
+def _fetch_rows_via_postgres(query: str, params: tuple = ()) -> list[dict]:
+    if psycopg2 is None or RealDictCursor is None:
+        return []
+
+    database_url = _get_database_url()
+    if not database_url:
+        return []
+
+    connection = None
+    try:
+        connection = psycopg2.connect(database_url, cursor_factory=RealDictCursor)
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            rows = cursor.fetchall() or []
+            return [dict(row) for row in rows]
+    except Exception as exc:
+        logger.warning("Postgres fallback query failed: %s", exc)
+        return []
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
 
 
 def get_supabase_client() -> Optional[Client]:
@@ -122,6 +163,16 @@ def _fetch_api_key_value_by_id(client: Client, api_key_id: Any) -> Optional[str]
                 return api_key
     except Exception as exc:
         logger.warning("Failed to fetch API key by id %s: %s", api_key_id, exc)
+        rows = _fetch_rows_via_postgres(
+            'SELECT key_value FROM api_keys WHERE id = %s LIMIT 1',
+            (str(api_key_id),),
+        )
+        if rows:
+            api_key = rows[0].get('key_value')
+            if isinstance(api_key, str):
+                api_key = api_key.strip().strip('"').strip("'")
+            if api_key:
+                return api_key
     return None
 
 
@@ -163,7 +214,26 @@ def _fetch_llm_provider_rows(client: Client) -> list[dict]:
                 return rows
         except Exception as exc:
             logger.warning("LLM provider query attempt failed: %s (%s)", label, exc)
-    return []
+    rows = _fetch_rows_via_postgres(
+        """
+        SELECT
+            id::text AS id,
+            name,
+            provider,
+            model_name,
+            api_keys_id::text AS api_keys_id,
+            is_default,
+            is_active,
+            used_for
+        FROM llm_providers
+        """
+    )
+    normalized_rows = []
+    for raw_row in rows:
+        normalized = _normalize_llm_provider_row(raw_row)
+        if normalized:
+            normalized_rows.append(normalized)
+    return normalized_rows
 
 
 def _fetch_llm_role_assignments(client: Client) -> dict[str, str]:
@@ -188,7 +258,24 @@ def _fetch_llm_role_assignments(client: Client) -> dict[str, str]:
                 return assignment_map
         except Exception as exc:
             logger.warning("LLM used_for query attempt failed: %s (%s)", label, exc)
-    return {}
+    rows = _fetch_rows_via_postgres(
+        """
+        SELECT
+            llm_provider_id::text AS llm_provider_id,
+            used_for
+        FROM llm_used_for
+        """
+    )
+    assignment_map: dict[str, str] = {}
+    for row in rows:
+        provider_id = str(row.get('llm_provider_id') or '').strip()
+        if not provider_id:
+            continue
+        normalized_roles = _normalize_used_for(row.get('used_for'))
+        if len(normalized_roles) != 1:
+            continue
+        assignment_map[normalized_roles[0]] = provider_id
+    return assignment_map
 
 
 def _sort_llm_provider_rows(rows: list[dict]) -> list[dict]:
