@@ -270,7 +270,7 @@ def create_research_task():
             if not resolved_provider or not resolved_model:
                 return jsonify(ErrorResponse(
                     error="llm_configuration_error",
-                    message="No active article_generation LLM is configured in llm_providers.used_for",
+                    message="No active article_generation LLM is configured in llm_used_for or llm_providers.used_for",
                     error_code="LLM_CONFIGURATION_ERROR",
                     status=500
                 ).dict()), 500
@@ -384,7 +384,7 @@ def refine_research_metadata():
         if not provider or not model:
             return jsonify({
                 "success": False,
-                "message": "No active final_review LLM is configured in llm_providers.used_for.",
+                "message": "No active final_review LLM is configured in llm_used_for or llm_providers.used_for.",
             }), 500
 
         if not api_key:

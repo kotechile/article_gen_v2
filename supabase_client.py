@@ -90,14 +90,18 @@ def _normalize_used_for(raw_value: Any) -> list[str]:
     if isinstance(raw_value, list):
         tokens = raw_value
     elif isinstance(raw_value, str):
-        tokens = raw_value.split(",")
+        value = raw_value.strip()
+        if value.startswith("{") and value.endswith("}"):
+            value = value[1:-1]
+        tokens = value.split(",")
     else:
         tokens = []
 
     normalized: list[str] = []
     seen: set[str] = set()
     for token in tokens:
-        role = _normalize_llm_role(token)
+        cleaned_token = str(token or "").strip().strip('"').strip("'").strip("{}")
+        role = _normalize_llm_role(cleaned_token)
         if not role or role in seen:
             continue
         normalized.append(role)
@@ -162,6 +166,34 @@ def _fetch_llm_provider_rows(client: Client) -> list[dict]:
     return []
 
 
+def _fetch_llm_role_assignments(client: Client) -> dict[str, list[str]]:
+    attempts = [
+        ("role-map", "llm_provider_id,used_for"),
+        ("role-map-legacy", "llm_provider_id,used_for"),
+    ]
+
+    for label, select_fields in attempts:
+        try:
+            response = client.table('llm_used_for').select(select_fields).execute()
+            assignment_map: dict[str, list[str]] = {}
+            for row in response.data or []:
+                provider_id = str(row.get('llm_provider_id') or '').strip()
+                if not provider_id:
+                    continue
+                normalized_roles = _normalize_used_for(row.get('used_for'))
+                if not normalized_roles:
+                    continue
+                bucket = assignment_map.setdefault(provider_id, [])
+                for role in normalized_roles:
+                    if role not in bucket:
+                        bucket.append(role)
+            if assignment_map:
+                return assignment_map
+        except Exception as exc:
+            logger.warning("LLM used_for query attempt failed: %s (%s)", label, exc)
+    return {}
+
+
 def _sort_llm_provider_rows(rows: list[dict]) -> list[dict]:
     return sorted(
         rows,
@@ -199,6 +231,14 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
             "api_key": None,
             "source": "no_rows",
         }
+
+    role_assignments = _fetch_llm_role_assignments(client)
+    if role_assignments:
+        for row in rows:
+            provider_id = str(row.get('id') or '').strip()
+            mapped_roles = role_assignments.get(provider_id)
+            if mapped_roles:
+                row['used_for'] = mapped_roles
 
     active_rows = [row for row in rows if row.get('is_active') is not False]
     candidate_rows = active_rows or rows

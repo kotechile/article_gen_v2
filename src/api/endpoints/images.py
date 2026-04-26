@@ -97,7 +97,7 @@ def _resolve_infographic_llm(client, llm_model=None):
         model_name = str(resolved.get('model') or '').strip()
         api_key = resolved.get('api_key')
         if not provider_name or not model_name:
-            raise ValueError("No active svg LLM is configured in llm_providers.used_for")
+            raise ValueError("No active svg LLM is configured in llm_used_for or llm_providers.used_for")
     else:
         key_id = provider_row.get('api_keys_id') or provider_row.get('api_key_id')
         base_url = provider_row.get('base_url')
