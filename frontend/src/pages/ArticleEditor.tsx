@@ -2070,9 +2070,6 @@ export const ArticleEditor: React.FC = () => {
                         <button onClick={() => { addImage(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
                             <ImageIcon className="w-4 h-4 text-muted-foreground" /> Insert Image
                         </button>
-                        <button onClick={() => { handleGenerateInfographic(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3 disabled:opacity-50" disabled={!hasTextSelection || isGeneratingInfographic}>
-                            {isGeneratingInfographic ? <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" /> : <ChartColumn className="w-4 h-4 text-muted-foreground" />} Generate Infographic
-                        </button>
                         <button onClick={() => { addTable(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
                             <TableIcon className="w-4 h-4 text-muted-foreground" /> Insert Table
                         </button>

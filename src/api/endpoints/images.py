@@ -933,22 +933,16 @@ def generate_infographic_svg():
             base_url=llm_config['base_url']
         )
 
+        # Keep this request under gateway timeout budgets: one generation pass with
+        # a leaner token budget is more reliable than multi-pass retries.
         prompt = _build_svg_infographic_prompt(text, accent_color, text_color, secondary_color, neutral_color)
-        retry_prompt = f"""{prompt}
-
-Your previous attempt did not return a valid SVG. Retry and return only a single <svg>...</svg> document."""
-
-        svg_markup = ""
-        for attempt_prompt in (prompt, retry_prompt):
-            response = asyncio.run(llm.generate(
-                attempt_prompt,
-                temperature=0.2,
-                max_tokens=3000,
-                top_p=0.9,
-            ))
-            svg_markup = _extract_svg_markup(response.content)
-            if svg_markup.lower().startswith('<svg'):
-                break
+        response = asyncio.run(llm.generate(
+            prompt,
+            temperature=0.2,
+            max_tokens=1800,
+            top_p=0.9,
+        ))
+        svg_markup = _extract_svg_markup(response.content)
 
         if not svg_markup.lower().startswith('<svg'):
             raise ValueError("LLM did not return a valid SVG document")

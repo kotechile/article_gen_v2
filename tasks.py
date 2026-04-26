@@ -399,6 +399,20 @@ def _normalize_markdown_artifacts_to_html(raw_text: str) -> str:
     _close_lists()
     normalized = "\n".join(output_lines)
 
+    # Convert markdown headings that leaked inside paragraph wrappers.
+    # Example: <p>### Step 1</p> -> <h3>Step 1</h3>
+    def _replace_wrapped_heading(match: re.Match) -> str:
+        level = min(len(match.group(1)), 6)
+        heading_text = match.group(2).strip()
+        return f"<h{level}>{heading_text}</h{level}>"
+
+    normalized = re.sub(
+        r"<p>\s*(#{1,6})\s+(.+?)\s*</p>",
+        _replace_wrapped_heading,
+        normalized,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
     # Emphasis/code normalization.
     normalized = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", normalized, flags=re.DOTALL)
     normalized = re.sub(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", r"<em>\1</em>", normalized, flags=re.DOTALL)

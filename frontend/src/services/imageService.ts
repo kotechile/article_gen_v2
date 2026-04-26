@@ -22,6 +22,37 @@ const getHeaders = (headers: Record<string, string> = {}) => ({
     ...headers
 });
 
+async function parseErrorMessage(response: Response, fallback: string): Promise<string> {
+    const statusPrefix = `Request failed (${response.status})`;
+    const contentType = response.headers.get('content-type') || '';
+
+    try {
+        if (contentType.includes('application/json')) {
+            const errorPayload = await response.json();
+            const message = errorPayload?.message || errorPayload?.error;
+            if (typeof message === 'string' && message.trim()) {
+                return `${statusPrefix}: ${message}`;
+            }
+            return statusPrefix;
+        }
+
+        const rawText = (await response.text()).trim();
+        if (response.status === 504) {
+            return 'Infographic generation timed out (504). Please retry with a shorter text selection.';
+        }
+        if (rawText) {
+            return `${statusPrefix}: ${rawText.slice(0, 220)}`;
+        }
+    } catch {
+        // Ignore parse errors and fall back below.
+    }
+
+    if (response.status === 504) {
+        return 'Infographic generation timed out (504). Please retry with a shorter text selection.';
+    }
+    return `${statusPrefix}: ${fallback}`;
+}
+
 /**
  * Generate AI image using configured providers
  */
@@ -175,8 +206,8 @@ export async function generateInfographicSvg(
     });
 
     if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to generate infographic SVG');
+        const message = await parseErrorMessage(response, 'Failed to generate infographic SVG');
+        throw new Error(message);
     }
 
     return response.json();
