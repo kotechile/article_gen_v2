@@ -1,10 +1,78 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import aiohttp
 import json
 import logging
 from .llm_provider import LLMProvider, LLMResponse
 
 logger = logging.getLogger(__name__)
+
+
+def _flatten_content_parts(parts: Any) -> str:
+    """Normalize multimodal/content-part responses into plain text."""
+    if isinstance(parts, str):
+        return parts
+
+    if not isinstance(parts, list):
+        return ""
+
+    fragments: List[str] = []
+    for part in parts:
+        if isinstance(part, str):
+            fragments.append(part)
+            continue
+
+        if not isinstance(part, dict):
+            continue
+
+        text_value = part.get("text")
+        if isinstance(text_value, str) and text_value.strip():
+            fragments.append(text_value)
+            continue
+
+        for key in ("content", "value"):
+            nested_value = part.get(key)
+            if isinstance(nested_value, str) and nested_value.strip():
+                fragments.append(nested_value)
+                break
+
+    return "\n".join(fragment for fragment in fragments if fragment).strip()
+
+
+def _extract_openai_compatible_content(data: Dict[str, Any]) -> str:
+    """Extract text from OpenAI-compatible chat or responses payloads."""
+    choices = data.get("choices")
+    if isinstance(choices, list) and choices:
+        first_choice = choices[0] or {}
+        message = first_choice.get("message") or {}
+
+        content = message.get("content")
+        normalized_content = _flatten_content_parts(content)
+        if normalized_content:
+            return normalized_content
+
+        for key in ("text", "output_text"):
+            candidate = message.get(key) or first_choice.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+
+    output_text = data.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+
+    output_items = data.get("output")
+    if isinstance(output_items, list):
+        fragments: List[str] = []
+        for item in output_items:
+            if not isinstance(item, dict):
+                continue
+            normalized_content = _flatten_content_parts(item.get("content"))
+            if normalized_content:
+                fragments.append(normalized_content)
+        combined = "\n".join(fragment for fragment in fragments if fragment).strip()
+        if combined:
+            return combined
+
+    return ""
 
 class GeminiProvider(LLMProvider):
     """Google Gemini Provider"""
@@ -88,7 +156,13 @@ class OpenAIProvider(LLMProvider):
 
                  data = await response.json()
                  
-                 content = data["choices"][0]["message"]["content"]
+                 content = _extract_openai_compatible_content(data)
+                 if not content:
+                    logger.warning(
+                        "OpenAI-compatible response did not contain text content for model=%s. Top-level keys=%s",
+                        self.model_name,
+                        sorted(data.keys()),
+                    )
                  usage = data.get("usage", {})
                  
                  return LLMResponse(

@@ -13,6 +13,7 @@ import asyncio
 import re
 import html
 import requests
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from flask import Blueprint, request, jsonify, current_app
 from flask_limiter import Limiter
@@ -135,7 +136,11 @@ def _extract_svg_markup(content):
         return ""
 
     cleaned = str(content).strip()
-    cleaned = html.unescape(cleaned)
+    for _ in range(2):
+        unescaped = html.unescape(cleaned)
+        if unescaped == cleaned:
+            break
+        cleaned = unescaped
     cleaned = re.sub(r'^```(?:svg|xml)?\s*', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\s*```$', '', cleaned)
 
@@ -153,6 +158,24 @@ def _extract_svg_markup(content):
             cleaned = cleaned[xml_end + 2:].strip()
 
     return cleaned
+
+
+def _is_valid_svg_markup(svg_markup):
+    if not svg_markup:
+        return False
+
+    candidate = str(svg_markup).strip()
+    if candidate.lower().startswith('<?xml'):
+        xml_end = candidate.find('?>')
+        if xml_end != -1:
+            candidate = candidate[xml_end + 2:].strip()
+
+    try:
+        root = ET.fromstring(candidate)
+    except ET.ParseError:
+        return False
+
+    return root.tag == 'svg' or root.tag.endswith('}svg')
 
 
 def _build_svg_infographic_prompt(text, accent_color, text_color, secondary_color=None, neutral_color=None):
@@ -992,11 +1015,12 @@ def generate_infographic_svg():
             try:
                 raw_content = _generate_svg_with_candidate(candidate, prompt)
                 svg_markup = _extract_svg_markup(raw_content)
-                if not svg_markup.lower().startswith('<svg'):
+                if not _is_valid_svg_markup(svg_markup):
                     logger.warning(
-                        "Infographic SVG draft was not valid XML for provider=%s model=%s. Raw prefix: %s",
+                        "Infographic SVG draft was not valid XML for provider=%s model=%s. Extracted prefix: %s Raw prefix: %s",
                         candidate.get('provider_name'),
                         candidate.get('model_name'),
+                        str(svg_markup or '')[:500],
                         str(raw_content or '')[:500],
                     )
                     repaired_content = _generate_svg_with_candidate(
@@ -1006,7 +1030,7 @@ def generate_infographic_svg():
                         source_content=raw_content,
                     )
                     svg_markup = _extract_svg_markup(repaired_content)
-                if svg_markup.lower().startswith('<svg'):
+                if _is_valid_svg_markup(svg_markup):
                     used_llm_config = candidate
                     break
             except Exception as exc:
@@ -1018,7 +1042,7 @@ def generate_infographic_svg():
                     exc,
                 )
 
-        if not svg_markup.lower().startswith('<svg'):
+        if not _is_valid_svg_markup(svg_markup):
             if last_error:
                 raise last_error
             raise ValueError("LLM did not return a valid SVG document")
