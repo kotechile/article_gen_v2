@@ -20,6 +20,7 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
     const [error, setError] = useState<string | null>(null);
     const hasUpdatedRef = useRef(false);
     const apiFailureCountRef = useRef(0);
+    const transientFailureCountRef = useRef(0);
 
 
     useEffect(() => {
@@ -62,11 +63,31 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                         return;
                     }
                     else if (['FAILURE', 'REVOKED'].includes(data.status)) {
-                        setError(typeof data.info === 'string' ? data.info : (data.info?.message || 'Generation failed'));
+                        const failureMessage = typeof data.info === 'string'
+                            ? data.info
+                            : (data.info?.message || data.message || 'Generation failed');
+                        const rawError = String(data.error || '');
+                        const transientStatusFailure =
+                            /status temporarily unavailable/i.test(failureMessage) ||
+                            /persisting result metadata/i.test(failureMessage) ||
+                            /exception type/i.test(rawError);
+
+                        if (transientStatusFailure) {
+                            transientFailureCountRef.current += 1;
+                            setStatus(`Status sync issue (${transientFailureCountRef.current})... retrying`);
+                            if (transientFailureCountRef.current >= 12) {
+                                setError('Could not read task status after multiple retries. Please refresh and check the article state.');
+                                clearInterval(pollInterval);
+                            }
+                            return;
+                        }
+
+                        setError(`${failureMessage}${rawError ? ` (${rawError})` : ''}`);
                         clearInterval(pollInterval);
                         return;
                     }
                     else if (data.status === 'PROGRESS' && data.info) {
+                        transientFailureCountRef.current = 0;
                         // Granular updates!
                         if (data.info.message) setStatus(data.info.message);
                         if (data.info.progress) {
@@ -113,7 +134,7 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                 }
 
                 // ... (rest of existing completion logic) ...
-                if (['Created', 'Generated', 'Written', 'WP Published', 'Scheduled'].includes(currentStatus)) {
+                if (['Created', 'Generated', 'Editing', 'WP Published', 'Scheduled'].includes(currentStatus)) {
                     // ... existing validation/completion logic ...
                     if (!statusData?.htmlArticle || statusData.htmlArticle.length < 50) {
                         setError('Generation completed but returned empty content. Please try again.');

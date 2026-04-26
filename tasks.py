@@ -1549,25 +1549,26 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     }
 
                     # 1) Save essential content first so we never lose generated article text.
-                    response = supabase.table('Titles').update(core_updates).eq('id', article_id).execute()
-                    if response.data:
-                        logger.info(
-                            "Saved core article fields for %s. Rows modified: %s (lifecycle_status=%s, quality_gate=%s)",
-                            article_id,
-                            len(response.data),
-                            lifecycle_status,
-                            final_quality_decision,
-                        )
-                    else:
-                        logger.warning(
-                            "Core Titles update returned success but no rows were modified for %s",
-                            article_id,
-                        )
+                    supabase.table('Titles').update(
+                        core_updates,
+                        returning='minimal',
+                    ).eq('id', article_id).execute()
+                    logger.info(
+                        "Saved core article fields for %s (lifecycle_status=%s, quality_gate=%s)",
+                        article_id,
+                        lifecycle_status,
+                        final_quality_decision,
+                    )
 
                     # 2) Save optional metadata with backward-compatible, column-aware retries.
                     updates = dict(optional_updates)
+                    optional_update_applied = False
                     try:
-                        response = supabase.table('Titles').update(updates).eq('id', article_id).execute()
+                        supabase.table('Titles').update(
+                            updates,
+                            returning='minimal',
+                        ).eq('id', article_id).execute()
+                        optional_update_applied = True
                     except Exception as update_error:
                         # Backward-compatible fallback for environments that have not
                         # applied latest metadata migrations yet.
@@ -1625,9 +1626,11 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                                 removed_any = True
 
                         if removed_any and updates:
-                            response = supabase.table('Titles').update(updates).eq('id', article_id).execute()
-                        elif removed_any and not updates:
-                            response = None
+                            supabase.table('Titles').update(
+                                updates,
+                                returning='minimal',
+                            ).eq('id', article_id).execute()
+                            optional_update_applied = True
                         else:
                             # Optional metadata must not fail the entire generation.
                             logger.warning(
@@ -1635,12 +1638,9 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                                 article_id,
                                 err,
                             )
-                            response = None
                     
-                    if response and response.data:
-                        logger.info(f"Updated Supabase Titles for article {article_id}. Rows modified: {len(response.data)}")
-                    elif response:
-                        logger.warning(f"Supabase update returned success but NO rows were modified for {article_id}. Potential RLS or ID mismatch.")
+                    if optional_update_applied:
+                        logger.info("Updated optional Supabase metadata for article %s", article_id)
                         
             except Exception as e:
                 logger.error(f"Failed to update Supabase for article {article_id}: {str(e)}")
@@ -4677,20 +4677,21 @@ def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Error getting task status for {task_id}: {error_msg}", exc_info=True)
-        # If Celery result metadata is corrupted, surface a failure to the UI instead
-        # of masking it as PENDING forever.
+        # Treat Celery result metadata decode issues as transient lookup failures.
+        # We have seen these return quickly for valid in-flight tasks, which caused
+        # false "Task failed" popups on the frontend.
         if "exception type" in error_msg.lower():
             return {
                 'task_id': task_id,
-                'status': TASK_STATUS['FAILURE'],
+                'status': TASK_STATUS['PENDING'],
                 'progress': 0,
                 'progress_percent': 0,
                 'current_stage': 'UNKNOWN',
-                'message': 'Task failed while persisting result metadata.',
+                'message': 'Task status temporarily unavailable. Retrying...',
                 'error': error_msg,
                 'info': {
                     'progress': 0,
-                    'message': 'Task failed while persisting result metadata.'
+                    'message': 'Task status temporarily unavailable. Retrying...'
                 }
             }
         # For transient lookup issues, keep PENDING fallback behavior.
