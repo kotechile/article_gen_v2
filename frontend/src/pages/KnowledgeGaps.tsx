@@ -450,7 +450,9 @@ export const KnowledgeGaps: React.FC = () => {
 
                 <div className="w-full max-w-full space-y-3 md:w-auto md:min-w-[18rem] md:max-w-[24rem]">
                     <div className="space-y-2">
-                        <span className="block text-sm font-medium text-foreground">Active Collection</span>
+                        <div className="flex items-center gap-3">
+                            <span className="block text-sm font-medium text-foreground md:w-72">Active Collection</span>
+                        </div>
                         <div className="flex items-center gap-3">
                             <button
                                 type="button"
@@ -478,7 +480,7 @@ export const KnowledgeGaps: React.FC = () => {
                         type="button"
                         onClick={() => setShowQueryModal(true)}
                         disabled={!selectedCollection}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 md:w-72"
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 md:ml-[3.25rem] md:w-72"
                     >
                         <Search className="h-4 w-4 text-gray-500 dark:text-gray-400" />
                         <span>Query Collection</span>
