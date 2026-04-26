@@ -1892,15 +1892,41 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
             candidate_keywords = []
         candidate_keywords = [str(k).strip() for k in candidate_keywords if str(k).strip()]
 
+        # Build request-level fallbacks from the generation payload so strict Titles
+        # authority does not hard-fail when legacy rows are missing keyword fields.
+        request_keyword_candidates: List[str] = []
+        request_primary_keywords = [
+            research_data.get('primary_keyword'),
+            research_data.get('search_phrase'),
+            research_data.get('seo_primary_keyword'),
+        ]
+        request_brief_keywords = _parse_keyword_list(research_data.get('keywords') or "")
+        for kw in request_primary_keywords + request_brief_keywords:
+            kw_text = str(kw or "").strip()
+            if kw_text and kw_text not in request_keyword_candidates:
+                request_keyword_candidates.append(kw_text)
+
         if strict_titles_authority:
             pre_gate_error = str(research_data.get('titles_keyword_gate_error') or '').strip()
-            if pre_gate_error:
-                raise ValueError(pre_gate_error)
-            if not candidate_keywords:
-                raise ValueError(
-                    "Titles keyword gate blocked generation: keyword_candidates is empty. "
-                    "Populate Titles keyword fields before generation."
-                )
+            if pre_gate_error or not candidate_keywords:
+                if request_keyword_candidates:
+                    logger.warning(
+                        "Strict Titles gate fallback for article %s: using %s request keyword(s) while Titles keyword fields are empty.",
+                        research_data.get('article_id'),
+                        len(request_keyword_candidates),
+                    )
+                    candidate_keywords = request_keyword_candidates
+                    research_data['keyword_candidates'] = request_keyword_candidates
+                    research_data.pop('titles_keyword_gate_error', None)
+                    if not str(research_data.get('primary_keyword') or '').strip():
+                        research_data['primary_keyword'] = request_keyword_candidates[0]
+                elif pre_gate_error:
+                    raise ValueError(pre_gate_error)
+                else:
+                    raise ValueError(
+                        "Titles keyword gate blocked generation: keyword_candidates is empty. "
+                        "Populate Titles keyword fields before generation."
+                    )
 
         brief_keywords = [k.strip() for k in str(research_data.get('keywords', '') or '').split(',') if k.strip()]
         merged_candidates = []
