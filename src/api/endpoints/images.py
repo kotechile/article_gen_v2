@@ -94,7 +94,7 @@ def _resolve_infographic_llm(client, llm_model=None):
     if not provider_row:
         resolved = resolve_llm_provider(task_role=LLM_ROLE_SVG)
         provider_name = str(resolved.get('provider') or '').strip().lower()
-        model_name = str(resolved.get('model') or '').strip()
+        model_name = _normalize_infographic_model_name(provider_name, resolved.get('model'))
         api_key = resolved.get('api_key')
         if not provider_name or not model_name:
             raise ValueError("No active svg LLM is configured in llm_used_for or llm_providers.used_for")
@@ -111,7 +111,7 @@ def _resolve_infographic_llm(client, llm_model=None):
                     base_url = key_row.get('base_url')
 
         provider_name = (provider_row.get('provider') or provider_row.get('provider_name') or 'google').strip().lower()
-        model_name = (provider_row.get('model_name') or model_hint).strip()
+        model_name = _normalize_infographic_model_name(provider_name, provider_row.get('model_name') or model_hint)
 
     if not api_key:
         api_key = current_app.config.get('LITELLM_API_KEY')
@@ -248,6 +248,18 @@ Technical rules:
 Text to transform:
 \"\"\"{text.strip()}\"\"\"
 """
+
+
+def _normalize_infographic_model_name(provider_name, model_name):
+    provider = str(provider_name or "").strip().lower()
+    model = str(model_name or "").strip()
+    if not model:
+        return ""
+
+    if "deepseek" in provider:
+        return model.lower().replace("deepdeek", "deepseek")
+
+    return model
 
 
 def upload_to_supabase_storage(file_data: bytes, filename: str, user_id: str, content_type: str = 'image/jpeg') -> str:
@@ -943,25 +955,37 @@ def generate_infographic_svg():
         prompt = _build_svg_infographic_prompt(text, accent_color, text_color, secondary_color, neutral_color)
         svg_markup = ""
         used_llm_config = selected_llm_config
+        last_error = None
         for candidate in llm_attempts:
-            ProviderClass = get_provider_class(candidate['provider_name'])
-            llm = ProviderClass(
-                api_key=candidate['api_key'],
-                model_name=candidate['model_name'],
-                base_url=candidate['base_url']
-            )
-            response = asyncio.run(llm.generate(
-                prompt,
-                temperature=0.2,
-                max_tokens=1400,
-                top_p=0.9,
-            ))
-            svg_markup = _extract_svg_markup(response.content)
-            if svg_markup.lower().startswith('<svg'):
-                used_llm_config = candidate
-                break
+            try:
+                ProviderClass = get_provider_class(candidate['provider_name'])
+                llm = ProviderClass(
+                    api_key=candidate['api_key'],
+                    model_name=candidate['model_name'],
+                    base_url=candidate['base_url']
+                )
+                response = asyncio.run(llm.generate(
+                    prompt,
+                    temperature=0.2,
+                    max_tokens=1400,
+                    top_p=0.9,
+                ))
+                svg_markup = _extract_svg_markup(response.content)
+                if svg_markup.lower().startswith('<svg'):
+                    used_llm_config = candidate
+                    break
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "Infographic SVG generation failed for provider=%s model=%s; trying next candidate if available: %s",
+                    candidate.get('provider_name'),
+                    candidate.get('model_name'),
+                    exc,
+                )
 
         if not svg_markup.lower().startswith('<svg'):
+            if last_error:
+                raise last_error
             raise ValueError("LLM did not return a valid SVG document")
 
         return jsonify({

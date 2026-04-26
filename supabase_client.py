@@ -150,6 +150,22 @@ def _normalize_used_for(raw_value: Any) -> list[str]:
     return normalized
 
 
+def _normalize_model_name(provider: Any, model_name: Any) -> str:
+    normalized_provider = str(provider or "").strip().lower()
+    normalized_model = str(model_name or "").strip()
+    if not normalized_model:
+        return ""
+
+    if "deepseek" in normalized_provider:
+        compact_model = normalized_model.strip().strip('"').strip("'")
+        lowered_model = compact_model.lower().replace("deepdeek", "deepseek")
+        if lowered_model in {"deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"}:
+            return lowered_model
+        return lowered_model
+
+    return normalized_model
+
+
 def _fetch_api_key_value_by_id(client: Client, api_key_id: Any) -> Optional[str]:
     if not api_key_id:
         return None
@@ -179,13 +195,14 @@ def _fetch_api_key_value_by_id(client: Client, api_key_id: Any) -> Optional[str]
 def _normalize_llm_provider_row(row: dict) -> Optional[dict]:
     if not isinstance(row, dict):
         return None
-    model_name = str(row.get('model_name') or '').strip()
+    provider_name = str(row.get('provider') or '').strip().lower()
+    model_name = _normalize_model_name(provider_name, row.get('model_name'))
     if not model_name:
         return None
     return {
         'id': row.get('id'),
         'name': str(row.get('name') or model_name).strip(),
-        'provider': str(row.get('provider') or '').strip().lower(),
+        'provider': provider_name,
         'model_name': model_name,
         'api_keys_id': row.get('api_keys_id') or row.get('api_key_id'),
         'is_default': row.get('is_default') if isinstance(row.get('is_default'), bool) else False,
