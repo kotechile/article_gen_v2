@@ -160,6 +160,10 @@ class OpenAIProvider(LLMProvider):
             "presence_penalty": kwargs.get("presence_penalty", 0),
         }
 
+        extra_payload = kwargs.get("extra_payload") or {}
+        if isinstance(extra_payload, dict):
+            payload.update(extra_payload)
+
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, json=payload) as response:
                  if response.status != 200:
@@ -241,6 +245,13 @@ class DeepSeekProvider(OpenAIProvider):
         super().__init__(api_key, model_name, base_url or "https://api.deepseek.com")
         
     async def generate(self, prompt: str, **kwargs) -> LLMResponse:
+        extra_payload = dict(kwargs.pop("extra_payload", {}) or {})
+        if kwargs.pop("disable_thinking", False):
+            extra_payload["thinking"] = {"type": "disabled"}
+
+        if extra_payload:
+            kwargs["extra_payload"] = extra_payload
+
         response = await super().generate(prompt, **kwargs)
         response.provider = "deepseek"
         return response

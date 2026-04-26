@@ -308,11 +308,18 @@ def _generate_svg_with_candidate(candidate, prompt, repair=False, source_content
         base_url=candidate['base_url']
     )
     effective_prompt = _build_svg_repair_prompt(source_content) if repair else prompt
+    provider_name = str(candidate.get('provider_name') or '').strip().lower()
+    generation_kwargs = {
+        "temperature": 0.2,
+        "max_tokens": 2200 if repair else 2600,
+        "top_p": 0.9,
+    }
+    if "deepseek" in provider_name:
+        generation_kwargs["disable_thinking"] = True
+
     response = asyncio.run(llm.generate(
         effective_prompt,
-        temperature=0.2,
-        max_tokens=2200 if repair else 2600,
-        top_p=0.9,
+        **generation_kwargs,
     ))
     return response.content
 
