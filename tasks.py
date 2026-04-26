@@ -322,6 +322,90 @@ def _parse_keyword_list(raw_value: Any) -> List[str]:
     return []
 
 
+def _normalize_markdown_artifacts_to_html(raw_text: str) -> str:
+    """
+    Convert common markdown artifacts that occasionally leak from LLM outputs
+    into basic HTML so editor rendering remains clean.
+    """
+    text = str(raw_text or "")
+    if not text.strip():
+        return ""
+
+    normalized = text.replace("\r\n", "\n")
+
+    # Convert inline pseudo-bullets into real list lines before list parsing.
+    if " - " in normalized and "<li" not in normalized:
+        normalized = re.sub(r"\s-\s(?=(\*\*|[A-Za-z0-9]))", "\n- ", normalized)
+
+    lines = normalized.split("\n")
+    output_lines: List[str] = []
+    in_ul = False
+    in_ol = False
+
+    def _close_lists() -> None:
+        nonlocal in_ul, in_ol
+        if in_ul:
+            output_lines.append("</ul>")
+            in_ul = False
+        if in_ol:
+            output_lines.append("</ol>")
+            in_ol = False
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            _close_lists()
+            output_lines.append(line)
+            continue
+
+        hr_match = re.match(r"^([-*_])\1{2,}$", stripped)
+        if hr_match:
+            _close_lists()
+            output_lines.append("<hr>")
+            continue
+
+        heading_match = re.match(r"^(#{1,6})\s+(.+)$", stripped)
+        if heading_match:
+            _close_lists()
+            level = min(len(heading_match.group(1)), 6)
+            output_lines.append(f"<h{level}>{heading_match.group(2).strip()}</h{level}>")
+            continue
+
+        ul_match = re.match(r"^[-*]\s+(.+)$", stripped)
+        if ul_match:
+            if in_ol:
+                output_lines.append("</ol>")
+                in_ol = False
+            if not in_ul:
+                output_lines.append("<ul>")
+                in_ul = True
+            output_lines.append(f"<li>{ul_match.group(1).strip()}</li>")
+            continue
+
+        ol_match = re.match(r"^\d+[.)]\s+(.+)$", stripped)
+        if ol_match:
+            if in_ul:
+                output_lines.append("</ul>")
+                in_ul = False
+            if not in_ol:
+                output_lines.append("<ol>")
+                in_ol = True
+            output_lines.append(f"<li>{ol_match.group(1).strip()}</li>")
+            continue
+
+        _close_lists()
+        output_lines.append(line)
+
+    _close_lists()
+    normalized = "\n".join(output_lines)
+
+    # Emphasis/code normalization.
+    normalized = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", normalized, flags=re.DOTALL)
+    normalized = re.sub(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", r"<em>\1</em>", normalized, flags=re.DOTALL)
+    normalized = re.sub(r"`([^`]+)`", r"<code>\1</code>", normalized)
+    return normalized
+
+
 def _normalize_claim_text(text: str) -> str:
     cleaned = re.sub(r"\s+", " ", str(text or "").strip())
     cleaned = re.sub(r"\.+$", "", cleaned)
@@ -3678,7 +3762,12 @@ def _generate_citations(result: Dict[str, Any]) -> Dict[str, Any]:
             'stage_data': {'generated_citations': 0, 'error': str(e)}
         }
 
-def _build_refinement_user_message(tone: str, original_content: str) -> str:
+def _build_refinement_user_message(
+    tone: str,
+    original_content: str,
+    target_word_count: Optional[int] = None,
+    current_word_count: Optional[int] = None,
+) -> str:
     """Build user message for refinement with proper tone handling."""
     tone_upper = tone.upper()
     
@@ -3691,9 +3780,21 @@ def _build_refinement_user_message(tone: str, original_content: str) -> str:
     elif tone.lower() == 'professional':
         tone_guidance = "\n\nFOR PROFESSIONAL TONE: Write clearly and professionally, using accessible language while maintaining authority."
     
+    length_guidance = ""
+    if target_word_count and target_word_count > 0:
+        current_wc_text = (
+            f" Current draft word count is approximately {int(current_word_count)}."
+            if current_word_count and current_word_count > 0
+            else ""
+        )
+        length_guidance = (
+            f"\n\nLENGTH TARGET: Keep the final article near {int(target_word_count)} words (+/-15%)."
+            f"{current_wc_text} Refine for clarity without unnecessary expansion or compression."
+        )
+
     return f"""IMPORTANT: The tone for this article is {tone_upper}.
 
-Refine this section to match the {tone} tone perfectly. {tone_guidance}
+Refine this section to match the {tone} tone perfectly. {tone_guidance}{length_guidance}
 
 Return ONLY the refined HTML content - no explanations, no meta-commentary, no "Here's the refined content" text. Start directly with the HTML.
 
@@ -3707,6 +3808,17 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
         content = result.get('content', {})
         tone = research_data.get('tone', 'journalistic')
         include_in_text_citations = research_data.get('include_in_text_citations', True)
+        raw_target_wc = (
+            research_data.get('target_word_count')
+            or research_data.get('articleLength')
+            or research_data.get('article_length')
+            or 0
+        )
+        try:
+            target_word_count = int(str(raw_target_wc).strip() or 0)
+        except Exception:
+            target_word_count = 0
+        current_word_count = int(content.get('word_count') or 0)
         
         # Verify tone is correct - log warning if it seems wrong
         if tone.lower() not in ['friendly', 'professional', 'journalistic', 'casual', 'academic', 'technical', 'persuasive']:
@@ -3780,7 +3892,15 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
             try:
                 messages = [
                     {"role": "system", "content": system_content},
-                    {"role": "user", "content": _build_refinement_user_message(tone, input_html)},
+                    {
+                        "role": "user",
+                        "content": _build_refinement_user_message(
+                            tone,
+                            input_html,
+                            target_word_count=target_word_count,
+                            current_word_count=current_word_count,
+                        ),
+                    },
                 ]
 
                 pass_started_at = time.time()
@@ -3804,7 +3924,7 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
                     pass_name,
                     time.time() - pass_started_at,
                 )
-                return _clean_llm_html(response.content)
+                return _normalize_markdown_artifacts_to_html(_clean_llm_html(response.content))
             except Exception as run_err:
                 logger.error(f"Failed {pass_name} pass: {run_err}")
                 return None
@@ -4299,6 +4419,9 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 geo_enrichment_added["key_takeaways"],
                 geo_enrichment_added["faq"],
             )
+
+        # Normalize any markdown artifacts that leaked from generation/refinement.
+        full_content = _normalize_markdown_artifacts_to_html(full_content)
         
         # Create clickable citation links only if in-text citations are enabled
         if include_in_text_citations:

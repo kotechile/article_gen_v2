@@ -1527,6 +1527,14 @@ export const ArticleEditor: React.FC = () => {
         );
     }
 
+    const liveWordCount = editor?.storage.characterCount.words() ?? 0;
+    const liveCharacterCount = editor?.storage.characterCount.characters() ?? 0;
+    const liveReadTimeMinutes = Math.max(1, Math.ceil(liveWordCount / 220));
+    const displayReadTime =
+        metrics.estimated_reading_time && Number(metrics.estimated_reading_time) > 0
+            ? metrics.estimated_reading_time
+            : `${liveReadTimeMinutes} min`;
+
     return (
         <div className="min-h-screen bg-background pb-20">
             <style>{EditorStyles}</style>
@@ -1592,9 +1600,11 @@ export const ArticleEditor: React.FC = () => {
                     <div className="lg:col-span-2 space-y-6">
                         <div className="flex items-center justify-between mb-4">
                             <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-muted-foreground">Words: {editor?.storage.characterCount.words()}</span>
+                                <span className="text-sm font-medium text-muted-foreground">Words: {liveWordCount}</span>
                                 <span className="text-muted-foreground/30">|</span>
-                                <span className="text-sm font-medium text-muted-foreground">Characters: {editor?.storage.characterCount.characters()}</span>
+                                <span className="text-sm font-medium text-muted-foreground">Characters: {liveCharacterCount}</span>
+                                <span className="text-muted-foreground/30">|</span>
+                                <span className="text-sm font-medium text-muted-foreground">Read time: {liveReadTimeMinutes} min</span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
@@ -1922,7 +1932,7 @@ export const ArticleEditor: React.FC = () => {
                                             <span className="text-xs text-muted-foreground">Est. Reading Time</span>
                                             <MetricTooltip explanation={METRIC_EXPLANATIONS.reading_time} />
                                         </div>
-                                        <span className="font-medium text-sm text-foreground">{metrics.estimated_reading_time || '-'}</span>
+                                        <span className="font-medium text-sm text-foreground">{displayReadTime}</span>
                                     </div>
                                     <div className="p-2 bg-muted/50 rounded-lg">
                                         <div className="flex items-center gap-1 mb-1">
