@@ -16,9 +16,9 @@ class ResearchRequestSchema(BaseModel):
     
     brief: str = Field(..., min_length=10, max_length=3000)
     keywords: str = Field(..., min_length=1, max_length=500)
-    provider: str = Field(..., min_length=1)
-    model: str = Field(..., min_length=1)
-    api_key: str = Field(..., min_length=1)
+    provider: Optional[str] = Field(None, min_length=1)
+    model: Optional[str] = Field(None, min_length=1)
+    api_key: Optional[str] = Field(None, min_length=1)
     depth: Optional[str] = Field("standard", pattern="^(standard|comprehensive|deep)$")
     tone: Optional[str] = Field("journalistic", pattern="^(academic|journalistic|casual|technical|persuasive)$")
     target_word_count: Optional[int] = Field(2000, ge=500, le=10000)

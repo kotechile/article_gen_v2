@@ -19,7 +19,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.utils import secure_filename
 
-from supabase_client import get_supabase_client, get_api_key
+from supabase_client import get_supabase_client, get_api_key, resolve_llm_provider, LLM_ROLE_SVG
 from ...core.models.errors import ErrorResponse, ValidationErrorResponse
 from ...services.llm.providers import get_provider_class
 
@@ -88,30 +88,30 @@ def _resolve_infographic_llm(client, llm_model=None):
                 provider_row = result.data[0]
                 break
 
-    if not provider_row:
-        default_result = _query_llm_provider_rows(client, [('is_default', True)], require_active=True)
-        if default_result.data:
-            provider_row = default_result.data[0]
-
-    if not provider_row:
-        fallback_result = client.table('llm_providers').select('*').limit(1).execute()
-        if fallback_result.data:
-            provider_row = fallback_result.data[0]
-
-    if not provider_row:
-        raise ValueError("No LLM providers are configured")
-
-    key_id = provider_row.get('api_keys_id') or provider_row.get('api_key_id')
     api_key = None
-    base_url = provider_row.get('base_url')
+    base_url = None
 
-    if key_id:
-        key_result = client.table('api_keys').select('*').eq('id', key_id).execute()
-        if key_result.data:
-            key_row = key_result.data[0]
-            api_key = key_row.get('key_value')
-            if not base_url:
-                base_url = key_row.get('base_url')
+    if not provider_row:
+        resolved = resolve_llm_provider(task_role=LLM_ROLE_SVG)
+        provider_name = str(resolved.get('provider') or '').strip().lower()
+        model_name = str(resolved.get('model') or '').strip()
+        api_key = resolved.get('api_key')
+        if not provider_name or not model_name:
+            raise ValueError("No active svg LLM is configured in llm_providers.used_for")
+    else:
+        key_id = provider_row.get('api_keys_id') or provider_row.get('api_key_id')
+        base_url = provider_row.get('base_url')
+
+        if key_id:
+            key_result = client.table('api_keys').select('*').eq('id', key_id).execute()
+            if key_result.data:
+                key_row = key_result.data[0]
+                api_key = key_row.get('key_value')
+                if not base_url:
+                    base_url = key_row.get('base_url')
+
+        provider_name = (provider_row.get('provider') or provider_row.get('provider_name') or 'google').strip().lower()
+        model_name = (provider_row.get('model_name') or model_hint).strip()
 
     if not api_key:
         api_key = current_app.config.get('LITELLM_API_KEY')
@@ -119,15 +119,9 @@ def _resolve_infographic_llm(client, llm_model=None):
     if not api_key:
         raise ValueError("Selected LLM provider is missing an API key")
 
-    default_model_name = ''
-    default_result = _query_llm_provider_rows(client, [('is_default', True)], require_active=True)
-    if default_result.data:
-        default_model_name = (default_result.data[0].get('model_name') or '').strip()
-
-    provider_name = (provider_row.get('provider') or provider_row.get('provider_name') or 'google').strip().lower()
-    model_name = (provider_row.get('model_name') or model_hint or default_model_name).strip()
     if not model_name:
-        raise ValueError("No default LLM model is configured in llm_providers")
+        raise ValueError("No SVG model is configured in llm_providers")
+
     return {
         'api_key': api_key,
         'base_url': base_url,

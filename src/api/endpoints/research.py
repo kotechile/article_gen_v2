@@ -27,6 +27,13 @@ from ...core.models.errors import (
 from ...api.middleware.auth import require_api_key
 from ...api.schemas.research import ResearchRequestSchema, ResearchResponseSchema
 from llm_client import create_llm_client
+from supabase_client import (
+    LLM_ROLE_ARTICLE_GENERATION,
+    LLM_ROLE_FINAL_REVIEW,
+    get_llm_api_key,
+    get_llm_provider_for_role,
+    resolve_llm_provider,
+)
 # Import tasks when needed to avoid circular imports
 
 
@@ -243,31 +250,38 @@ def create_research_task():
             if field in data and field not in task_data:
                 task_data[field] = data[field]
         
-        # Helper to resolve API Key from DB if not provided or dummy
+        # Resolve the article-generation model in the backend unless a valid explicit
+        # provider/model pair is still supplied by a legacy caller.
+        provider = str(task_data.get('provider') or '').strip().lower()
+        model = str(task_data.get('model') or '').strip()
         final_api_key = task_data.get('api_key')
-        
-        # Check if we need to resolve the key from DB
-        # Conditions: Key is missing, OR Key is 'development' (frontend fallback)
-        if not final_api_key or final_api_key == 'development':
-            from supabase_client import get_llm_api_key
-            
-            provider = task_data.get('provider')
-            model = task_data.get('model')
-            
-            logger.info(f"Resolving API key from DB for {provider}/{model}...")
-            db_key = get_llm_api_key(provider, model)
-            
-            if db_key:
-                task_data['api_key'] = db_key
-                logger.info("Successfully resolved API key from database")
-            elif final_api_key == 'development':
-                 # If we have a dummy key and failed to resolve, warn but proceed
-                 # (Task might fail later if key is truly required by LLM client)
-                 logger.warning("Could not resolve real API key from DB, using 'development' placeholder")
-            else:
-                 # No key at all and failed to resolve
-                 logger.warning("No API key provided and failed to resolve from DB")
-        
+
+        if provider and model:
+            resolved_key = None
+            if not final_api_key or final_api_key == 'development':
+                logger.info("Resolving API key from DB for explicit model %s/%s...", provider, model)
+                resolved_key = get_llm_api_key(provider, model)
+            if resolved_key:
+                task_data['api_key'] = resolved_key
+            task_data['provider'] = provider
+            task_data['model'] = model
+        else:
+            resolved_provider, resolved_model, resolved_key = get_llm_provider_for_role(LLM_ROLE_ARTICLE_GENERATION)
+            if not resolved_provider or not resolved_model:
+                return jsonify(ErrorResponse(
+                    error="llm_configuration_error",
+                    message="No active article_generation LLM is configured in llm_providers.used_for",
+                    error_code="LLM_CONFIGURATION_ERROR",
+                    status=500
+                ).dict()), 500
+            task_data['provider'] = resolved_provider
+            task_data['model'] = resolved_model
+            if resolved_key:
+                task_data['api_key'] = resolved_key
+
+        provider = task_data.get('provider')
+        model = task_data.get('model')
+
         # Create research task
         task = process_research_task.delay(task_data)
         
@@ -289,7 +303,7 @@ def create_research_task():
             research_id=task.id,
             status=ResearchStatus.PENDING,
             brief=research_request.brief,
-            model=f"{research_request.provider}/{research_request.model}",
+            model=f"{provider}/{model}",
             depth=research_request.depth,
             tone=research_request.tone,
             target_word_count=research_request.target_word_count,
@@ -356,23 +370,28 @@ def refine_research_metadata():
                 provider = provider or "openai"
                 model = model or llm_model
 
+        if provider and model:
+            if not api_key or api_key == "development":
+                resolved_key = get_llm_api_key(provider, model)
+                if resolved_key:
+                    api_key = resolved_key
+        else:
+            resolved = resolve_llm_provider(task_role=LLM_ROLE_FINAL_REVIEW)
+            provider = str(resolved.get("provider") or "").strip().lower()
+            model = str(resolved.get("model") or "").strip()
+            api_key = str(resolved.get("api_key") or "").strip()
+
         if not provider or not model:
             return jsonify({
                 "success": False,
-                "message": "LLM provider/model is required.",
-            }), 400
-
-        if not api_key or api_key == "development":
-            from supabase_client import get_llm_api_key
-            resolved_key = get_llm_api_key(provider, model)
-            if resolved_key:
-                api_key = resolved_key
+                "message": "No active final_review LLM is configured in llm_providers.used_for.",
+            }), 500
 
         if not api_key:
             return jsonify({
                 "success": False,
-                "message": "Could not resolve API key for selected model.",
-            }), 400
+                "message": "Could not resolve API key for the backend-selected review model.",
+            }), 500
 
         llm_client = create_llm_client(
             provider=provider,
@@ -684,9 +703,9 @@ def get_research_info():
         "request_schema": {
             "brief": "string (required) - Research brief or topic",
             "keywords": "string (required) - Comma-separated keywords",
-            "provider": "string (required) - LLM provider (e.g., 'openai', 'anthropic')",
-            "model": "string (required) - Model name (e.g., 'gpt-4', 'claude-3.5-sonnet')",
-            "api_key": "string (required) - LLM API key",
+            "provider": "string (optional) - explicit LLM provider override; otherwise resolved by backend task role",
+            "model": "string (optional) - explicit model override; otherwise resolved by backend task role",
+            "api_key": "string (optional) - explicit API key override; otherwise resolved from llm_providers/api_keys",
             "depth": "string (optional) - Research depth: standard, comprehensive, deep (default: standard)",
             "tone": "string (optional) - Article tone: academic, journalistic, casual, technical, persuasive (default: journalistic)",
             "target_word_count": "integer (optional) - Target article length in words (default: 2000, range: 500-10000)",

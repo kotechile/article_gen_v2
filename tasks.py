@@ -16,7 +16,15 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from celery import current_task
 from celery_config import celery
-from supabase_client import get_supabase_client, get_llm_api_key, get_linkup_api_key, get_default_llm_provider
+from supabase_client import (
+    LLM_ROLE_ARTICLE_GENERATION,
+    LLM_ROLE_FINAL_REVIEW,
+    get_supabase_client,
+    get_llm_api_key,
+    get_linkup_api_key,
+    get_default_llm_provider,
+    get_llm_provider_for_role,
+)
 from llm_client import create_llm_client
 from rag_client import create_rag_client, RAGQuery
 from linkup_client import create_linkup_client, SearchQuery
@@ -1901,19 +1909,23 @@ def _extract_claims(result: Dict[str, Any], task_instance: Any = None) -> Dict[s
         api_key = None
         
         if not provider or not model:
-            logger.info("Provider or model not specified in research_data - fetching default from Supabase")
-            def_provider, def_model, def_key = get_default_llm_provider()
-            if def_provider and def_model and def_key:
+            logger.info("Provider or model not specified in research_data - fetching article_generation model from Supabase")
+            def_provider, def_model, def_key = get_llm_provider_for_role(LLM_ROLE_ARTICLE_GENERATION)
+            if def_provider and def_model:
                 provider = def_provider
                 model = def_model
                 api_key = def_key
                 # Update research_data for consistency
                 research_data['provider'] = provider
                 research_data['model'] = model
+                if def_key:
+                    research_data['api_key'] = def_key
             else:
-                 logger.warning("Failed to fetch default LLM provider - falling back to 'openai'/'gpt-4' (and likely missing key)")
-                 provider = 'openai'
-                 model = 'gpt-4'
+                 logger.warning("Failed to fetch article_generation LLM provider - falling back to default helper")
+                 def_provider, def_model, def_key = get_default_llm_provider()
+                 provider = def_provider or 'openai'
+                 model = def_model or 'gpt-4'
+                 api_key = def_key
         else:
              # Fetch key for specific provider/model
              api_key = get_llm_api_key(provider, model)
@@ -3312,19 +3324,23 @@ def _generate_content(result: Dict[str, Any], task_instance=None) -> Dict[str, A
         api_key = None
         
         if not provider or not model:
-            logger.info("Provider or model not specified - fetching default from Supabase")
-            def_provider, def_model, def_key = get_default_llm_provider()
-            if def_provider and def_model and def_key:
+            logger.info("Provider or model not specified - fetching article_generation model from Supabase")
+            def_provider, def_model, def_key = get_llm_provider_for_role(LLM_ROLE_ARTICLE_GENERATION)
+            if def_provider and def_model:
                 provider = def_provider
                 model = def_model
                 api_key = def_key
                 # Update research_data
                 research_data['provider'] = provider
                 research_data['model'] = model
+                if def_key:
+                    research_data['api_key'] = def_key
             else:
-                 logger.warning("Failed to fetch default LLM provider - falling back to 'openai'/'gpt-4'")
-                 provider = 'openai'
-                 model = 'gpt-4'
+                 logger.warning("Failed to fetch article_generation LLM provider - falling back to default helper")
+                 def_provider, def_model, def_key = get_default_llm_provider()
+                 provider = def_provider or 'openai'
+                 model = def_model or 'gpt-4'
+                 api_key = def_key
         else:
              api_key = get_llm_api_key(provider, model)
 
@@ -3852,12 +3868,15 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
         if tone.lower() == 'friendly':
             logger.info(f"🔍 REFINEMENT STAGE - Friendly tone detected - should use first-person, personal stories, casual language")
         
-        # Create LLM client
-        # Support both llm_key (legacy) and api_key (normalized)
-        api_key = research_data.get('api_key') or research_data.get('llm_key', '')
+        # Create LLM client. Prefer a dedicated final_review model when configured.
+        review_provider, review_model, review_key = get_llm_provider_for_role(LLM_ROLE_FINAL_REVIEW)
+        provider = review_provider or research_data.get('provider', 'openai')
+        model = review_model or research_data.get('model', 'gpt-4')
+        # Support both llm_key (legacy) and api_key (normalized) as a final fallback.
+        api_key = review_key or research_data.get('api_key') or research_data.get('llm_key', '')
         llm_client = create_llm_client(
-            provider=research_data.get('provider', 'openai'),
-            model=research_data.get('model', 'gpt-4'),
+            provider=provider,
+            model=model,
             api_key=api_key,
             temperature=0.5,
             timeout=60,  # Reduced timeout to prevents hangs (60s per section)

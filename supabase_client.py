@@ -7,13 +7,31 @@ to retrieve API keys and other configuration stored in the database.
 
 import os
 import logging
-from typing import Optional
+from typing import Any, Optional
 from supabase import create_client, Client
 
 logger = logging.getLogger(__name__)
 
 # Cache for Supabase client
 _supabase_client: Optional[Client] = None
+
+LLM_ROLE_ARTICLE_GENERATION = "article_generation"
+LLM_ROLE_DEEP_RESEARCH = "deep_research"
+LLM_ROLE_SVG = "svg"
+LLM_ROLE_FINAL_REVIEW = "final_review"
+LLM_ROLE_TOC = "toc"
+
+_LLM_ROLE_ALIASES = {
+    "all_other": LLM_ROLE_ARTICLE_GENERATION,
+    "article_generation": LLM_ROLE_ARTICLE_GENERATION,
+    "default_generation": LLM_ROLE_ARTICLE_GENERATION,
+    "deep_research": LLM_ROLE_DEEP_RESEARCH,
+    "deep research": LLM_ROLE_DEEP_RESEARCH,
+    "svg": LLM_ROLE_SVG,
+    "final_review": LLM_ROLE_FINAL_REVIEW,
+    "final review": LLM_ROLE_FINAL_REVIEW,
+    "toc": LLM_ROLE_TOC,
+}
 
 
 def get_supabase_client() -> Optional[Client]:
@@ -61,6 +79,172 @@ def get_supabase_client() -> Optional[Client]:
     except Exception as e:
         logger.error(f"Failed to initialize Supabase client: {str(e)}")
         return None
+
+
+def _normalize_llm_role(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    return _LLM_ROLE_ALIASES.get(normalized, normalized)
+
+
+def _normalize_used_for(raw_value: Any) -> list[str]:
+    if isinstance(raw_value, list):
+        tokens = raw_value
+    elif isinstance(raw_value, str):
+        tokens = raw_value.split(",")
+    else:
+        tokens = []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        role = _normalize_llm_role(token)
+        if not role or role in seen:
+            continue
+        normalized.append(role)
+        seen.add(role)
+    return normalized
+
+
+def _fetch_api_key_value_by_id(client: Client, api_key_id: Any) -> Optional[str]:
+    if not api_key_id:
+        return None
+    try:
+        key_resp = client.table('api_keys').select('key_value').eq('id', api_key_id).limit(1).execute()
+        if key_resp.data and len(key_resp.data) > 0:
+            api_key = key_resp.data[0].get('key_value')
+            if isinstance(api_key, str):
+                api_key = api_key.strip().strip('"').strip("'")
+            if api_key:
+                return api_key
+    except Exception as exc:
+        logger.warning("Failed to fetch API key by id %s: %s", api_key_id, exc)
+    return None
+
+
+def _normalize_llm_provider_row(row: dict) -> Optional[dict]:
+    if not isinstance(row, dict):
+        return None
+    model_name = str(row.get('model_name') or '').strip()
+    if not model_name:
+        return None
+    return {
+        'id': row.get('id'),
+        'name': str(row.get('name') or model_name).strip(),
+        'provider': str(row.get('provider') or '').strip().lower(),
+        'model_name': model_name,
+        'api_keys_id': row.get('api_keys_id') or row.get('api_key_id'),
+        'is_default': row.get('is_default') if isinstance(row.get('is_default'), bool) else False,
+        'is_active': row.get('is_active') if isinstance(row.get('is_active'), bool) else None,
+        'used_for': _normalize_used_for(row.get('used_for')),
+    }
+
+
+def _fetch_llm_provider_rows(client: Client) -> list[dict]:
+    attempts = [
+        ("role-aware", "id,name,provider,model_name,api_keys_id,api_key_id,is_default,is_active,used_for"),
+        ("active-default", "id,name,provider,model_name,api_keys_id,api_key_id,is_default,is_active"),
+        ("legacy-default", "id,name,provider,model_name,api_keys_id,api_key_id,is_default"),
+        ("legacy-core", "id,name,provider,model_name,api_keys_id,api_key_id"),
+    ]
+
+    for label, select_fields in attempts:
+        try:
+            response = client.table('llm_providers').select(select_fields).execute()
+            rows = []
+            for raw_row in response.data or []:
+                normalized = _normalize_llm_provider_row(raw_row)
+                if normalized:
+                    rows.append(normalized)
+            if rows:
+                return rows
+        except Exception as exc:
+            logger.warning("LLM provider query attempt failed: %s (%s)", label, exc)
+    return []
+
+
+def _sort_llm_provider_rows(rows: list[dict]) -> list[dict]:
+    return sorted(
+        rows,
+        key=lambda row: (
+            not bool(row.get('is_default')),
+            str(row.get('name') or row.get('model_name') or '').lower(),
+        ),
+    )
+
+
+def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str] = None, model: Optional[str] = None) -> dict:
+    """
+    Resolve an LLM provider/model/api key combination.
+
+    Priority:
+    1. Explicit provider/model if supplied
+    2. Active provider mapped to task_role via used_for
+    3. Default provider (is_default=true)
+    4. First active provider
+    """
+    client = get_supabase_client()
+    if not client:
+        return {
+            "provider": provider or None,
+            "model": model or None,
+            "api_key": None,
+            "source": "no_supabase",
+        }
+
+    rows = _fetch_llm_provider_rows(client)
+    if not rows:
+        return {
+            "provider": provider or None,
+            "model": model or None,
+            "api_key": None,
+            "source": "no_rows",
+        }
+
+    active_rows = [row for row in rows if row.get('is_active') is not False]
+    candidate_rows = active_rows or rows
+
+    explicit_provider = str(provider or "").strip().lower()
+    explicit_model = str(model or "").strip()
+    explicit_match = None
+    if explicit_model:
+        for row in candidate_rows:
+            if row.get('model_name') != explicit_model:
+                continue
+            if explicit_provider and row.get('provider') != explicit_provider:
+                continue
+            explicit_match = row
+            break
+
+    role = _normalize_llm_role(task_role)
+    role_match = None
+    if not explicit_match and role:
+        role_candidates = [row for row in candidate_rows if role in row.get('used_for', [])]
+        sorted_role_candidates = _sort_llm_provider_rows(role_candidates)
+        if sorted_role_candidates:
+            role_match = sorted_role_candidates[0]
+
+    default_candidates = [row for row in candidate_rows if row.get('is_default')]
+    selected = explicit_match or role_match
+    if not selected and default_candidates:
+        selected = _sort_llm_provider_rows(default_candidates)[0]
+    if not selected:
+        selected = _sort_llm_provider_rows(candidate_rows)[0]
+
+    resolved_key = _fetch_api_key_value_by_id(client, selected.get('api_keys_id'))
+    return {
+        "provider": selected.get('provider') or explicit_provider or None,
+        "model": selected.get('model_name') or explicit_model or None,
+        "api_key": resolved_key,
+        "name": selected.get('name'),
+        "used_for": selected.get('used_for', []),
+        "is_default": bool(selected.get('is_default')),
+        "source": "explicit" if explicit_match else ("task_role" if role_match else "default"),
+    }
+
+
+def get_llm_provider_for_role(task_role: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    resolved = resolve_llm_provider(task_role=task_role)
+    return resolved.get("provider"), resolved.get("model"), resolved.get("api_key")
 
 
 def get_api_key_from_supabase(provider: str) -> Optional[str]:
@@ -224,48 +408,8 @@ def get_default_llm_provider() -> tuple[Optional[str], Optional[str], Optional[s
         Returns (None, None, None) if not found.
     """
     try:
-        client = get_supabase_client()
-        if not client:
-            logger.warning("Supabase client not available for fetching default LLM")
-            return None, None, None
-            
-        # 1. Get default provider record
-        response = client.table('llm_providers').select('provider, model_name, api_keys_id').eq('is_default', True).limit(1).execute()
-        
-        if not response.data or len(response.data) == 0:
-            logger.warning("No default LLM provider found (is_default=true) in llm_providers table")
-            return None, None, None
-            
-        record = response.data[0]
-        provider = record.get('provider')
-        model = record.get('model_name')
-        api_keys_id = record.get('api_keys_id')
-        
-        if not api_keys_id:
-            logger.warning(f"Default LLM provider {provider}/{model} found but has no api_keys_id")
-            return provider, model, None
-            
-        # 2. Get API key
-        key_resp = client.table('api_keys').select('key_value').eq('id', api_keys_id).execute()
-        
-        if key_resp.data and len(key_resp.data) > 0:
-            api_key = key_resp.data[0].get('key_value')
-            if isinstance(api_key, str):
-                api_key = api_key.strip().strip('"').strip("'")
-            if api_key:
-                logger.info(
-                    "Successfully fetched default LLM: %s/%s (api_keys_id=%s, key_len=%s, key_prefix=%s)",
-                    provider,
-                    model,
-                    api_keys_id,
-                    len(api_key),
-                    api_key[:10],
-                )
-                return provider, model, api_key
-        
-        logger.warning(f"API Key for default LLM {provider}/{model} (ID: {api_keys_id}) not found or empty")
-        return provider, model, None
-        
+        resolved = resolve_llm_provider()
+        return resolved.get("provider"), resolved.get("model"), resolved.get("api_key")
     except Exception as e:
         logger.error(f"Error fetching default LLM provider: {str(e)}")
         return None, None, None

@@ -187,18 +187,6 @@ interface AppSettings {
     [key: string]: any;
 }
 
-interface LlmProviderRow {
-    id: string;
-    name: string;
-    model_name: string;
-    provider: string;
-    is_default?: boolean | null;
-    is_active?: boolean | null;
-    api_keys_id?: string | null;
-    api_key_id?: string | null;
-    llm_key_id?: string | null;
-}
-
 interface MetadataRefinementPreview {
     refined_title: string;
     refined_description: string;
@@ -207,133 +195,14 @@ interface MetadataRefinementPreview {
     fallback_used?: boolean;
 }
 
-async function fetchLlmProviderRowsDirect(): Promise<LlmProviderRow[]> {
-    const queryAttempts: Array<{
-        label: string;
-        select: string;
-        activeOnly: boolean;
-    }> = [
-        {
-            label: 'active-with-flags',
-            select: 'id, name, model_name, provider, api_keys_id, is_default, is_active',
-            activeOnly: true,
-        },
-        {
-            label: 'all-with-flags',
-            select: 'id, name, model_name, provider, api_keys_id, is_default, is_active',
-            activeOnly: false,
-        },
-        {
-            label: 'all-with-default',
-            select: 'id, name, model_name, provider, api_keys_id, is_default',
-            activeOnly: false,
-        },
-        {
-            label: 'all-core-fields',
-            select: 'id, name, model_name, provider, api_keys_id',
-            activeOnly: false,
-        },
-    ];
-
-    for (const attempt of queryAttempts) {
-        let query = supabase.from('llm_providers').select(attempt.select);
-        if (attempt.activeOnly) {
-            query = query.eq('is_active', true);
-        }
-
-        const { data, error } = await query;
-        if (error) {
-            logSafeError(`[ContentStudio] LLM model query "${attempt.label}" failed:`, error, 'warn');
-            continue;
-        }
-
-        const rows = (Array.isArray(data) ? data : [])
-            .filter((row: any) => row && row.model_name)
-            .map((row: any) => ({
-                id: String(row.id ?? ''),
-                name: String(row.name ?? row.model_name ?? ''),
-                model_name: String(row.model_name ?? ''),
-                provider: String(row.provider ?? ''),
-                api_keys_id: row.api_keys_id ? String(row.api_keys_id) : null,
-                is_default: typeof row.is_default === 'boolean' ? row.is_default : null,
-                is_active: typeof row.is_active === 'boolean' ? row.is_active : null,
-            }));
-
-        if (rows.length > 0) {
-            return rows;
-        }
-    }
-
-    return [];
-}
-
-async function fetchLlmProviderRowsFromBackend(): Promise<LlmProviderRow[]> {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5001';
-
-    const response = await axios.get(`${apiBase}/api/settings/llm-providers`, {
-        headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            'X-API-Key': 'development',
-        },
-    });
-
-    const rawRows = Array.isArray(response?.data?.data) ? response.data.data : [];
-    return rawRows
-        .filter((row: any) => row && row.model_name)
-        .map((row: any) => ({
-            id: String(row.id ?? ''),
-            name: String(row.name ?? row.model_name ?? ''),
-            model_name: String(row.model_name ?? ''),
-            provider: String(row.provider ?? ''),
-            api_keys_id: row.api_keys_id ? String(row.api_keys_id) : null,
-            is_default: typeof row.is_default === 'boolean' ? row.is_default : null,
-            is_active: typeof row.is_active === 'boolean' ? row.is_active : null,
-        }));
-}
-
-function sortLlmModels(models: LlmProviderRow[]): LlmProviderRow[] {
-    return [...models].sort((a, b) => {
-        if (!!a.is_default !== !!b.is_default) return a.is_default ? -1 : 1;
-        return String(a.name || a.model_name).localeCompare(String(b.name || b.model_name));
-    });
-}
-
-function resolveInitialLlmModel(
-    storedValue: string | undefined | null,
-    models: LlmProviderRow[]
-): string {
-    const rows = sortLlmModels(models);
-    if (rows.length === 0) return '';
-
-    const defaultModel = rows.find((row) => row.is_default)?.model_name || rows[0].model_name;
-    const raw = String(storedValue || '').trim();
-    if (!raw) return defaultModel;
-
-    // Stored value can be model_name, provider/model_name, or display name.
-    const exactModelMatch = rows.find((row) => row.model_name === raw);
-    if (exactModelMatch) return exactModelMatch.model_name;
-
-    const providerModelMatch = rows.find((row) => `${row.provider}/${row.model_name}` === raw);
-    if (providerModelMatch) return providerModelMatch.model_name;
-
-    const displayNameMatch = rows.find((row) => row.name === raw);
-    if (displayNameMatch) return displayNameMatch.model_name;
-
-    return defaultModel;
-}
-
 function buildRefinementSignature(
     title: string,
     description: string,
-    llmModel: string,
     primaryKeyword: string
 ): string {
     return [
         String(title || '').trim(),
         String(description || '').trim(),
-        String(llmModel || '').trim(),
         String(primaryKeyword || '').trim(),
     ].join('||');
 }
@@ -414,8 +283,6 @@ export const ContentStudio: React.FC = () => {
     const [article, setArticle] = useState<ArticleData | null>(null);
     const [ragCollections, setRagCollections] = useState<RagCollection[]>([]);
     const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
-    const [llmModels, setLlmModels] = useState<LlmProviderRow[]>([]);
-
     // Form State
     const [formData, setFormData] = useState({
         title: '',
@@ -428,8 +295,6 @@ export const ContentStudio: React.FC = () => {
         emphasis: 'balanced',
         sourceMode: 'dossier_only',
         claimsValidation: true,
-        // Add Metrics Explanations to UI <!-- id: 3 -->
-        llmModel: '',
     });
 
     // Fetch Data
@@ -479,22 +344,6 @@ export const ContentStudio: React.FC = () => {
                     setRagCollections(ragData || []);
                 }
 
-                // 4. Fetch LLM Providers via backend (service-role Supabase client).
-                // Fallback to direct client query only if backend endpoint is unavailable.
-                let llmRows: LlmProviderRow[] = [];
-                try {
-                    llmRows = await fetchLlmProviderRowsFromBackend();
-                } catch (backendError) {
-                    logSafeError('[ContentStudio] Backend LLM provider endpoint failed; falling back to direct query.', backendError, 'warn');
-                    llmRows = await fetchLlmProviderRowsDirect();
-                }
-
-                const normalizedLlmRows = sortLlmModels(llmRows);
-                setLlmModels(normalizedLlmRows);
-                if (normalizedLlmRows.length === 0) {
-                    setError('No active LLM models were found. Check llm_providers visibility/policies and model rows.');
-                }
-
                 // Initialize Form
                 setFormData({
                     title: normalizedArticle.Title || '',
@@ -516,7 +365,6 @@ export const ContentStudio: React.FC = () => {
                         claimsValidation: false,
                     }),
                     claimsValidation: true,
-                    llmModel: resolveInitialLlmModel(normalizedArticle.LLM, normalizedLlmRows),
                 });
 
             } catch (error) {
@@ -612,7 +460,6 @@ export const ContentStudio: React.FC = () => {
                 rag_collection_name: effectiveFormData.ragCollection,
                 rag_query_type: effectiveFormData.ragQueryType,
                 rag_balance_emphasis: effectiveFormData.emphasis,
-                LLM: effectiveFormData.llmModel,
                 estimated_reading_time: readingTime,
             };
 
@@ -651,78 +498,9 @@ export const ContentStudio: React.FC = () => {
         }
     };
 
-    const resolveSelectedModelKey = async (selectedModel: LlmProviderRow): Promise<string | null> => {
-        const candidateKeyIds = [
-            selectedModel.api_keys_id,
-            selectedModel.api_key_id,
-            selectedModel.llm_key_id,
-        ]
-            .map((value) => String(value || '').trim())
-            .filter(Boolean);
-
-        if (candidateKeyIds.length > 0) {
-            const { data: apiKeyRows, error: apiKeyError } = await supabase
-                .from('api_keys')
-                .select('id, key_value')
-                .in('id', candidateKeyIds);
-
-            if (!apiKeyError && apiKeyRows && apiKeyRows.length > 0) {
-                const byId = new Map<string, string>();
-                for (const row of apiKeyRows as Array<{ id: string; key_value?: string | null }>) {
-                    byId.set(String(row.id), String(row.key_value || '').trim());
-                }
-                for (const id of candidateKeyIds) {
-                    const key = byId.get(id);
-                    if (key) return key;
-                }
-            }
-        }
-
-        // Backward-compatible fallback: if llm_keys table exists in this deployment, use it.
-        const llmKeyId = String(selectedModel.llm_key_id || '').trim();
-        if (llmKeyId) {
-            try {
-                const { data: llmKeyRow, error: llmKeyError } = await supabase
-                    .from('llm_keys')
-                    .select('id, key_value')
-                    .eq('id', llmKeyId)
-                    .maybeSingle();
-
-                if (!llmKeyError) {
-                    const key = String((llmKeyRow as any)?.key_value || '').trim();
-                    if (key) return key;
-                }
-            } catch {
-                // Ignore missing table/permissions and continue to provider fallback.
-            }
-        }
-
-        // Last fallback: provider-level active key lookup.
-        const provider = String(selectedModel.provider || '').trim();
-        if (provider) {
-            const { data: providerKeyRows, error: providerKeyError } = await supabase
-                .from('api_keys')
-                .select('key_value')
-                .eq('provider', provider)
-                .eq('is_active', true)
-                .limit(1);
-
-            if (!providerKeyError && providerKeyRows && providerKeyRows.length > 0) {
-                const key = String((providerKeyRows[0] as any)?.key_value || '').trim();
-                if (key) return key;
-            }
-        }
-
-        return null;
-    };
-
     const requestMetadataRefinementPreview = async (params: {
         title: string;
         description: string;
-        provider: string;
-        modelName: string;
-        llmModel: string;
-        llmKey: string;
         primaryKw: string;
         secondaryKeywords: string[];
     }): Promise<MetadataRefinementPreview> => {
@@ -735,11 +513,6 @@ export const ContentStudio: React.FC = () => {
             {
                 title: params.title,
                 description: params.description,
-                provider: params.provider,
-                model: params.modelName,
-                llm_model: params.llmModel,
-                llm_key: params.llmKey,
-                api_key: params.llmKey,
                 primary_keyword: params.primaryKw || undefined,
                 secondary_keywords: params.secondaryKeywords,
                 domain: article?.domain || undefined,
@@ -805,26 +578,6 @@ export const ContentStudio: React.FC = () => {
                 }
             }
 
-            // Find selected model details
-            const selectedModel = llmModels.find(m => m.model_name === formData.llmModel);
-
-            if (!selectedModel) {
-                setError('Please select a valid LLM model from the dropdown.');
-                setGenerating(false);
-                return;
-            }
-
-            const provider = selectedModel.provider;
-            const modelName = selectedModel.model_name;
-            const llmModel = `${provider}/${modelName}`;
-            const llmKey = await resolveSelectedModelKey(selectedModel);
-
-            if (!llmKey) {
-                setError('No API key found for the selected LLM model. Link the model to an active key in llm_providers/api_keys.');
-                setGenerating(false);
-                return;
-            }
-
             // ── Phase 3: Build SEO-enriched brief (Directional Shift) ─────────────
             const primaryKw =
                 article?.primary_keywords?.[0] ??
@@ -838,7 +591,6 @@ export const ContentStudio: React.FC = () => {
             const refinementSignature = buildRefinementSignature(
                 effectiveTitle,
                 effectiveDescription,
-                formData.llmModel,
                 primaryKw
             );
 
@@ -855,10 +607,6 @@ export const ContentStudio: React.FC = () => {
                         preview = await requestMetadataRefinementPreview({
                             title: effectiveTitle,
                             description: effectiveDescription,
-                            provider,
-                            modelName,
-                            llmModel,
-                            llmKey,
                             primaryKw,
                             secondaryKeywords,
                         });
@@ -936,16 +684,12 @@ export const ContentStudio: React.FC = () => {
                 brief: generationBrief,
                 keywords: formData.keywords,
                 draft_title: effectiveTitle,
-                llm_model: llmModel,
-                llm_key: llmKey,
                 domain: article?.domain || undefined,
                 wordpress_category_id: article?.wordpress_category_id ?? undefined,
                 seo_primary_keyword: primaryKw || undefined,
                 seo_secondary_keywords: article?.secondary_keywords?.length ? article.secondary_keywords : undefined,
                 seo_directive: seodirective || undefined,
                 // Keep normalized fields for compatibility with both research API variants.
-                provider: provider,
-                model: modelName,
                 depth: formData.emphasis === 'balanced' ? 'standard' : 'comprehensive',
                 tone: formData.tone,
                 target_word_count: parseInt(formData.articleLength, 10),
@@ -1017,7 +761,6 @@ export const ContentStudio: React.FC = () => {
         const signature = buildRefinementSignature(
             refinementDraft.title,
             refinementDraft.description,
-            formData.llmModel,
             primaryKw
         );
         setApprovedRefinementSignature(signature);
@@ -1212,26 +955,10 @@ export const ContentStudio: React.FC = () => {
                                     onChange={(e) => handleChange('articleLength', e.target.value)}
                                 />
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1">LAI Model</label>
-                                <div className="relative">
-                                    <BrainCircuit className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                    <select
-                                        className="w-full pl-9 pr-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none appearance-none"
-                                        value={formData.llmModel}
-                                        onChange={(e) => handleChange('llmModel', e.target.value)}
-                                    >
-                                        <option value="">
-                                            {llmModels.length > 0 ? 'Select a Model' : 'No models available'}
-                                        </option>
-                                        {llmModels.map(model => (
-                                            <option key={model.id} value={model.model_name}>
-                                                {model.name || model.model_name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
+                        </div>
+
+                        <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+                            LLM selection is now managed automatically in the backend by task type. Article generation, SVG infographics, final review, and future ToC/deep research flows can each use a different model profile.
                         </div>
 
                         <div className="pt-4 border-t border-border">

@@ -46,8 +46,8 @@ class ResearchRequest(BaseModel):
     keywords: str = Field(..., min_length=1, max_length=500, description="Comma-separated keywords")
     
     # LLM Configuration
-    provider: str = Field(..., description="LLM provider (e.g., 'openai', 'anthropic')")
-    model: str = Field(..., description="Model name (e.g., 'gpt-4', 'claude-3.5-sonnet')")
+    provider: Optional[str] = Field(None, description="LLM provider (optional when resolved by backend task role)")
+    model: Optional[str] = Field(None, description="Model name (optional when resolved by backend task role)")
     api_key: Optional[str] = Field(None, min_length=1, description="LLM API key (optional if resolved from DB)")
     
     # Research Parameters

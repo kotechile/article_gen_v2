@@ -38,14 +38,15 @@ def _normalize_llm_provider_rows(rows: Optional[list]) -> list[dict]:
             "api_keys_id": row.get("api_keys_id"),
             "is_default": row.get("is_default") if isinstance(row.get("is_default"), bool) else None,
             "is_active": row.get("is_active") if isinstance(row.get("is_active"), bool) else None,
+            "used_for": row.get("used_for"),
         })
     return normalized
 
 
 def _fetch_llm_providers_with_fallbacks(supabase) -> list[dict]:
     attempts = [
-        ("active-with-flags", "id,name,provider,model_name,api_keys_id,is_default,is_active", True),
-        ("all-with-flags", "id,name,provider,model_name,api_keys_id,is_default,is_active", False),
+        ("active-with-flags", "id,name,provider,model_name,api_keys_id,is_default,is_active,used_for", True),
+        ("all-with-flags", "id,name,provider,model_name,api_keys_id,is_default,is_active,used_for", False),
         ("all-with-default", "id,name,provider,model_name,api_keys_id,is_default", False),
         ("all-core-fields", "id,name,provider,model_name,api_keys_id", False),
     ]

@@ -1203,7 +1203,6 @@ export const ArticleEditor: React.FC = () => {
 
         try {
             const response = await generateInfographicSvg({
-                llmModel: articleData?.LLM || articleData?.llmModel || articleData?.llm_model,
                 text: selectedText,
                 user_id: user.id,
                 theme,
