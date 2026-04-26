@@ -2373,6 +2373,21 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 logger.info(f"📊 RAG Coverage: RAG enabled but no valid evidence with content - Linkup will be used if enabled")
             else:
                 logger.info(f"📊 RAG Coverage: RAG disabled - Linkup will be used if enabled")
+
+        # Safety fallback for strict source strategy:
+        # If dossier_plus_rag yields zero citation-grade evidence from both dossier and RAG,
+        # automatically allow live web collection to avoid a hard stop on otherwise valid runs.
+        if (
+            source_strategy_enabled
+            and source_caps["strategy"] == "dossier_plus_rag"
+            and len(dossier_evidence) == 0
+            and len(rag_evidence) == 0
+        ):
+            logger.warning(
+                "Source strategy '%s' produced no citation-grade dossier/RAG evidence; enabling live web fallback for this run.",
+                source_caps["strategy"],
+            )
+            research_data['claims_research_enabled'] = True
         
         # Collect evidence from web search if claims research is enabled
         # Default to True (consistent with app.py) - web search should run unless explicitly disabled
@@ -2381,6 +2396,8 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
             if source_strategy_enabled
             else research_data.get('claims_research_enabled', True)
         )
+        if source_strategy_enabled and research_data.get('claims_research_enabled') is True:
+            claims_research_enabled = True
         research_provider_strategy = str(
             research_data.get('research_provider_strategy') or
             os.getenv('RESEARCH_PROVIDER_STRATEGY', 'hybrid')
