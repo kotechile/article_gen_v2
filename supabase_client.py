@@ -196,10 +196,10 @@ def _normalize_llm_provider_row(row: dict) -> Optional[dict]:
 
 def _fetch_llm_provider_rows(client: Client) -> list[dict]:
     attempts = [
-        ("role-aware", "id,name,provider,model_name,api_keys_id,api_key_id,is_default,is_active,used_for"),
-        ("active-default", "id,name,provider,model_name,api_keys_id,api_key_id,is_default,is_active"),
-        ("legacy-default", "id,name,provider,model_name,api_keys_id,api_key_id,is_default"),
-        ("legacy-core", "id,name,provider,model_name,api_keys_id,api_key_id"),
+        ("role-aware", "id,name,provider,model_name,api_keys_id,is_default,is_active,used_for"),
+        ("active-default", "id,name,provider,model_name,api_keys_id,is_default,is_active"),
+        ("legacy-default", "id,name,provider,model_name,api_keys_id,is_default"),
+        ("legacy-core", "id,name,provider,model_name,api_keys_id"),
     ]
 
     for label, select_fields in attempts:
