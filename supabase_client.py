@@ -166,7 +166,7 @@ def _fetch_llm_provider_rows(client: Client) -> list[dict]:
     return []
 
 
-def _fetch_llm_role_assignments(client: Client) -> dict[str, list[str]]:
+def _fetch_llm_role_assignments(client: Client) -> dict[str, str]:
     attempts = [
         ("role-map", "llm_provider_id,used_for"),
         ("role-map-legacy", "llm_provider_id,used_for"),
@@ -175,18 +175,15 @@ def _fetch_llm_role_assignments(client: Client) -> dict[str, list[str]]:
     for label, select_fields in attempts:
         try:
             response = client.table('llm_used_for').select(select_fields).execute()
-            assignment_map: dict[str, list[str]] = {}
+            assignment_map: dict[str, str] = {}
             for row in response.data or []:
                 provider_id = str(row.get('llm_provider_id') or '').strip()
                 if not provider_id:
                     continue
                 normalized_roles = _normalize_used_for(row.get('used_for'))
-                if not normalized_roles:
+                if len(normalized_roles) != 1:
                     continue
-                bucket = assignment_map.setdefault(provider_id, [])
-                for role in normalized_roles:
-                    if role not in bucket:
-                        bucket.append(role)
+                assignment_map[normalized_roles[0]] = provider_id
             if assignment_map:
                 return assignment_map
         except Exception as exc:
@@ -210,7 +207,7 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
 
     Priority:
     1. Explicit provider/model if supplied
-    2. Active provider mapped to task_role via used_for
+    2. Active provider mapped to task_role via llm_used_for
     3. Default provider (is_default=true)
     4. First active provider
     """
@@ -236,9 +233,8 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
     if role_assignments:
         for row in rows:
             provider_id = str(row.get('id') or '').strip()
-            mapped_roles = role_assignments.get(provider_id)
-            if mapped_roles:
-                row['used_for'] = mapped_roles
+            matched_roles = [role for role, mapped_provider_id in role_assignments.items() if mapped_provider_id == provider_id]
+            row['used_for'] = matched_roles
 
     active_rows = [row for row in rows if row.get('is_active') is not False]
     candidate_rows = active_rows or rows
@@ -258,10 +254,17 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
     role = _normalize_llm_role(task_role)
     role_match = None
     if not explicit_match and role:
-        role_candidates = [row for row in candidate_rows if role in row.get('used_for', [])]
-        sorted_role_candidates = _sort_llm_provider_rows(role_candidates)
-        if sorted_role_candidates:
-            role_match = sorted_role_candidates[0]
+        if role_assignments and role in role_assignments:
+            target_provider_id = role_assignments[role]
+            role_match = next(
+                (row for row in candidate_rows if str(row.get('id') or '').strip() == target_provider_id),
+                None,
+            )
+        if not role_match:
+            role_candidates = [row for row in candidate_rows if role in row.get('used_for', [])]
+            sorted_role_candidates = _sort_llm_provider_rows(role_candidates)
+            if sorted_role_candidates:
+                role_match = sorted_role_candidates[0]
 
     default_candidates = [row for row in candidate_rows if row.get('is_default')]
     selected = explicit_match or role_match
