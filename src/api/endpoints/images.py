@@ -160,9 +160,9 @@ def _extract_svg_markup(content):
     return cleaned
 
 
-def _is_valid_svg_markup(svg_markup):
+def _get_svg_validation_error(svg_markup):
     if not svg_markup:
-        return False
+        return "empty svg markup"
 
     candidate = str(svg_markup).strip()
     if candidate.lower().startswith('<?xml'):
@@ -172,10 +172,17 @@ def _is_valid_svg_markup(svg_markup):
 
     try:
         root = ET.fromstring(candidate)
-    except ET.ParseError:
-        return False
+    except ET.ParseError as exc:
+        return str(exc)
 
-    return root.tag == 'svg' or root.tag.endswith('}svg')
+    if root.tag == 'svg' or root.tag.endswith('}svg'):
+        return None
+
+    return f"root tag was {root.tag!r}, not svg"
+
+
+def _is_valid_svg_markup(svg_markup):
+    return _get_svg_validation_error(svg_markup) is None
 
 
 def _build_svg_infographic_prompt(text, accent_color, text_color, secondary_color=None, neutral_color=None):
@@ -294,6 +301,8 @@ Requirements:
 - Do not include commentary or explanation.
 - Preserve the intended infographic content and styling as much as possible.
 - If the draft contains markdown, prose, or escaped XML, convert it into clean SVG.
+- If the draft is truncated or has unclosed tags, finish the SAME SVG and close every open element correctly.
+- Do not redesign the infographic unless the draft is unusable.
 - Use viewBox="0 0 800 450", width="100%", and height="auto".
 
 Draft to repair:
@@ -311,7 +320,7 @@ def _generate_svg_with_candidate(candidate, prompt, repair=False, source_content
     provider_name = str(candidate.get('provider_name') or '').strip().lower()
     generation_kwargs = {
         "temperature": 0.2,
-        "max_tokens": 2200 if repair else 2600,
+        "max_tokens": 3200 if repair else 4200,
         "top_p": 0.9,
     }
     if "deepseek" in provider_name:
@@ -1022,11 +1031,14 @@ def generate_infographic_svg():
             try:
                 raw_content = _generate_svg_with_candidate(candidate, prompt)
                 svg_markup = _extract_svg_markup(raw_content)
-                if not _is_valid_svg_markup(svg_markup):
+                validation_error = _get_svg_validation_error(svg_markup)
+                if validation_error:
                     logger.warning(
-                        "Infographic SVG draft was not valid XML for provider=%s model=%s. Extracted prefix: %s Raw prefix: %s",
+                        "Infographic SVG draft was not valid XML for provider=%s model=%s. Validation error: %s Extracted length: %s Extracted prefix: %s Raw prefix: %s",
                         candidate.get('provider_name'),
                         candidate.get('model_name'),
+                        validation_error,
+                        len(str(svg_markup or '')),
                         str(svg_markup or '')[:500],
                         str(raw_content or '')[:500],
                     )
@@ -1034,7 +1046,7 @@ def generate_infographic_svg():
                         candidate,
                         prompt,
                         repair=True,
-                        source_content=raw_content,
+                        source_content=svg_markup or raw_content,
                     )
                     svg_markup = _extract_svg_markup(repaired_content)
                 if _is_valid_svg_markup(svg_markup):
