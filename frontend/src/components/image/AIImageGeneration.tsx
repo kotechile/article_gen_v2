@@ -93,6 +93,7 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
 
     const selectedModelInfo = models.find(m => m.model_technical_name === selectedModel);
     const aspectRatios = selectedModelInfo?.supported_aspect_ratios || ['1:1', '16:9', '4:3', '3:2', '9:16'];
+    const isFlux2Model = selectedModel.startsWith('flux-2/');
 
     if (loadingModels) {
         return (
@@ -160,6 +161,14 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
                     </select>
                 </div>
             </div>
+
+            {isFlux2Model && (
+                <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl p-3">
+                    <p className="text-sm text-indigo-700 dark:text-indigo-300">
+                        Flux 2 resolution is locked to <strong>1K</strong> for this application.
+                    </p>
+                </div>
+            )}
 
             {/* Reference Image (if supported) */}
             {selectedModelInfo?.supports_reference_image && (

@@ -26,6 +26,8 @@ from ...services.llm.providers import get_provider_class
 
 logger = logging.getLogger(__name__)
 
+KIE_FLUX_RESOLUTION = "1K"
+
 # Create blueprint
 images_bp = Blueprint('images', __name__, url_prefix='/api/v1/images')
 
@@ -736,7 +738,8 @@ def generate_kie_flux_image(prompt: str, api_key: str, model: str, aspect_ratio:
             "input": {
                 "prompt": prompt,
                 "aspect_ratio": aspect_ratio,
-                "resolution": "1K",
+                # Hard-lock KIE Flux resolution for this application.
+                "resolution": KIE_FLUX_RESOLUTION,
                 "nsfw_checker": False,
             },
         }
