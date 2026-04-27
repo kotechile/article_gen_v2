@@ -224,102 +224,62 @@ def _build_svg_infographic_prompt(text, accent_color, text_color, secondary_colo
     secondary = secondary_color or accent_color
     neutral = neutral_color or "#94a3b8"
     return f"""System instruction:
-Role: Senior SVG Architect & Creative Coder.
+Role: Senior Data Visualization Designer & SVG Expert.
 
 Objective:
-Transform the input text into a high-end, custom-illustrated SVG infographic.
-Analyze the provided text, extract the most important data points, steps, tradeoffs, or takeaways, and visualize them with original geometry rather than generic UI cards.
+Transform the input text into a high-end, minimalist, custom-illustrated SVG infographic.
+Analyze the provided text, extract the most important data points or comparisons, and visualize them using a premium "SaaS/Bento-box" aesthetic.
 
 Output contract:
 - Return ONLY raw <svg> code.
 - Do not use markdown fences.
 - Do not include any explanation before or after the SVG.
 - The output must be exactly one <svg>...</svg> document.
-- Ensure all major shapes, panels, icons, and data markers are filled with color.
 - Do not return a wireframe, grayscale mockup, or outline-only composition.
 
-Visual design rules:
-- Use a modern, vibrant SaaS-style visual language with rich color, depth, contrast, and polish.
-- Favor bold editorial compositions, sculptural geometry, layered forms, and custom vector illustration.
-- Use viewBox="0 0 800 450" and ensure the SVG is responsive with width="100%" and height="auto".
-- Prioritize whitespace and readability over filling every part of the canvas. A clean, breathable composition is better than a dense one.
-- Keep the background transparent overall; do not draw a flat full-canvas solid background rectangle. It is fine to use soft gradient glows, tinted panels, and translucent cards.
-- Use clean, bold sans-serif typography with strong contrast and a clear headline hierarchy.
-- Ensure all text is large enough and high-contrast enough to be legible inside an article body on desktop and mobile.
-- Never place light text on a light card or dark text on a dark card. Maintain strong contrast in every section.
-- The main title and subtitle must always sit on a clearly contrasting area and remain immediately readable at first glance.
-- Do not place headline text over blobs, gradients, or illustrations unless you add a solid/tinted backing shape or another clear contrast layer behind the text.
-- Do not use low-opacity text for primary information. Headings, subtitles, key metrics, and labels must be fully legible foreground elements, not decorative background text.
-- If a background shape passes behind text, either move the text, recolor the text, or add a dedicated text container so contrast stays strong.
-- Use this palette consistently:
+Visual Design & Aesthetic Rules (strict):
+- Aesthetic: modern, high-end, clean, and professional, inspired by top-tier tech companies.
+- Geometry: rely on precision geometry. Use crisp rounded rectangles with rx/ry, perfect circles, and straight alignment.
+- Do NOT use chaotic, random, or overly complex Bezier-curve blobs.
+- Structure: favor Bento-box style layouts, strict grid alignments such as halves or thirds, or clean comparative side-by-side columns.
+- Backgrounds: use a cohesive, subtle background. If using cards, use subtle contrast such as light cards on a light neutral field or deep gray cards on a near-black field.
+- Depth: create premium depth using subtle, highly blurred, low-opacity drop shadows. Prefer soft feDropShadow effects with high stdDeviation and low opacity around 0.05 to 0.1. Avoid harsh shadows.
+- Color restraint: use a highly disciplined palette. Use neutrals for backgrounds and most text, and reserve vibrant accent colors strictly for data visualizations, key metrics, and highlight focal points.
+- Avoid gradients unless they are subtle, linear wash gradients on a background or a restrained data bar treatment.
+- Use viewBox="0 0 800 450" and ensure the SVG is responsive with width="100%" and height="100%".
+- Use this palette consistently when assigning neutrals and accents:
   - Primary text: {text_color}
   - Accent: {accent_color}
   - Secondary accent: {secondary}
   - Neutral/supporting color: {neutral}
-- Expand that base palette into a vivid full-color system. Add 1 or 2 complementary highlight hues when helpful, such as electric blue, indigo, coral, amber, teal, or magenta.
-- Avoid dull monochrome results, washed-out navy slabs, or near-identical cards. The infographic should feel colorful and intentionally art-directed.
-- Use saturated fills, tinted surfaces, contrast-rich callouts, colored badges, and vivid section differentiation.
-- Include soft gradients using <linearGradient> where helpful for cards, highlights, or backgrounds.
-- Include <radialGradient> where helpful for focal glows, atmosphere, or dimensional depth.
-- Include subtle depth using <filter> effects such as soft drop shadows or glows.
-- Use colorful vector icons, custom geometry, or simple geometric illustrations built from SVG primitives to represent the data points visually.
-- Apply layering and overlapping translucent shapes to create a sense of depth and three-dimensional space.
 
-Geometric requirements (strict):
-- Do NOT default to standard rectangles, rounded rectangles, or square cards as the main composition.
-- Use organic, fluid shapes and custom vector paths.
-- Include at least one organic blob background shape using a complex Bezier-curve <path d="M...">.
-- Use path variety: combine blobs, arcs, wedges, ribbons, rings, tapered bands, cutaway panels, or irregular containers.
-- Instead of generic cards, represent ideas using isometric 3D shapes, sculptural callouts, hand-drawn vector outlines, or content-relevant custom illustrated modules.
-- Connect ideas with curved lines, tapered lines, orbital arcs, or S-curves rather than straight divider lines.
-- Avoid any layout that reads like three standard boxes placed side by side.
+Typography & hierarchy rules:
+- Use font-family="system-ui, -apple-system, sans-serif".
+- Hierarchy is critical. Create massive contrast between data and labels.
+- Hero numbers should be massive and bold, typically around 60px to 80px with font-weight="800" for the most important numbers or takeaways.
+- Kickers and labels should use small uppercase text with tracking, such as font-size around 12, font-weight around 600, and letter-spacing around 1.5.
+- Body copy must be incredibly brief. Use <tspan> with explicit dy or y spacing.
+- Do not write full paragraphs. Summarize into punchy 4 to 5 word phrases.
+- Never place light text on a light card or dark text on a dark card. Readability is the highest priority.
 
-- Choose the infographic structure that best matches the source text. Valid structures include:
-  - hero stat plus supporting callouts
-  - comparison matrix
-  - timeline or step flow
-  - decision framework
-  - split-panel pros/cons or tradeoff analysis
-  - dashboard with 2 to 4 distinct modules
-  - custom illustrated spatial composition
-  - card-based layout only as a fallback when the content genuinely cannot support a more expressive structure
-- Do not default to three equal-width cards. Use asymmetry, nesting, varied module sizes, curved sections, radial arrangements, or a non-card layout unless the content strongly calls for a simple comparison.
-- Vary the composition between generations when possible so outputs do not feel templated.
-- Create clear hierarchy with a concise title, strong focal area, and only as many sections as the content genuinely needs.
-- Prefer 2 or 3 strong content modules over 4 or more cramped ones.
-- If the content can be communicated with fewer elements, remove elements rather than shrinking padding or text.
-- Favor balanced spacing, alignment, and visual clarity over decoration.
-
-Layout safety rules:
-- Build the composition on a disciplined grid with generous padding and gutters.
-- Keep a clear outer safe area on all sides of the 800x450 canvas. Leave at least 36px margin from every canvas edge, and prefer 44px to 52px when space allows.
-- Keep title and subtitle inside their own protected header zone with comfortable breathing room above, below, and to the sides.
-- Leave at least 24px gutter between major modules; increase to 28px or 32px when using large modules.
-- Reserve clear zones for title/subtitle, content modules, and footer/callout areas so sections never overlap.
-- Every card, panel, or chart module must have consistent internal padding before any text begins.
-- Every major module must have at least 22px internal padding on all sides; prefer 24px to 28px for larger stat blocks.
-- Keep icons, labels, big numbers, and supporting copy separated with visible breathing room. Do not stack them tightly.
-- Do not let text overflow outside a card, panel, badge, label, or boundary.
-- Keep decorative background geometry away from headline text unless contrast is explicitly protected.
-- Wrap all multi-line copy intentionally using separate <tspan> lines instead of a single long <text> line.
-- Keep titles short enough to fit cleanly. Section titles should be at most 2 lines.
-- Keep body copy brief and summarized. Supporting copy should be at most 2 to 3 short lines per section.
-- Avoid long horizontal text runs that force other elements too close to the edges.
-- If the source text is too long, summarize harder rather than shrinking text to an unreadable size.
-- Use shorter phrases, not sentences copied verbatim from the source paragraph.
-- Do not add extra badges, dividers, background ornaments, or micro-labels unless they improve clarity.
-- If a row starts to feel crowded, break it into fewer larger blocks or move one item to a lower row instead of compressing everything.
-- Avoid any text collisions, clipping, or cross-module overlap.
-- Before finalizing, perform a contrast check mentally: if any text risks blending into its immediate background, adjust the fill colors or add a backing layer.
-- Before finalizing, verify that all labels fit within the 800x450 canvas with comfortable margins.
+Data visualization & layout rules:
+- Apply a strict 40px outer margin to the canvas.
+- Ensure generous internal padding of at least 24px inside all cards and panels.
+- Give text room to breathe.
+- Translate numbers into simple, highly accurate geometric comparisons.
+- Prefer proportional horizontal bar charts, split donuts or rings using stroke-dasharray, or stark size-contrasting typography.
+- Do not attempt to draw complex icons, isometric 3D objects, or literal illustrations.
+- Represent concepts abstractly using pristine geometry, lines, dots, and scale.
+- Elements must never overlap.
+- Calculate x and y coordinates meticulously to ensure clean gaps and gutters of at least 20px between panels and cards.
+- Favor 2 to 4 strong modules. If the content feels cramped, reduce the number of modules rather than shrinking text or padding.
+- Use a Bento-box, side-by-side comparison, or clean grid layout unless the content strongly requires another precise analytical arrangement.
 
 Technical rules:
 - Avoid scripts, animation, foreignObject, external assets, and embedded raster images.
-- Keep the SVG self-contained.
-- Prefer straightforward shapes, labels, data markers, and simple icons built from SVG primitives.
-- Make the SVG production-ready and visually complete without relying on external CSS.
-- Use explicit x/y positioning and tspans for text layout instead of relying on automatic wrapping.
 - All styles must be inline or within a <style> block inside the SVG.
+- Ensure the SVG is production-ready, mathematically aligned, and visually complete.
+- Use explicit x/y positioning and <tspan> elements for text layout instead of relying on automatic wrapping.
 
 Text to transform:
 \"\"\"{text.strip()}\"\"\"
