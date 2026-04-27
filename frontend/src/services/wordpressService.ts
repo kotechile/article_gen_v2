@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { materializeInfographicHtml } from '../lib/infographicSvg';
 import type {
     WordPressSite,
     WordPressCategory,
@@ -364,8 +365,9 @@ const formatArticleBody = (articleData: any): string => {
         content += `</div>`;
     }
 
-    // 4. Main Body Content
-    content += articleData.htmlArticle || articleData.htmlarticle || '';
+    // 4. Main Body Content - Decode base64-encoded SVGs before sending to WordPress
+    const rawHtml = articleData.htmlArticle || articleData.htmlarticle || '';
+    content += materializeInfographicHtml(rawHtml);
 
     return injectGeoFormatting(content, articleData);
 };
