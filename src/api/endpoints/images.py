@@ -723,32 +723,114 @@ def generate_google_imagen(prompt: str, api_key: str, model: str = "imagen-4.0-g
         raise
 
 
-def generate_flux_image(prompt: str, api_key: str, model: str = "flux-kontext-pro", 
-                       aspect_ratio: str = "1:1") -> bytes:
-    """Generate image using Flux API with polling."""
+def generate_kie_flux_image(prompt: str, api_key: str, model: str, aspect_ratio: str = "1:1") -> bytes:
+    """Generate image through KIE Market API task endpoints."""
+    try:
+        create_url = "https://api.kie.ai/api/v1/jobs/createTask"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        create_payload = {
+            "model": model,
+            "input": {
+                "prompt": prompt,
+                "aspect_ratio": aspect_ratio,
+                "resolution": "1K",
+                "nsfw_checker": False,
+            },
+        }
+
+        create_resp = requests.post(create_url, headers=headers, json=create_payload)
+        create_resp.raise_for_status()
+        create_data = create_resp.json()
+        logger.info("KIE Flux createTask response: %s", create_data)
+
+        task_id = ((create_data.get("data") or {}).get("taskId") or "").strip()
+        if not task_id:
+            raise Exception(f"KIE did not return taskId: {create_data}")
+
+        poll_url = "https://api.kie.ai/api/v1/jobs/recordInfo"
+        import time
+        max_attempts = 150  # 5 minutes
+        for _ in range(max_attempts):
+            time.sleep(2)
+            poll_resp = requests.get(
+                poll_url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                params={"taskId": task_id},
+            )
+            poll_resp.raise_for_status()
+            poll_data = poll_resp.json()
+            data = poll_data.get("data") if isinstance(poll_data.get("data"), dict) else {}
+            state = str(data.get("state") or "").strip().lower()
+
+            if state == "success":
+                result_json = data.get("resultJson")
+                parsed_result = {}
+                if isinstance(result_json, dict):
+                    parsed_result = result_json
+                elif isinstance(result_json, str) and result_json.strip():
+                    try:
+                        parsed_result = json.loads(result_json)
+                    except Exception:
+                        logger.warning("Failed to parse KIE resultJson for task_id=%s: %s", task_id, result_json)
+
+                result_urls = parsed_result.get("resultUrls") if isinstance(parsed_result, dict) else None
+                image_url = result_urls[0] if isinstance(result_urls, list) and result_urls else None
+                if not image_url:
+                    raise Exception(f"KIE task completed but no result URL found. task_id={task_id} payload={poll_data}")
+
+                image_resp = requests.get(image_url)
+                image_resp.raise_for_status()
+                return image_resp.content
+
+            if state == "fail":
+                fail_code = str(data.get("failCode") or "").strip()
+                fail_msg = str(data.get("failMsg") or "").strip()
+                raise Exception(
+                    f"KIE Flux task failed. task_id={task_id} fail_code={fail_code or 'n/a'} "
+                    f"fail_msg={fail_msg or 'no provider message'}"
+                )
+
+            # still processing: waiting / queuing / generating / empty
+            continue
+
+        raise Exception("KIE Flux generation timed out")
+    except Exception as e:
+        logger.error(f"KIE Flux API error: {str(e)}")
+        raise
+
+
+def generate_fluxapi_image(prompt: str, api_key: str, model: str = "flux-kontext-pro", 
+                          aspect_ratio: str = "1:1") -> bytes:
+    """Generate image using fluxapi.ai endpoints with polling."""
     try:
         def _extract_flux_failure_reason(payload):
             candidates = []
+            ignored_values = {"success", "ok", "done", "completed", "complete"}
 
             if isinstance(payload, dict):
                 data = payload.get('data') if isinstance(payload.get('data'), dict) else {}
                 response = data.get('response') if isinstance(data.get('response'), dict) else {}
                 candidates.extend([
-                    payload.get('msg'),
-                    payload.get('message'),
                     data.get('failReason'),
+                    data.get('reason'),
                     data.get('error'),
+                    data.get('errorCode'),
                     data.get('errorMessage'),
                     response.get('msg'),
                     response.get('message'),
                     response.get('error'),
+                    response.get('errorCode'),
                     response.get('errorMessage'),
                     response.get('reason'),
+                    payload.get('message'),
                 ])
 
             for candidate in candidates:
                 text = str(candidate or '').strip()
-                if text:
+                if text and text.lower() not in ignored_values:
                     return text
 
             return ""
@@ -821,7 +903,8 @@ def generate_flux_image(prompt: str, api_key: str, model: str = "flux-kontext-pr
                     raise Exception(f"Flux generation failed with code {success_flag}: {failure_reason}")
                 raise Exception(
                     f"Flux generation failed with code {success_flag}. "
-                    "The provider could not complete this request. Try a shorter prompt, a different aspect ratio, or another model."
+                    "The provider rejected or dropped the task without returning a detailed reason. "
+                    "Try a shorter prompt, remove dense quoted text or long keyword lists, switch aspect ratio, or use another model."
                 )
         
         raise Exception("Flux generation timed out")
@@ -829,6 +912,23 @@ def generate_flux_image(prompt: str, api_key: str, model: str = "flux-kontext-pr
     except Exception as e:
         logger.error(f"Flux API error: {str(e)}")
         raise
+
+
+def generate_flux_image(
+    prompt: str,
+    api_key: str,
+    model: str = "flux-kontext-pro",
+    aspect_ratio: str = "1:1",
+    provider: str = "",
+) -> bytes:
+    """Route Flux generation to provider-specific implementation."""
+    provider_name = str(provider or "").strip().lower()
+    model_name = str(model or "").strip().lower()
+
+    if "kie.ai" in provider_name or model_name.startswith("flux-2/"):
+        return generate_kie_flux_image(prompt, api_key, model, aspect_ratio)
+
+    return generate_fluxapi_image(prompt, api_key, model, aspect_ratio)
 
 
 @images_bp.route('/generate-ai', methods=['POST'])
@@ -1000,7 +1100,7 @@ def generate_ai_image():
         elif 'google' in provider or 'imagen' in provider:
             image_data = generate_google_imagen(prompt, api_key, model_to_use, aspect_ratio)
         elif 'flux' in provider:
-            image_data = generate_flux_image(prompt, api_key, model_to_use, aspect_ratio)
+            image_data = generate_flux_image(prompt, api_key, model_to_use, aspect_ratio, provider)
         else:
             return jsonify(ErrorResponse(
                 error="unsupported_provider",
