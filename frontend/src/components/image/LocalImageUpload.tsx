@@ -17,6 +17,7 @@ export const LocalImageUpload: React.FC<LocalImageUploadProps> = ({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [dragActive, setDragActive] = useState(false);
+    const [shortDescription, setShortDescription] = useState('');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFileSelect = (file: File) => {
@@ -66,7 +67,9 @@ export const LocalImageUpload: React.FC<LocalImageUploadProps> = ({
             onImageUploaded(imageUrl, {
                 ImageUrl: imageUrl,
                 ImageAuthor: 'User Upload',
-                mediaTitle: selectedFile.name.replace(/\.[^/.]+$/, '')
+                mediaTitle: selectedFile.name.replace(/\.[^/.]+$/, ''),
+                MediaAltText: shortDescription.trim() || selectedFile.name.replace(/\.[^/.]+$/, ''),
+                mediaCaption: shortDescription.trim() || ''
             });
         } catch (err: any) {
             setError(err.message || 'Failed to upload image');
@@ -79,6 +82,7 @@ export const LocalImageUpload: React.FC<LocalImageUploadProps> = ({
         setSelectedFile(null);
         setPreview(null);
         setError(null);
+        setShortDescription('');
     };
 
     return (
@@ -146,13 +150,26 @@ export const LocalImageUpload: React.FC<LocalImageUploadProps> = ({
                     </div>
 
                     <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900 rounded-xl">
-                        <div className="flex-1">
+                        <div className="flex-1 space-y-3">
                             <p className="text-sm font-medium text-gray-900 dark:text-white">
                                 {selectedFile.name}
                             </p>
                             <p className="text-xs text-gray-500 dark:text-gray-400">
                                 {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                             </p>
+                            <div>
+                                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Short Description (used for WordPress image text)
+                                </label>
+                                <textarea
+                                    value={shortDescription}
+                                    onChange={(e) => setShortDescription(e.target.value)}
+                                    rows={2}
+                                    maxLength={240}
+                                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    placeholder="Describe this uploaded image in 1-2 short sentences..."
+                                />
+                            </div>
                         </div>
                         <button
                             onClick={handleUpload}
