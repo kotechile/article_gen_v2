@@ -192,7 +192,7 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                     }
                 },
                 {
-                    focusKeyword: articleData.focus_keyword ?? articleData.primary_keywords?.[0] ?? articleData.search_phrase,
+                    focusKeyword: articleData.focus_keyword ?? articleData.primary_keyword ?? articleData.primary_keywords?.[0] ?? articleData.search_phrase,
                     metaTitle: articleData.seo_title_optimized || articleData.metaTitle,
                     metaDescription: articleData.seo_meta_desc_optimized || articleData.metaDescription,
                     canonicalUrl: articleData.canonical_url,

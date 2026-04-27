@@ -42,7 +42,7 @@ export function computeSEOQualityScore(articleData: any): SEOResults {
     const checks: { label: string; passed: boolean }[] = [];
 
     const title = articleData.Title ?? articleData.title ?? '';
-    const primaryKw = articleData.primary_keywords?.[0] ?? articleData.search_phrase ?? '';
+    const primaryKw = articleData.primary_keyword ?? articleData.primary_keywords?.[0] ?? articleData.search_phrase ?? '';
     const secondaryKws = articleData.secondary_keywords ?? [];
     const metaDesc = articleData.seo_meta_desc_optimized ?? articleData.metaDescription ?? '';
     const focusKw = articleData.focus_keyword ?? primaryKw;
