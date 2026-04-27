@@ -727,6 +727,32 @@ def generate_flux_image(prompt: str, api_key: str, model: str = "flux-kontext-pr
                        aspect_ratio: str = "1:1") -> bytes:
     """Generate image using Flux API with polling."""
     try:
+        def _extract_flux_failure_reason(payload):
+            candidates = []
+
+            if isinstance(payload, dict):
+                data = payload.get('data') if isinstance(payload.get('data'), dict) else {}
+                response = data.get('response') if isinstance(data.get('response'), dict) else {}
+                candidates.extend([
+                    payload.get('msg'),
+                    payload.get('message'),
+                    data.get('failReason'),
+                    data.get('error'),
+                    data.get('errorMessage'),
+                    response.get('msg'),
+                    response.get('message'),
+                    response.get('error'),
+                    response.get('errorMessage'),
+                    response.get('reason'),
+                ])
+
+            for candidate in candidates:
+                text = str(candidate or '').strip()
+                if text:
+                    return text
+
+            return ""
+
         # Start generation
         generate_url = 'https://api.fluxapi.ai/api/v1/flux/kontext/generate'
         
@@ -782,7 +808,21 @@ def generate_flux_image(prompt: str, api_key: str, model: str = "flux-kontext-pr
                 img_resp.raise_for_status()
                 return img_resp.content
             elif success_flag in [2, 3]:  # Failed
-                raise Exception(f"Flux generation failed with code {success_flag}")
+                failure_reason = _extract_flux_failure_reason(poll_data)
+                logger.error(
+                    "Flux task failed. task_id=%s model=%s aspect_ratio=%s success_flag=%s poll_data=%s",
+                    task_id,
+                    model,
+                    aspect_ratio,
+                    success_flag,
+                    poll_data,
+                )
+                if failure_reason:
+                    raise Exception(f"Flux generation failed with code {success_flag}: {failure_reason}")
+                raise Exception(
+                    f"Flux generation failed with code {success_flag}. "
+                    "The provider could not complete this request. Try a shorter prompt, a different aspect ratio, or another model."
+                )
         
         raise Exception("Flux generation timed out")
         
