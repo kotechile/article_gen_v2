@@ -181,11 +181,15 @@ class ContentGenerator:
                 additional_blocks = self._generate_supporting_content(supporting_context, remaining_words)
                 content_blocks.extend(additional_blocks)
             
-            # Balance word count if section is extremely long
+            # Balance word count - enforce +/- 20% of target
             final_word_count = sum(block.word_count for block in content_blocks)
-            if final_word_count > word_count_target * 1.5:
+            upper_threshold = word_count_target * 1.2  # 120% max
+            lower_threshold = word_count_target * 0.8   # 80% min
+
+            if final_word_count > upper_threshold:
+                self.logger.info(f"Content for '{title}' is {final_word_count} words (target: {word_count_target}), trimming to {upper_threshold} max")
                 content_blocks = self._balance_content_blocks(content_blocks, word_count_target)
-            
+
             return content_blocks
             
         except Exception as e:
@@ -651,7 +655,7 @@ Section Memory:
                     ========================================
                     CONTENT REQUIREMENTS
                     ========================================
-                    - Target approximately {word_count_target} words (prioritize quality and flow over exact word count)
+                    - Target between {int(word_count_target * 0.8)} and {int(word_count_target * 1.2)} words (aim for {word_count_target} words, quality and flow over exact count)
                     - Target a Flesch Reading Ease score of 65-75 (Standard English, easily readable for 8th graders)
                     - MANDATORY: Use simple, direct language. Avoid complex vocabulary and long, convoluted sentences.
                     - Use varied sentence lengths: mix shorter, punchy sentences with slightly longer, explanatory ones
@@ -735,7 +739,7 @@ Section Memory:
                     - Write in a natural style that flows smoothly from paragraph to paragraph
                     - Include inline citations as [^1], [^2], etc. when referencing evidence or claims
                     - Make it clear, complete, and useful with factual accuracy
-                    - Write ENOUGH content to meet the {word_count_target} word target - be complete and detailed
+                    - Write ENOUGH content to meet the {int(word_count_target * 0.8)}-{int(word_count_target * 1.2)} word target range - be complete and detailed
                     - Avoid generic filler - every sentence should add value, insights, or information
                     - CRITICAL: Use proper punctuation - single commas, single periods, no repeated punctuation marks
                     - CRITICAL: Ensure sentences flow naturally - read each sentence to make sure it connects smoothly to the next
@@ -818,7 +822,7 @@ Section Memory:
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
                     - Create a well-structured list
-                    - Target approximately {word_count_target} words
+                    - Target between {int(word_count_target * 0.8)} and {int(word_count_target * 1.2)} words (aim for {word_count_target} words)
                     - Target a Flesch Reading Ease score of 65-75 (Standard English, easily readable for 8th graders)
                     - Cover the key points: {', '.join(context['key_points'])}
                     - Use evidence and claims to support each list item
@@ -926,7 +930,7 @@ Section Memory:
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
                     - Create clear, actionable steps
-                    - Target approximately {word_count_target} words
+                    - Target between {int(word_count_target * 0.8)} and {int(word_count_target * 1.2)} words (aim for {word_count_target} words)
                     - Cover the key points: {', '.join(context['key_points'])}
                     - Use evidence and claims to support each step
                     - Write for {context['target_audience']} audience
@@ -988,7 +992,7 @@ Section Memory:
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
                     - Create a complete, detailed comparison - this is the core of this section
-                    - Target EXACTLY {word_count_target} words - be complete and detailed
+                    - Target between {int(word_count_target * 0.8)} and {int(word_count_target * 1.2)} words (aim for {word_count_target} words)
                     - Cover ALL the key points: {', '.join(context['key_points'])}
                     - Use evidence and claims to support comparisons - cite sources when using them
                     - Write for {context['target_audience']} audience with appropriate depth
@@ -1114,7 +1118,7 @@ Section Memory:
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
                     - Create detailed, data-rich content with tables when appropriate
-                    - Target approximately {word_count_target} words
+                    - Target between {int(word_count_target * 0.8)} and {int(word_count_target * 1.2)} words (aim for {word_count_target} words)
                     - Cover the key points: {', '.join(context['key_points'])}
                     - Use evidence and claims to support data presentation when available
                     - Write for {context['target_audience']} audience
@@ -1236,7 +1240,7 @@ Section Memory:
 
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
-                    - Target approximately {word_count_target} words
+                    - Target between {int(word_count_target * 0.8)} and {int(word_count_target * 1.2)} words (aim for {word_count_target} words)
                     - Target a Flesch Reading Ease score of 65-75 (Standard English, easily readable for 8th graders)
                     - Cover the key points: {', '.join(context['key_points'])}
                     - Use evidence and claims to support each quote and its context
@@ -1375,7 +1379,7 @@ Section Memory:
                     
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
-                    - Add EXACTLY {remaining_words} words - be complete and detailed
+                    - Add between {int(remaining_words * 0.8)} and {int(remaining_words * 1.2)} words (aim for {remaining_words} words) - be complete and detailed
                     - Provide additional context, examples, case studies, statistics, or practical insights
                     - Use evidence from the provided sources to support points - cite sources with [1], [2], etc.
                     - Make it clear and useful - avoid generic filler
@@ -1580,60 +1584,76 @@ Section Memory:
         return covered_points
     
     def _balance_content_blocks(self, content_blocks: List[ContentBlock], target_word_count: int) -> List[ContentBlock]:
-        """Balance content blocks to meet target word count."""
+        """Balance content blocks to stay within +/- 20% of target word count."""
         if not content_blocks:
             return content_blocks
-        
+
         current_word_count = sum(block.word_count for block in content_blocks)
-        
-        # Only truncate if content is extremely long (5x target) to prevent abuse
-        # This is much more conservative than the previous 2x threshold
-        if current_word_count > target_word_count * 5.0:
-            self.logger.warning(f"Content extremely long ({current_word_count} words vs {target_word_count} target), applying conservative truncation")
-            
-            # Keep the first few blocks and truncate the last one conservatively
+        upper_threshold = target_word_count * 1.2
+        lower_threshold = target_word_count * 0.8
+
+        # If content is within acceptable range, return as-is
+        if lower_threshold <= current_word_count <= upper_threshold:
+            return content_blocks
+
+        # If content is too long, trim to meet 120% max
+        if current_word_count > upper_threshold:
+            self.logger.info(f"Trimming content from {current_word_count} to {int(upper_threshold)} words (target: {target_word_count})")
+
             target_blocks = []
             accumulated_words = 0
-            
+            target_words = int(upper_threshold)
+
             for block in content_blocks:
-                if accumulated_words + block.word_count <= target_word_count * 3.0:  # Allow up to 3x target
+                # Calculate how many words we need from this block
+                remaining_target = target_words - accumulated_words
+
+                if remaining_target <= 0:
+                    break
+
+                if block.word_count <= remaining_target * 1.1:  # Keep block if within 10% of remaining target
                     target_blocks.append(block)
                     accumulated_words += block.word_count
                 else:
-                    # Only truncate if we have very little content left
-                    remaining_words = (target_word_count * 3.0) - accumulated_words
-                    if remaining_words > 100:  # Only if we have substantial content left
-                        # Create a truncated version with proper sentence ending
-                        words = block.content.split()
-                        truncated_words = words[:remaining_words]
-                        
-                        # Try to end at a sentence boundary
-                        truncated_content = " ".join(truncated_words)
-                        if not truncated_content.endswith(('.', '!', '?')):
-                            # Find the last sentence ending
-                            last_sentence_end = max(
-                                truncated_content.rfind('.'),
-                                truncated_content.rfind('!'),
-                                truncated_content.rfind('?')
-                            )
-                            if last_sentence_end > len(truncated_content) * 0.7:  # If we can keep 70% of content
-                                truncated_content = truncated_content[:last_sentence_end + 1]
-                            else:
-                                truncated_content += "..."
-                        
-                        truncated_block = ContentBlock(
-                            content=truncated_content,
-                            content_type=block.content_type,
-                            word_count=len(truncated_content.split()),
-                            citations=block.citations,
-                            metadata=block.metadata
-                        )
-                        target_blocks.append(truncated_block)
-                    break
-            
+                    # Truncate this block to fit remaining space
+                    words = block.content.split()
+                    words_to_keep = int(remaining_target * 0.9)  # Slightly conservative
+
+                    if words_to_keep < 10:
+                        # Not enough space for meaningful content - skip this block
+                        continue
+
+                    truncated_words = words[:words_to_keep]
+                    truncated_content = " ".join(truncated_words)
+
+                    # Try to end at a sentence boundary
+                    if not truncated_content.endswith(('.', '!', '?')):
+                        last_period = truncated_content.rfind('.')
+                        last_exclaim = truncated_content.rfind('!')
+                        last_question = truncated_content.rfind('?')
+                        last_sentence_end = max(last_period, last_exclaim, last_question)
+
+                        if last_sentence_end > len(truncated_content) * 0.5:
+                            truncated_content = truncated_content[:last_sentence_end + 1]
+
+                    if not truncated_content.endswith(('.', '!', '?')):
+                        truncated_content += "."
+
+                    truncated_block = ContentBlock(
+                        content=truncated_content,
+                        content_type=block.content_type,
+                        word_count=len(truncated_content.split()),
+                        citations=block.citations,
+                        metadata=block.metadata
+                    )
+                    target_blocks.append(truncated_block)
+                    accumulated_words += truncated_block.word_count
+                    break  # Stop after truncating one block
+
+            self.logger.info(f"Trimmed content to {accumulated_words} words from {len(content_blocks)} to {len(target_blocks)} blocks")
             return target_blocks
-        
-        # For normal content length, return as-is without truncation
+
+        # If content is too short, return as-is (generating more content handles this case)
         return content_blocks
     
     def _create_fallback_content_block(self, title: str, word_count_target: int) -> ContentBlock:

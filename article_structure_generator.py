@@ -549,8 +549,8 @@ class ArticleStructureGenerator:
             
             # Calculate balanced word count per section
             words_per_section = target_word_count // section_count
-            min_words = max(200, int(words_per_section * 0.7))  # 70% of target
-            max_words = int(words_per_section * 1.3)  # 130% of target
+            min_words = max(200, int(words_per_section * 0.8))  # 80% of target
+            max_words = int(words_per_section * 1.2)  # 120% of target
             
             # Prepare context
             claims_text = "\n".join([f"- {claim.get('claim', '')}" for claim in claims[:5]])
@@ -587,10 +587,10 @@ class ArticleStructureGenerator:
                     
                     SECTION BALANCING RULES:
                     - Introduction: 150-250 words (keep it concise, single paragraph style)
-                    - Main content sections: {min_words}-{max_words} words each
+                    - Main content sections: {min_words}-{max_words} words each (within +/- 20% of target)
                     - Conclusion: 150-250 words
-                    - NO section should exceed {max_words} words
-                    - NO section should be under {min_words} words
+                    - NO section should exceed {max_words} words (120% of target)
+                    - NO section should be under {min_words} words (80% of target)
                     
                     INTRODUCTION REQUIREMENTS:
                     - Keep introduction SIMPLE and CONCISE
@@ -713,7 +713,7 @@ Create {section_count} topic-specific sections that directly relate to this arti
                     - STRICTLY follow the provided outline structure
                     - Map 'H2' or main items to section titles
                     - Map 'Intent' or descriptions to 'key_points' or 'subtitle'
-                    - Assign appropriate word counts (aiming for total ~{target_word_count} words)
+                    - Assign appropriate word counts (aiming for total ~{target_word_count} words, within +/- 20%)
                     - Match the {tone} tone in any generated text
                     
                     Format as JSON:
