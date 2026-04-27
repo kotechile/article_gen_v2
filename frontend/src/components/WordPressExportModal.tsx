@@ -100,7 +100,18 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                 setCategories(wpCategories);
                 setAutoCategoryHint(null);
 
-                // Restore saved category if available
+                // Priority 1: Use the article's own wordpress_category_id if set and valid
+                // This reflects the current category assignment in the app
+                const directCategoryId = articleData?.wordpress_category_id
+                    ? Number(articleData.wordpress_category_id)
+                    : null;
+                if (directCategoryId && wpCategories.some((cat) => cat.id === directCategoryId)) {
+                    setSelectedCategoryIds([directCategoryId]);
+                    setAutoCategoryHint('Auto-selected from article\'s WordPress Category ID.');
+                    return;
+                }
+
+                // Priority 2: Restore saved category from previous export (if no direct assignment)
                 const savedSettings = await loadWordPressSettings(articleId);
                 if (savedSettings?.categoryId && wpCategories.find(c => c.id === savedSettings.categoryId)) {
                     setSelectedCategoryIds([savedSettings.categoryId]);
@@ -108,17 +119,7 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                     return;
                 }
 
-                // Fallback: auto-link from article topic -> research topic -> project categories synced to WordPress
-                // Also try direct wordpress_category_id stored on the article itself
-                const directCategoryId = articleData.wordpress_category_id
-                    ? Number(articleData.wordpress_category_id)
-                    : null;
-                if (directCategoryId && wpCategories.some((cat) => cat.id === directCategoryId)) {
-                    setSelectedCategoryIds([directCategoryId]);
-                    setAutoCategoryHint('Auto-selected from linked WordPress Category ID.');
-                    return;
-                }
-
+                // Priority 3: Auto-link from article topic -> research topic -> project categories synced to WordPress
                 const linkedCategoryIds = await resolveLinkedWordPressCategoryIds(articleData, selectedSite.domain);
                 const validLinkedIds = linkedCategoryIds.filter((id) => wpCategories.some((cat) => cat.id === id));
                 if (validLinkedIds.length > 0) {
