@@ -144,7 +144,7 @@ def main():
     with open(args.output, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines))
 
-    print(f"Report written to {args.output}")
+    print(f"Report editing to {args.output}")
 
 
 if __name__ == "__main__":

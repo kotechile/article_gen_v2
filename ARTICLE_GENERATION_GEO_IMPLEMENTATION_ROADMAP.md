@@ -388,7 +388,7 @@ Parallel section generation is efficient, but sections can feel isolated and rep
 
 ### Objective
 
-Make the article read like it was edited by a thoughtful human writer.
+Make the article read like it was editing by a thoughtful human writer.
 
 ### Problem being solved
 

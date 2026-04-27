@@ -245,13 +245,24 @@ export function materializeInfographicHtml(html: string): string {
 
     doc.querySelectorAll<HTMLElement>('div[data-infographic="true"][data-svg]').forEach((node) => {
         const encodedSvg = node.getAttribute('data-svg') || '';
-        const svg = sanitizeSvgMarkup(decodeSvgMarkup(encodedSvg));
+        const decoded = decodeSvgMarkup(encodedSvg);
+        
+        // Sanitize the SVG to ensure it's clean before embedding
+        const sanitizedSvg = sanitizeSvgMarkup(decoded);
+        if (!sanitizedSvg) return;
 
-        node.innerHTML = svg;
+        // Use Data URI to preserve the exact SVG structure and styles when sending to WordPress
+        // This prevents WP sanitization (kses) from stripping SVG elements/styles.
+        const finalBase64 = encodeSvgMarkup(sanitizedSvg);
+        const dataUri = `data:image/svg+xml;base64,${finalBase64}`;
+
+        node.innerHTML = `<img src="${dataUri}" alt="Infographic" style="width: 100%; height: auto; display: block; margin: 0 auto; border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.15);" />`;
+        
         node.classList.add('zenith-infographic-container');
-        node.style.margin = '1.5rem auto';
-        node.style.maxWidth = '100%';
+        node.style.margin = '2rem auto';
+        node.style.maxWidth = '900px';
         node.style.textAlign = 'center';
+        node.style.display = 'block';
     });
 
     return doc.body.innerHTML;

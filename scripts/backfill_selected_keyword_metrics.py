@@ -5,7 +5,7 @@ Backfill structured selected keyword metrics for existing Titles rows.
 Usage:
   python3 scripts/backfill_selected_keyword_metrics.py --dry-run
   python3 scripts/backfill_selected_keyword_metrics.py --apply --limit 200
-  python3 scripts/backfill_selected_keyword_metrics.py --apply --status Written
+  python3 scripts/backfill_selected_keyword_metrics.py --apply --status Editing
 
 Behavior:
 - Prefers exact per-keyword DataForSEO metrics from linked content_ideas.keyword_metrics

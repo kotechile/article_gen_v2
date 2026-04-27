@@ -62,7 +62,7 @@ function getStatusStyle(article: any, source: 'titles' | 'content_ideas') {
     const status = article?.status || ''
     const normalized = (status || '').trim().toLowerCase()
     const wpStatus = String(article?.last_wp_post_status || '').trim().toLowerCase()
-    const written = hasWrittenContent(article)
+    const editing = hasWrittenContent(article)
     const isWpPublished =
         normalized === 'wp published' ||
         normalized === 'scheduled' ||
@@ -72,8 +72,8 @@ function getStatusStyle(article: any, source: 'titles' | 'content_ideas') {
     if (isWpPublished) {
         return { label: 'WP Published', color: 'text-emerald-500 dark:text-emerald-400' }
     }
-    if (written) {
-        return { label: 'Written', color: 'text-cyan-500 dark:text-cyan-400' }
+    if (editing || normalized === 'editing' || normalized === 'review') {
+        return { label: 'Editing', color: 'text-cyan-500 dark:text-cyan-400' }
     }
     if (source === 'content_ideas' && (status === 'Published' || status === 'published')) {
         return { label: 'New', color: 'text-muted-foreground' }

@@ -601,7 +601,7 @@ class ContentGenerator:
         tone = context.get('tone', 'journalistic')
         
         # Build tone reminder
-        tone_reminder = f"This article MUST be written in {tone} tone."
+        tone_reminder = f"This article MUST be editing in {tone} tone."
         if tone.lower() == 'friendly':
             tone_reminder += "\n\nFOR FRIENDLY TONE: Write like you're sharing a personal story with a friend. Use first-person (\"I've found\", \"Last month I\"), specific examples with details, casual language, and make it warm and engaging. Avoid formal words like \"crucial\", \"paramount\", \"necessitates\", \"individuals\". Make it interesting, not boring or professional."
             tone_reminder += "\n\nIMPORTANT: Do NOT start with greetings like \"Hi friends\", \"Hey there\", or \"Hello everyone\". Start directly with engaging content - friendly means warm and personal, not chatty greetings."
@@ -690,7 +690,7 @@ Previous Context:
                     - Include bullet points or numbered lists where appropriate for clarity
                     - MANDATORY: Include COMPARATIVE TABLES when comparing options, strategies, or presenting structured data
                     - Include multiple specific examples, data points, statistics, and practical insights throughout
-                    - Write in a natural style that reads like human-written content
+                    - Write in a natural style that reads like human-editing content
                     - Integrate the provided keywords into the content where they fit naturally
                     - Ensure keywords appear naturally in the text, not forced or repetitive
                     - Expand on ideas with examples and details
@@ -851,7 +851,7 @@ Previous Context:
                     - Include bullet points or numbered lists where appropriate
                     - Use TABLES when presenting data, statistics, comparisons, or structured information
                     - Include specific examples, data, and practical insights
-                    - Write in a natural style that reads like human-written content
+                    - Write in a natural style that reads like human-editing content
                     - Integrate the provided keywords into the content where they fit naturally
                     - Ensure keywords appear naturally in the text, not forced or repetitive
                     
@@ -954,7 +954,7 @@ Previous Context:
                     - Write in a conversational, human style - avoid formal or formulaic language
                     {self._get_human_writing_instructions()}
                     - Use direct, clear instructions
-                    - Write in a natural style that reads like human-written content
+                    - Write in a natural style that reads like human-editing content
                     
                     {self._get_content_avoidance_instructions()}
                     - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3)
@@ -1021,7 +1021,7 @@ Previous Context:
                     - Include bullet points or numbered lists where appropriate for clarity
                     - MANDATORY: Include MULTIPLE COMPARATIVE TABLES - this is a comparison section, tables are essential
                     - Include extensive specific examples, data points, statistics, and practical insights
-                    - Write in a natural style that reads like human-written content
+                    - Write in a natural style that reads like human-editing content
                     - Integrate the provided keywords into the content where they fit naturally
                     - Ensure keywords appear naturally in the text, not forced or repetitive
                     - Expand on comparisons with examples and details
@@ -1146,7 +1146,7 @@ Previous Context:
                     - Include explanatory text before and after each table
                     - Use TABLES as the primary method for presenting structured information
                     - Include specific examples, data, and practical insights
-                    - Write in a natural style that reads like human-written content
+                    - Write in a natural style that reads like human-editing content
                     
                     {self._get_content_avoidance_instructions()}
                     - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3)
@@ -1269,7 +1269,7 @@ Previous Context:
                     WRITING STYLE REQUIREMENTS:
                     - Write in a conversational, human style - avoid formal or formulaic language
                     {self._get_human_writing_instructions()}
-                    - Write in a natural style that reads like human-written content
+                    - Write in a natural style that reads like human-editing content
                     
                     {self._get_content_avoidance_instructions()}
                     - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3)

@@ -18,8 +18,8 @@ Target outcome:
 - [x] Updated evidence collection query formation to prioritize selected keyword strategy (primary + secondary + intent).
 - [x] Added derivation + persistence of `supporting_entities_json` and `priority_questions_json` from research dossier in `KEYWORD_INTELLIGENCE`.
 - [x] Updated finalization payload to reuse selected keyword strategy artifacts from `research_data` instead of writing empty GEO context arrays.
-- [x] Switched generation-complete lifecycle status to `Written` while keeping quality gate decision in `quality_gate`.
-- [x] Updated Content Library/Generation modal status handling for `New` -> `Written` -> `WP Published`.
+- [x] Switched generation-complete lifecycle status to `Editing` while keeping quality gate decision in `quality_gate`.
+- [x] Updated Content Library/Generation modal status handling for `New` -> `Editing` -> `WP Published`.
 - [x] Added keyword metric UI fallbacks (selected keyword metrics first, DataForSEO aggregate fallback second).
 - [x] Added strict generation-time keyword gate to block fallback-only dossiers in production mode.
 - [x] Added `selected_keyword_metrics_json` persistence to carry auditable keyword metric provenance.
@@ -51,7 +51,7 @@ Backfill status:
 - Content Generation owns keyword selection.
 - DataForSEO-backed keyword signals must be visible, persisted, and auditable.
 - Fallbacks to LLM-only keywords must be explicit, not silent.
-- Article statuses should reflect the real lifecycle: `New` -> `Written` -> `WP Published`.
+- Article statuses should reflect the real lifecycle: `New` -> `Editing` -> `WP Published`.
 
 ## Phase 1: Audit Current Flow
 
@@ -174,7 +174,7 @@ Backfill status:
 - publication state
 - [ ] Make status display consistent everywhere:
 - `New`
-- `Written`
+- `Editing`
 - `WP Published`
 
 ## Phase 8: Failure Modes and Fallbacks
