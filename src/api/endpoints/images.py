@@ -616,13 +616,13 @@ def _generate_svg_with_candidate(candidate, prompt, repair=False, source_content
 def upload_to_supabase_storage(file_data: bytes, filename: str, user_id: str, content_type: str = 'image/jpeg') -> str:
     """
     Upload image to Supabase storage.
-    
+
     Args:
         file_data: Image file bytes
         filename: Target filename
         user_id: User's Supabase auth ID
         content_type: MIME type of the image
-        
+
     Returns:
         Public URL of uploaded image
     """
@@ -630,25 +630,42 @@ def upload_to_supabase_storage(file_data: bytes, filename: str, user_id: str, co
         client = get_supabase_client()
         if not client:
             raise Exception("Supabase client not available")
-        
+
         # Construct path: articleImages/user_id/filename
         storage_path = f"articleImages/{user_id}/{secure_filename(filename)}"
-        
+
+        logger.info(
+            "SUPABASE UPLOAD: starting upload to bucket='User Files' path='%s' size_bytes=%s content_type='%s'",
+            storage_path,
+            len(file_data),
+            content_type,
+        )
+
         # Upload to User Files bucket
         response = client.storage.from_('User Files').upload(
             path=storage_path,
             file=file_data,
             file_options={"content-type": content_type}
         )
-        
+
+        logger.info(
+            "SUPABASE UPLOAD: upload() returned response=%s",
+            response,
+        )
+
         # Get public URL
         public_url = client.storage.from_('User Files').get_public_url(storage_path)
-        
+
+        logger.info(
+            "SUPABASE UPLOAD: get_public_url() returned url='%s'",
+            public_url,
+        )
+
         logger.info(f"Uploaded image to Supabase: {storage_path}")
         return public_url
-        
+
     except Exception as e:
-        logger.error(f"Error uploading to Supabase storage: {str(e)}")
+        logger.error(f"Error uploading to Supabase storage: {str(e)}", exc_info=True)
         raise
 
 
@@ -1360,67 +1377,105 @@ def download_stock_image():
 def upload_image():
     """
     Upload image from local file.
-    
+
     Expects multipart/form-data with 'image' file and 'user_id' field.
     """
     try:
         start_time = datetime.utcnow()
+        request_received_time = start_time
+
+        logger.info(
+            "Upload request RECEIVED: remote_addr=%s content_type=%s content_length=%s",
+            request.remote_addr,
+            request.content_type,
+            request.content_length,
+        )
+
         if 'image' not in request.files:
+            logger.warning("Upload request rejected: no 'image' file in request.files. Keys=%s", list(request.files.keys()))
             return jsonify(ErrorResponse(
                 error="no_file",
                 message="No image file provided",
                 error_code="NO_FILE",
                 status=400
             ).dict()), 400
-        
+
         file = request.files['image']
         user_id = request.form.get('user_id')
-        
+
+        logger.info(
+            "Upload request VALIDATED: user_id=%s filename='%s' content_type=%s size=%s",
+            user_id,
+            file.filename,
+            file.content_type,
+            request.content_length,
+        )
+
         if not user_id:
+            logger.warning("Upload request rejected: missing user_id")
             return jsonify(ErrorResponse(
                 error="missing_user_id",
                 message="user_id is required",
                 error_code="MISSING_USER_ID",
                 status=400
             ).dict()), 400
-        
+
         if file.filename == '':
+            logger.warning("Upload request rejected: empty filename")
             return jsonify(ErrorResponse(
                 error="empty_filename",
                 message="No file selected",
                 error_code="EMPTY_FILENAME",
                 status=400
             ).dict()), 400
-        
+
         # Read file data
         file_data = file.read()
         file_size = len(file_data)
-        filename = f"upload_{datetime.utcnow().timestamp()}_{file.filename}"
+        read_elapsed_ms = int((datetime.utcnow() - request_received_time).total_seconds() * 1000)
+
         logger.info(
-            "Upload request received: user_id=%s filename=%s size_bytes=%s content_type=%s",
+            "File READ complete: user_id=%s filename='%s' size_bytes=%s read_elapsed_ms=%s",
             user_id,
             file.filename,
             file_size,
-            file.content_type,
+            read_elapsed_ms,
         )
-        
+
+        filename = f"upload_{datetime.utcnow().timestamp()}_{file.filename}"
+
+        # Log before Supabase upload
+        upload_start_time = datetime.utcnow()
+        logger.info(
+            "SUPABASE UPLOAD STARTING: user_id=%s filename='%s' storage_filename=%s size_bytes=%s",
+            user_id,
+            file.filename,
+            filename,
+            file_size,
+        )
+
         # Upload to Supabase
         image_url = upload_to_supabase_storage(
-            file_data, 
-            filename, 
+            file_data,
+            filename,
             user_id,
             file.content_type or 'image/jpeg'
         )
-        elapsed_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+
+        upload_elapsed_ms = int((datetime.utcnow() - upload_start_time).total_seconds() * 1000)
+        total_elapsed_ms = int((datetime.utcnow() - request_received_time).total_seconds() * 1000)
+
         logger.info(
-            "Upload request completed: user_id=%s storage_filename=%s elapsed_ms=%s",
+            "Upload request COMPLETED: user_id=%s storage_filename=%s image_url=%s upload_elapsed_ms=%s total_elapsed_ms=%s",
             user_id,
             filename,
-            elapsed_ms,
+            image_url,
+            upload_elapsed_ms,
+            total_elapsed_ms,
         )
-        
+
         return jsonify({"imageUrl": image_url}), 200
-        
+
     except Exception as e:
         logger.error(f"Error uploading image: {str(e)}", exc_info=True)
         return jsonify(ErrorResponse(
