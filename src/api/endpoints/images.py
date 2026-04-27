@@ -695,32 +695,49 @@ def generate_google_imagen(prompt: str, api_key: str, model: str = "imagen-4.0-g
                            aspect_ratio: str = "1:1") -> bytes:
     """Generate image using Google Imagen API."""
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateImages"
-        
+        # Gemini Developer API REST contract for Imagen models uses :predict.
+        # Ref: https://ai.google.dev/gemini-api/docs/imagen (REST example)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predict"
+
         headers = {
-            'Authorization': f'Bearer {api_key}',
+            'x-goog-api-key': api_key,
             'Content-Type': 'application/json'
         }
-        
+
         body = {
-            "prompt": prompt,
-            "config": {
-                "number_of_images": 1,
-                "aspect_ratio": aspect_ratio
+            "instances": [
+                {
+                    "prompt": prompt
+                }
+            ],
+            "parameters": {
+                "sampleCount": 1,
+                "aspectRatio": aspect_ratio,
+                "imageSize": "1K"
             }
         }
-        
+
         response = requests.post(url, headers=headers, json=body)
         response.raise_for_status()
-        
+
         data = response.json()
-        
+
+        # New REST response shape.
+        predictions = data.get('predictions') if isinstance(data.get('predictions'), list) else []
+        if predictions:
+            image_bytes_b64 = predictions[0].get('bytesBase64Encoded')
+            if image_bytes_b64:
+                return base64.b64decode(image_bytes_b64)
+
+        # Backward compatibility for older response shapes.
         if data.get('generated_images') and len(data['generated_images']) > 0:
-            image_bytes_b64 = data['generated_images'][0]['image']['image_bytes']
+            image_bytes_b64 = data['generated_images'][0].get('image', {}).get('image_bytes')
+            if not image_bytes_b64:
+                raise Exception(f"Imagen response missing image bytes: {data}")
             return base64.b64decode(image_bytes_b64)
-        else:
-            raise Exception("No image generated in response")
-            
+
+        raise Exception(f"No image generated in response: {data}")
+
     except Exception as e:
         logger.error(f"Google Imagen API error: {str(e)}")
         raise
