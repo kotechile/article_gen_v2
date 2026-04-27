@@ -22,6 +22,13 @@ const getHeaders = (headers: Record<string, string> = {}) => ({
     ...headers
 });
 
+function sanitizeFilename(filename: string): string {
+    return filename
+        .replace(/[^a-zA-Z0-9._-]/g, '_')
+        .replace(/_+/g, '_')
+        .slice(0, 180);
+}
+
 async function parseErrorMessage(response: Response, fallback: string): Promise<string> {
     const statusPrefix = `Request failed (${response.status})`;
     const contentType = response.headers.get('content-type') || '';
@@ -105,22 +112,73 @@ export async function searchStockImages(
  * Upload image file to Supabase storage
  */
 export async function uploadImageToSupabase(file: File, userId: string): Promise<{ imageUrl: string }> {
+    // Preferred path: direct browser -> Supabase Storage (no backend hop).
+    // Safe: uses anon key + logged-in user session token, not service role key.
+    try {
+        const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
+        const ts = Date.now();
+        const safeName = sanitizeFilename(file.name);
+        const storagePath = `articleImages/${userId}/upload_${ts}_${safeName || `image.${ext}`}`;
+
+        const { error: uploadError } = await supabase
+            .storage
+            .from('User Files')
+            .upload(storagePath, file, {
+                cacheControl: '3600',
+                upsert: false,
+                contentType: file.type || 'image/jpeg'
+            });
+
+        if (!uploadError) {
+            const { data } = supabase.storage.from('User Files').getPublicUrl(storagePath);
+            if (data?.publicUrl) {
+                return { imageUrl: data.publicUrl };
+            }
+            throw new Error('Upload completed but public URL could not be resolved');
+        }
+
+        // Fall through to backend fallback on policy/network edge cases.
+        console.warn('Direct Supabase upload failed; falling back to backend upload:', uploadError.message);
+    } catch (directErr) {
+        console.warn('Direct Supabase upload threw; falling back to backend upload:', directErr);
+    }
+
+    // Fallback path: backend proxy upload (kept for compatibility and policy differences).
     const formData = new FormData();
     formData.append('image', file);
     formData.append('user_id', userId);
 
-    const response = await fetch(`${API_BASE_URL}/api/v1/images/upload`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: formData,
-    });
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 45000);
 
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to upload image');
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/images/upload`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: formData,
+            signal: controller.signal,
+        });
+
+        if (!response.ok) {
+            let message = 'Failed to upload image';
+            try {
+                const error = await response.json();
+                message = error.message || error.error || message;
+            } catch {
+                // Keep default message.
+            }
+            throw new Error(message);
+        }
+
+        return response.json();
+    } catch (err: any) {
+        if (err?.name === 'AbortError') {
+            throw new Error('Upload timed out. Please retry or use a smaller image.');
+        }
+        throw err;
+    } finally {
+        window.clearTimeout(timeoutId);
     }
-
-    return response.json();
 }
 
 /**

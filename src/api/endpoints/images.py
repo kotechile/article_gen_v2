@@ -1364,6 +1364,7 @@ def upload_image():
     Expects multipart/form-data with 'image' file and 'user_id' field.
     """
     try:
+        start_time = datetime.utcnow()
         if 'image' not in request.files:
             return jsonify(ErrorResponse(
                 error="no_file",
@@ -1393,7 +1394,15 @@ def upload_image():
         
         # Read file data
         file_data = file.read()
+        file_size = len(file_data)
         filename = f"upload_{datetime.utcnow().timestamp()}_{file.filename}"
+        logger.info(
+            "Upload request received: user_id=%s filename=%s size_bytes=%s content_type=%s",
+            user_id,
+            file.filename,
+            file_size,
+            file.content_type,
+        )
         
         # Upload to Supabase
         image_url = upload_to_supabase_storage(
@@ -1401,6 +1410,13 @@ def upload_image():
             filename, 
             user_id,
             file.content_type or 'image/jpeg'
+        )
+        elapsed_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+        logger.info(
+            "Upload request completed: user_id=%s storage_filename=%s elapsed_ms=%s",
+            user_id,
+            filename,
+            elapsed_ms,
         )
         
         return jsonify({"imageUrl": image_url}), 200
