@@ -720,48 +720,52 @@ export function TopicDetail() {
                                                 onClick={() => handleSubtopicClick(sub)}
                                                 className="bg-muted/30 backdrop-blur-sm border border-border rounded-xl p-5 cursor-pointer hover:bg-muted/50 hover:border-ring/50 transition-all duration-200 group"
                                             >
-                                                <div className="flex items-start justify-between mb-3">
-                                                    <h3
-                                                        className="font-semibold text-foreground line-clamp-2 flex-1 pr-2 group-hover:text-foreground transition-colors flex items-center gap-2"
-                                                        title={sub.name || ''}
-                                                    >
-                                                        <Lightbulb className="w-4 h-4 text-primary flex-shrink-0" />
-                                                        {sub.name}
-                                                    </h3>
-                                                    <div className="flex items-center gap-2">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                                                            title="Archive sub-topic"
-                                                            onClick={(e) => handleToggleSubtopicArchived(e, sub, true)}
-                                                            disabled={archivingSubtopicIds.has(sub.id)}
+                                                <div className="flex flex-col gap-3 mb-3">
+                                                    <div className="flex items-start justify-between">
+                                                        <h3
+                                                            className="font-semibold text-foreground pr-2 group-hover:text-foreground transition-colors flex items-start gap-2"
+                                                            title={sub.name || ''}
                                                         >
-                                                            {archivingSubtopicIds.has(sub.id) ? (
-                                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                            ) : (
-                                                                <Archive className="h-3.5 w-3.5" />
-                                                            )}
-                                                        </Button>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
-                                                            title="Delete sub-topic and related content ideas"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation()
-                                                                handleDeleteSubtopic(sub)
-                                                            }}
-                                                            disabled={deletingSubtopicId === sub.id}
-                                                        >
-                                                            {deletingSubtopicId === sub.id ? (
-                                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                            ) : (
-                                                                <Trash2 className="h-3.5 w-3.5" />
-                                                            )}
-                                                        </Button>
+                                                            <Lightbulb className="w-4 h-4 text-primary flex-shrink-0 mt-1" />
+                                                            <span className="leading-tight">{sub.name}</span>
+                                                        </h3>
+                                                        <div className="flex items-center gap-1 flex-shrink-0">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                                                title="Archive sub-topic"
+                                                                onClick={(e) => handleToggleSubtopicArchived(e, sub, true)}
+                                                                disabled={archivingSubtopicIds.has(sub.id)}
+                                                            >
+                                                                {archivingSubtopicIds.has(sub.id) ? (
+                                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                                ) : (
+                                                                    <Archive className="h-3.5 w-3.5" />
+                                                                )}
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+                                                                title="Delete sub-topic and related content ideas"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    handleDeleteSubtopic(sub)
+                                                                }}
+                                                                disabled={deletingSubtopicId === sub.id}
+                                                            >
+                                                                {deletingSubtopicId === sub.id ? (
+                                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                                ) : (
+                                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                                )}
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 flex-wrap">
                                                         <label
-                                                            className={`text-xs px-2 py-1 rounded-full border transition-colors inline-flex items-center gap-1.5 ${
+                                                            className={`text-xs px-2 py-1 rounded-full border transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
                                                                 isSubtopicResearched(sub)
                                                                     ? 'text-emerald-500 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
                                                                     : 'text-muted-foreground border-border bg-muted/50 hover:bg-muted'
@@ -777,7 +781,7 @@ export function TopicDetail() {
                                                                     e.stopPropagation()
                                                                     handleToggleSubtopicResearched(sub, e.target.checked)
                                                                 }}
-                                                                className="h-3 w-3 accent-emerald-500"
+                                                                className="h-3 w-3 accent-emerald-500 cursor-pointer"
                                                             />
                                                             Completed
                                                         </label>
@@ -867,43 +871,45 @@ export function TopicDetail() {
                                                         onClick={() => handleSubtopicClick(sub)}
                                                         className="bg-muted/20 backdrop-blur-sm border border-border/80 rounded-xl p-5 cursor-pointer transition-all duration-200 opacity-70 saturate-0"
                                                     >
-                                                        <div className="flex items-start justify-between mb-3">
-                                                            <h3 className="font-semibold text-foreground line-clamp-2 flex-1 pr-2 flex items-center gap-2" title={sub.name || ''}>
-                                                                <Lightbulb className="w-4 h-4 text-primary flex-shrink-0" />
-                                                                {sub.name}
-                                                            </h3>
-                                                            <div className="flex items-center gap-2">
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                                                                    title="Restore sub-topic"
-                                                                    onClick={(e) => handleToggleSubtopicArchived(e, sub, false)}
-                                                                    disabled={archivingSubtopicIds.has(sub.id)}
-                                                                >
-                                                                    {archivingSubtopicIds.has(sub.id) ? (
-                                                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                                    ) : (
-                                                                        <RotateCcw className="h-3.5 w-3.5" />
-                                                                    )}
-                                                                </Button>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
-                                                                    title="Delete sub-topic and related content ideas"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation()
-                                                                        handleDeleteSubtopic(sub)
-                                                                    }}
-                                                                    disabled={deletingSubtopicId === sub.id}
-                                                                >
-                                                                    {deletingSubtopicId === sub.id ? (
-                                                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                                    ) : (
-                                                                        <Trash2 className="h-3.5 w-3.5" />
-                                                                    )}
-                                                                </Button>
+                                                        <div className="flex flex-col gap-3 mb-3">
+                                                            <div className="flex items-start justify-between">
+                                                                <h3 className="font-semibold text-foreground pr-2 flex items-start gap-2" title={sub.name || ''}>
+                                                                    <Lightbulb className="w-4 h-4 text-primary flex-shrink-0 mt-1" />
+                                                                    <span className="leading-tight">{sub.name}</span>
+                                                                </h3>
+                                                                <div className="flex items-center gap-1 flex-shrink-0">
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                                                        title="Restore sub-topic"
+                                                                        onClick={(e) => handleToggleSubtopicArchived(e, sub, false)}
+                                                                        disabled={archivingSubtopicIds.has(sub.id)}
+                                                                    >
+                                                                        {archivingSubtopicIds.has(sub.id) ? (
+                                                                            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                                        ) : (
+                                                                            <RotateCcw className="h-3.5 w-3.5" />
+                                                                        )}
+                                                                    </Button>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+                                                                        title="Delete sub-topic and related content ideas"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            handleDeleteSubtopic(sub)
+                                                                        }}
+                                                                        disabled={deletingSubtopicId === sub.id}
+                                                                    >
+                                                                        {deletingSubtopicId === sub.id ? (
+                                                                            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                                        ) : (
+                                                                            <Trash2 className="h-3.5 w-3.5" />
+                                                                        )}
+                                                                    </Button>
+                                                                </div>
                                                             </div>
                                                         </div>
 
