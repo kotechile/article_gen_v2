@@ -61,6 +61,8 @@ interface ApplicationSettings {
     [key: string]: any;
 }
 
+type SvgPromptVersion = 'prompt1' | 'prompt2';
+
 const normalizeOptionalHexColor = (value?: string) => {
     const trimmed = String(value || '').trim();
     if (!trimmed) return '';
@@ -95,6 +97,7 @@ export const Settings: React.FC = () => {
 
     // Content Settings State (LLM Keys etc)
     const [appSettings, setAppSettings] = useState<Partial<ApplicationSettings>>({});
+    const [svgPromptVersion, setSvgPromptVersion] = useState<SvgPromptVersion>('prompt1');
 
     // Projects (niches/websites) State
     const [projects, setProjects] = useState<Project[]>([]);
@@ -111,7 +114,7 @@ export const Settings: React.FC = () => {
     // Trend Report State
     const [trendProject, setTrendProject] = useState<Project | null>(null);
 
-    // Categories State (managed per project being edited)
+    // Categories State (managed per project being editing)
     const [categories, setCategories] = useState<any[]>([]);
     const [categoriesLoading, setCategoriesLoading] = useState(false);
     const [editingCategory, setEditingCategory] = useState<{
@@ -136,6 +139,7 @@ export const Settings: React.FC = () => {
             await Promise.all([
                 fetchResearchSettings(),
                 fetchAppSettings(),
+                fetchInfographicSvgSettings(),
                 fetchProjects(),
                 fetchImportedPosts()
             ]);
@@ -167,6 +171,18 @@ export const Settings: React.FC = () => {
 
         if (!error && data) {
             setAppSettings(data);
+        }
+    };
+
+    const fetchInfographicSvgSettings = async () => {
+        try {
+            const response = await apiClient.get<any>('/settings/infographic-svg');
+            if (response?.success && response?.data?.svg_prompt_version) {
+                const value = String(response.data.svg_prompt_version).trim().toLowerCase();
+                setSvgPromptVersion(value === 'prompt2' ? 'prompt2' : 'prompt1');
+            }
+        } catch (err) {
+            console.error("Infographic SVG settings fetch failed:", err);
         }
     };
 
@@ -330,6 +346,12 @@ export const Settings: React.FC = () => {
                 .eq('id', 1);
 
             if (error) throw error;
+            const svgSettingsResult = await apiClient.post<any>('/settings/infographic-svg', {
+                svg_prompt_version: svgPromptVersion,
+            });
+            if (!svgSettingsResult?.success) {
+                throw new Error(svgSettingsResult?.message || 'Failed to save SVG prompt settings');
+            }
             setSuccess("Content Generation settings saved!");
         } catch (err: any) {
             setError(err.message || "Failed to save app settings");
@@ -650,6 +672,60 @@ export const Settings: React.FC = () => {
                                             <Input type="password" value={appSettings.fluxKey || ''} onChange={e => setAppSettings({ ...appSettings, fluxKey: e.target.value })} className="h-10 rounded-lg font-mono text-sm" />
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-border bg-muted/20 p-5 space-y-4">
+                                <div>
+                                    <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                                        SVG Infographic Prompt
+                                    </h3>
+                                    <p className="text-sm text-muted-foreground mt-2">
+                                        Choose which backend SVG prompt should be used for inline infographic generation from selected article text.
+                                    </p>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <button
+                                        type="button"
+                                        onClick={() => setSvgPromptVersion('prompt1')}
+                                        className={`rounded-xl border p-4 text-left transition-all ${
+                                            svgPromptVersion === 'prompt1'
+                                                ? 'border-primary bg-primary/10 ring-1 ring-primary/30'
+                                                : 'border-border bg-background hover:border-primary/40'
+                                        }`}
+                                    >
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                                <p className="text-sm font-semibold">SVG Prompt 1</p>
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                    Minimal Bento-box layout with precision geometry and restrained color.
+                                                </p>
+                                            </div>
+                                            <div className={`h-4 w-4 rounded-full border ${svgPromptVersion === 'prompt1' ? 'border-primary bg-primary' : 'border-muted-foreground/40 bg-transparent'}`} />
+                                        </div>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setSvgPromptVersion('prompt2')}
+                                        className={`rounded-xl border p-4 text-left transition-all ${
+                                            svgPromptVersion === 'prompt2'
+                                                ? 'border-primary bg-primary/10 ring-1 ring-primary/30'
+                                                : 'border-border bg-background hover:border-primary/40'
+                                        }`}
+                                    >
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                                <p className="text-sm font-semibold">SVG Prompt 2</p>
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                    Editorial infographic style with richer illustration, asymmetry, and custom spatial storytelling.
+                                                </p>
+                                            </div>
+                                            <div className={`h-4 w-4 rounded-full border ${svgPromptVersion === 'prompt2' ? 'border-primary bg-primary' : 'border-muted-foreground/40 bg-transparent'}`} />
+                                        </div>
+                                    </button>
                                 </div>
                             </div>
 

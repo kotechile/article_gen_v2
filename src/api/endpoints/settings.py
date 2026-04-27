@@ -21,6 +21,10 @@ DEFAULT_RESEARCH_SETTINGS = {
     "strict_mode": True,
 }
 
+DEFAULT_INFOGRAPHIC_SVG_SETTINGS = {
+    "svg_prompt_version": "prompt1",
+}
+
 
 def _normalize_llm_provider_rows(rows: Optional[list]) -> list[dict]:
     normalized = []
@@ -90,6 +94,27 @@ def _normalize_research_settings(raw: Optional[dict]) -> dict:
     values["min_cpc"] = max(0.0, values["min_cpc"])
 
     return values
+
+
+def _normalize_svg_prompt_version(value: Optional[str]) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"prompt1", "prompt2"}:
+        return normalized
+    return DEFAULT_INFOGRAPHIC_SVG_SETTINGS["svg_prompt_version"]
+
+
+def _read_application_settings_row(supabase) -> dict:
+    response = (
+        supabase
+        .table("application_settings")
+        .select("id,research_settings")
+        .eq("id", 1)
+        .limit(1)
+        .execute()
+    )
+    if response.data and len(response.data) > 0:
+        return response.data[0] or {}
+    return {}
 
 
 @settings_bp.route("/research", methods=["GET"])
@@ -197,4 +222,84 @@ def get_llm_providers():
             "message": "Failed to fetch llm providers",
             "data": [],
             "error": str(exc),
+        }), 500
+
+
+@settings_bp.route("/infographic-svg", methods=["GET"])
+def get_infographic_svg_settings():
+    """Return infographic SVG-specific settings stored in application_settings.research_settings."""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return jsonify({
+                "success": False,
+                "message": "Database connection failed",
+                "data": DEFAULT_INFOGRAPHIC_SVG_SETTINGS,
+            }), 500
+
+        row = _read_application_settings_row(supabase)
+        research_settings = row.get("research_settings") or {}
+        svg_prompt_version = _normalize_svg_prompt_version(research_settings.get("svg_prompt_version"))
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "svg_prompt_version": svg_prompt_version,
+            },
+        }), 200
+    except Exception as exc:
+        logger.error("Failed to fetch infographic SVG settings", exc_info=True)
+        return jsonify({
+            "success": False,
+            "message": "Failed to fetch infographic SVG settings",
+            "data": DEFAULT_INFOGRAPHIC_SVG_SETTINGS,
+            "error": str(exc),
+        }), 200
+
+
+@settings_bp.route("/infographic-svg", methods=["POST"])
+def update_infographic_svg_settings():
+    """Update infographic SVG-specific settings inside application_settings.research_settings."""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return jsonify({
+                "success": False,
+                "message": "Database connection failed",
+            }), 500
+
+        payload = request.get_json(silent=True) or {}
+        svg_prompt_version = _normalize_svg_prompt_version(payload.get("svg_prompt_version"))
+
+        row = _read_application_settings_row(supabase)
+        research_settings = dict(row.get("research_settings") or {})
+        research_settings["svg_prompt_version"] = svg_prompt_version
+
+        update_data = {"research_settings": research_settings}
+        response = (
+            supabase
+            .table("application_settings")
+            .update(update_data)
+            .eq("id", 1)
+            .execute()
+        )
+
+        if not response.data:
+            supabase.table("application_settings").insert({
+                "id": 1,
+                **update_data,
+            }).execute()
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "svg_prompt_version": svg_prompt_version,
+            },
+            "message": "Infographic SVG settings saved successfully",
+        }), 200
+    except Exception as exc:
+        logger.error("Failed to update infographic SVG settings", exc_info=True)
+        return jsonify({
+            "success": False,
+            "message": f"Failed to save infographic SVG settings: {str(exc)}",
         }), 500

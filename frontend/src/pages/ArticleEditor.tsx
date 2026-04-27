@@ -481,15 +481,15 @@ export const ArticleEditor: React.FC = () => {
     const findSelectedBlockPosition = () => {
         if (!editor) return null;
 
-        const { $from } = editor.state.selection;
-        for (let depth = $from.depth; depth > 0; depth -= 1) {
-            const node = $from.node(depth);
+        const { $to } = editor.state.selection;
+        for (let depth = $to.depth; depth > 0; depth -= 1) {
+            const node = $to.node(depth);
             if (node.isBlock) {
-                return editor.state.selection.$from.before(depth);
+                return editor.state.selection.$to.after(depth);
             }
         }
 
-        return editor.state.selection.from;
+        return editor.state.selection.to;
     };
 
     const findInfographicNodePosition = (requestId: string) => {

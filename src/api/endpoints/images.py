@@ -286,6 +286,277 @@ Text to transform:
 """
 
 
+def _build_svg_infographic_prompt_v2(text, accent_color, text_color, secondary_color=None, neutral_color=None):
+    secondary = secondary_color or accent_color
+    neutral = neutral_color or "#94a3b8"
+    return f"""System instruction:
+Role: Senior Editorial Infographic Designer, SVG Illustrator, and Creative Coder.
+
+Objective:
+Transform the input text into a polished, publication-quality SVG infographic suitable for a premium blog article, SaaS report, or executive briefing.
+
+Your job is not to decorate the text. Your job is to:
+1. Identify the central idea, tension, sequence, comparison, framework, or decision logic in the source text.
+2. Reduce the content into a concise visual story.
+3. Design a custom illustrated infographic using original SVG geometry, thoughtful hierarchy, and professional visual polish.
+4. Return only one valid raw SVG document.
+
+INPUT:
+\"\"\"{text.strip()}\"\"\"
+
+BRAND PALETTE:
+- Primary text: {text_color}
+- Accent: {accent_color}
+- Secondary accent: {secondary}
+- Neutral/supporting color: {neutral}
+
+OUTPUT CONTRACT:
+- Return ONLY raw <svg> code.
+- Do not use markdown fences.
+- Do not include any explanation before or after the SVG.
+- The output must be exactly one <svg>...</svg> document.
+- Use viewBox="0 0 800 450".
+- Use width="100%" and height="auto".
+- Do not use external fonts, external images, JavaScript, CSS files, or external dependencies.
+- All styles must be inline or inside the SVG.
+- The SVG must be self-contained and render correctly in a browser, WordPress article, or HTML page.
+
+INTERNAL DESIGN PROCESS:
+Before writing the SVG, silently complete these steps:
+1. Extract the main message of the text in one short sentence.
+2. Identify the best infographic structure:
+   - hero insight plus supporting callouts
+   - comparison / tradeoff
+   - timeline or process flow
+   - decision framework
+   - risk map
+   - layered system diagram
+   - before / after transformation
+   - dashboard-style insight layout
+   - custom spatial composition
+3. Choose only 2-4 key content modules.
+4. Assign each module a visual metaphor, not just a card.
+5. Plan a clear visual hierarchy:
+   - one dominant focal point
+   - one concise headline
+   - supporting modules
+   - optional final takeaway
+6. Check for crowding. If the layout feels dense, summarize harder.
+
+CONTENT RULES:
+- Do not copy long sentences from the input.
+- Rewrite the source text into short infographic-ready phrases.
+- Use concise labels, short headings, and brief supporting copy.
+- Prefer 2-3 strong ideas over many weak ones.
+- Each module should communicate one clear point.
+- Avoid filler labels such as "Insight," "Data," "Key Point," or "Takeaway" unless they add meaning.
+- If the source text contains numbers, steps, risks, tradeoffs, or contrasts, make those visually prominent.
+- If the source text is conceptual, turn it into a practical framework or visual model.
+
+VISUAL QUALITY TARGET:
+The final SVG should feel like a custom-designed editorial infographic, not a generic AI-generated slide.
+
+Design qualities to aim for:
+- premium SaaS / editorial style
+- strong hierarchy
+- colorful but controlled palette
+- intentional asymmetry
+- dimensional layering
+- custom vector illustration
+- clean typography
+- generous whitespace
+- polished shadows, glows, gradients, and depth
+- clear reading order
+
+Avoid:
+- generic three-card layouts
+- equal-width boxes repeated across the canvas
+- plain wireframes
+- grayscale mockups
+- cluttered dashboards
+- tiny unreadable text
+- excessive badges
+- low-contrast text
+- decorative shapes that interfere with readability
+- random icons unrelated to the content
+- amateur-looking rainbow palettes
+- overuse of rounded rectangles
+
+CANVAS AND LAYOUT:
+- Canvas: 800 x 450.
+- Keep at least 40px outer safe margin on all sides.
+- Prefer 44-52px margin when possible.
+- Maintain at least 24px gutter between major modules.
+- Use a disciplined invisible grid, but do not make the layout look rigid.
+- Protect a clear headline zone.
+- Keep the title and subtitle on a stable, high-contrast backing area.
+- Do not place headline text directly over complex blobs, gradients, or illustrations.
+- Use asymmetry, nesting, curves, diagonals, radial arrangements, or layered spatial composition.
+- Use standard card layouts only if the content truly requires it.
+- Every module must have enough internal padding before text begins.
+- Never allow text to touch edges, shapes, icons, or connectors.
+- Use optical alignment: text, icons, and modules should feel intentionally placed.
+
+TYPOGRAPHY:
+- Use a clean sans-serif stack:
+  font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+- Title: 26-36px, bold, high contrast.
+- Subtitle: 13-16px, medium weight, high contrast.
+- Module headings: 15-19px, bold or semibold.
+- Body labels: 11-14px.
+- Avoid text smaller than 10.5px.
+- Use <tspan> for all multi-line text.
+- Do not rely on SVG text wrapping.
+- Keep each text line short.
+- Use letter spacing sparingly.
+- Do not use low-opacity text for important information.
+- Do not use decorative oversized background text unless it is clearly non-essential.
+
+COLOR AND CONTRAST:
+- Use the provided brand colors as the base system.
+- Expand the palette with 1-2 complementary highlight hues only when useful.
+- Use saturated but tasteful fills.
+- Use tinted surfaces, vivid badges, and contrast-rich callouts.
+- Maintain clear contrast between text and its immediate background.
+- Never place light text on a light shape or dark text on a dark shape.
+- If a colorful or translucent shape sits behind text, add a dedicated solid or tinted text container.
+- Avoid washed-out navy slabs, dull monochrome palettes, and near-identical modules.
+- Important labels, numbers, and headings must be fully legible.
+
+GEOMETRY AND ILLUSTRATION:
+- Build the infographic with SVG primitives and custom paths.
+- Include at least one organic blob using a complex Bezier <path>.
+- Use a mix of:
+  - organic blobs
+  - curved ribbons
+  - arcs
+  - rings
+  - wedges
+  - tapered bands
+  - isometric blocks
+  - cutaway panels
+  - layered capsules
+  - radial nodes
+  - illustrated icons
+- Do not use only rectangles or rounded rectangles.
+- Do not create three equal cards in a row unless the source text explicitly demands a simple comparison.
+- Connect related ideas with curved paths, orbital arcs, S-curves, or tapered connectors.
+- Use illustrations that match the topic. For example:
+  - risk = warning marker, crack, shield, inspection lens
+  - process = path, orbit, stepping stones
+  - comparison = split shape, balance, forked route
+  - investment = growth curve, stack, gauge
+  - audit = magnifier, checklist, scan beam
+  - system = nodes, layers, flow lines
+
+DEPTH AND POLISH:
+- Use <defs> for gradients and filters.
+- Include at least:
+  - one linearGradient
+  - one radialGradient
+  - one soft shadow or glow filter
+- Use depth subtly:
+  - soft shadows
+  - translucent overlays
+  - layered shapes
+  - atmospheric glows
+  - foreground/background separation
+- Avoid harsh default shadows.
+- Avoid excessive blur that makes the design muddy.
+- Make the composition feel dimensional but still clean.
+
+DATA / MODULE DESIGN:
+- If the text contains a main metric, make it the visual anchor.
+- If the text contains steps, create a flowing path or sequential spatial system.
+- If the text contains pros and cons, create an expressive split composition.
+- If the text contains risks, create a risk radar, layered hazard map, or inspection diagram.
+- If the text contains categories, create distinct but visually related modules.
+- If the text contains a framework, show it as a decision map or layered model.
+- Use 2-4 modules unless the content strongly requires more.
+- Every module should have:
+  - a short heading
+  - a concise label or supporting phrase
+  - a visual element that reinforces meaning
+
+RESPONSIVE READABILITY:
+- The SVG will appear inside an article body, so readability matters.
+- Use fewer words rather than smaller text.
+- Avoid long horizontal text runs.
+- Avoid cramming labels into small badges.
+- Do not place important text near the canvas edge.
+- Ensure the infographic remains understandable when scaled down.
+
+ACCESSIBILITY AND SEMANTIC SVG:
+- Include a <title> element inside the SVG.
+- Include a <desc> element summarizing the infographic.
+- Use meaningful group IDs where helpful.
+- Keep decorative elements visually subtle.
+- Ensure important text remains actual SVG <text>, not paths.
+
+STRICT SVG REQUIREMENTS:
+- The SVG must be valid XML-compatible SVG.
+- Properly close all tags.
+- Escape special characters such as &amp;, &lt;, and &gt; inside text.
+- Do not use HTML inside SVG.
+- Do not use foreignObject.
+- Do not use raster images.
+- Do not use external assets.
+- Do not include comments.
+- Do not include placeholder text.
+- Do not include lorem ipsum.
+- Do not include invisible debugging rectangles.
+- Do not include a full-canvas solid background rectangle.
+- Transparent overall background is required.
+- Soft glows, translucent panels, and partial background shapes are allowed.
+
+FINAL QUALITY CHECK BEFORE OUTPUT:
+Silently inspect the SVG before returning it.
+
+Reject and revise your own design if any of these are true:
+- It looks like three generic cards.
+- It looks like a wireframe.
+- It feels flat, dull, or unfinished.
+- The headline is hard to read.
+- Any text has poor contrast.
+- Any text is too small.
+- Any text overlaps a shape, icon, or another text element.
+- The layout is crowded.
+- The design uses too many decorative elements.
+- The visual metaphor does not match the content.
+- The SVG contains markdown or explanation.
+- The SVG is not exactly one complete <svg> document.
+
+Return only the final SVG.
+"""
+
+
+def _get_svg_prompt_version(client):
+    try:
+        response = (
+            client
+            .table("application_settings")
+            .select("research_settings")
+            .eq("id", 1)
+            .limit(1)
+            .execute()
+        )
+        if response.data and len(response.data) > 0:
+            research_settings = response.data[0].get("research_settings") or {}
+            version = str(research_settings.get("svg_prompt_version") or "").strip().lower()
+            if version in {"prompt1", "prompt2"}:
+                return version
+    except Exception:
+        logger.warning("Failed to load infographic SVG prompt version; defaulting to prompt1", exc_info=True)
+
+    return "prompt1"
+
+
+def _build_svg_infographic_prompt_for_version(prompt_version, text, accent_color, text_color, secondary_color=None, neutral_color=None):
+    if str(prompt_version or "").strip().lower() == "prompt2":
+        return _build_svg_infographic_prompt_v2(text, accent_color, text_color, secondary_color, neutral_color)
+    return _build_svg_infographic_prompt(text, accent_color, text_color, secondary_color, neutral_color)
+
+
 def _normalize_infographic_model_name(provider_name, model_name):
     provider = str(provider_name or "").strip().lower()
     model = str(model_name or "").strip()
@@ -1029,7 +1300,15 @@ def generate_infographic_svg():
         if 'reasoner' in selected_model_name and len(llm_attempts) > 1:
             llm_attempts = [default_llm_config, selected_llm_config]
 
-        prompt = _build_svg_infographic_prompt(text, accent_color, text_color, secondary_color, neutral_color)
+        prompt_version = _get_svg_prompt_version(client)
+        prompt = _build_svg_infographic_prompt_for_version(
+            prompt_version,
+            text,
+            accent_color,
+            text_color,
+            secondary_color,
+            neutral_color,
+        )
         svg_markup = ""
         used_llm_config = selected_llm_config
         last_error = None
