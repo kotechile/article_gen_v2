@@ -10,6 +10,7 @@ import os
 import io
 import base64
 import asyncio
+import json
 import re
 import html
 import requests
@@ -725,7 +726,13 @@ def generate_google_imagen(prompt: str, api_key: str, model: str = "imagen-4.0-g
         raise
 
 
-def generate_kie_flux_image(prompt: str, api_key: str, model: str, aspect_ratio: str = "1:1") -> bytes:
+def generate_kie_flux_image(
+    prompt: str,
+    api_key: str,
+    model: str,
+    aspect_ratio: str = "1:1",
+    reference_image_urls=None,
+) -> bytes:
     """Generate image through KIE Market API task endpoints."""
     try:
         create_url = "https://api.kie.ai/api/v1/jobs/createTask"
@@ -733,15 +740,31 @@ def generate_kie_flux_image(prompt: str, api_key: str, model: str, aspect_ratio:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
+        input_payload = {
+            "prompt": prompt,
+            "aspect_ratio": aspect_ratio,
+            # Hard-lock KIE Flux resolution for this application.
+            "resolution": KIE_FLUX_RESOLUTION,
+            "nsfw_checker": False,
+        }
+
+        model_name = str(model or "").strip().lower()
+        if model_name == "flux-2/flex-image-to-image":
+            image_urls = [
+                str(url).strip()
+                for url in (reference_image_urls or [])
+                if isinstance(url, str) and str(url).strip()
+            ]
+            if not image_urls:
+                raise Exception(
+                    "Model flux-2/flex-image-to-image requires at least one reference image URL "
+                    "in request field referenceImageUrls"
+                )
+            input_payload["input_urls"] = image_urls
+
         create_payload = {
             "model": model,
-            "input": {
-                "prompt": prompt,
-                "aspect_ratio": aspect_ratio,
-                # Hard-lock KIE Flux resolution for this application.
-                "resolution": KIE_FLUX_RESOLUTION,
-                "nsfw_checker": False,
-            },
+            "input": input_payload,
         }
 
         create_resp = requests.post(create_url, headers=headers, json=create_payload)
@@ -923,13 +946,20 @@ def generate_flux_image(
     model: str = "flux-kontext-pro",
     aspect_ratio: str = "1:1",
     provider: str = "",
+    reference_image_urls=None,
 ) -> bytes:
     """Route Flux generation to provider-specific implementation."""
     provider_name = str(provider or "").strip().lower()
     model_name = str(model or "").strip().lower()
 
     if "kie.ai" in provider_name or model_name.startswith("flux-2/"):
-        return generate_kie_flux_image(prompt, api_key, model, aspect_ratio)
+        return generate_kie_flux_image(
+            prompt,
+            api_key,
+            model,
+            aspect_ratio,
+            reference_image_urls=reference_image_urls,
+        )
 
     return generate_fluxapi_image(prompt, api_key, model, aspect_ratio)
 
@@ -945,7 +975,8 @@ def generate_ai_image():
         "prompt": "Image description",
         "model": "model_technical_name",
         "aspectRatio": "16:9",
-        "referenceImage": "base64_encoded_image" (optional)
+        "referenceImage": "base64_encoded_image" (optional, legacy),
+        "referenceImageUrls": ["https://..."] (optional, used by flux-2/flex-image-to-image)
     }
     """
     try:
@@ -970,6 +1001,7 @@ def generate_ai_image():
         model = data.get('model')
         aspect_ratio = data.get('aspectRatio', '1:1')
         reference_image_b64 = data.get('referenceImage')
+        reference_image_urls = data.get('referenceImageUrls') or []
         user_id = data.get('user_id')  # Should come from auth middleware
         
         if not prompt or not model or not user_id:
@@ -1102,8 +1134,15 @@ def generate_ai_image():
             )
         elif 'google' in provider or 'imagen' in provider:
             image_data = generate_google_imagen(prompt, api_key, model_to_use, aspect_ratio)
-        elif 'flux' in provider:
-            image_data = generate_flux_image(prompt, api_key, model_to_use, aspect_ratio, provider)
+        elif 'flux' in provider or 'kie.ai' in provider or model_to_use.lower().startswith("flux-2/"):
+            image_data = generate_flux_image(
+                prompt,
+                api_key,
+                model_to_use,
+                aspect_ratio,
+                provider,
+                reference_image_urls=reference_image_urls,
+            )
         else:
             return jsonify(ErrorResponse(
                 error="unsupported_provider",
