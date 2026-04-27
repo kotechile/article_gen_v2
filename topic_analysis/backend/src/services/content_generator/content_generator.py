@@ -156,6 +156,8 @@ class ContentGenerator:
                 else:
                     # Fall back to paragraph content if no evidence available
                     content_blocks.extend(self._generate_paragraph_content(context, word_count_target))
+            elif content_type == "quote":
+                content_blocks.extend(self._generate_quote_content(context, word_count_target))
             else:  # Default to paragraph
                 content_blocks.extend(self._generate_paragraph_content(context, word_count_target))
             
@@ -584,7 +586,7 @@ class ContentGenerator:
         tone = context.get('tone', 'journalistic')
         
         # Build tone reminder
-        tone_reminder = f"This article MUST be written in {tone} tone."
+        tone_reminder = f"This article MUST be editing in {tone} tone."
         if tone.lower() == 'friendly':
             tone_reminder += "\n\nFOR FRIENDLY TONE: Write like you're sharing a personal story with a friend. Use first-person (\"I've found\", \"Last month I\"), specific examples with details, casual language, and make it warm and engaging. Avoid formal words like \"crucial\", \"paramount\", \"necessitates\", \"individuals\". Make it interesting, not boring or professional."
             tone_reminder += "\n\nIMPORTANT: Do NOT start with greetings like \"Hi friends\", \"Hey there\", or \"Hello everyone\". Start directly with engaging content - friendly means warm and personal, not chatty greetings."
@@ -671,7 +673,7 @@ Section Memory:
                     - Include bullet points or numbered lists where appropriate for clarity
                     - MANDATORY: Include COMPARATIVE TABLES when comparing options, strategies, or presenting structured data
                     - Include multiple specific examples, data points, statistics, and practical insights throughout
-                    - Write in a natural style that reads like human-written content
+                    - Write in a natural style that reads like human-editing content
                     - Integrate the provided keywords into the content where they fit naturally
                     - Ensure keywords appear naturally in the text, not forced or repetitive
                     - Expand on ideas with examples and details
@@ -832,7 +834,7 @@ Section Memory:
                     - Include bullet points or numbered lists where appropriate
                     - Use TABLES when presenting data, statistics, comparisons, or structured information
                     - Include specific examples, data, and practical insights
-                    - Write in a natural style that reads like human-written content
+                    - Write in a natural style that reads like human-editing content
                     - Integrate the provided keywords into the content where they fit naturally
                     - Ensure keywords appear naturally in the text, not forced or repetitive
                     
@@ -935,7 +937,7 @@ Section Memory:
                     - Write in a conversational, human style - avoid formal or formulaic language
                     {self._get_human_writing_instructions()}
                     - Use direct, clear instructions
-                    - Write in a natural style that reads like human-written content
+                    - Write in a natural style that reads like human-editing content
                     
                     {self._get_content_avoidance_instructions()}
                     - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3)
@@ -1002,7 +1004,7 @@ Section Memory:
                     - Include bullet points or numbered lists where appropriate for clarity
                     - MANDATORY: Include MULTIPLE COMPARATIVE TABLES - this is a comparison section, tables are essential
                     - Include extensive specific examples, data points, statistics, and practical insights
-                    - Write in a natural style that reads like human-written content
+                    - Write in a natural style that reads like human-editing content
                     - Integrate the provided keywords into the content where they fit naturally
                     - Ensure keywords appear naturally in the text, not forced or repetitive
                     - Expand on comparisons with examples and details
@@ -1127,7 +1129,7 @@ Section Memory:
                     - Include explanatory text before and after each table
                     - Use TABLES as the primary method for presenting structured information
                     - Include specific examples, data, and practical insights
-                    - Write in a natural style that reads like human-written content
+                    - Write in a natural style that reads like human-editing content
                     
                     {self._get_content_avoidance_instructions()}
                     - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3)
@@ -1223,7 +1225,141 @@ Section Memory:
         except Exception as e:
             self.logger.error(f"Error generating table content: {str(e)}")
             return [self._create_fallback_content_block(context['title'], word_count_target)]
-    
+
+    def _generate_quote_content(self, context: Dict[str, Any], word_count_target: int) -> List[ContentBlock]:
+        """Generate quote/blockquote-based content with supporting context."""
+        try:
+            messages = [
+                {
+                    "role": "system",
+                    "content": f"""You are an expert content writer. Create engaging content featuring prominent quotes and blockquotes for a {context['tone']} article.
+
+                    Requirements:
+                    {self._get_tone_specific_instructions(context['tone'])}
+                    - Target approximately {word_count_target} words
+                    - Target a Flesch Reading Ease score of 65-75 (Standard English, easily readable for 8th graders)
+                    - Cover the key points: {', '.join(context['key_points'])}
+                    - Use evidence and claims to support each quote and its context
+                    - Write for {context['target_audience']} audience
+                    - Include specific examples, case studies, statistics, and practical details
+                    - Make it clear and useful - avoid generic or filler content
+                    - Write complete content - this is professional content, not a summary
+
+                    WRITING STYLE REQUIREMENTS:
+                    - Write in a conversational, human style - avoid formal or formulaic language
+                    {self._get_human_writing_instructions()}
+                    - Create smooth transitions between paragraphs
+                    - Use TABLES when presenting data, statistics, comparisons, or structured information
+                    - Include specific examples, data, and practical insights
+                    - Write in a natural style that reads like human-edited content
+                    - Integrate the provided keywords into the content where they fit naturally
+                    - Ensure keywords appear naturally in the text, not forced or repetitive
+                    - Expand on ideas with examples and details
+
+                    {self._get_content_avoidance_instructions()}
+                    - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3)
+
+                    BLOCKQUOTE FORMATTING REQUIREMENTS:
+                    - Use HTML <blockquote> tags to format quotes
+                    - Include <cite> tags for attribution (e.g., <cite>Name, Title, Organization</cite>)
+                    - The blockquote should be a key quote from evidence or a notable figure related to the topic
+                    - Quote text should be in italics with a distinct visual style
+                    - Include 1-2 meaningful blockquotes that support the key points
+                    - Provide context before and after each blockquote to explain its significance
+                    - Quotes should be 2-4 sentences long, impactful, and relevant
+
+                    BLOCKQUOTE HTML FORMAT:
+                    <blockquote style="border-left: 4px solid hsl(var(--border)); padding-left: 1rem; font-style: italic; color: hsl(var(--muted-foreground)); margin: 1.5em 0;">
+                    The quote text goes here, making a clear point about the topic.
+                    <cite style="display: block; margin-top: 0.5rem; font-size: 0.875rem; font-style: normal; color: hsl(var(--muted-foreground));">
+                    Name, Title, Organization
+                    </cite>
+                    </blockquote>
+
+                    TABLE FORMAT:
+                    <table style="border-collapse: collapse; width: 100%; margin: 1em 0;">
+                    <thead>
+                    <tr>
+                    <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2;">Header 1</th>
+                    <th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2;">Header 2</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                    <td style="border: 1px solid #ddd; padding: 8px;">Data 1</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">Data 2</td>
+                    </tr>
+                    </tbody>
+                    </table>
+
+                    OUTPUT FORMAT:
+                    - Return ONLY clean HTML content without any wrapper tags
+                    - Use proper HTML structure: <p> for paragraphs, <h3> for subheadings, <blockquote> for quotes
+                    - Use proper HTML tables: <table>, <thead>, <tbody>, <tr>, <th>, <td> with appropriate styling
+                    - Do NOT include <section>, <article>, or other wrapper tags
+                    - Do NOT include markdown code blocks or ```html
+                    - Do NOT include H2 headings (only H3 subheadings)
+                    - Include blockquotes with proper formatting and attribution
+                    - Write in a natural style that flows smoothly from paragraph to paragraph
+                    - Include inline citations as [^1], [^2], etc. when referencing evidence or claims
+                    - Make it clear, complete, and useful with factual accuracy
+                    - CRITICAL: Use proper punctuation - single commas, single periods, no repeated punctuation marks
+                    - CRITICAL: Ensure sentences flow naturally - read each sentence to make sure it connects smoothly to the next
+                    - CRITICAL: Write in {context['tone']} tone consistently throughout - use ONLY this tone
+                    """
+                },
+                {
+                    "role": "user",
+                    "content": f"""Section: {context['title']}
+                    {f"Subtitle: {context['subtitle']}" if context.get('subtitle') else ""}
+
+                    Key Points to Cover:
+                    {chr(10).join(f"- {point}" for point in context['key_points'])}
+
+                    Research Brief: {context['research_brief']}
+                    {f"Draft Title: {context['draft_title']}" if context.get('draft_title') else ""}
+                    Keywords to integrate naturally: {context.get('keywords', '')}
+
+                    Relevant Claims:
+                    {chr(10).join(f"- {claim.get('claim', '')}" for claim in context['relevant_claims'][:3])}
+
+                    Supporting Evidence:
+                    {self._format_evidence_for_citations(context['relevant_evidence'][:10])}
+                    {self._get_citation_instructions(context)}
+
+                    IMPORTANT: Include 1-2 meaningful blockquotes that highlight key insights from the evidence or notable figures. Format them using <blockquote> tags with proper <cite> attribution."""
+                }
+            ]
+
+            response = self.llm_client.generate(messages)
+            content = response.content.strip()
+
+            # Clean HTML content - remove citations if flag is disabled
+            remove_citations = not context.get('include_in_text_citations', True)
+            cleaned_content = self._clean_html_content(content, remove_citations=remove_citations, section_title=context['title'])
+
+            # Additional pass to fix any remaining punctuation issues
+            cleaned_content = self._fix_punctuation_errors(cleaned_content)
+
+            # Create content block
+            content_block = ContentBlock(
+                content=cleaned_content,
+                content_type="quote",
+                word_count=len(cleaned_content.split()),
+                citations=self._extract_citations_from_content(cleaned_content, context['relevant_evidence']),
+                metadata={
+                    "llm_model": response.model,
+                    "generation_time": response.response_time,
+                    "cost": response.cost
+                }
+            )
+
+            return [content_block]
+
+        except Exception as e:
+            self.logger.error(f"Error generating quote content: {str(e)}")
+            return [self._create_fallback_content_block(context['title'], word_count_target)]
+
     def _generate_supporting_content(self, context: Dict[str, Any], remaining_words: int) -> List[ContentBlock]:
         """Generate additional supporting content if needed."""
         try:
@@ -1250,7 +1386,7 @@ Section Memory:
                     WRITING STYLE REQUIREMENTS:
                     - Write in a conversational, human style - avoid formal or formulaic language
                     {self._get_human_writing_instructions()}
-                    - Write in a natural style that reads like human-written content
+                    - Write in a natural style that reads like human-editing content
                     
                     {self._get_content_avoidance_instructions()}
                     - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3)
