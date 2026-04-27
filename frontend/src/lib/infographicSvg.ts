@@ -290,3 +290,65 @@ export function normalizeInfographicHtmlForEditor(html: string): string {
 
     return doc.body.innerHTML;
 }
+
+/**
+ * Applies premium inline styling to HTML tables to ensure they look excellent 
+ * when exported to WordPress, bypassing default plain theme styles.
+ */
+export function beautifyTablesHtml(html: string): string {
+    if (!html) return html;
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    doc.querySelectorAll('table').forEach((table) => {
+        // Essential layout
+        table.style.borderCollapse = 'separate';
+        table.style.borderSpacing = '0';
+        table.style.width = '100%';
+        table.style.margin = '2.5rem 0';
+        table.style.border = '1px solid #e5e7eb';
+        table.style.borderRadius = '12px';
+        table.style.overflow = 'hidden';
+        table.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02)';
+        
+        // Header styling
+        table.querySelectorAll('th').forEach((th) => {
+            th.style.backgroundColor = '#f8fafc';
+            th.style.color = '#1e293b';
+            th.style.fontWeight = '700';
+            th.style.padding = '16px 20px';
+            th.style.borderBottom = '2px solid #e2e8f0';
+            th.style.textAlign = 'left';
+            th.style.fontSize = '0.875rem';
+            th.style.letterSpacing = '0.025em';
+        });
+
+        // Cell styling
+        table.querySelectorAll('td').forEach((td) => {
+            td.style.padding = '14px 20px';
+            td.style.borderBottom = '1px solid #f1f5f9';
+            td.style.color = '#475569';
+            td.style.fontSize = '0.925rem';
+            td.style.lineHeight = '1.5';
+            td.style.verticalAlign = 'top';
+        });
+
+        // Zebra striping and hover-like effect (simulated via background if needed, but keeping it clean)
+        const rows = Array.from(table.rows);
+        rows.forEach((row, index) => {
+            if (index > 0 && index % 2 === 0) {
+                row.style.backgroundColor = '#fcfcfd';
+            }
+            
+            // Remove bottom border from last row cells to respect container radius
+            if (index === rows.length - 1) {
+                Array.from(row.cells).forEach(cell => {
+                    cell.style.borderBottom = 'none';
+                });
+            }
+        });
+    });
+
+    return doc.body.innerHTML;
+}

@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { materializeInfographicHtml } from '../lib/infographicSvg';
+import { materializeInfographicHtml, beautifyTablesHtml } from '../lib/infographicSvg';
 import type {
     WordPressSite,
     WordPressCategory,
@@ -365,12 +365,14 @@ const formatArticleBody = (articleData: any): string => {
         content += `</div>`;
     }
 
-    // 4. Main Body Content - Decode base64-encoded SVGs before sending to WordPress
+    // 4. Main Body Content - Decode base64-encoded SVGs and beautify tables before sending to WordPress
     const rawHtml = articleData.htmlArticle || articleData.htmlarticle || '';
-    content += materializeInfographicHtml(rawHtml);
+    let processedHtml = materializeInfographicHtml(rawHtml);
+    processedHtml = beautifyTablesHtml(processedHtml);
+    content += processedHtml;
 
     return injectGeoFormatting(content, articleData);
-};
+}
 
 
 

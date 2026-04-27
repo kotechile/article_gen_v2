@@ -27,7 +27,7 @@ import { MetricTooltip } from '../components/Tooltip';
 import type { ImageMetadata } from '../types/image';
 import { rankCitationDomains } from '../lib/citationAuthority';
 import { InfographicBlock } from '../components/editor/InfographicBlock';
-import { encodeSvgMarkup, materializeInfographicHtml, normalizeInfographicHtmlForEditor, sanitizeSvgMarkup } from '../lib/infographicSvg';
+import { encodeSvgMarkup, materializeInfographicHtml, normalizeInfographicHtmlForEditor, sanitizeSvgMarkup, beautifyTablesHtml } from '../lib/infographicSvg';
 import { generateInfographicSvg } from '../services/imageService';
 import type { Project } from '../types';
 
@@ -411,7 +411,10 @@ export const ArticleEditor: React.FC = () => {
     }, [citationAuthorityMeta, selectedCitations]);
     const isCuratedReferenceView = selectedCitations.size > 0 && selectedCitations.size < citations.length;
 
-    const materializeEditorHtml = React.useCallback((html: string) => materializeInfographicHtml(html), []);
+    const materializeEditorHtml = React.useCallback((html: string) => {
+        let processed = materializeInfographicHtml(html);
+        return beautifyTablesHtml(processed);
+    }, []);
     const normalizeEditorHtml = React.useCallback((html: string) => normalizeInfographicHtmlForEditor(html), []);
     const resolveInfographicTheme = React.useCallback(() => {
         const computed = getComputedStyle(document.documentElement);
