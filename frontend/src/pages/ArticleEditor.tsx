@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
-import { useProject } from '../context/project-context';
+
 import { useEditor, EditorContent } from '@tiptap/react';
 import { Extension } from '@tiptap/core';
 import BulletList from '@tiptap/extension-bullet-list';
@@ -27,9 +27,8 @@ import { MetricTooltip } from '../components/Tooltip';
 import type { ImageMetadata } from '../types/image';
 import { rankCitationDomains } from '../lib/citationAuthority';
 import { InfographicBlock } from '../components/editor/InfographicBlock';
-import { encodeSvgMarkup, materializeInfographicHtml, normalizeInfographicHtmlForEditor, sanitizeSvgMarkup, beautifyTablesHtml } from '../lib/infographicSvg';
-import { generateInfographicSvg } from '../services/imageService';
-import type { Project } from '../types';
+import { materializeInfographicHtml, normalizeInfographicHtmlForEditor, beautifyTablesHtml } from '../lib/infographicSvg';
+
 
 const HeadingIdExtension = Extension.create({
     name: 'headingId',
@@ -122,68 +121,6 @@ const getMetricColorClass = (score: number, isInverse: boolean = false) => {
     }
 };
 
-const clampColorChannel = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
-
-const hslToHex = (h: number, s: number, l: number) => {
-    const saturation = s / 100;
-    const lightness = l / 100;
-    const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
-    const huePrime = ((h % 360) + 360) % 360 / 60;
-    const x = chroma * (1 - Math.abs((huePrime % 2) - 1));
-
-    let r = 0;
-    let g = 0;
-    let b = 0;
-
-    if (huePrime >= 0 && huePrime < 1) {
-        r = chroma; g = x; b = 0;
-    } else if (huePrime < 2) {
-        r = x; g = chroma; b = 0;
-    } else if (huePrime < 3) {
-        r = 0; g = chroma; b = x;
-    } else if (huePrime < 4) {
-        r = 0; g = x; b = chroma;
-    } else if (huePrime < 5) {
-        r = x; g = 0; b = chroma;
-    } else {
-        r = chroma; g = 0; b = x;
-    }
-
-    const match = lightness - chroma / 2;
-    const toHex = (channel: number) => clampColorChannel((channel + match) * 255).toString(16).padStart(2, '0');
-
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-};
-
-const cssColorTokenToHex = (value: string, fallback: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) return fallback;
-
-    if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(trimmed)) {
-        return trimmed;
-    }
-
-    const hslMatch = trimmed.match(/(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%/);
-    if (!hslMatch) return fallback;
-
-    const [, h, s, l] = hslMatch;
-    return hslToHex(Number(h), Number(s), Number(l));
-};
-
-const normalizeHexColor = (value?: string | null) => {
-    const trimmed = String(value || '').trim();
-    if (!trimmed) return '';
-    return /^#?[0-9a-fA-F]{6}$/.test(trimmed)
-        ? (trimmed.startsWith('#') ? trimmed : `#${trimmed}`)
-        : '';
-};
-
-const normalizeDomain = (value?: string | null) =>
-    String(value || '')
-        .trim()
-        .toLowerCase()
-        .replace(/^https?:\/\//, '')
-        .replace(/\/$/, '');
 
 const normalizeResidualMarkdownHeadings = (html: string): string => {
     if (!html) return html;
@@ -351,13 +288,12 @@ const EditorStyles = `
 export const ArticleEditor: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const { user } = useAuth();
-    const { activeProject, projects } = useProject();
+
     const navigate = useNavigate();
     const editorContainerRef = useRef<HTMLDivElement | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [isSuggesting, setIsSuggesting] = useState(false);
-    const [isGeneratingInfographic, setIsGeneratingInfographic] = useState(false);
     const [isDirty, setIsDirty] = useState(false);
 
     // Warn on unsaved changes (Browser Navigation)
@@ -385,6 +321,7 @@ export const ArticleEditor: React.FC = () => {
     const [featuredImage, setFeaturedImage] = useState<ImageMetadata | null>(null);
     const [imagePickMode, setImagePickMode] = useState<'content' | 'featured'>('content');
     const [isAddImageModalOpen, setIsAddImageModalOpen] = useState(false);
+    const [imageModalInitialTab, setImageModalInitialTab] = useState<'ai' | 'stock' | 'upload' | 'url' | 'infographic' | undefined>(undefined);
 
 
     // Reference/Citation state
@@ -396,7 +333,7 @@ export const ArticleEditor: React.FC = () => {
     // WordPress export state
     const [showWordPressModal, setShowWordPressModal] = useState(false);
     const [articleData, setArticleData] = useState<any>(null);
-    const [resolvedBrandTheme, setResolvedBrandTheme] = useState<{ accent?: string; text?: string; secondary?: string; neutral?: string } | null>(null);
+
 
     // Metrics & Affiliate State
     const [metrics, setMetrics] = useState<any>({});
@@ -416,21 +353,6 @@ export const ArticleEditor: React.FC = () => {
         return beautifyTablesHtml(processed);
     }, []);
     const normalizeEditorHtml = React.useCallback((html: string) => normalizeInfographicHtmlForEditor(html), []);
-    const resolveInfographicTheme = React.useCallback(() => {
-        const computed = getComputedStyle(document.documentElement);
-        const appTheme = {
-            accent: cssColorTokenToHex(computed.getPropertyValue('--primary'), '#3b82f6'),
-            text: cssColorTokenToHex(computed.getPropertyValue('--foreground'), '#1e293b'),
-            secondary: cssColorTokenToHex(computed.getPropertyValue('--chart-2'), '#60a5fa'),
-            neutral: cssColorTokenToHex(computed.getPropertyValue('--muted-foreground'), '#94a3b8'),
-        };
-        return {
-            accent: resolvedBrandTheme?.accent || appTheme.accent,
-            text: resolvedBrandTheme?.text || appTheme.text,
-            secondary: resolvedBrandTheme?.secondary || appTheme.secondary,
-            neutral: resolvedBrandTheme?.neutral || appTheme.neutral,
-        };
-    }, [resolvedBrandTheme]);
 
     const extensions = React.useMemo(() => [
         StarterKit.configure({
@@ -481,64 +403,7 @@ export const ArticleEditor: React.FC = () => {
 
     const hasTextSelection = !!editor && !editor.state.selection.empty && !!editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to).trim();
 
-    const findSelectedBlockPosition = () => {
-        if (!editor) return null;
 
-        const { $to } = editor.state.selection;
-        for (let depth = $to.depth; depth > 0; depth -= 1) {
-            const node = $to.node(depth);
-            if (node.isBlock) {
-                return editor.state.selection.$to.after(depth);
-            }
-        }
-
-        return editor.state.selection.to;
-    };
-
-    const findInfographicNodePosition = (requestId: string) => {
-        if (!editor) return null;
-
-        let foundPos: number | null = null;
-        editor.state.doc.descendants((node, pos) => {
-            if (node.type.name === 'infographicBlock' && node.attrs.requestId === requestId) {
-                foundPos = pos;
-                return false;
-            }
-            return true;
-        });
-
-        return foundPos;
-    };
-
-    const replaceInfographicNode = (requestId: string, attrs: Record<string, unknown>) => {
-        if (!editor) return false;
-
-        const pos = findInfographicNodePosition(requestId);
-        if (pos === null) return false;
-
-        const node = editor.state.doc.nodeAt(pos);
-        if (!node) return false;
-
-        const transaction = editor.state.tr.replaceWith(
-            pos,
-            pos + node.nodeSize,
-            editor.schema.nodes.infographicBlock.create(attrs)
-        );
-        editor.view.dispatch(transaction);
-        return true;
-    };
-
-    const removeInfographicNode = (requestId: string) => {
-        if (!editor) return;
-
-        const pos = findInfographicNodePosition(requestId);
-        if (pos === null) return;
-
-        const node = editor.state.doc.nodeAt(pos);
-        if (!node) return;
-
-        editor.view.dispatch(editor.state.tr.delete(pos, pos + node.nodeSize));
-    };
 
     const extractCitationsFromHtml = (html: string): any[] => {
         const parser = new DOMParser();
@@ -889,69 +754,6 @@ export const ArticleEditor: React.FC = () => {
         fetchArticle();
     }, [id, user, editor]);
 
-    useEffect(() => {
-        const resolveBranding = async () => {
-            if (!user) return;
-
-            const articleDomain = normalizeDomain(articleData?.domain);
-            const articleProjectId = String(articleData?.project_id || articleData?.projectId || '').trim();
-
-            const projectById = articleProjectId
-                ? projects.find((project) => project.id === articleProjectId) || null
-                : null;
-            const projectByDomain = articleDomain
-                ? projects.find((project) => normalizeDomain(project.domain) === articleDomain) || null
-                : null;
-            const matchedProject: Project | null = projectById || projectByDomain || activeProject || null;
-
-            const projectTheme = matchedProject ? {
-                accent: normalizeHexColor(matchedProject.brand_primary_color),
-                text: normalizeHexColor(matchedProject.brand_text_color),
-                secondary: normalizeHexColor(matchedProject.brand_secondary_color),
-                neutral: normalizeHexColor(matchedProject.brand_neutral_color),
-            } : null;
-
-            const candidateDomain = articleDomain || normalizeDomain(matchedProject?.domain) || normalizeDomain(activeProject?.domain);
-            let wpOverride: { accent?: string; text?: string; secondary?: string; neutral?: string } | null = null;
-
-            if (candidateDomain) {
-                try {
-                    const { data: wpSite } = await supabase
-                        .from('wordPress_details')
-                        .select('brand_primary_color, brand_text_color, brand_secondary_color, brand_neutral_color')
-                        .eq('user_id', user.id)
-                        .eq('domain', candidateDomain)
-                        .maybeSingle();
-
-                    if (wpSite) {
-                        wpOverride = {
-                            accent: normalizeHexColor((wpSite as any).brand_primary_color),
-                            text: normalizeHexColor((wpSite as any).brand_text_color),
-                            secondary: normalizeHexColor((wpSite as any).brand_secondary_color),
-                            neutral: normalizeHexColor((wpSite as any).brand_neutral_color),
-                        };
-                    }
-                } catch (error) {
-                    console.warn('Brand override lookup failed; falling back to project/app theme.', error);
-                }
-            }
-
-            const merged = {
-                accent: wpOverride?.accent || projectTheme?.accent || '',
-                text: wpOverride?.text || projectTheme?.text || '',
-                secondary: wpOverride?.secondary || projectTheme?.secondary || '',
-                neutral: wpOverride?.neutral || projectTheme?.neutral || '',
-            };
-
-            if (merged.accent || merged.text || merged.secondary || merged.neutral) {
-                setResolvedBrandTheme(merged);
-            } else {
-                setResolvedBrandTheme(null);
-            }
-        };
-
-        resolveBranding();
-    }, [activeProject, articleData, projects, user]);
 
     const persistArticle = React.useCallback(async (options?: {
         selectedCitations?: Set<number>;
@@ -1179,69 +981,19 @@ export const ArticleEditor: React.FC = () => {
         return editor.state.doc.textBetween(from, to);
     };
 
-    const handleGenerateInfographic = async () => {
-        if (!editor || !user || isGeneratingInfographic) return;
+    const handleGenerateInfographic = () => {
+        if (!editor || !user) return;
 
         const selectedText = getSelectedText().trim();
-        const insertionPos = findSelectedBlockPosition();
 
-        if (!selectedText || insertionPos === null) {
-            alert('Highlight a paragraph or text selection first.');
+        if (!selectedText) {
+            alert('Highlight a paragraph or text selection first to generate an infographic.');
             return;
         }
 
-        const requestId = `infographic-${Date.now()}`;
-        const theme = resolveInfographicTheme();
-        const placeholder = {
-            type: 'infographicBlock',
-            attrs: {
-                loading: true,
-                requestId,
-                svg: '',
-            },
-        };
-
-        editor.chain().focus().insertContentAt(insertionPos, placeholder).run();
-        setIsGeneratingInfographic(true);
-
-        try {
-            const response = await generateInfographicSvg({
-                text: selectedText,
-                user_id: user.id,
-                theme,
-            });
-
-            const sanitizedSvg = sanitizeSvgMarkup(response.svg);
-            if (!sanitizedSvg.startsWith('<svg')) {
-                throw new Error('The generated infographic was not valid SVG.');
-            }
-
-            const replaced = replaceInfographicNode(requestId, {
-                loading: false,
-                requestId,
-                svg: encodeSvgMarkup(sanitizedSvg),
-            });
-
-            if (!replaced) {
-                editor.chain().focus().insertContent({
-                    type: 'infographicBlock',
-                    attrs: {
-                        loading: false,
-                        requestId,
-                        svg: encodeSvgMarkup(sanitizedSvg),
-                    },
-                }).run();
-            }
-
-            setIsDirty(true);
-            await persistArticle();
-        } catch (error) {
-            console.error('Error generating infographic:', error);
-            removeInfographicNode(requestId);
-            alert(error instanceof Error ? error.message : 'Failed to generate infographic');
-        } finally {
-            setIsGeneratingInfographic(false);
-        }
+        setImagePickMode('content');
+        setImageModalInitialTab('infographic');
+        setIsAddImageModalOpen(true);
     };
 
     const setLink = () => {
@@ -1601,7 +1353,6 @@ export const ArticleEditor: React.FC = () => {
                                     }
                                     setShowWordPressModal(true);
                                 }}
-                                disabled={isGeneratingInfographic}
                                 className="flex items-center gap-2 px-3 py-2 bg-accent text-accent-foreground rounded-lg hover:bg-accent/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <Globe className="w-4 h-4" />
@@ -1609,7 +1360,7 @@ export const ArticleEditor: React.FC = () => {
                             </button>
                             <button
                                 onClick={handleSave}
-                                disabled={saving || isGeneratingInfographic}
+                                disabled={saving}
                                 className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -1753,8 +1504,8 @@ export const ArticleEditor: React.FC = () => {
                                 />
                                 <ToolbarButton
                                     onClick={handleGenerateInfographic}
-                                    disabled={!hasTextSelection || isGeneratingInfographic}
-                                    icon={isGeneratingInfographic ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChartColumn className="w-4 h-4" />}
+                                    disabled={!hasTextSelection}
+                                    icon={<ChartColumn className="w-4 h-4" />}
                                     tooltip="Generate Infographic from Selection"
                                 />
                                 <ToolbarButton
@@ -2131,10 +1882,10 @@ export const ArticleEditor: React.FC = () => {
                                 handleGenerateInfographic();
                                 setContextMenu(null);
                             }}
-                            disabled={!hasTextSelection || isGeneratingInfographic}
+                            disabled={!hasTextSelection}
                             className="w-full text-left px-3 py-1.5 hover:bg-accent text-primary rounded-lg text-sm flex items-center gap-3 font-medium"
                         >
-                            {isGeneratingInfographic ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChartColumn className="w-4 h-4" />} Generate Infographic from Selection
+                            <ChartColumn className="w-4 h-4" /> Generate Infographic from Selection
                         </button>
                     </div>
                 </div>
@@ -2146,6 +1897,7 @@ export const ArticleEditor: React.FC = () => {
                     onImageSelected={handleImageSelected}
                     selectedText={getSelectedText()}
                     userId={user.id}
+                    initialTab={imageModalInitialTab}
                 />
             )}
 

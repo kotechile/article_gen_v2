@@ -13,15 +13,17 @@ interface AddImageModalProps {
     onImageSelected: (imageUrl: string, metadata: ImageMetadata) => void;
     selectedText?: string;
     userId: string;
+    initialTab?: ImageSourceTab;
 }
 
 export const AddImageModal: React.FC<AddImageModalProps> = ({
     onClose,
     onImageSelected,
     selectedText,
-    userId
+    userId,
+    initialTab = 'ai'
 }) => {
-    const [activeTab, setActiveTab] = useState<ImageSourceTab>('ai');
+    const [activeTab, setActiveTab] = useState<ImageSourceTab>(initialTab);
     const [selectedImage, setSelectedImage] = useState<{ url: string; metadata: Partial<ImageMetadata> } | null>(null);
     const [showMetadataEditor, setShowMetadataEditor] = useState(false);
 
