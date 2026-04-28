@@ -115,13 +115,29 @@ def _extract_refined_metadata_from_response(raw: str, fallback_title: str, fallb
 
     try:
         parsed = json.loads(cleaned)
-        return {
-            "refined_title": str(parsed.get("refined_title") or fallback_title).strip(),
-            "refined_description": str(parsed.get("refined_description") or fallback_description).strip(),
-            "rationale": str(parsed.get("rationale") or "").strip(),
-        }
+        if isinstance(parsed, dict) and ("refined_title" in parsed or "refined_description" in parsed):
+            return {
+                "refined_title": str(parsed.get("refined_title") or fallback_title).strip(),
+                "refined_description": str(parsed.get("refined_description") or fallback_description).strip(),
+                "rationale": str(parsed.get("rationale") or "").strip(),
+            }
     except Exception:
         pass
+
+    # Fallback: extract JSON from deepthink/reasoning text via regex.
+    # Matches {"refined_title": "...", ...} even when buried in model reasoning.
+    import re
+    for match in re.finditer(r'\{[^{}]*"refined_title"[^{}]*\}', cleaned):
+        try:
+            candidate = json.loads(match.group())
+            if isinstance(candidate, dict):
+                return {
+                    "refined_title": str(candidate.get("refined_title") or fallback_title).strip(),
+                    "refined_description": str(candidate.get("refined_description") or fallback_description).strip(),
+                    "rationale": str(candidate.get("rationale") or "").strip(),
+                }
+        except Exception:
+            continue
 
     # Fallback heuristics if model didn't return strict JSON.
     refined_title = fallback_title
@@ -400,7 +416,7 @@ def refine_research_metadata():
             temperature=0.2,
             timeout=45,
             max_retries=1,
-            max_tokens=450,
+            max_tokens=600,
         )
 
         secondary_part = ", ".join(secondary_keywords) if secondary_keywords else "none"
