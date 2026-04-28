@@ -207,8 +207,8 @@ export async function getInfographicTemplates(): Promise<InfographicTemplate[]> 
         CSS: t.css || t.CSS,
         prompt: t.prompt,
         jsonStructure: t.json_structure || t.jsonStructure,
-        sampleImage: t.sampleimage || t.sampleImage,
-        numberOfItems: t.numberofitems || t.numberOfItems
+        sampleImage: t.sample_image || t.sampleimage || t.sampleImage,
+        numberOfItems: t.number_of_items || t.numberofitems || t.numberOfItems
     }));
 }
 
