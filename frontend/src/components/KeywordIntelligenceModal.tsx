@@ -543,9 +543,10 @@ interface FooterProps {
     saved: boolean;
     onSave: () => void;
     onRemoveSecondary?: (kw: string) => void;
+    autoSaveActive?: boolean;
 }
 
-function Footer({ primaryKeyword, secondaryKeywords, saving, saved, onSave, onRemoveSecondary }: FooterProps) {
+function Footer({ primaryKeyword, secondaryKeywords, saving, saved, onSave, onRemoveSecondary, autoSaveActive = false }: FooterProps) {
     return (
         <div className="border-t border-white/10 p-4 bg-slate-900 flex flex-col sm:flex-row items-start sm:items-center gap-3">
             <div className="flex-1 flex flex-col gap-1 min-w-0">
@@ -598,17 +599,17 @@ function Footer({ primaryKeyword, secondaryKeywords, saving, saved, onSave, onRe
                 {saving ? (
                     <>
                         <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                        Saving…
+                        {autoSaveActive ? "Auto-saving..." : "Saving…"}
                     </>
                 ) : saved ? (
                     <>
                         <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                        Saved!
+                        {autoSaveActive ? "Saved" : "Saved!"}
                     </>
                 ) : (
                     <>
                         <Save className="w-3.5 h-3.5 mr-1.5" />
-                        Save Selections
+                        {autoSaveActive ? "Auto-save on" : "Save Selections"}
                     </>
                 )}
             </Button>
@@ -640,6 +641,15 @@ export interface KeywordIntelligenceModalProps {
         metrics: { volume: number | null; difficulty: number | null; cpc: number | null },
         rawOutput?: any
     ) => Promise<boolean>;
+    /**
+     * Optional loading state - true when keyword data is being fetched/enriched.
+     * Shows a loading spinner instead of "No data available" when true.
+     */
+    isLoading?: boolean;
+    /**
+     * Optional label for loading state (e.g., "Fetching keyword data...")
+     */
+    loadingLabel?: string;
 }
 
 export function KeywordIntelligenceModal({
@@ -648,6 +658,8 @@ export function KeywordIntelligenceModal({
     idea,
     onSaved,
     onSave,
+    isLoading = false,
+    loadingLabel = "Loading keyword data...",
 }: KeywordIntelligenceModalProps) {
     const { user } = useAuth();
 
@@ -695,6 +707,68 @@ export function KeywordIntelligenceModal({
     const [saving, setSaving] = React.useState(false);
     const [saved, setSaved] = React.useState(false);
     const [saveError, setSaveError] = React.useState<string | null>(null);
+    const [lastAutoSavedPrimary, setLastAutoSavedPrimary] = React.useState<string | null>(null);
+    const [lastAutoSavedSecondary, setLastAutoSavedSecondary] = React.useState<string[]>([]);
+    const autoSaveTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Internal loading state - activates when modal opens but no data yet
+    const [isDataLoading, setIsDataLoading] = React.useState(false);
+    const dataLoadTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Show loading indicator when modal opens but data isn't available yet
+    React.useEffect(() => {
+        if (isOpen && !parsed && !isLoading) {
+            // Start a timer - if data doesn't appear within 1.5 seconds, show loading
+            dataLoadTimerRef.current = setTimeout(() => {
+                setIsDataLoading(true);
+            }, 1500);
+
+            return () => {
+                if (dataLoadTimerRef.current) {
+                    clearTimeout(dataLoadTimerRef.current);
+                }
+            };
+        } else {
+            setIsDataLoading(false);
+        }
+    }, [isOpen, parsed, isLoading]);
+
+    // Clear loading state when data arrives
+    React.useEffect(() => {
+        if (parsed && isDataLoading) {
+            setIsDataLoading(false);
+        }
+    }, [parsed, isDataLoading]);
+
+    // Auto-save when modal closes (user switches tabs or closes without manual save)
+    React.useEffect(() => {
+        if (!isOpen) return;
+
+        const handleVisibilityChange = () => {
+            if (document.hidden && primaryKeyword) {
+                // User switched tabs - trigger immediate save without debounce
+                console.log("[KeywordIntelligenceModal] Page hidden, auto-saving expanded keywords...");
+                triggerAutoSave(primaryKeyword, secondaryKeywords);
+            }
+        };
+
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+        return () => {
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+        };
+    }, [isOpen, primaryKeyword, secondaryKeywords]);
+
+    // Cleanup auto-save timeout on unmount
+    React.useEffect(() => {
+        return () => {
+            if (autoSaveTimeoutRef.current) {
+                clearTimeout(autoSaveTimeoutRef.current);
+            }
+            if (dataLoadTimerRef.current) {
+                clearTimeout(dataLoadTimerRef.current);
+            }
+        };
+    }, []);
 
     const baseParsedKeywordLookup = React.useMemo(() => {
         const map = new Map<string, string>();
@@ -750,15 +824,89 @@ export function KeywordIntelligenceModal({
         // Remove from secondary if it was there
         setSecondaryKeywords((prev) => prev.filter((k) => k !== keyword));
         setSaved(false);
+        // Trigger auto-save
+        triggerAutoSave(keyword, secondaryKeywords.filter(k => k !== keyword));
     };
 
     const handleToggleSecondary = (keyword: string) => {
         if (keyword === primaryKeyword) return;
-        setSecondaryKeywords((prev) =>
-            prev.includes(keyword) ? prev.filter((k) => k !== keyword) : [...prev, keyword]
-        );
+        const newSecondary = secondaryKeywords.includes(keyword)
+            ? secondaryKeywords.filter((k) => k !== keyword)
+            : [...secondaryKeywords, keyword];
+        setSecondaryKeywords(newSecondary);
         setSaved(false);
+        // Trigger auto-save with updated secondary
+        triggerAutoSave(primaryKeyword, newSecondary);
     };
+
+    /** Auto-save selections with debounce to avoid excessive saves */
+    const triggerAutoSave = React.useCallback(async (primary: string | null, secondary: string[]) => {
+        // Clear any pending auto-save
+        if (autoSaveTimeoutRef.current) {
+            clearTimeout(autoSaveTimeoutRef.current);
+        }
+
+        // Debounce auto-save by 1.5 seconds to avoid saving on every keystroke
+        autoSaveTimeoutRef.current = setTimeout(async () => {
+            if (!primary || !user) return;
+
+            // Skip if nothing changed since last auto-save
+            if (primary === lastAutoSavedPrimary &&
+                JSON.stringify(secondary.sort()) === JSON.stringify([...lastAutoSavedSecondary].sort())) {
+                return;
+            }
+
+            setSaving(true);
+            setSaveError(null);
+            try {
+                const normalizedPrimaryKey = normalizeKeywordKey(primary);
+                const normalizedPrimary = parsedKeywordLookup.get(normalizedPrimaryKey) ?? primary;
+                const normalizedSecondary = Array.from(
+                    new Set(
+                        secondary
+                            .map((kw) => parsedKeywordLookup.get(normalizeKeywordKey(kw)) ?? kw)
+                            .filter(Boolean)
+                    )
+                ).filter((kw) => kw !== normalizedPrimary);
+
+                // Find metrics for the primary keyword
+                const primaryRow = parsed?.rows.find((r) => r.keyword === normalizedPrimary);
+                const metrics = {
+                    volume: primaryRow?.search_volume ?? null,
+                    difficulty: primaryRow?.keyword_difficulty ?? null,
+                    cpc: primaryRow?.cpc ?? null,
+                };
+
+                console.log("[KeywordIntelligenceModal] Auto-saving keyword selection...", {
+                    primary: normalizedPrimary,
+                    secondaryCount: normalizedSecondary.length,
+                });
+
+                const ok = onSave
+                    ? await onSave(normalizedPrimary, normalizedSecondary, metrics, parsed)
+                    : await contentIdeasService.updateKeywordSelection(
+                        idea.id,
+                        user.id,
+                        normalizedPrimary,
+                        normalizedSecondary,
+                        metrics,
+                        parsed
+                    );
+
+                if (ok) {
+                    setLastAutoSavedPrimary(normalizedPrimary);
+                    setLastAutoSavedSecondary(normalizedSecondary);
+                    setSaved(true);
+                    onSaved?.(normalizedPrimary, normalizedSecondary, metrics, parsed);
+                    setTimeout(() => setSaved(false), 2000);
+                }
+            } catch (err) {
+                console.error("[KeywordIntelligenceModal] Auto-save failed:", err);
+            } finally {
+                setSaving(false);
+            }
+        }, 1500);
+    }, [user, parsed, parsedKeywordLookup, onSave, onSaved, idea.id, lastAutoSavedPrimary, lastAutoSavedSecondary]);
 
     const handleToggleChart = (keyword: string) => {
         setExpandedChart((prev) => (prev === keyword ? null : keyword));
@@ -887,6 +1035,10 @@ export function KeywordIntelligenceModal({
             });
             setExpanderAdded(newRows.length);
             setExpanderSeed(""); // clear after success
+
+            // Auto-save after successfully adding new keywords from DataForSEO
+            // This ensures expanded keywords are persisted even if user switches tabs or modal closes
+            triggerAutoSave(primaryKeyword, secondaryKeywords);
         } catch (err) {
             setExpanderError("Unexpected error fetching keywords.");
         } finally {
@@ -1005,8 +1157,21 @@ export function KeywordIntelligenceModal({
                     )}
                 </AnimatePresence>
 
+                {/* ── Loading state ── */}
+                {(isLoading || isDataLoading) && (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-4 p-12 text-center">
+                        <Loader2 className="w-12 h-12 text-indigo-400 animate-spin" />
+                        <div>
+                            <p className="text-slate-300 font-medium mb-1">{loadingLabel}</p>
+                            <p className="text-xs text-slate-500 max-w-sm">
+                                Fetching keyword metrics from DataForSEO...
+                            </p>
+                        </div>
+                    </div>
+                )}
+
                 {/* ── No data state ── */}
-                {!parsed ? (
+                {!isLoading && !isDataLoading && !parsed ? (
                     <div className="flex-1 flex flex-col items-center justify-center gap-4 p-12 text-center">
                         <AlertTriangle className="w-12 h-12 text-amber-500/60" />
                         <div>
@@ -1028,7 +1193,7 @@ export function KeywordIntelligenceModal({
                 ) : (
                     <>
                         {/* ── Summary bar ── */}
-                        <SummaryBar data={parsed} />
+                        {parsed && <SummaryBar data={parsed} />}
 
                         {/* ── Column legend ── */}
                         <div className="flex-1 overflow-auto">
@@ -1064,7 +1229,7 @@ export function KeywordIntelligenceModal({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {parsed.rows.map((row) => (
+                                    {parsed?.rows.map((row) => (
                                         <KeywordTableRow
                                             key={row.keyword}
                                             row={row}
@@ -1114,6 +1279,7 @@ export function KeywordIntelligenceModal({
                             saving={saving}
                             saved={saved}
                             onSave={handleSave}
+                            autoSaveActive={Boolean(primaryKeyword)}
                             onRemoveSecondary={(kw) => {
                                 setSecondaryKeywords((prev) => prev.filter((k) => k !== kw));
                                 setSaved(false);
