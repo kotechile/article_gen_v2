@@ -39,11 +39,6 @@ limiter = Limiter(
     storage_uri="memory://"
 )
 
-
-- Any text has poor contrast.
-- Any text is too small.
-- Any text overlaps a shape, icon, or another text element.
-- The layout is crowded.
 def upload_to_supabase_storage(file_data: bytes, filename: str, user_id: str, content_type: str = 'image/jpeg') -> str:
     """
     Upload image to Supabase storage.
