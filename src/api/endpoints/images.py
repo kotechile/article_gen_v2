@@ -242,10 +242,10 @@ Output contract:
 
 Visual Design & Aesthetic Rules (strict):
 - Aesthetic: modern, high-end, clean, and professional, inspired by top-tier tech companies.
-- Geometry: rely on precision geometry. Use crisp rounded rectangles with rx/ry, perfect circles, and straight alignment.
+- Geometry: Use a highly diverse mix of geometric shapes (perfect circles, capsules, hexagons, layered polygons, arcs, rings, and custom paths). CRITICAL: Do NOT rely solely on basic rectangles or simple cards. Break away from standard boxy layouts.
 - Do NOT use chaotic, random, or overly complex Bezier-curve blobs.
-- Structure: favor Bento-box style layouts, strict grid alignments such as halves or thirds, or clean comparative side-by-side columns.
-- Backgrounds: use a cohesive, subtle background. If using cards, use subtle contrast such as light cards on a light neutral field or deep gray cards on a near-black field.
+- Structure: Create dynamic, interconnected, or layered layouts (e.g., central hubs with orbital nodes, flowing timelines, intersecting circles) rather than just Bento-box grids.
+- Backgrounds: use a cohesive, subtle background. If using shapes, use subtle contrast such as light shapes on a light neutral field or deep gray shapes on a near-black field.
 - Depth: create premium depth using subtle, highly blurred, low-opacity drop shadows. Prefer soft feDropShadow effects with high stdDeviation and low opacity around 0.05 to 0.1. Avoid harsh shadows.
 - Color restraint: use a highly disciplined palette. Use neutrals for backgrounds and most text, and reserve vibrant accent colors strictly for data visualizations, key metrics, and highlight focal points.
 - Avoid gradients unless they are subtle, linear wash gradients on a background or a restrained data bar treatment.
@@ -261,22 +261,22 @@ Typography & hierarchy rules:
 - Hierarchy is critical. Create massive contrast between data and labels.
 - Hero numbers should be massive and bold, typically around 60px to 80px with font-weight="800" for the most important numbers or takeaways.
 - Kickers and labels should use small uppercase text with tracking, such as font-size around 12, font-weight around 600, and letter-spacing around 1.5.
-- Body copy must be incredibly brief. Use <tspan> with explicit dy or y spacing.
+- CRITICAL TEXT CONSTRAINT: Text MUST NOT overflow its containing shape or cross outside canvas borders. You MUST manually break all body text into short lines using multiple <tspan> elements with explicit `x` and `dy` (e.g., dy="1.2em"). Size your containing shapes generously so text fits comfortably inside.
 - Do not write full paragraphs. Summarize into punchy 4 to 5 word phrases.
-- Never place light text on a light card or dark text on a dark card. Readability is the highest priority.
+- Never place light text on a light background or dark text on a dark background. Readability is the highest priority.
 
 Data visualization & layout rules:
 - Apply a strict 40px outer margin to the canvas.
-- Ensure generous internal padding of at least 24px inside all cards and panels.
+- Ensure generous internal padding of at least 24px inside all shapes and panels.
 - Give text room to breathe.
 - Translate numbers into simple, highly accurate geometric comparisons.
 - Prefer proportional horizontal bar charts, split donuts or rings using stroke-dasharray, or stark size-contrasting typography.
 - Do not attempt to draw complex icons, isometric 3D objects, or literal illustrations.
 - Represent concepts abstractly using pristine geometry, lines, dots, and scale.
-- Elements must never overlap.
-- Calculate x and y coordinates meticulously to ensure clean gaps and gutters of at least 20px between panels and cards.
+- Elements must never overlap unintentionally.
+- Calculate x and y coordinates meticulously to ensure clean gaps and gutters of at least 20px between shapes and cards.
 - Favor 2 to 4 strong modules. If the content feels cramped, reduce the number of modules rather than shrinking text or padding.
-- Use a Bento-box, side-by-side comparison, or clean grid layout unless the content strongly requires another precise analytical arrangement.
+- Avoid boxy Bento-box designs if possible; prefer fluid, circular, or branching analytical arrangements.
 
 Technical rules:
 - Avoid scripts, animation, foreignObject, external assets, and embedded raster images.
@@ -408,9 +408,10 @@ TYPOGRAPHY:
 - Module headings: 15-19px, bold or semibold.
 - Body labels: 11-14px.
 - Avoid text smaller than 10.5px.
-- Use <tspan> for all multi-line text.
-- Do not rely on SVG text wrapping.
-- Keep each text line short.
+- CRITICAL TEXT CONSTRAINT: Text MUST NEVER overflow its containing shape, card, or cross outside canvas borders.
+- Use <tspan> for all multi-line text with explicit `x` and `dy` values (e.g. dy="1.4em").
+- Do not rely on SVG text wrapping. You must manually break text into short lines.
+- Keep each text line short and ensure the background shape is generously sized to contain all <tspan> lines.
 - Use letter spacing sparingly.
 - Do not use low-opacity text for important information.
 - Do not use decorative oversized background text unless it is clearly non-essential.
@@ -428,21 +429,23 @@ COLOR AND CONTRAST:
 
 GEOMETRY AND ILLUSTRATION:
 - Build the infographic with SVG primitives and custom paths.
+- CRITICAL: Break out of standard boxy rectangular layouts. Force yourself to use non-rectangular geometry.
 - Include at least one organic blob using a complex Bezier <path>.
-- Use a mix of:
+- Use a highly diverse mix of:
   - organic blobs
   - curved ribbons
   - arcs
   - rings
   - wedges
   - tapered bands
+  - intersecting circles
+  - polygons and hexagons
   - isometric blocks
   - cutaway panels
   - layered capsules
   - radial nodes
-  - illustrated icons
-- Do not use only rectangles or rounded rectangles.
-- Do not create three equal cards in a row unless the source text explicitly demands a simple comparison.
+- ABSOLUTELY DO NOT use only rectangles or rounded rectangles. Make the core structure visually distinct and creative.
+- Do not create three equal cards in a row under any circumstances.
 - Connect related ideas with curved paths, orbital arcs, S-curves, or tapered connectors.
 - Use illustrations that match the topic. For example:
   - risk = warning marker, crack, shield, inspection lens
