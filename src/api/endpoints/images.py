@@ -1149,13 +1149,16 @@ def generate_infographic():
         
         # --- End LLM Content Generation ---
 
-        # Build clip parameters
-        clip = {
-            "x": template.data.get('clipX') or 0,
-            "y": template.data.get('clipY') or 0,
-            "width": template.data.get('clipWidth') or width,
-            "height": template.data.get('clipHeight') or height
+        # Build clip parameters only if explicitly defined
+        clip_data = {
+            "x": template.data.get('clipX'),
+            "y": template.data.get('clipY'),
+            "width": template.data.get('clipWidth'),
+            "height": template.data.get('clipHeight')
         }
+        
+        # If any clip parameters are missing, we default to fullPage capture
+        use_clip = all(v is not None for v in clip_data.values())
         
         # Call Screen Capture Service
         render_url = current_app.config.get('RENDER_SERVICE_URL', 'http://localhost:8082/generate-image')
@@ -1164,8 +1167,11 @@ def generate_infographic():
             "css": css_content,
             "width": width,
             "height": height,
-            "clip": clip
+            "fullPage": not use_clip
         }
+        
+        if use_clip:
+            payload["clip"] = clip_data
         
         logger.info(f"Calling render service at {render_url} for template {template_id}")
         
