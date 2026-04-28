@@ -207,6 +207,15 @@ function buildRefinementSignature(
     ].join('||');
 }
 
+function titleHasKeywordAndWithinLengthLimit(
+    title: string,
+    primaryKeyword: string
+): boolean {
+    if (!primaryKeyword) return false;
+    const trimmed = title.trim();
+    return trimmed.length <= 60 && trimmed.toLowerCase().includes(primaryKeyword.toLowerCase());
+}
+
 function inferSourceMode(params: {
     sourceStrategy?: string | null;
     ragCollection?: string | null;
@@ -588,17 +597,18 @@ export const ContentStudio: React.FC = () => {
 
             const secondaryKeywords = article?.secondary_keywords ?? [];
             const secondaryKwList = secondaryKeywords.slice(0, 4).join(', ');
-            const refinementSignature = buildRefinementSignature(
-                effectiveTitle,
-                effectiveDescription,
-                primaryKw
-            );
+            const titleKeywordReady = titleHasKeywordAndWithinLengthLimit(effectiveTitle, primaryKw);
 
             if (
                 seoShiftEnabled &&
                 primaryKw &&
                 !options?.skipApprovalGate &&
-                approvedRefinementSignature !== refinementSignature
+                approvedRefinementSignature !== buildRefinementSignature(
+                    effectiveTitle,
+                    effectiveDescription,
+                    primaryKw
+                ) &&
+                !titleKeywordReady
             ) {
                 setRequestingRefinement(true);
                 try {
@@ -1280,7 +1290,7 @@ export const ContentStudio: React.FC = () => {
                         <div>
                             <h3 className="text-lg font-semibold text-foreground">Approve GEO Metadata Refinement</h3>
                             <p className="text-sm text-muted-foreground">
-                                Review and edit the refined title/description before full article generation.
+                                The title does not include the primary keyword or exceeds 60 characters. Refine the metadata before generation.
                             </p>
                         </div>
 
@@ -1292,15 +1302,16 @@ export const ContentStudio: React.FC = () => {
 
                         <div className="space-y-3">
                             <div>
-                                <label className="block text-sm font-medium mb-1">Refined Title</label>
+                                <label className="block text-sm font-medium mb-1">Refined Title <span className="text-muted-foreground text-xs">(must include primary keyword, ≤60 chars)</span></label>
                                 <input
                                     className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
                                     value={refinementDraft.title}
                                     onChange={(e) => setRefinementDraft((prev) => ({ ...prev, title: e.target.value }))}
                                 />
+                                <p className="text-xs text-muted-foreground mt-1">{refinementDraft.title.length}/60 characters</p>
                             </div>
                             <div>
-                                <label className="block text-sm font-medium mb-1">Refined Description</label>
+                                <label className="block text-sm font-medium mb-1">Refined Description <span className="text-muted-foreground text-xs">(directionally aligned with original)</span></label>
                                 <textarea
                                     className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none min-h-[130px]"
                                     value={refinementDraft.description}
@@ -1318,8 +1329,9 @@ export const ContentStudio: React.FC = () => {
                             </button>
                             <button
                                 onClick={handleApproveRefinement}
-                                disabled={!refinementDraft.title.trim() || refinementDraft.description.trim().length < 10}
+                                disabled={!refinementDraft.title.trim() || refinementDraft.title.trim().length > 60 || refinementDraft.description.trim().length < 10}
                                 className="px-4 py-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                title={refinementDraft.title.trim().length > 60 ? 'Title exceeds 60 characters' : undefined}
                             >
                                 Approve & Continue
                             </button>
