@@ -179,9 +179,9 @@ class ContentGenerator:
                 additional_blocks = self._generate_supporting_content(supporting_context, remaining_words)
                 content_blocks.extend(additional_blocks)
             
-            # Balance word count if section is extremely long
+            # Balance word count if section exceeds target by more than 20%
             final_word_count = sum(block.word_count for block in content_blocks)
-            if final_word_count > word_count_target * 1.5:
+            if final_word_count > word_count_target * 1.2:
                 content_blocks = self._balance_content_blocks(content_blocks, word_count_target)
             
             return content_blocks
@@ -1463,61 +1463,63 @@ Previous Context:
         return covered_points
     
     def _balance_content_blocks(self, content_blocks: List[ContentBlock], target_word_count: int) -> List[ContentBlock]:
-        """Balance content blocks to meet target word count."""
+        """
+        Balance content blocks to stay within +/-20% of target word count.
+        Truncates individual blocks proportionally to bring total within 120% of target.
+        """
         if not content_blocks:
             return content_blocks
-        
+
         current_word_count = sum(block.word_count for block in content_blocks)
-        
-        # Only truncate if content is extremely long (5x target) to prevent abuse
-        # This is much more conservative than the previous 2x threshold
-        if current_word_count > target_word_count * 5.0:
-            self.logger.warning(f"Content extremely long ({current_word_count} words vs {target_word_count} target), applying conservative truncation")
-            
-            # Keep the first few blocks and truncate the last one conservatively
-            target_blocks = []
-            accumulated_words = 0
-            
-            for block in content_blocks:
-                if accumulated_words + block.word_count <= target_word_count * 3.0:  # Allow up to 3x target
-                    target_blocks.append(block)
-                    accumulated_words += block.word_count
-                else:
-                    # Only truncate if we have very little content left
-                    remaining_words = (target_word_count * 3.0) - accumulated_words
-                    if remaining_words > 100:  # Only if we have substantial content left
-                        # Create a truncated version with proper sentence ending
-                        words = block.content.split()
-                        truncated_words = words[:remaining_words]
-                        
-                        # Try to end at a sentence boundary
-                        truncated_content = " ".join(truncated_words)
-                        if not truncated_content.endswith(('.', '!', '?')):
-                            # Find the last sentence ending
-                            last_sentence_end = max(
-                                truncated_content.rfind('.'),
-                                truncated_content.rfind('!'),
-                                truncated_content.rfind('?')
-                            )
-                            if last_sentence_end > len(truncated_content) * 0.7:  # If we can keep 70% of content
-                                truncated_content = truncated_content[:last_sentence_end + 1]
-                            else:
-                                truncated_content += "..."
-                        
-                        truncated_block = ContentBlock(
-                            content=truncated_content,
-                            content_type=block.content_type,
-                            word_count=len(truncated_content.split()),
-                            citations=block.citations,
-                            metadata=block.metadata
-                        )
-                        target_blocks.append(truncated_block)
-                    break
-            
-            return target_blocks
-        
-        # For normal content length, return as-is without truncation
-        return content_blocks
+        upper_threshold = int(target_word_count * 1.2)
+
+        if current_word_count <= upper_threshold:
+            return content_blocks
+
+        self.logger.info(
+            f"Content exceeds 120% target ({current_word_count} > {upper_threshold} words). "
+            f"Truncating to target range ({int(target_word_count * 0.8)}-{upper_threshold} words)."
+        )
+
+        # Calculate how much to trim
+        target_total = upper_threshold  # cap at 120%
+        ratio = target_total / current_word_count
+        if ratio >= 1.0:
+            return content_blocks
+
+        # Distribute trim proportionally across all blocks (not just last one)
+        balanced_blocks = []
+        for block in content_blocks:
+            trimmed_wc = int(block.word_count * ratio)
+            trimmed_wc = max(trimmed_wc, 50)  # keep at least 50 words per block
+            words = block.content.split()
+            trimmed_content = " ".join(words[:trimmed_wc])
+
+            # Ensure sentence boundary
+            trimmed_content = trimmed_content.strip()
+            if trimmed_content and not trimmed_content[-1] in '.!?':
+                last_punct = max(
+                    trimmed_content.rfind('.'),
+                    trimmed_content.rfind('!'),
+                    trimmed_content.rfind('?')
+                )
+                if last_punct > len(trimmed_content) * 0.6:
+                    trimmed_content = trimmed_content[:last_punct + 1]
+
+            balanced_blocks.append(ContentBlock(
+                content=trimmed_content,
+                content_type=block.content_type,
+                word_count=len(trimmed_content.split()),
+                citations=block.citations,
+                metadata=block.metadata,
+            ))
+
+        new_total = sum(b.word_count for b in balanced_blocks)
+        self.logger.info(
+            f"Balance complete: {current_word_count} -> {new_total} words "
+            f"(target was {target_word_count}, range {int(target_word_count * 0.8)}-{upper_threshold})"
+        )
+        return balanced_blocks
     
     def _create_fallback_content_block(self, title: str, word_count_target: int) -> ContentBlock:
         """Create fallback content block when generation fails."""

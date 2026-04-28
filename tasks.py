@@ -3827,8 +3827,10 @@ def _build_refinement_user_message(
             else ""
         )
         length_guidance = (
-            f"\n\nLENGTH TARGET: Keep the final article near {int(target_word_count)} words (+/-15%)."
-            f"{current_wc_text} Refine for clarity without unnecessary expansion or compression."
+            f"\n\nLENGTH TARGET: HARD CONSTRAINT — final output must be between {int(target_word_count * 0.85)} and {int(target_word_count * 1.15)} words."
+            f" You MUST compress or expand the content to meet this constraint. Preserve all key facts, data points, and conclusions."
+            f" Do not drop citations, tables, or structured data."
+            f"{current_wc_text}"
         )
 
     return f"""IMPORTANT: The tone for this article is {tone_upper}.
@@ -4225,7 +4227,57 @@ Rules:
         
         # Update the result with refined content
         result['content'] = content
-        
+
+        # ── Post-refinement word count guard ────────────────────────────────────
+        # If content still exceeds 120% of target after refinement, do a final
+        # proportional trim. This is a last-resort safety net — the refinement
+        # LLM should have already compressed the content per the HARD CONSTRAINT.
+        try:
+            raw_twc = (
+                research_data.get('target_word_count')
+                or research_data.get('articleLength')
+                or research_data.get('article_length')
+                or 0
+            )
+            target_wc = int(str(raw_twc).strip() or 0)
+            if target_wc > 0:
+                # Sum word counts across all sections (more accurate than content.word_count)
+                total_wc = sum(
+                    len(
+                        (section.get('content') or '').split()
+                        + ' '.join(
+                            cb.get('content', '') for cb in (section.get('content_blocks') or [])
+                        ).split()
+                    )
+                    for section in sections
+                )
+                upper = int(target_wc * 1.2)
+                if total_wc > upper:
+                    logger.warning(
+                        f"Post-refinement word count still over 120%% target "
+                        f"({total_wc} > {upper}). Applying final proportional trim."
+                    )
+                    scale = upper / total_wc
+                    for section in sections:
+                        combined = (
+                            (section.get('content') or '') + ' ' +
+                            ' '.join(cb.get('content', '') for cb in (section.get('content_blocks') or []))
+                        ).strip()
+                        if combined:
+                            words = combined.split()
+                            keep = max(50, int(len(words) * scale))
+                            trimmed = ' '.join(words[:keep])
+                            # Snap to sentence boundary
+                            last_p = max(trimmed.rfind('.'), trimmed.rfind('!'), trimmed.rfind('?'))
+                            if last_p > len(trimmed) * 0.5:
+                                trimmed = trimmed[:last_p + 1]
+                            section['content'] = trimmed
+                            if section.get('content_blocks'):
+                                section['content_blocks'][0]['content'] = trimmed
+                                section['content_blocks'][0]['word_count'] = len(trimmed.split())
+        except Exception as e:
+            logger.warning(f"Post-refinement word count guard failed: {e}")
+
         return {
             'refinements': refinements,
             'stage_data': {
