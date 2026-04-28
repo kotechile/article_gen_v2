@@ -213,16 +213,7 @@ function titleHasKeywordAndWithinLengthLimit(
 ): boolean {
     if (!primaryKeyword) return false;
     const trimmed = title.trim();
-    const result = trimmed.length <= 60 && trimmed.toLowerCase().includes(primaryKeyword.toLowerCase());
-    console.log('[titleHasKeywordAndWithinLengthLimit]', {
-        title,
-        primaryKeyword,
-        trimmed,
-        trimmedLen: trimmed.length,
-        includesKw: trimmed.toLowerCase().includes(primaryKeyword.toLowerCase()),
-        result,
-    });
-    return result;
+    return trimmed.length <= 60 && trimmed.toLowerCase().includes(primaryKeyword.toLowerCase());
 }
 
 function inferSourceMode(params: {
@@ -607,17 +598,6 @@ export const ContentStudio: React.FC = () => {
             const secondaryKeywords = article?.secondary_keywords ?? [];
             const secondaryKwList = secondaryKeywords.slice(0, 4).join(', ');
             const titleKeywordReady = titleHasKeywordAndWithinLengthLimit(effectiveTitle, primaryKw);
-
-            // DEBUG
-            console.log('[startGeneration] titleKeywordReady check:', {
-                effectiveTitle,
-                primaryKw,
-                titleKeywordReady,
-                titleLength: effectiveTitle.trim().length,
-                titleHasKw: effectiveTitle.trim().toLowerCase().includes(primaryKw.toLowerCase()),
-                approvedRefSig: approvedRefinementSignature,
-                newSig: buildRefinementSignature(effectiveTitle, effectiveDescription, primaryKw),
-            });
 
             if (
                 seoShiftEnabled &&
