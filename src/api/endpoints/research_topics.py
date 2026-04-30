@@ -2269,6 +2269,9 @@ Hard constraints:
 8. Prioritize decision/action intent over abstract commentary.
 9. INPUT_KEYWORDS must be short, human, and literal search language for DataForSEO related keyword mining.
 10. INPUT_KEYWORDS must be 3-5 items, each 1-3 words max, no punctuation-heavy phrases, no jargon, and avoid connectors like "or", "vs", "and".
+11. Every idea must target a meaningfully different user question or decision. Do not produce paraphrases of the same idea.
+12. If two ideas would lead to mostly the same outline, keep only the stronger one.
+13. Avoid near-duplicate variations such as cost vs pricing, best vs top, compare vs choose, checklist vs guide when the underlying topic is the same.
 
 For each idea, provide:
 - Title: SEO-conscious title in plain language
@@ -2367,11 +2370,23 @@ Critical naming and language rules:
 - Avoid consultant-speak and brochure language (no "framework", "paradigm", "value architecture", "strategic lens", "methodology")
 - If a technical term is required, pair it with a simple phrase users understand
 - DESCRIPTION is required and cannot be empty
+- Every tool idea must solve a different repeated job. Do not rename the same tool concept three different ways.
+- If two tool ideas would share nearly the same inputs, outputs, and user job, keep only the stronger one.
 """
 
             # Generate both in parallel
             blog_response = await llm_service.generate_text(blog_prompt, max_tokens=2000)
             software_response = await llm_service.generate_text(software_prompt, max_tokens=1500)
+            logger.info(
+                "Idea burst LLM responses subtopic=%r blog_provider=%s blog_model=%s software_provider=%s software_model=%s blog_chars=%s software_chars=%s",
+                subtopic_name,
+                blog_response.provider,
+                blog_response.model_name,
+                software_response.provider,
+                software_response.model_name,
+                len(blog_response.content or ""),
+                len(software_response.content or ""),
+            )
 
             return blog_response.content, software_response.content
 
@@ -2662,6 +2677,35 @@ def parse_idea_response(
     import re
     from uuid import uuid4
 
+    IDEA_TOKEN_SYNONYMS = {
+        "affordable": "price",
+        "budget": "price",
+        "cost": "price",
+        "costs": "price",
+        "pricing": "price",
+        "compare": "comparison",
+        "comparing": "comparison",
+        "comparison": "comparison",
+        "choose": "decision",
+        "choosing": "decision",
+        "decision": "decision",
+        "evaluate": "decision",
+        "evaluation": "decision",
+        "picker": "tool",
+        "planner": "tool",
+        "tool": "tool",
+        "tools": "tool",
+        "tracker": "tool",
+        "workflow": "tool",
+    }
+
+    IDEA_GENERIC_TOKENS = {
+        "a", "an", "and", "article", "articles", "best", "better", "blog", "blogs",
+        "build", "content", "decision", "decisions", "for", "guide", "guides", "help",
+        "how", "idea", "ideas", "in", "of", "or", "plan", "plans", "software", "solution",
+        "solutions", "the", "to", "tool", "tools", "using", "what", "with", "your",
+    }
+
     def _normalize_search_phrase(raw_phrase: str) -> str:
         phrase = re.sub(r"[^a-zA-Z0-9\s\-]", " ", str(raw_phrase or "")).lower()
         phrase = re.sub(r"\s+", " ", phrase).strip(" -")
@@ -2700,6 +2744,86 @@ def parse_idea_response(
         title = re.sub(r"\s*[-–—]{2,}\s*", " - ", title)
         title = re.sub(r"\s{2,}", " ", title).strip(" -")
         return title
+
+    def _normalize_idea_token(token: str) -> str:
+        token = re.sub(r"[^a-z0-9]", "", token.lower())
+        if len(token) <= 2:
+            return ""
+        if token.endswith("ies") and len(token) > 4:
+            token = f"{token[:-3]}y"
+        elif token.endswith("ing") and len(token) > 5:
+            token = token[:-3]
+        elif token.endswith("ed") and len(token) > 4:
+            token = token[:-2]
+        elif token.endswith("es") and len(token) > 4:
+            token = token[:-2]
+        elif token.endswith("s") and len(token) > 4:
+            token = token[:-1]
+        token = IDEA_TOKEN_SYNONYMS.get(token, token)
+        if token in IDEA_GENERIC_TOKENS:
+            return ""
+        return token
+
+    def _idea_concept_tokens(idea: dict) -> set[str]:
+        text = " ".join(
+            [
+                str(idea.get("title") or ""),
+                str(idea.get("search_phrase") or ""),
+                str(idea.get("user_decision_helped") or ""),
+                str(idea.get("user_job_to_be_done") or ""),
+                str(idea.get("description") or ""),
+            ]
+        )
+        tokens = set()
+        for raw in re.findall(r"[a-zA-Z0-9]+", text.lower()):
+            token = _normalize_idea_token(raw)
+            if token:
+                tokens.add(token)
+        return tokens
+
+    def _is_near_duplicate_idea(candidate: dict, existing: dict) -> bool:
+        candidate_title = re.sub(r"\s+", " ", str(candidate.get("title") or "").strip().lower())
+        existing_title = re.sub(r"\s+", " ", str(existing.get("title") or "").strip().lower())
+        if candidate_title and candidate_title == existing_title:
+            return True
+
+        candidate_phrase = re.sub(r"\s+", " ", str(candidate.get("search_phrase") or "").strip().lower())
+        existing_phrase = re.sub(r"\s+", " ", str(existing.get("search_phrase") or "").strip().lower())
+        if candidate_phrase and existing_phrase and candidate_phrase == existing_phrase:
+            return True
+
+        candidate_tokens = _idea_concept_tokens(candidate)
+        existing_tokens = _idea_concept_tokens(existing)
+        if not candidate_tokens or not existing_tokens:
+            return False
+
+        overlap = len(candidate_tokens & existing_tokens)
+        coverage = overlap / max(1, min(len(candidate_tokens), len(existing_tokens)))
+        jaccard = overlap / max(1, len(candidate_tokens | existing_tokens))
+
+        same_format = str(candidate.get("article_format") or candidate.get("product_type") or "").lower() == str(
+            existing.get("article_format") or existing.get("product_type") or ""
+        ).lower()
+
+        return (
+            coverage >= 0.8
+            or jaccard >= 0.65
+            or (same_format and overlap >= 3 and coverage >= 0.5)
+        )
+
+    def _dedupe_ideas(ideas: list[dict]) -> list[dict]:
+        distinct: list[dict] = []
+        for idea in ideas:
+            if any(_is_near_duplicate_idea(idea, existing) for existing in distinct):
+                logger.info(
+                    "Dropping near-duplicate idea type=%s title=%r search_phrase=%r",
+                    content_type,
+                    idea.get("title"),
+                    idea.get("search_phrase"),
+                )
+                continue
+            distinct.append(idea)
+        return distinct
 
     ideas = []
     current_idea = {}
@@ -2811,7 +2935,14 @@ def parse_idea_response(
             )
         )
 
-    return ideas
+    deduped_ideas = _dedupe_ideas(ideas)
+    logger.info(
+        "Parsed idea response type=%s raw_count=%s deduped_count=%s",
+        content_type,
+        len(ideas),
+        len(deduped_ideas),
+    )
+    return deduped_ideas
 
 
 def create_idea_dict(

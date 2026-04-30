@@ -250,6 +250,13 @@ COMMERCIAL_PATHS: <path 1>, <path 2>
                 llm_service.generate_text(prompt=prompt, max_tokens=1800),
                 timeout=35.0,
             )
+            logger.info(
+                "Editorial subtopic LLM response provider=%s model=%s chars=%s topic=%r",
+                response.provider,
+                response.model_name,
+                len(response.content or ""),
+                brief.get("topic_title"),
+            )
             parsed = self._dedupe_distinct_subtopics(
                 self._parse(response.content or ""),
                 max_subtopics=max_subtopics,
@@ -259,44 +266,12 @@ COMMERCIAL_PATHS: <path 1>, <path 2>
                 return parsed[:max_subtopics]
         except Exception as e:
             logger.warning("Editorial subtopic generation failed: %s", e)
-
-        # Safe fallback: create a few deterministic editorial subtopics.
-        topic_title = (brief.get("topic_title") or "").strip()
-        if not topic_title:
-            return []
-        fallbacks = [
-            {
-                "title": f"{topic_title} Comparison Framework",
-                "summary": "Compare options with transparent tradeoffs and measurable outcomes.",
-                "decision_type": "comparison",
-                "user_problem": "Need to choose between multiple options confidently.",
-                "target_audience": brief.get("target_audience") or "General Audience",
-                "seed_phrases": [topic_title, f"{topic_title} comparison", f"{topic_title} checklist"],
-                "geo_entity_hints": [],
-                "commercial_paths": ["software", "services"],
-            },
-            {
-                "title": f"{topic_title} ROI Audit",
-                "summary": "Quantify upside, downside, and hidden costs before execution.",
-                "decision_type": "audit",
-                "user_problem": "Need numbers and risk visibility before taking action.",
-                "target_audience": brief.get("target_audience") or "General Audience",
-                "seed_phrases": [f"{topic_title} ROI", f"{topic_title} cost analysis", f"{topic_title} decision tool"],
-                "geo_entity_hints": [],
-                "commercial_paths": ["affiliate products", "consulting"],
-            },
-            {
-                "title": f"{topic_title} Scenario Playbook",
-                "summary": "Use scenario-based planning to choose next best actions.",
-                "decision_type": "scenario",
-                "user_problem": "Need actionable options for different market or personal scenarios.",
-                "target_audience": brief.get("target_audience") or "General Audience",
-                "seed_phrases": [f"{topic_title} strategy", f"{topic_title} scenarios", f"{topic_title} guide"],
-                "geo_entity_hints": [],
-                "commercial_paths": ["courses", "software"],
-            },
-        ]
-        return fallbacks[:max_subtopics]
+        logger.warning(
+            "Editorial subtopic generation produced no usable results topic=%r max_subtopics=%s",
+            brief.get("topic_title"),
+            max_subtopics,
+        )
+        return []
 
 
 editorial_subtopic_service = EditorialSubtopicService()
