@@ -93,6 +93,24 @@ class EnhancedTopicDecompositionService:
                 (time.perf_counter() - fallback_started) * 1000,
             )
 
+            if not fallback_titles:
+                logger.warning(
+                    "Fallback decomposition produced no usable subtopics query=%r reason=%s",
+                    query,
+                    reason,
+                )
+                return {
+                    "success": False,
+                    "message": "Subtopic generation could not produce distinct results for this topic with the current LLM output.",
+                    "original_query": query,
+                    "decomposition_context": decomposition_context or {},
+                    "subtopics": [],
+                    "autocomplete_data": None,
+                    "processing_time": time.time() - start_time,
+                    "enhancement_methods": ["fallback_hybrid_or_llm"],
+                    "warnings": [str(reason), "No fallback subtopics were produced."],
+                }
+
             fallback_subtopics = []
             for title in fallback_titles[:max_subtopics]:
                 title_text = (title or "").strip()
@@ -125,7 +143,21 @@ class EnhancedTopicDecompositionService:
                 })
 
             if not fallback_subtopics:
-                raise ValueError("Fallback decomposition could not produce subtopics")
+                logger.warning(
+                    "Fallback titles existed but normalization removed all subtopics query=%r",
+                    query,
+                )
+                return {
+                    "success": False,
+                    "message": "Subtopic generation returned only unusable fallback results.",
+                    "original_query": query,
+                    "decomposition_context": decomposition_context or {},
+                    "subtopics": [],
+                    "autocomplete_data": None,
+                    "processing_time": time.time() - start_time,
+                    "enhancement_methods": ["fallback_hybrid_or_llm"],
+                    "warnings": [str(reason), "Fallback titles normalized to zero usable subtopics."],
+                }
 
             return {
                 "success": True,
