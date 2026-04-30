@@ -326,6 +326,7 @@ export const ContentStudio: React.FC = () => {
                     primary_keywords: normalizeKeywordList((artData as any)?.primary_keywords),
                     secondary_keywords: normalizeKeywordList((artData as any)?.secondary_keywords),
                 };
+
                 setArticle(normalizedArticle);
                 setSeoValidation(validateSEOReadiness(normalizedArticle));
 

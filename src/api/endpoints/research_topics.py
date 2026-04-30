@@ -2972,10 +2972,6 @@ def create_idea_dict(
             description = f"Outcome: {preferred_outcome}. {description}"
     description = re.sub(r"\bin plain language\b", "", description, flags=re.IGNORECASE)
     description = re.sub(r"\s{2,}", " ", description).strip(" ,.-")
-    # Keep description short and UI-friendly.
-    if len(description) > 220:
-        description = description[:217].rstrip() + "..."
-
     return {
         "id": idea_data.get('id', str(uuid4())),
         "title": title or 'Untitled Idea',

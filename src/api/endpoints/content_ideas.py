@@ -96,7 +96,7 @@ def _get_admin_supabase_client(default_client):
 
 
 def _ensure_short_description(raw_description, title: str = "", keywords: list | None = None, subtopic: str = "") -> str:
-    """Guarantee a short non-empty description for idea cards."""
+    """Guarantee a non-empty description for ideas without truncating authored text."""
     description = str(raw_description or "").strip()
     keyword_list = [str(k).strip() for k in (keywords or []) if str(k).strip()]
 
@@ -110,8 +110,6 @@ def _ensure_short_description(raw_description, title: str = "", keywords: list |
         else:
             description = "Actionable, decision-focused article with practical steps readers can apply immediately."
 
-    if len(description) > 220:
-        description = description[:217].rstrip() + "..."
     return description
 
 
