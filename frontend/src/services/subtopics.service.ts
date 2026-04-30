@@ -96,7 +96,11 @@ class SubtopicsService {
                 { timeout: 240000 } // Increased to 4m to handle rate-limited backend
             );
             if ((response.items || []).length === 0 && response.meta?.debug) {
-                console.warn('Subtopic generation returned empty result with debug payload:', response.meta.debug);
+                console.warn(
+                    'Subtopic generation returned empty result with debug payload:\n' +
+                    JSON.stringify(response.meta.debug, null, 2)
+                );
+                console.dir(response.meta.debug);
             }
             return response.items;
         } catch (error) {
