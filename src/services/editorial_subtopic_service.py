@@ -173,14 +173,37 @@ FORMAT RULES
                 parsed.append(parsed_block)
         return parsed
 
-    async def generate(self, brief: Dict[str, Any], max_subtopics: int = 8) -> List[Dict[str, Any]]:
+    async def generate_with_debug(
+        self,
+        brief: Dict[str, Any],
+        max_subtopics: int = 8,
+    ) -> Dict[str, Any]:
         prompt = self._build_prompt(brief, max_subtopics=max_subtopics)
+        debug_info: Dict[str, Any] = {
+            "topic_title": brief.get("topic_title"),
+            "format_requested": "tagged_subtopic_blocks",
+            "provider": None,
+            "model": None,
+            "raw_output_chars": 0,
+            "raw_output_preview": "",
+            "raw_output_truncated": False,
+            "parser_match_mode": None,
+        }
         try:
             response = await asyncio.wait_for(
                 llm_service.generate_text(prompt=prompt, max_tokens=1800),
                 timeout=35.0,
             )
             raw_content = response.content or ""
+            debug_info.update(
+                {
+                    "provider": response.provider,
+                    "model": response.model_name,
+                    "raw_output_chars": len(raw_content),
+                    "raw_output_preview": raw_content[:self._RAW_RESPONSE_LOG_LIMIT],
+                    "raw_output_truncated": len(raw_content) > self._RAW_RESPONSE_LOG_LIMIT,
+                }
+            )
             logger.info(
                 "Editorial subtopic LLM response provider=%s model=%s chars=%s topic=%r",
                 response.provider,
@@ -194,18 +217,41 @@ FORMAT RULES
                 raw_content[:self._RAW_RESPONSE_LOG_LIMIT],
                 len(raw_content) > self._RAW_RESPONSE_LOG_LIMIT,
             )
+
+            if re.search(r"<<SUBTOPIC>>", raw_content, flags=re.IGNORECASE):
+                debug_info["parser_match_mode"] = "tagged"
+            elif re.search(r"\[SUBTOPIC\]", raw_content, flags=re.IGNORECASE):
+                debug_info["parser_match_mode"] = "legacy_block"
+            elif "TITLE:" in raw_content.upper():
+                debug_info["parser_match_mode"] = "numbered_structured"
+            else:
+                debug_info["parser_match_mode"] = "no_known_format_marker"
+
             parsed = self._parse(raw_content)
             if parsed:
                 logger.info("Editorial subtopics generated count=%s", len(parsed))
-                return parsed[:max_subtopics]
+                return {
+                    "subtopics": parsed[:max_subtopics],
+                    "debug": debug_info,
+                }
         except Exception as e:
+            debug_info["error"] = str(e)
             logger.warning("Editorial subtopic generation failed: %s", e)
+
         logger.warning(
-            "Editorial subtopic generation produced no usable results topic=%r max_subtopics=%s",
+            "Editorial subtopic generation produced no usable results topic=%r max_subtopics=%s parser_match_mode=%s",
             brief.get("topic_title"),
             max_subtopics,
+            debug_info.get("parser_match_mode"),
         )
-        return []
+        return {
+            "subtopics": [],
+            "debug": debug_info,
+        }
+
+    async def generate(self, brief: Dict[str, Any], max_subtopics: int = 8) -> List[Dict[str, Any]]:
+        result = await self.generate_with_debug(brief=brief, max_subtopics=max_subtopics)
+        return result.get("subtopics") or []
 
 
 editorial_subtopic_service = EditorialSubtopicService()

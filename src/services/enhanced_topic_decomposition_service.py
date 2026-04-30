@@ -200,13 +200,15 @@ class EnhancedTopicDecompositionService:
                 decomposition_context=decomposition_context or {},
             )
             editorial_started = time.perf_counter()
-            editorial_subtopics = await asyncio.wait_for(
-                editorial_subtopic_service.generate(
+            editorial_result = await asyncio.wait_for(
+                editorial_subtopic_service.generate_with_debug(
                     brief=brief,
                     max_subtopics=max_subtopics,
                 ),
                 timeout=EDITORIAL_DECOMPOSITION_TIMEOUT_SECONDS,
             )
+            editorial_subtopics = editorial_result.get("subtopics") or []
+            editorial_debug = editorial_result.get("debug") or {}
             logger.info(
                 "Editorial decomposition stage finished query=%r subtopic_count=%s elapsed_ms=%.1f",
                 query,
@@ -295,7 +297,10 @@ class EnhancedTopicDecompositionService:
                 "autocomplete_data": None, # Deprecated in this view
                 "processing_time": processing_time,
                 "enhancement_methods": enhancement_methods,
-                "warnings": []
+                "warnings": [],
+                "debug": {
+                    "editorial": editorial_debug,
+                },
             }
             
             # Cache result
@@ -331,7 +336,8 @@ class EnhancedTopicDecompositionService:
                     "subtopics": [],
                     "autocomplete_data": None,
                     "processing_time": time.time() - start_time,
-                    "enhancement_methods": []
+                    "enhancement_methods": [],
+                    "debug": {},
                 }
     
     async def compare_methods(self, 

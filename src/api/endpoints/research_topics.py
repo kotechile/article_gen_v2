@@ -1932,6 +1932,7 @@ def generate_subtopics(topic_id):
                     "message": warning_message,
                     "processing_time": result.get("processing_time"),
                     "enhancement_methods": result.get("enhancement_methods", []),
+                    "debug": result.get("debug"),
                 }
 
             enhanced_subtopics_data = result.get("subtopics", [])
@@ -2040,6 +2041,7 @@ def generate_subtopics(topic_id):
                 "message": result.get("message", "Subtopics generated"),
                 "processing_time": result.get("processing_time"),
                 "enhancement_methods": result.get("enhancement_methods", []),
+                "debug": result.get("debug"),
             }
 
         saved_subtopics, result = asyncio.run(_run())
@@ -2060,6 +2062,7 @@ def generate_subtopics(topic_id):
                 "message":            result.get("message"),
                 "processing_time":    result.get("processing_time"),
                 "enhancement_methods": result.get("enhancement_methods"),
+                "debug": result.get("debug"),
             }
         }), 200
 
