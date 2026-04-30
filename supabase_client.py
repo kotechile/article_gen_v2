@@ -350,8 +350,9 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
             matched_roles = [role for role, mapped_provider_id in role_assignments.items() if mapped_provider_id == provider_id]
             row['used_for'] = matched_roles
 
-    active_rows = [row for row in rows if row.get('is_active') is not False]
-    candidate_rows = active_rows or rows
+    # When resolving through llm_used_for, do not require is_active.
+    # Explicit role mappings should be honored as configured in llm_used_for.
+    candidate_rows = rows
 
     explicit_provider = str(provider or "").strip().lower()
     explicit_model = str(model or "").strip()
