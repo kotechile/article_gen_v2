@@ -156,13 +156,17 @@ export function TopicDetail() {
                 (err as any)?.response?.status ??
                 (err as any)?.status ??
                 null
-            const isGatewayTimeout =
+            const errorCode = String((err as any)?.code || '')
+            const errorMessage = String((err as any)?.message || '').toLowerCase()
+            const isRecoverableTimeout =
                 status === 504 ||
-                String((err as any)?.message || '').includes('504')
+                errorCode === 'ECONNABORTED' ||
+                errorMessage.includes('timeout') ||
+                errorMessage.includes('504')
 
-            // Recovery path: backend may still complete after proxy timeout.
-            if (isGatewayTimeout) {
-                toast.loading('Request timed out at gateway, but processing may still be running. Checking for new sub-topics...', {
+            // Recovery path: backend may still complete after proxy or client timeout.
+            if (isRecoverableTimeout) {
+                toast.loading('Request timed out, but processing may still be running. Checking for new sub-topics...', {
                     id: decomposeToastIdRef.current ?? undefined,
                 })
 

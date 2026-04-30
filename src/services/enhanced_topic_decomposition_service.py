@@ -24,6 +24,10 @@ from .subtopic_scoring_service import subtopic_scoring_service
 
 logger = logging.getLogger(__name__)
 
+EDITORIAL_DECOMPOSITION_TIMEOUT_SECONDS = 45.0
+FALLBACK_LLM_TIMEOUT_SECONDS = 45.0
+AUTOCOMPLETE_TIMEOUT_SECONDS = 20.0
+
 class EnhancedTopicDecompositionService:
     """
     Service for enhanced topic decomposition using Google Autocomplete + LLM
@@ -71,11 +75,23 @@ class EnhancedTopicDecompositionService:
         start_time = time.time()
         
         async def _build_fallback_result(reason: Exception) -> Dict[str, Any]:
+            logger.warning(
+                "Entering fallback decomposition query=%r reason=%s",
+                query,
+                reason,
+            )
+            fallback_started = time.perf_counter()
             fallback = await self._run_hybrid_method(query, max_subtopics)
             fallback_titles = fallback.subtopics or []
             if not fallback_titles:
                 llm_fallback = await self._run_llm_only_method(query, max_subtopics)
                 fallback_titles = llm_fallback.subtopics or []
+            logger.info(
+                "Fallback decomposition completed query=%r subtopic_count=%s elapsed_ms=%.1f",
+                query,
+                len(fallback_titles),
+                (time.perf_counter() - fallback_started) * 1000,
+            )
 
             fallback_subtopics = []
             for title in fallback_titles[:max_subtopics]:
@@ -139,14 +155,31 @@ class EnhancedTopicDecompositionService:
             
             # Subtopics-first flow (DataForSEO-free at subtopic stage):
             # 1) build editorial subtopics, 2) score editorial evidence only.
+            logger.info(
+                "Enhanced decomposition started query=%r user_id=%s max_subtopics=%s context_keys=%s",
+                query,
+                user_id,
+                max_subtopics,
+                sorted((decomposition_context or {}).keys()),
+            )
             brief = topic_brief_builder_service.build(
                 topic={"title": query, **(decomposition_context or {})},
                 project={},
                 decomposition_context=decomposition_context or {},
             )
-            editorial_subtopics = await editorial_subtopic_service.generate(
-                brief=brief,
-                max_subtopics=max_subtopics,
+            editorial_started = time.perf_counter()
+            editorial_subtopics = await asyncio.wait_for(
+                editorial_subtopic_service.generate(
+                    brief=brief,
+                    max_subtopics=max_subtopics,
+                ),
+                timeout=EDITORIAL_DECOMPOSITION_TIMEOUT_SECONDS,
+            )
+            logger.info(
+                "Editorial decomposition stage finished query=%r subtopic_count=%s elapsed_ms=%.1f",
+                query,
+                len(editorial_subtopics),
+                (time.perf_counter() - editorial_started) * 1000,
             )
 
             enhanced_subtopics: List[EnhancedSubtopic] = []
@@ -235,6 +268,12 @@ class EnhancedTopicDecompositionService:
             
             # Cache result
             self._cache_result(cache_key, result)
+            logger.info(
+                "Enhanced decomposition succeeded query=%r subtopic_count=%s elapsed_ms=%.1f",
+                query,
+                len(enhanced_subtopics),
+                (time.time() - start_time) * 1000,
+            )
             
             return result
             
@@ -349,9 +388,18 @@ class EnhancedTopicDecompositionService:
         
         try:
             # Always try to use LLM first
-            subtopics = await self._get_llm_subtopics(query, None)
+            subtopics = await asyncio.wait_for(
+                self._get_llm_subtopics(query, None),
+                timeout=FALLBACK_LLM_TIMEOUT_SECONDS,
+            )
             
             processing_time = time.time() - start_time
+            logger.info(
+                "LLM-only fallback finished query=%r subtopic_count=%s elapsed_ms=%.1f",
+                query,
+                len(subtopics),
+                processing_time * 1000,
+            )
             
             return MethodResult(
                 subtopics=subtopics[:max_subtopics],
@@ -372,7 +420,10 @@ class EnhancedTopicDecompositionService:
         start_time = time.time()
         
         try:
-            autocomplete_result = await self.google_autocomplete_service.get_suggestions(query)
+            autocomplete_result = await asyncio.wait_for(
+                self.google_autocomplete_service.get_suggestions(query),
+                timeout=AUTOCOMPLETE_TIMEOUT_SECONDS,
+            )
             
             if autocomplete_result.success:
                 subtopics = autocomplete_result.suggestions[:max_subtopics]
@@ -380,6 +431,13 @@ class EnhancedTopicDecompositionService:
                 subtopics = []
             
             processing_time = time.time() - start_time
+            logger.info(
+                "Autocomplete-only fallback finished query=%r success=%s suggestion_count=%s elapsed_ms=%.1f",
+                query,
+                autocomplete_result.success,
+                len(subtopics),
+                processing_time * 1000,
+            )
             
             return MethodResult(
                 subtopics=subtopics,
@@ -401,10 +459,31 @@ class EnhancedTopicDecompositionService:
         
         try:
             # Get autocomplete data
-            autocomplete_result = await self.google_autocomplete_service.get_suggestions(query)
+            autocomplete_started = time.perf_counter()
+            autocomplete_result = await asyncio.wait_for(
+                self.google_autocomplete_service.get_suggestions(query),
+                timeout=AUTOCOMPLETE_TIMEOUT_SECONDS,
+            )
+            logger.info(
+                "Hybrid fallback autocomplete stage finished query=%r success=%s suggestion_count=%s elapsed_ms=%.1f",
+                query,
+                autocomplete_result.success,
+                len(autocomplete_result.suggestions or []),
+                (time.perf_counter() - autocomplete_started) * 1000,
+            )
             
             # Get LLM subtopics with autocomplete context
-            llm_subtopics = await self._get_llm_subtopics(query, autocomplete_result)
+            llm_started = time.perf_counter()
+            llm_subtopics = await asyncio.wait_for(
+                self._get_llm_subtopics(query, autocomplete_result),
+                timeout=FALLBACK_LLM_TIMEOUT_SECONDS,
+            )
+            logger.info(
+                "Hybrid fallback LLM stage finished query=%r subtopic_count=%s elapsed_ms=%.1f",
+                query,
+                len(llm_subtopics),
+                (time.perf_counter() - llm_started) * 1000,
+            )
             
             # Combine and enhance subtopics
             enhanced_subtopics = await self._create_enhanced_subtopics(
@@ -415,6 +494,12 @@ class EnhancedTopicDecompositionService:
             subtopics = [subtopic.title for subtopic in enhanced_subtopics]
             
             processing_time = time.time() - start_time
+            logger.info(
+                "Hybrid fallback finished query=%r subtopic_count=%s elapsed_ms=%.1f",
+                query,
+                len(subtopics),
+                processing_time * 1000,
+            )
             
             return MethodResult(
                 subtopics=subtopics,

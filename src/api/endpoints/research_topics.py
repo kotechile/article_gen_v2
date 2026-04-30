@@ -7,6 +7,7 @@ This module provides endpoints for managing research topics.
 import logging
 import json
 import re
+import time
 from datetime import datetime
 from uuid import uuid4
 from flask import Blueprint, request, jsonify
@@ -61,10 +62,29 @@ def _resolve_user_id_from_request(supabase, data=None):
             if user_response and user_response.user:
                 user_id = user_response.user.id
         except Exception as auth_error:
-            logger.warning(f"Failed to validate token or get user: {auth_error}")
+            logger.warning(
+                "Failed to validate bearer token path=%s method=%s token_len=%s error=%s",
+                request.path,
+                request.method,
+                len(token or ""),
+                auth_error,
+            )
+    elif auth_header:
+        logger.warning(
+            "Authorization header present but not Bearer path=%s method=%s header_prefix=%r",
+            request.path,
+            request.method,
+            auth_header[:20],
+        )
 
     if not user_id and data and data.get('user_id'):
         user_id = data['user_id']
+        logger.info(
+            "Resolved request user from payload path=%s method=%s user_id=%s",
+            request.path,
+            request.method,
+            user_id,
+        )
 
     return user_id
 
@@ -1761,10 +1781,18 @@ def generate_subtopics(topic_id):
     import asyncio
 
     request_id = str(uuid4())
+    request_started = time.perf_counter()
     try:
         supabase = get_supabase_client()
         request_user_id = _resolve_user_id_from_request(supabase)
         if not request_user_id:
+            logger.warning(
+                "Subtopic generation missing authenticated user request_id=%s topic_id=%s path=%s has_auth_header=%s",
+                request_id,
+                topic_id,
+                request.path,
+                bool(request.headers.get('Authorization')),
+            )
             return jsonify(ErrorResponse(
                 error="authentication_required",
                 message="Authorization bearer token is required",
@@ -1773,6 +1801,7 @@ def generate_subtopics(topic_id):
             ).dict()), 401
 
         # 1. Fetch topic metadata
+        topic_fetch_started = time.perf_counter()
         topic_res = (
             supabase
             .table('research_topics')
@@ -1794,12 +1823,13 @@ def generate_subtopics(topic_id):
         topic_title = topic['title']
         user_id     = topic['user_id']
         logger.info(
-            "Subtopic generation started request_id=%s topic_id=%s request_user_id=%s owner_user_id=%s title=%r",
+            "Subtopic generation started request_id=%s topic_id=%s request_user_id=%s owner_user_id=%s title=%r topic_fetch_ms=%.1f",
             request_id,
             topic_id,
             request_user_id,
             user_id,
-            topic_title
+            topic_title,
+            (time.perf_counter() - topic_fetch_started) * 1000,
         )
         if user_id != request_user_id:
             return jsonify(ErrorResponse(
@@ -1872,6 +1902,7 @@ def generate_subtopics(topic_id):
 
         # 2. Run the async decomposition pipeline synchronously
         async def _run():
+            decomposition_started = time.perf_counter()
             result = await enhanced_decomposition_service.decompose_topic_enhanced(
                 query=topic_title,
                 user_id=user_id,
@@ -1879,12 +1910,13 @@ def generate_subtopics(topic_id):
                 decomposition_context=decomposition_context,
             )
             logger.info(
-                "Enhanced decomposition finished request_id=%s success=%s subtopic_count=%s message=%r methods=%s",
+                "Enhanced decomposition finished request_id=%s success=%s subtopic_count=%s message=%r methods=%s decomposition_ms=%.1f",
                 request_id,
                 result.get("success"),
                 len(result.get("subtopics") or []),
                 result.get("message"),
-                result.get("enhancement_methods")
+                result.get("enhancement_methods"),
+                (time.perf_counter() - decomposition_started) * 1000,
             )
 
             if not result.get("success"):
@@ -1905,6 +1937,7 @@ def generate_subtopics(topic_id):
             enhanced_subtopics_data = result.get("subtopics", [])
             saved_subtopics = []
             failed_subtopics = []
+            persistence_started = time.perf_counter()
             logger.info(
                 "Persisting generated subtopics request_id=%s generated_count=%s titles=%s",
                 request_id,
@@ -1993,12 +2026,13 @@ def generate_subtopics(topic_id):
                     failed_subtopics.append(sub_data.get("title"))
 
             logger.info(
-                "Subtopic persistence summary request_id=%s attempted=%s saved=%s failed=%s failed_titles=%s",
+                "Subtopic persistence summary request_id=%s attempted=%s saved=%s failed=%s failed_titles=%s persistence_ms=%.1f",
                 request_id,
                 len(enhanced_subtopics_data),
                 len(saved_subtopics),
                 len(failed_subtopics),
-                failed_subtopics
+                failed_subtopics,
+                (time.perf_counter() - persistence_started) * 1000,
             )
 
             return saved_subtopics, {
@@ -2010,11 +2044,12 @@ def generate_subtopics(topic_id):
 
         saved_subtopics, result = asyncio.run(_run())
         logger.info(
-            "Subtopic generation response request_id=%s total=%s success=%s message=%r",
+            "Subtopic generation response request_id=%s total=%s success=%s message=%r total_ms=%.1f",
             request_id,
             len(saved_subtopics),
             result.get("success"),
-            result.get("message")
+            result.get("message"),
+            (time.perf_counter() - request_started) * 1000,
         )
 
         return jsonify({
@@ -2029,7 +2064,14 @@ def generate_subtopics(topic_id):
         }), 200
 
     except Exception as e:
-        logger.error(f"Error generating subtopics request_id={request_id}: {e}", exc_info=True)
+        logger.error(
+            "Error generating subtopics request_id=%s topic_id=%s elapsed_ms=%.1f error=%s",
+            request_id,
+            topic_id,
+            (time.perf_counter() - request_started) * 1000,
+            e,
+            exc_info=True,
+        )
         return jsonify(ErrorResponse(
             error="internal_error",
             message=str(e),
