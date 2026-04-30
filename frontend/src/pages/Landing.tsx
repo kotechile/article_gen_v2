@@ -599,7 +599,7 @@ export function Landing() {
                     <div className="mt-4 border-t border-border" />
 
                     {/* Topic list */}
-                    <div className="mt-4">
+                    <div className="mt-4 pb-24">
                         {topicsLoading ? (
                             <div className="space-y-2">
                                 {[1, 2, 3].map((item) => (
@@ -614,7 +614,7 @@ export function Landing() {
                             </div>
                         ) : (
                             <ScrollArea className="max-h-[400px]">
-                                <div className="divide-y divide-border">
+                                <div className="divide-y divide-border pb-8">
                                     {topicCandidates.map((topic) => {
                                         const checked = selectedTopicIds.has(topic.id)
                                         const statusTopic = researchTopicByTitle[topic.title.trim().toLowerCase()]
@@ -672,7 +672,7 @@ export function Landing() {
                     </div>
 
                     {/* Actions */}
-                    <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
+                    <div className="sticky bottom-4 z-20 mt-4 flex items-center justify-between rounded-xl border border-border bg-background/95 px-3 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85">
                         <button
                             type="button"
                             onClick={handleSelectAll}
