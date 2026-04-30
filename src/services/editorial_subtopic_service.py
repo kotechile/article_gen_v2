@@ -19,6 +19,7 @@ class EditorialSubtopicService:
 
     _RAW_RESPONSE_LOG_LIMIT = 4000
     _MIN_RELEVANCE_TOKEN_OVERLAP = 0.2
+    _TITLE_SIMILARITY_JACCARD_THRESHOLD = 0.6
 
     def _build_prompt(self, brief: Dict[str, Any], max_subtopics: int) -> str:
         return f"""
@@ -189,6 +190,47 @@ FORMAT RULES
             if len(token) >= 3
         ]
 
+    def _is_near_duplicate_title(self, candidate_title: str, selected_titles: List[str]) -> bool:
+        candidate_tokens = set(self._tokenize(candidate_title))
+        if not candidate_tokens:
+            return True
+        for existing_title in selected_titles:
+            existing_tokens = set(self._tokenize(existing_title))
+            if not existing_tokens:
+                continue
+            overlap = len(candidate_tokens.intersection(existing_tokens))
+            union = len(candidate_tokens.union(existing_tokens))
+            score = (overlap / union) if union else 0.0
+            if score >= self._TITLE_SIMILARITY_JACCARD_THRESHOLD:
+                return True
+        return False
+
+    def _diversify_subtopics(self, parsed: List[Dict[str, Any]], max_subtopics: int) -> List[Dict[str, Any]]:
+        selected: List[Dict[str, Any]] = []
+        selected_titles: List[str] = []
+        decision_type_counts: Dict[str, int] = {}
+
+        for item in parsed:
+            title = str(item.get("title") or "").strip()
+            if not title:
+                continue
+            if any(title.lower() == existing.lower() for existing in selected_titles):
+                continue
+            if self._is_near_duplicate_title(title, selected_titles):
+                continue
+            decision_type = str(item.get("decision_type") or "decision").lower()
+            if decision_type_counts.get(decision_type, 0) >= 2:
+                continue
+            selected.append(item)
+            selected_titles.append(title)
+            decision_type_counts[decision_type] = decision_type_counts.get(decision_type, 0) + 1
+            if len(selected) >= max_subtopics:
+                break
+
+        if selected:
+            return selected
+        return parsed[:max_subtopics]
+
     def _is_relevant_to_brief(self, subtopic: Dict[str, Any], brief: Dict[str, Any]) -> bool:
         topic_tokens = set(
             self._tokenize(
@@ -301,6 +343,8 @@ FORMAT RULES
             debug_info["relevance_filtered_count"] = len(filtered)
             if filtered:
                 parsed = filtered
+
+            parsed = self._diversify_subtopics(parsed, max_subtopics=max_subtopics)
 
             if parsed:
                 logger.info("Editorial subtopics generated count=%s", len(parsed))

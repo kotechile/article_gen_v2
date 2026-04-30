@@ -51,6 +51,44 @@ class EnhancedTopicDecompositionService:
         self.google_autocomplete_service = google_autocomplete_service or GoogleAutocompleteService()
         self.cache: Dict[str, Dict[str, Any]] = {}
         self.cache_ttl = 3600  # 1 hour in seconds
+
+    def _tokenize_title(self, text: str) -> List[str]:
+        return [token for token in re.split(r"[^a-z0-9]+", (text or "").lower()) if len(token) >= 3]
+
+    def _extract_title_text(self, item: Any) -> str:
+        if isinstance(item, dict):
+            return str(item.get("subtopic_name") or item.get("title") or "").strip()
+        return str(item or "").strip()
+
+    def _is_title_too_similar(self, candidate: str, selected_titles: List[str]) -> bool:
+        candidate_tokens = set(self._tokenize_title(candidate))
+        if not candidate_tokens:
+            return True
+        for existing in selected_titles:
+            existing_tokens = set(self._tokenize_title(existing))
+            if not existing_tokens:
+                continue
+            overlap = len(candidate_tokens.intersection(existing_tokens))
+            union = len(candidate_tokens.union(existing_tokens))
+            jaccard = (overlap / union) if union else 0.0
+            if jaccard >= 0.65:
+                return True
+        return False
+
+    def _select_diverse_fallback_titles(self, candidates: List[Any], max_subtopics: int) -> List[str]:
+        selected: List[str] = []
+        for item in candidates:
+            title = self._extract_title_text(item)
+            if not title:
+                continue
+            if title.lower() in {s.lower() for s in selected}:
+                continue
+            if self._is_title_too_similar(title, selected):
+                continue
+            selected.append(title)
+            if len(selected) >= max_subtopics:
+                break
+        return selected
     
     async def decompose_topic_enhanced(self, 
                                      query: str,
@@ -82,11 +120,12 @@ class EnhancedTopicDecompositionService:
                 reason,
             )
             fallback_started = time.perf_counter()
-            fallback = await self._run_hybrid_method(query, max_subtopics)
+            fallback = await self._run_hybrid_method(query, max_subtopics * 2)
             fallback_titles = fallback.subtopics or []
             if not fallback_titles:
-                llm_fallback = await self._run_llm_only_method(query, max_subtopics)
+                llm_fallback = await self._run_llm_only_method(query, max_subtopics * 2)
                 fallback_titles = llm_fallback.subtopics or []
+            fallback_titles = self._select_diverse_fallback_titles(fallback_titles, max_subtopics)
             logger.info(
                 "Fallback decomposition completed query=%r subtopic_count=%s elapsed_ms=%.1f",
                 query,
@@ -117,7 +156,7 @@ class EnhancedTopicDecompositionService:
 
             fallback_subtopics = []
             for title in fallback_titles[:max_subtopics]:
-                title_text = (title or "").strip()
+                title_text = self._extract_title_text(title)
                 if not title_text:
                     continue
                 seed_tokens = [token for token in re.split(r"[^a-zA-Z0-9]+", title_text.lower()) if len(token) > 2][:4]
@@ -601,11 +640,15 @@ class EnhancedTopicDecompositionService:
         2. SPECIFICITY: Avoid broad terms. (e.g., instead of "Investing," use "Micro-investing for College Students").
         3. TREND POTENTIAL: Focus on "evergreen" topics or rising trends in the current year (2026).
         4. AFFILIATE FEASIBILITY: Ensure the niche typically has products like SaaS, courses, or physical gear associated with it.
+        5. DIVERSITY: Each subtopic must represent a DIFFERENT decision problem, not wording variants of the same idea.
+           Bad: "cost modeling for SaaS", "cost modeling for startups", "cost modeling for founders".
+           Good: technical debt trade-off, buy-vs-build, portfolio pruning, delayed market entry, talent allocation.
 
         ### SEED KEYWORD GENERATION (PRE-SEO)
         For EACH subtopic, generate 3 "Seed Keywords."
         - LENGTH: Keywords must be short-tail (3-4 words maximum).
         - INTENT: Must be "Commercial" (e.g., "best budget apps") or "Informational" (e.g., "how to save for retirement").
+        - Keywords for one subtopic cannot be minor rewrites of another subtopic's keywords.
 
         ### OUTPUT FORMAT
         You must verify the response is strictly in the following TEXT DELIMITED format. Do not use JSON.
