@@ -2276,6 +2276,7 @@ Hard constraints:
 11. Every idea must target a meaningfully different user question or decision. Do not produce paraphrases of the same idea.
 12. If two ideas would lead to mostly the same outline, keep only the stronger one.
 13. Avoid near-duplicate variations such as cost vs pricing, best vs top, compare vs choose, checklist vs guide when the underlying topic is the same.
+14. Each idea must have a distinct USER_DECISION_HELPED and a different core SEARCH_PHRASE stem.
 
 For each idea, provide:
 - Title: SEO-conscious title in plain language
@@ -2376,6 +2377,7 @@ Critical naming and language rules:
 - DESCRIPTION is required and cannot be empty
 - Every tool idea must solve a different repeated job. Do not rename the same tool concept three different ways.
 - If two tool ideas would share nearly the same inputs, outputs, and user job, keep only the stronger one.
+- Each tool must use a different SEARCH_PHRASE stem and a different USER_JOB.
 """
 
             # Generate both in parallel
@@ -2717,6 +2719,10 @@ def parse_idea_response(
         "how", "idea", "ideas", "in", "of", "or", "plan", "plans", "software", "solution",
         "solutions", "the", "to", "tool", "tools", "using", "what", "with", "your",
     }
+    IDEA_MODIFIER_TOKENS = {
+        "best", "top", "vs", "versus", "checklist", "guide", "comparison", "compare",
+        "cost", "price", "pricing", "framework", "playbook", "audit",
+    }
 
     def _normalize_search_phrase(raw_phrase: str) -> str:
         phrase = re.sub(r"[^a-zA-Z0-9\s\-]", " ", str(raw_phrase or "")).lower()
@@ -2793,6 +2799,10 @@ def parse_idea_response(
                 tokens.add(token)
         return tokens
 
+    def _idea_core_tokens(idea: dict) -> set[str]:
+        """Core concept tokens with weak modifiers removed for paraphrase detection."""
+        return {token for token in _idea_concept_tokens(idea) if token not in IDEA_MODIFIER_TOKENS}
+
     def _is_near_duplicate_idea(candidate: dict, existing: dict) -> bool:
         candidate_title = re.sub(r"\s+", " ", str(candidate.get("title") or "").strip().lower())
         existing_title = re.sub(r"\s+", " ", str(existing.get("title") or "").strip().lower())
@@ -2806,20 +2816,31 @@ def parse_idea_response(
 
         candidate_tokens = _idea_concept_tokens(candidate)
         existing_tokens = _idea_concept_tokens(existing)
+        candidate_core_tokens = _idea_core_tokens(candidate)
+        existing_core_tokens = _idea_core_tokens(existing)
         if not candidate_tokens or not existing_tokens:
             return False
 
         overlap = len(candidate_tokens & existing_tokens)
         coverage = overlap / max(1, min(len(candidate_tokens), len(existing_tokens)))
         jaccard = overlap / max(1, len(candidate_tokens | existing_tokens))
+        core_overlap = len(candidate_core_tokens & existing_core_tokens)
+        core_coverage = core_overlap / max(1, min(len(candidate_core_tokens), len(existing_core_tokens)))
+        core_jaccard = core_overlap / max(1, len(candidate_core_tokens | existing_core_tokens))
 
         same_format = str(candidate.get("article_format") or candidate.get("product_type") or "").lower() == str(
             existing.get("article_format") or existing.get("product_type") or ""
         ).lower()
+        same_intent = str(candidate.get("target_intent") or "").strip().lower() == str(
+            existing.get("target_intent") or ""
+        ).strip().lower()
 
         return (
             coverage >= 0.8
             or jaccard >= 0.65
+            or core_coverage >= 0.85
+            or core_jaccard >= 0.7
+            or (same_intent and core_overlap >= 3 and core_coverage >= 0.6)
             or (same_format and overlap >= 3 and coverage >= 0.5)
         )
 
