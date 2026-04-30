@@ -1926,7 +1926,7 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onT
                                     <span className="text-slate-300">{Math.round(idea.opportunity_score || 0)}%</span>
                                 </span>
                             )}
-                            {affiliateState.count > 0 && (
+                            {affiliateState.count >= 0 && (
                                 <span className="flex items-center gap-1">
                                     <span className="text-amber-400">Offers:</span>
                                     <span className="text-slate-300">{affiliateState.count}</span>
@@ -2273,7 +2273,7 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded,
                                     <span className="text-slate-300">{Math.round(idea.opportunity_score || 0)}%</span>
                                 </span>
                             )}
-                            {affiliateState.count > 0 && (
+                            {affiliateState.count >= 0 && (
                                 <span className="flex items-center gap-1">
                                     <span className="text-emerald-400">Offers:</span>
                                     <span className="text-slate-300">{affiliateState.count}</span>

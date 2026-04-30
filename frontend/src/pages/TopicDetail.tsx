@@ -42,6 +42,46 @@ export function TopicDetail() {
     const decomposeToastIdRef = React.useRef<string | number | null>(null)
     const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
 
+    const refreshStoredIdeasState = React.useCallback(async (topicId: string) => {
+        if (!user?.id) {
+            setHasStoredIdeas(false)
+            setSavedIdeasCountBySubtopicName(new Map())
+            setSubtopicsReadyForContent(new Set())
+            return
+        }
+
+        const storedIdeas = await contentIdeasService.getContentIdeas(topicId, user.id)
+        console.info('[TopicDetail] refreshed stored ideas', {
+            topicId,
+            total: storedIdeas.length,
+            blog: storedIdeas.filter((idea) => idea.content_type === 'blog').length,
+            software: storedIdeas.filter((idea) => idea.content_type === 'software').length,
+        })
+
+        setHasStoredIdeas(Array.isArray(storedIdeas) && storedIdeas.length > 0)
+        const savedSubtopicCounts = new Map<string, number>()
+        for (const idea of storedIdeas || []) {
+            const key = (idea.subtopic || '').trim().toLowerCase()
+            if (!key) continue
+            savedSubtopicCounts.set(key, (savedSubtopicCounts.get(key) || 0) + 1)
+        }
+        const readySubtopicNames = new Set(
+            (storedIdeas || [])
+                .filter((idea) =>
+                    Boolean(
+                        idea.published ||
+                        idea.published_to_titles ||
+                        idea.titles_record_id ||
+                        idea.status?.toLowerCase() === 'published'
+                    )
+                )
+                .map((idea) => (idea.subtopic || '').trim().toLowerCase())
+                .filter(Boolean)
+        )
+        setSavedIdeasCountBySubtopicName(savedSubtopicCounts)
+        setSubtopicsReadyForContent(readySubtopicNames)
+    }, [user?.id])
+
     React.useEffect(() => {
         if (!authLoading && user && id) {
             loadData(id)
@@ -59,41 +99,7 @@ export function TopicDetail() {
 
             setTopic(topicData)
             setSubtopics(subtopicsData || [])
-            if (user?.id) {
-                const storedIdeas = await contentIdeasService.getContentIdeas(topicId, user.id)
-                console.info('[TopicDetail] loaded stored ideas', {
-                    topicId,
-                    total: storedIdeas.length,
-                    blog: storedIdeas.filter((idea) => idea.content_type === 'blog').length,
-                    software: storedIdeas.filter((idea) => idea.content_type === 'software').length,
-                })
-                setHasStoredIdeas(Array.isArray(storedIdeas) && storedIdeas.length > 0)
-                const savedSubtopicCounts = new Map<string, number>()
-                for (const idea of storedIdeas || []) {
-                    const key = (idea.subtopic || '').trim().toLowerCase()
-                    if (!key) continue
-                    savedSubtopicCounts.set(key, (savedSubtopicCounts.get(key) || 0) + 1)
-                }
-                const readySubtopicNames = new Set(
-                    (storedIdeas || [])
-                        .filter((idea) =>
-                            Boolean(
-                                idea.published ||
-                                idea.published_to_titles ||
-                                idea.titles_record_id ||
-                                idea.status?.toLowerCase() === 'published'
-                            )
-                        )
-                        .map((idea) => (idea.subtopic || '').trim().toLowerCase())
-                        .filter(Boolean)
-                )
-                setSavedIdeasCountBySubtopicName(savedSubtopicCounts)
-                setSubtopicsReadyForContent(readySubtopicNames)
-            } else {
-                setHasStoredIdeas(false)
-                setSavedIdeasCountBySubtopicName(new Map())
-                setSubtopicsReadyForContent(new Set())
-            }
+            await refreshStoredIdeasState(topicId)
             setError(null)
         } catch (err) {
             console.error('Failed to load topic data:', err)
@@ -102,6 +108,16 @@ export function TopicDetail() {
             setLoading(false)
         }
     }
+
+    const handleIdeaModalClose = React.useCallback(async () => {
+        setShowIdeaModal(false)
+        if (!id) return
+        try {
+            await refreshStoredIdeasState(id)
+        } catch (err) {
+            console.warn('Failed to refresh content ideas after closing idea modal:', err)
+        }
+    }, [id, refreshStoredIdeasState])
 
     const handleDecompose = async () => {
         if (!id) return
@@ -973,7 +989,7 @@ export function TopicDetail() {
                 {/* Idea Burst Modal */}
                 <IdeaBurstModal
                     isOpen={showIdeaModal}
-                    onClose={() => setShowIdeaModal(false)}
+                    onClose={handleIdeaModalClose}
                     subtopic={selectedSubtopic}
                     topicId={id || ''}
                     topicTitle={topic?.title || ''}

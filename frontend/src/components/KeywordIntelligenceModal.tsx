@@ -217,6 +217,117 @@ function normalizeKeywordKey(input: string): string {
     return String(input || "").trim().toLowerCase();
 }
 
+function collectIdeaKeywordPool(idea: ContentIdea): string[] {
+    const metadata = safeJsonParse<any>((idea as any).idea_metadata, {});
+    const rankedCandidates = safeJsonParse<any[]>(metadata?.seo_offer_enrichment?.keyword_ranked_candidates, [])
+        .map((row) => String(row?.keyword || "").trim())
+        .filter(Boolean);
+    const pass2Candidates = safeJsonParse<any[]>(metadata?.keyword_pass_2?.keyword_ranked_candidates, [])
+        .map((row) => String(row?.keyword || "").trim())
+        .filter(Boolean);
+    const merged = [
+        ...extractKeywordValues((idea as any).keywords),
+        ...extractKeywordValues((idea as any).primary_keywords ?? (idea as any).primary_keyword),
+        ...extractKeywordValues((idea as any).secondary_keywords ?? (idea as any).secondary_keywords_json),
+        ...extractKeywordValues(metadata?.seo_offer_enrichment?.keywords_used),
+        ...extractKeywordValues(metadata?.input_keywords),
+        ...extractKeywordValues(metadata?.keyword_seed_pack?.input_keywords),
+        ...rankedCandidates,
+        ...pass2Candidates,
+    ];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const kw of merged) {
+        const raw = String(kw || "").trim();
+        const norm = normalizeKeywordKey(raw);
+        if (!raw || !norm || seen.has(norm)) continue;
+        seen.add(norm);
+        out.push(raw);
+    }
+    return out;
+}
+
+function collectIdeaKeywordMetricMap(idea: ContentIdea): Map<string, { search_volume: number | null; keyword_difficulty: number | null; cpc: number | null }> {
+    const map = new Map<string, { search_volume: number | null; keyword_difficulty: number | null; cpc: number | null }>();
+    const metadata = safeJsonParse<any>((idea as any).idea_metadata, {});
+    const fromColumn = safeJsonParse<any>((idea as any).keyword_metrics, {});
+    const fromMetadata = safeJsonParse<any>(metadata?.seo_offer_enrichment?.keyword_metrics, {});
+    const fromCandidates = safeJsonParse<any[]>(metadata?.seo_offer_enrichment?.keyword_ranked_candidates, []);
+    const fromPass2Candidates = safeJsonParse<any[]>(metadata?.keyword_pass_2?.keyword_ranked_candidates, []);
+
+    const ingest = (keywordInput: unknown, metricInput: any) => {
+        const keyword = String(keywordInput || "").trim();
+        const key = normalizeKeywordKey(keyword);
+        if (!keyword || !key) return;
+        const volume = Number(metricInput?.search_volume);
+        const kd = Number(metricInput?.keyword_difficulty);
+        const cpc = Number(metricInput?.cpc);
+        map.set(key, {
+            search_volume: Number.isFinite(volume) ? volume : null,
+            keyword_difficulty: Number.isFinite(kd) ? kd : null,
+            cpc: Number.isFinite(cpc) ? cpc : null,
+        });
+    };
+
+    const ingestSource = (source: any) => {
+        if (Array.isArray(source)) {
+            source.forEach((row) => ingest(row?.keyword || row?.term, row));
+            return;
+        }
+        if (source && typeof source === "object") {
+            Object.entries(source).forEach(([k, v]) => ingest(k, v));
+        }
+    };
+
+    ingestSource(fromColumn);
+    ingestSource(fromMetadata);
+    ingestSource(fromCandidates);
+    ingestSource(fromPass2Candidates);
+    return map;
+}
+
+function mergeParsedWithIdeaKeywordPool(parsed: DFSParsedOutput | null, idea: ContentIdea): DFSParsedOutput | null {
+    if (!parsed) return parsed;
+    const keywordPool = collectIdeaKeywordPool(idea);
+    if (!keywordPool.length) return parsed;
+    const existing = new Set((parsed.rows || []).map((r) => normalizeKeywordKey(r.keyword)));
+    const metricMap = collectIdeaKeywordMetricMap(idea);
+    const missingRows: DFSKeywordRow[] = [];
+
+    for (const keyword of keywordPool) {
+        const norm = normalizeKeywordKey(keyword);
+        if (!norm || existing.has(norm)) continue;
+        existing.add(norm);
+        const metric = metricMap.get(norm);
+        missingRows.push({
+            keyword,
+            type: "related",
+            depth: 1,
+            search_volume: metric?.search_volume ?? null,
+            competition: null,
+            competition_level: null,
+            cpc: metric?.cpc ?? null,
+            keyword_difficulty: metric?.keyword_difficulty ?? null,
+            main_intent: null,
+            foreign_intents: null,
+            monthly_searches: [],
+            search_volume_trend: null,
+            low_top_of_page_bid: null,
+            high_top_of_page_bid: null,
+            se_results_count: null,
+            related_keywords: null,
+        });
+    }
+
+    if (!missingRows.length) return parsed;
+    return {
+        ...parsed,
+        rows: [...parsed.rows, ...missingRows],
+        total_count: Number(parsed.total_count || 0) + missingRows.length,
+        items_count: Number(parsed.items_count || 0) + missingRows.length,
+    };
+}
+
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 // ─── Trend Sparkline ─────────────────────────────────────────────────────────
@@ -669,8 +780,9 @@ export function KeywordIntelligenceModal({
             (idea as any).raw_dataforseo_output ??
             (idea as any).raw_supabase_output ??
             (idea as any).idea_metadata?.seo_offer_enrichment?.raw_dataforseo_output;
-        return parseDataForSEOOutput(rawField);
-    }, [idea.id, (idea as any).raw_dataforseo_output]);
+        const parsed = parseDataForSEOOutput(rawField);
+        return mergeParsedWithIdeaKeywordPool(parsed, idea);
+    }, [idea]);
 
     // Mutable copy of parsed so we can append expanded rows
     const [parsed, setParsed] = React.useState<DFSParsedOutput | null>(baseParsed);
