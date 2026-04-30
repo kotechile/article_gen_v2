@@ -73,6 +73,7 @@ class EnhancedTopicDecompositionService:
             Dictionary with decomposition results
         """
         start_time = time.time()
+        editorial_debug: Dict[str, Any] = {}
         
         async def _build_fallback_result(reason: Exception) -> Dict[str, Any]:
             logger.warning(
@@ -109,6 +110,9 @@ class EnhancedTopicDecompositionService:
                     "processing_time": time.time() - start_time,
                     "enhancement_methods": ["fallback_hybrid_or_llm"],
                     "warnings": [str(reason), "No fallback subtopics were produced."],
+                    "debug": {
+                        "editorial": editorial_debug,
+                    },
                 }
 
             fallback_subtopics = []
@@ -157,6 +161,9 @@ class EnhancedTopicDecompositionService:
                     "processing_time": time.time() - start_time,
                     "enhancement_methods": ["fallback_hybrid_or_llm"],
                     "warnings": [str(reason), "Fallback titles normalized to zero usable subtopics."],
+                    "debug": {
+                        "editorial": editorial_debug,
+                    },
                 }
 
             return {
@@ -169,6 +176,9 @@ class EnhancedTopicDecompositionService:
                 "processing_time": time.time() - start_time,
                 "enhancement_methods": ["fallback_hybrid_or_llm"],
                 "warnings": [str(reason)],
+                "debug": {
+                    "editorial": editorial_debug,
+                },
             }
 
         try:
