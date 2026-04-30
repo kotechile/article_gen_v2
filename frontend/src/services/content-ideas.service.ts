@@ -348,6 +348,13 @@ class ContentIdeasService {
                 keyword_difficulty?: number;
                 cpc?: number;
             }>;
+            affiliate_offers_preview?: Array<{
+                name?: string | null;
+                network?: string | null;
+                commission_rate?: string | null;
+            }>;
+            affiliate_search_status?: string | null;
+            affiliate_search_error?: string | null;
         }>;
     }> {
         try {

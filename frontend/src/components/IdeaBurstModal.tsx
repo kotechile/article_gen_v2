@@ -25,6 +25,12 @@ interface KeywordMetricRow {
     cpc: number | null;
 }
 
+interface AffiliateOfferPreview {
+    name?: string | null;
+    network?: string | null;
+    commission_rate?: string | null;
+}
+
 function normalizeKeywordKey(input: string): string {
     return (input || "")
         .trim()
@@ -310,6 +316,39 @@ function getRawDataforSeoTrace(idea: ContentIdea): Record<string, unknown> | nul
         return nested;
     }
     return null;
+}
+
+function extractAffiliateOffersPreview(idea: ContentIdea): AffiliateOfferPreview[] {
+    const metadata = parseJsonLike<Record<string, any>>((idea as any).idea_metadata, {});
+    const topLevel = parseJsonLike<AffiliateOfferPreview[] | null>((idea as any).affiliate_offers_preview, null);
+    if (Array.isArray(topLevel) && topLevel.length > 0) {
+        return topLevel;
+    }
+    const nested = parseJsonLike<AffiliateOfferPreview[] | null>(metadata?.seo_offer_enrichment?.affiliate_offers_preview, null);
+    return Array.isArray(nested) ? nested : [];
+}
+
+function getAffiliateSearchState(idea: ContentIdea) {
+    const metadata = parseJsonLike<Record<string, any>>((idea as any).idea_metadata, {});
+    const status = String(
+        (idea as any).affiliate_search_status
+        ?? metadata?.seo_offer_enrichment?.affiliate_search_status
+        ?? ""
+    ).trim();
+    const error = String(
+        (idea as any).affiliate_search_error
+        ?? metadata?.seo_offer_enrichment?.affiliate_search_error
+        ?? ""
+    ).trim();
+    const topLevelCount = Number((idea as any).affiliate_offer_count ?? NaN);
+    const metadataCount = Number(metadata?.seo_offer_enrichment?.affiliate_offer_count ?? NaN);
+    const offers = extractAffiliateOffersPreview(idea);
+    const count = Number.isFinite(topLevelCount)
+        ? topLevelCount
+        : Number.isFinite(metadataCount)
+            ? metadataCount
+            : offers.length;
+    return { count, status, error, offers };
 }
 
 function computeAggregateFromExactMap(
@@ -644,8 +683,13 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
             const autoEnrichIds = persistedIdeaIds.length > 0
                 ? persistedIdeaIds
                 : [...nextBlogIdeas, ...nextSoftwareIdeas].map((idea) => idea.id).filter(Boolean);
-            if (autoEnrichIds.length > 0) {
-                await runEnrichment(autoEnrichIds, { silent: true });
+            const missingExactMetricIds = [...nextBlogIdeas, ...nextSoftwareIdeas]
+                .filter((idea) => !ideaHasExactKeywordMetrics(idea))
+                .map((idea) => idea.id)
+                .filter(Boolean);
+            const enrichIds = autoEnrichIds.filter((ideaId) => missingExactMetricIds.includes(ideaId));
+            if (enrichIds.length > 0) {
+                await runEnrichment(enrichIds, { silent: true });
             }
         } catch (err: any) {
             console.error("Failed to generate ideas:", err);
@@ -735,83 +779,56 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
         average_cpc: number;
         average_difficulty: number;
         affiliate_offer_count: number;
-    }, keywordMetricsMap?: Record<string, { search_volume?: number; keyword_difficulty?: number; cpc?: number }>, keywordsUsed?: string[], restatedTitle?: string, selectedPrimaryKeyword?: string, rawOutput?: any) => {
+    }, keywordMetricsMap?: Record<string, { search_volume?: number; keyword_difficulty?: number; cpc?: number }>, keywordsUsed?: string[], restatedTitle?: string, selectedPrimaryKeyword?: string, rawOutput?: any, affiliateOffersPreview?: AffiliateOfferPreview[], affiliateSearchStatus?: string | null, affiliateSearchError?: string | null) => {
         if (!metrics) return;
+        const updateIdea = (idea: ContentIdea): ContentIdea => {
+            if (idea.id !== ideaId) return idea;
+            const currentMetadata = parseJsonLike<Record<string, any>>((idea as any).idea_metadata, {});
+            const nextSeoOfferEnrichment = {
+                ...(currentMetadata?.seo_offer_enrichment || {}),
+                ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
+                ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? { keywords_used: keywordsUsed } : {}),
+                affiliate_offer_count: metrics.affiliate_offer_count,
+                affiliate_offers_preview: affiliateOffersPreview || [],
+                affiliate_search_status: affiliateSearchStatus || null,
+                affiliate_search_error: affiliateSearchError || null,
+                ...(rawOutput ? { raw_dataforseo_output: rawOutput } : {}),
+            };
+            return {
+                ...idea,
+                total_search_volume: metrics.total_search_volume,
+                average_cpc: metrics.average_cpc,
+                average_difficulty: metrics.average_difficulty,
+                affiliate_offer_count: metrics.affiliate_offer_count,
+                affiliate_offers_preview: affiliateOffersPreview || [],
+                affiliate_search_status: affiliateSearchStatus || null,
+                affiliate_search_error: affiliateSearchError || null,
+                raw_dataforseo_output: rawOutput ?? idea.raw_dataforseo_output,
+                idea_metadata: {
+                    ...currentMetadata,
+                    seo_offer_enrichment: nextSeoOfferEnrichment,
+                },
+                ...(restatedTitle ? { title: restatedTitle } : {}),
+                ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
+                ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
+                    keywords: keywordsUsed,
+                    primary_keywords: [selectedPrimaryKeyword || keywordsUsed[0]],
+                    secondary_keywords: keywordsUsed.filter(k => k !== (selectedPrimaryKeyword || keywordsUsed[0])),
+                } : {}),
+                ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
+            };
+        };
         setBlogIdeas((prev) => prev.map((idea) => (
-            idea.id === ideaId
-                ? {
-                    ...idea,
-                    total_search_volume: metrics.total_search_volume,
-                    average_cpc: metrics.average_cpc,
-                    average_difficulty: metrics.average_difficulty,
-                    raw_dataforseo_output: rawOutput ?? idea.raw_dataforseo_output,
-                    ...(restatedTitle ? { title: restatedTitle } : {}),
-                    ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
-                    ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
-                        keywords: keywordsUsed,
-                        primary_keywords: [selectedPrimaryKeyword || keywordsUsed[0]],
-                        secondary_keywords: keywordsUsed.filter(k => k !== (selectedPrimaryKeyword || keywordsUsed[0])),
-                    } : {}),
-                    ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
-                }
-                : idea
+            updateIdea(idea)
         )));
         setSoftwareIdeas((prev) => prev.map((idea) => (
-            idea.id === ideaId
-                ? {
-                    ...idea,
-                    total_search_volume: metrics.total_search_volume,
-                    average_cpc: metrics.average_cpc,
-                    average_difficulty: metrics.average_difficulty,
-                    raw_dataforseo_output: rawOutput ?? idea.raw_dataforseo_output,
-                    ...(restatedTitle ? { title: restatedTitle } : {}),
-                    ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
-                    ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
-                        keywords: keywordsUsed,
-                        primary_keywords: [selectedPrimaryKeyword || keywordsUsed[0]],
-                        secondary_keywords: keywordsUsed.filter(k => k !== (selectedPrimaryKeyword || keywordsUsed[0])),
-                    } : {}),
-                    ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
-                }
-                : idea
+            updateIdea(idea)
         )));
         setArchivedBlogIdeas((prev) => prev.map((idea) => (
-            idea.id === ideaId
-                ? {
-                    ...idea,
-                    total_search_volume: metrics.total_search_volume,
-                    average_cpc: metrics.average_cpc,
-                    average_difficulty: metrics.average_difficulty,
-                    raw_dataforseo_output: rawOutput ?? idea.raw_dataforseo_output,
-                    ...(restatedTitle ? { title: restatedTitle } : {}),
-                    ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
-                    ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
-                        keywords: keywordsUsed,
-                        primary_keywords: [selectedPrimaryKeyword || keywordsUsed[0]],
-                        secondary_keywords: keywordsUsed.filter(k => k !== (selectedPrimaryKeyword || keywordsUsed[0])),
-                    } : {}),
-                    ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
-                }
-                : idea
+            updateIdea(idea)
         )));
         setArchivedSoftwareIdeas((prev) => prev.map((idea) => (
-            idea.id === ideaId
-                ? {
-                    ...idea,
-                    total_search_volume: metrics.total_search_volume,
-                    average_cpc: metrics.average_cpc,
-                    average_difficulty: metrics.average_difficulty,
-                    raw_dataforseo_output: rawOutput ?? idea.raw_dataforseo_output,
-                    ...(restatedTitle ? { title: restatedTitle } : {}),
-                    ...(selectedPrimaryKeyword ? { search_phrase: selectedPrimaryKeyword } : {}),
-                    ...(Array.isArray(keywordsUsed) && keywordsUsed.length > 0 ? {
-                        keywords: keywordsUsed,
-                        primary_keywords: [selectedPrimaryKeyword || keywordsUsed[0]],
-                        secondary_keywords: keywordsUsed.filter(k => k !== (selectedPrimaryKeyword || keywordsUsed[0])),
-                    } : {}),
-                    ...(keywordMetricsMap ? { keyword_metrics: keywordMetricsMap } : {}),
-                }
-                : idea
+            updateIdea(idea)
         )));
     };
 
@@ -847,6 +864,9 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                     cpc?: number;
                 }>;
                 raw_dataforseo_output?: any;
+                affiliate_offers_preview?: AffiliateOfferPreview[];
+                affiliate_search_status?: string | null;
+                affiliate_search_error?: string | null;
             }> = [];
             let enrichedCount = 0;
 
@@ -882,7 +902,10 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
                         item.keywords_used,
                         item.restated_title,
                         item.selected_primary_keyword,
-                        item.raw_dataforseo_output
+                        item.raw_dataforseo_output,
+                        item.affiliate_offers_preview,
+                        item.affiliate_search_status,
+                        item.affiliate_search_error
                     );
                 }
             });
@@ -1768,6 +1791,9 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onT
         : exactAggregate.avgCpc;
     const rawTrace = React.useMemo(() => getRawDataforSeoTrace(idea), [idea]);
     const rawTraceAvailable = Boolean(rawTrace);
+    const affiliateState = React.useMemo(() => getAffiliateSearchState(idea), [idea]);
+    const hasAffiliateFailure = affiliateState.status === "failed";
+    const hasAffiliatePreview = affiliateState.offers.length > 0;
 
     return (
         <motion.div
@@ -1900,7 +1926,41 @@ function BlogIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded, onT
                                     <span className="text-slate-300">{Math.round(idea.opportunity_score || 0)}%</span>
                                 </span>
                             )}
+                            {affiliateState.count > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="text-amber-400">Offers:</span>
+                                    <span className="text-slate-300">{affiliateState.count}</span>
+                                </span>
+                            )}
                         </div>
+
+                        {(hasAffiliateFailure || hasAffiliatePreview) && (
+                            <div className="mt-2 space-y-1">
+                                {hasAffiliateFailure && (
+                                    <p className="text-[11px] text-rose-300">
+                                        <span className="text-rose-400 font-medium">Offers lookup:</span> {affiliateState.error || "Search failed"}
+                                    </p>
+                                )}
+                                {hasAffiliatePreview && (
+                                    <div className="flex flex-wrap gap-1">
+                                        {affiliateState.offers.slice(0, 3).map((offer, index) => (
+                                            <span
+                                                key={`${idea.id}-offer-${index}-${offer.name || "offer"}`}
+                                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-amber-500/15 text-amber-300 border border-amber-500/20"
+                                                title={[offer.network, offer.commission_rate].filter(Boolean).join(" • ")}
+                                            >
+                                                {offer.name || "Offer"}
+                                            </span>
+                                        ))}
+                                        {affiliateState.count > affiliateState.offers.length && (
+                                            <span className="text-[10px] text-slate-500 px-1">
+                                                +{affiliateState.count - affiliateState.offers.length} more
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {/* Affiliate Hook - Full width */}
                         {idea.monetization_hook && (
@@ -2078,6 +2138,9 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded,
         : exactAggregate.avgCpc;
     const rawTrace = React.useMemo(() => getRawDataforSeoTrace(idea), [idea]);
     const rawTraceAvailable = Boolean(rawTrace);
+    const affiliateState = React.useMemo(() => getAffiliateSearchState(idea), [idea]);
+    const hasAffiliateFailure = affiliateState.status === "failed";
+    const hasAffiliatePreview = affiliateState.offers.length > 0;
 
     return (
         <motion.div
@@ -2210,7 +2273,41 @@ function SoftwareIdeaCard({ idea, isSelected, onToggle, isExpanded: _isExpanded,
                                     <span className="text-slate-300">{Math.round(idea.opportunity_score || 0)}%</span>
                                 </span>
                             )}
+                            {affiliateState.count > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="text-emerald-400">Offers:</span>
+                                    <span className="text-slate-300">{affiliateState.count}</span>
+                                </span>
+                            )}
                         </div>
+
+                        {(hasAffiliateFailure || hasAffiliatePreview) && (
+                            <div className="mt-2 space-y-1">
+                                {hasAffiliateFailure && (
+                                    <p className="text-[11px] text-rose-300">
+                                        <span className="text-rose-400 font-medium">Offers lookup:</span> {affiliateState.error || "Search failed"}
+                                    </p>
+                                )}
+                                {hasAffiliatePreview && (
+                                    <div className="flex flex-wrap gap-1">
+                                        {affiliateState.offers.slice(0, 3).map((offer, index) => (
+                                            <span
+                                                key={`${idea.id}-software-offer-${index}-${offer.name || "offer"}`}
+                                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/20"
+                                                title={[offer.network, offer.commission_rate].filter(Boolean).join(" • ")}
+                                            >
+                                                {offer.name || "Offer"}
+                                            </span>
+                                        ))}
+                                        {affiliateState.count > affiliateState.offers.length && (
+                                            <span className="text-[10px] text-slate-500 px-1">
+                                                +{affiliateState.count - affiliateState.offers.length} more
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {/* Monetization Strategy */}
                         {idea.monetization_hook && (

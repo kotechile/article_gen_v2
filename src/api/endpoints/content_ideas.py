@@ -196,6 +196,56 @@ def _coerce_numeric(value, cast, default):
         return default
 
 
+def _extract_existing_keyword_metrics_for_enrichment(idea: dict) -> tuple[dict, dict, list[dict]]:
+    """
+    Reuse already-persisted exact keyword metrics when available so enrichment
+    does not re-call DataForSEO for ideas that already have real numbers.
+    """
+    if not isinstance(idea, dict):
+        return {}, {}, []
+
+    idea_metadata = _coerce_json_field(idea.get("idea_metadata"), {})
+    seo_offer = (idea_metadata.get("seo_offer_enrichment") or {}) if isinstance(idea_metadata, dict) else {}
+
+    keyword_metrics = _coerce_json_field(idea.get("keyword_metrics"), {})
+    if not isinstance(keyword_metrics, dict) or not keyword_metrics:
+        keyword_metrics = _coerce_json_field(
+            seo_offer.get("keyword_metrics") or seo_offer.get("keyword_metrics_map"),
+            {},
+        )
+    if not isinstance(keyword_metrics, dict):
+        keyword_metrics = {}
+
+    normalized_metrics: dict[str, dict] = {}
+    for raw_keyword, raw_metric in keyword_metrics.items():
+        keyword = _normalize_keyword_term(str(raw_keyword or ""))
+        if not keyword or not isinstance(raw_metric, dict):
+            continue
+        normalized_metrics[keyword] = {
+            "search_volume": _coerce_numeric(raw_metric.get("search_volume"), int, None),
+            "keyword_difficulty": _coerce_numeric(raw_metric.get("keyword_difficulty"), float, None),
+            "cpc": _coerce_numeric(raw_metric.get("cpc"), float, None),
+        }
+
+    non_zero_rows = [
+        row for row in normalized_metrics.values()
+        if int(row.get("search_volume") or 0) > 0
+        or float(row.get("keyword_difficulty") or 0.0) > 0
+        or float(row.get("cpc") or 0.0) > 0
+    ]
+    if not non_zero_rows:
+        return {}, {}, []
+
+    raw_dataforseo_output = _coerce_json_field(
+        idea.get("raw_dataforseo_output") or seo_offer.get("raw_dataforseo_output"),
+        {},
+    )
+    ranked_candidates = _coerce_json_field(seo_offer.get("keyword_ranked_candidates"), [])
+    if not isinstance(ranked_candidates, list):
+        ranked_candidates = []
+    return normalized_metrics, raw_dataforseo_output if isinstance(raw_dataforseo_output, dict) else {}, ranked_candidates
+
+
 def _hydrate_legacy_idea_seo_fields(row_copy: dict) -> dict:
     """
     Backfill SEO fields for legacy rows that were persisted with minimal columns.
@@ -217,6 +267,30 @@ def _hydrate_legacy_idea_seo_fields(row_copy: dict) -> dict:
     if not isinstance(keyword_metrics, dict):
         keyword_metrics = {}
     row_copy["keyword_metrics"] = keyword_metrics
+    row_copy["affiliate_offer_count"] = _coerce_numeric(
+        row_copy.get("affiliate_offer_count"),
+        int,
+        _coerce_numeric(seo_offer.get("affiliate_offer_count"), int, 0),
+    )
+    affiliate_offers_preview = _coerce_json_field(
+        row_copy.get("affiliate_offers_preview") or seo_offer.get("affiliate_offers_preview"),
+        [],
+    )
+    row_copy["affiliate_offers_preview"] = affiliate_offers_preview if isinstance(affiliate_offers_preview, list) else []
+    affiliate_search_status = str(
+        row_copy.get("affiliate_search_status")
+        or seo_offer.get("affiliate_search_status")
+        or ("success" if row_copy["affiliate_offer_count"] is not None else "")
+    ).strip()
+    if affiliate_search_status:
+        row_copy["affiliate_search_status"] = affiliate_search_status
+    affiliate_search_error = str(
+        row_copy.get("affiliate_search_error")
+        or seo_offer.get("affiliate_search_error")
+        or ""
+    ).strip()
+    if affiliate_search_error:
+        row_copy["affiliate_search_error"] = affiliate_search_error
 
     # Reconstruct keyword arrays when missing.
     keywords = _coerce_json_field(row_copy.get("keywords"), [])
@@ -1016,6 +1090,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         search_phrase=str(idea.get("search_phrase") or ""),
     )
     working_candidates = [primary_seed_keyword] if primary_seed_keyword else list(candidates[:1])
+    existing_metrics_map, existing_raw_dataforseo_output, existing_ranked_candidates = _extract_existing_keyword_metrics_for_enrichment(idea)
 
     fallback_seed_candidates: list[str] = []
     for raw_candidate in ([str(idea.get("search_phrase") or "")] + keywords + candidates):
@@ -1031,119 +1106,148 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     ranked_candidates: list[dict] = []
     tier_diagnostics: list[dict] = []
     dataforseo_calls = 0
+    raw_dataforseo_output: dict = {}
 
-    # Single DataForSEO call path for content ideas:
-    # dataforseo_labs/google/related_keywords/live
-    tier_diag = {
-        "tier": "labs_related_keywords_live",
-        "max_keywords_for_metrics": min(MAX_KEYWORDS_FOR_METRICS, len(working_candidates)),
-        "primary_seed_keyword": primary_seed_keyword,
-    }
-    metrics_map = await _fetch_metrics_map_for_keywords(
-        working_candidates,
-        max_keywords_for_metrics=MAX_KEYWORDS_FOR_METRICS,
-        diagnostics=tier_diag,
-        raw_capture=tier_diag.setdefault("raw_dataforseo", {}),
-    )
-    non_zero_metric_rows = sum(
-        1
-        for row in (metrics_map or {}).values()
-        if int(row.get("search_volume") or 0) > 0
-        or float(row.get("keyword_difficulty") or 0.0) > 0
-        or float(row.get("cpc") or 0.0) > 0
-    )
-
-    if non_zero_metric_rows == 0:
-        logger.warning(
-            "DataForSEO returned zero measurable metrics for primary seed idea_id=%s seed=%r; retrying fallback seeds=%s",
-            idea_id,
-            primary_seed_keyword,
-            fallback_seed_candidates,
-        )
-        for fallback_seed in fallback_seed_candidates:
-            retry_diag = {
-                "tier": "labs_related_keywords_live_retry",
-                "primary_seed_keyword": fallback_seed,
-                "max_keywords_for_metrics": 1,
-            }
-            retry_metrics = await _fetch_metrics_map_for_keywords(
-                [fallback_seed],
-                max_keywords_for_metrics=1,
-                diagnostics=retry_diag,
-                raw_capture=retry_diag.setdefault("raw_dataforseo", {}),
-            )
-            retry_non_zero = sum(
-                1
-                for row in (retry_metrics or {}).values()
-                if int(row.get("search_volume") or 0) > 0
-                or float(row.get("keyword_difficulty") or 0.0) > 0
-                or float(row.get("cpc") or 0.0) > 0
-            )
-            retry_diag["quality"] = {"non_zero_metric_rows": retry_non_zero}
-            retry_diag["calls"] = 1
-            tier_diagnostics.append(retry_diag)
-            dataforseo_calls += 1
-            if retry_non_zero > 0:
-                metrics_map = retry_metrics
-                working_candidates = [fallback_seed]
-                primary_seed_keyword = fallback_seed
-                tier_diag = retry_diag
-                logger.info(
-                    "DataForSEO fallback seed succeeded idea_id=%s seed=%r non_zero_metric_rows=%s",
-                    idea_id,
-                    fallback_seed,
-                    retry_non_zero,
-                )
-                break
-    ranked_pool = list(dict.fromkeys(
-        [primary_seed_keyword] +
-        [str(k).strip().lower() for k in metrics_map.keys() if str(k).strip()] +
-        [str(k).strip().lower() for k in (keywords or []) if str(k).strip()]
-    ))
-    ranked_candidates = _rank_keywords_by_opportunity(ranked_pool, metrics_map)
-    summary = _keyword_quality_summary(ranked_candidates)
-    tier_diag["quality"] = summary
-    tier_diag["calls"] = max(1, int(tier_diag.get("calls") or 1))
-    if not tier_diagnostics or tier_diagnostics[-1] is not tier_diag:
-        tier_diagnostics.append(tier_diag)
-    if dataforseo_calls <= 0:
-        dataforseo_calls = 1
-
-    # Persist exact raw response from DataForSEO when present.
-    raw_dataforseo_output: dict = (
-        (tier_diag.get("raw_dataforseo") or {}).get("related_keywords_live")
-        or {
+    if existing_metrics_map:
+        metrics_map = dict(existing_metrics_map)
+        ranked_pool = list(dict.fromkeys(
+            [primary_seed_keyword] +
+            [str(k).strip().lower() for k in metrics_map.keys() if str(k).strip()] +
+            [str(k).strip().lower() for k in (keywords or []) if str(k).strip()]
+        ))
+        ranked_candidates = _rank_keywords_by_opportunity(ranked_pool, metrics_map)
+        if existing_ranked_candidates:
+            ranked_candidates = ranked_candidates or existing_ranked_candidates
+        raw_dataforseo_output = existing_raw_dataforseo_output or {
             "idea_id": idea_id,
             "captured_at": datetime.utcnow().isoformat(),
             "tiers": [],
+            "source": "reused_saved_metrics",
         }
-    )
-    raw_metrics_map = _extract_keyword_metrics_from_dataforseo_raw(raw_dataforseo_output)
-    if raw_metrics_map:
-        merged = dict(metrics_map or {})
-        for kw, raw_row in raw_metrics_map.items():
-            existing = merged.get(kw) or {}
-            search_volume = existing.get("search_volume") if existing.get("search_volume") is not None else raw_row.get("search_volume")
-            keyword_difficulty = existing.get("keyword_difficulty") if existing.get("keyword_difficulty") is not None else raw_row.get("keyword_difficulty")
-            cpc = existing.get("cpc") if existing.get("cpc") is not None else raw_row.get("cpc")
-            merged[kw] = {
-                "search_volume": search_volume,
-                "keyword_difficulty": keyword_difficulty,
-                "cpc": cpc,
-            }
-        metrics_map = merged
+        tier_diagnostics.append({
+            "tier": "reused_saved_metrics",
+            "primary_seed_keyword": primary_seed_keyword,
+            "calls": 0,
+            "quality": _keyword_quality_summary(ranked_candidates),
+        })
         logger.info(
-            "Merged raw DataForSEO metrics into map idea_id=%s raw_metric_keywords=%s merged_metric_keywords=%s",
+            "Reused saved keyword metrics for idea_id=%s metric_keywords=%s",
             idea_id,
-            len(raw_metrics_map),
             len(metrics_map),
         )
-    logger.info(
-        "Enrichment DataForSEO raw selected idea_id=%s seed=%r raw_summary=%s",
-        idea_id,
-        primary_seed_keyword,
-        _summarize_dataforseo_raw(raw_dataforseo_output),
-    )
+    else:
+        # Single DataForSEO call path for content ideas:
+        # dataforseo_labs/google/related_keywords/live
+        tier_diag = {
+            "tier": "labs_related_keywords_live",
+            "max_keywords_for_metrics": min(MAX_KEYWORDS_FOR_METRICS, len(working_candidates)),
+            "primary_seed_keyword": primary_seed_keyword,
+        }
+        metrics_map = await _fetch_metrics_map_for_keywords(
+            working_candidates,
+            max_keywords_for_metrics=MAX_KEYWORDS_FOR_METRICS,
+            diagnostics=tier_diag,
+            raw_capture=tier_diag.setdefault("raw_dataforseo", {}),
+        )
+        non_zero_metric_rows = sum(
+            1
+            for row in (metrics_map or {}).values()
+            if int(row.get("search_volume") or 0) > 0
+            or float(row.get("keyword_difficulty") or 0.0) > 0
+            or float(row.get("cpc") or 0.0) > 0
+        )
+
+        if non_zero_metric_rows == 0:
+            logger.warning(
+                "DataForSEO returned zero measurable metrics for primary seed idea_id=%s seed=%r; retrying fallback seeds=%s",
+                idea_id,
+                primary_seed_keyword,
+                fallback_seed_candidates,
+            )
+            for fallback_seed in fallback_seed_candidates:
+                retry_diag = {
+                    "tier": "labs_related_keywords_live_retry",
+                    "primary_seed_keyword": fallback_seed,
+                    "max_keywords_for_metrics": 1,
+                }
+                retry_metrics = await _fetch_metrics_map_for_keywords(
+                    [fallback_seed],
+                    max_keywords_for_metrics=1,
+                    diagnostics=retry_diag,
+                    raw_capture=retry_diag.setdefault("raw_dataforseo", {}),
+                )
+                retry_non_zero = sum(
+                    1
+                    for row in (retry_metrics or {}).values()
+                    if int(row.get("search_volume") or 0) > 0
+                    or float(row.get("keyword_difficulty") or 0.0) > 0
+                    or float(row.get("cpc") or 0.0) > 0
+                )
+                retry_diag["quality"] = {"non_zero_metric_rows": retry_non_zero}
+                retry_diag["calls"] = 1
+                tier_diagnostics.append(retry_diag)
+                dataforseo_calls += 1
+                if retry_non_zero > 0:
+                    metrics_map = retry_metrics
+                    working_candidates = [fallback_seed]
+                    primary_seed_keyword = fallback_seed
+                    tier_diag = retry_diag
+                    logger.info(
+                        "DataForSEO fallback seed succeeded idea_id=%s seed=%r non_zero_metric_rows=%s",
+                        idea_id,
+                        fallback_seed,
+                        retry_non_zero,
+                    )
+                    break
+        ranked_pool = list(dict.fromkeys(
+            [primary_seed_keyword] +
+            [str(k).strip().lower() for k in metrics_map.keys() if str(k).strip()] +
+            [str(k).strip().lower() for k in (keywords or []) if str(k).strip()]
+        ))
+        ranked_candidates = _rank_keywords_by_opportunity(ranked_pool, metrics_map)
+        summary = _keyword_quality_summary(ranked_candidates)
+        tier_diag["quality"] = summary
+        tier_diag["calls"] = max(1, int(tier_diag.get("calls") or 1))
+        if not tier_diagnostics or tier_diagnostics[-1] is not tier_diag:
+            tier_diagnostics.append(tier_diag)
+        if dataforseo_calls <= 0:
+            dataforseo_calls = 1
+
+        # Persist exact raw response from DataForSEO when present.
+        raw_dataforseo_output = (
+            (tier_diag.get("raw_dataforseo") or {}).get("related_keywords_live")
+            or {
+                "idea_id": idea_id,
+                "captured_at": datetime.utcnow().isoformat(),
+                "tiers": [],
+            }
+        )
+        raw_metrics_map = _extract_keyword_metrics_from_dataforseo_raw(raw_dataforseo_output)
+        if raw_metrics_map:
+            merged = dict(metrics_map or {})
+            for kw, raw_row in raw_metrics_map.items():
+                existing = merged.get(kw) or {}
+                search_volume = existing.get("search_volume") if existing.get("search_volume") is not None else raw_row.get("search_volume")
+                keyword_difficulty = existing.get("keyword_difficulty") if existing.get("keyword_difficulty") is not None else raw_row.get("keyword_difficulty")
+                cpc = existing.get("cpc") if existing.get("cpc") is not None else raw_row.get("cpc")
+                merged[kw] = {
+                    "search_volume": search_volume,
+                    "keyword_difficulty": keyword_difficulty,
+                    "cpc": cpc,
+                }
+            metrics_map = merged
+            logger.info(
+                "Merged raw DataForSEO metrics into map idea_id=%s raw_metric_keywords=%s merged_metric_keywords=%s",
+                idea_id,
+                len(raw_metrics_map),
+                len(metrics_map),
+            )
+        logger.info(
+            "Enrichment DataForSEO raw selected idea_id=%s seed=%r raw_summary=%s",
+            idea_id,
+            primary_seed_keyword,
+            _summarize_dataforseo_raw(raw_dataforseo_output),
+        )
 
     ranked_with_metrics = [
         row for row in ranked_candidates
@@ -1184,6 +1288,8 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
     search_term = str(idea.get("title") or keywords[0]).strip()
     affiliate_offer_count = 0
     affiliate_offers_preview = []
+    affiliate_search_status = "not_run"
+    affiliate_search_error = None
     try:
         affiliate_start = time.perf_counter()
         affiliate_result = await asyncio.wait_for(
@@ -1201,6 +1307,7 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         )
         programs = affiliate_result.get("programs") or []
         affiliate_offer_count = len(programs)
+        affiliate_search_status = "success"
         affiliate_offers_preview = [
             {
                 "name": program.get("name"),
@@ -1209,7 +1316,9 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
             }
             for program in programs[:5]
         ]
-    except Exception:
+    except Exception as exc:
+        affiliate_search_status = "failed"
+        affiliate_search_error = str(exc)[:300]
         logger.warning("Affiliate search failed for idea_id=%s", idea_id, exc_info=True)
 
     total_elapsed = time.perf_counter() - start_ts
@@ -1247,6 +1356,8 @@ async def _compute_idea_enrichment(idea: dict) -> dict:
         "dataforseo_call_count_estimate": dataforseo_calls,
         "affiliate_offer_count": affiliate_offer_count,
         "affiliate_offers": affiliate_offers_preview,
+        "affiliate_search_status": affiliate_search_status,
+        "affiliate_search_error": affiliate_search_error,
         "status": "enriched",
         "reason": None,
     }
@@ -2028,6 +2139,9 @@ def enrich_content_ideas():
             }
             update_payload = {
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
+                "affiliate_offers_preview": _sanitize_for_json(enrichment.get("affiliate_offers") or []),
+                "affiliate_search_status": enrichment.get("affiliate_search_status"),
+                "affiliate_search_error": enrichment.get("affiliate_search_error"),
                 "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
                 "updated_at": now,
             }
@@ -2046,7 +2160,10 @@ def enrich_content_ideas():
                     "dataforseo_diagnostics": enrichment.get("dataforseo_diagnostics") or {},
                     "raw_dataforseo_output": enrichment.get("raw_dataforseo_output") or {},
                     "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
+                    "affiliate_offer_count": enrichment["affiliate_offer_count"],
                     "affiliate_offers_preview": enrichment["affiliate_offers"],
+                    "affiliate_search_status": enrichment.get("affiliate_search_status"),
+                    "affiliate_search_error": enrichment.get("affiliate_search_error"),
                     "enriched_at": now,
                 },
                 "keyword_pass_2": {
@@ -2065,45 +2182,45 @@ def enrich_content_ideas():
                 "updated_at": now,
             }
             payload_attempts = [
-                safe_minimal_payload,
+                {
+                    **update_payload,
+                    **keyword_projection_payload,
+                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
+                    "idea_metadata": _sanitize_for_json(enrichment_metadata),
+                },
+                {
+                    **update_payload,
+                    **keyword_projection_payload,
+                    "idea_metadata": _sanitize_for_json(enrichment_metadata),
+                },
+                {
+                    **update_payload,
+                    **keyword_projection_payload,
+                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
+                },
+                {
+                    **update_payload,
+                    **keyword_projection_payload,
+                },
+                {
+                    **update_payload,
+                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
+                    "idea_metadata": _sanitize_for_json(enrichment_metadata),
+                },
+                {
+                    **update_payload,
+                    "idea_metadata": _sanitize_for_json(enrichment_metadata),
+                },
+                {
+                    **update_payload,
+                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
+                },
                 {
                     **safe_minimal_payload,
                     "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
                 },
-                {
-                    **update_payload,
-                    **keyword_projection_payload,
-                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
-                    "idea_metadata": _sanitize_for_json(enrichment_metadata),
-                },
-                {
-                    **update_payload,
-                    **keyword_projection_payload,
-                    "idea_metadata": _sanitize_for_json(enrichment_metadata),
-                },
-                {
-                    **update_payload,
-                    **keyword_projection_payload,
-                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
-                },
-                {
-                    **update_payload,
-                    **keyword_projection_payload,
-                },
-                {
-                    **update_payload,
-                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
-                    "idea_metadata": _sanitize_for_json(enrichment_metadata),
-                },
-                {
-                    **update_payload,
-                    "idea_metadata": _sanitize_for_json(enrichment_metadata),
-                },
-                {
-                    **update_payload,
-                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
-                },
                 update_payload,
+                safe_minimal_payload,
             ]
 
             updated = _apply_enrichment_update_with_fallback(
@@ -2133,6 +2250,9 @@ def enrich_content_ideas():
                     },
                     "keywords_used": enrichment["keywords_used"],
                     "keyword_metrics_map": enrichment.get("keyword_metrics_map") or {},
+                    "affiliate_offers_preview": enrichment["affiliate_offers"],
+                    "affiliate_search_status": enrichment.get("affiliate_search_status"),
+                    "affiliate_search_error": enrichment.get("affiliate_search_error"),
                     "offers_preview": enrichment["affiliate_offers"],
                 })
             else:
@@ -2299,6 +2419,9 @@ def refresh_keywords_for_library():
             }
             update_payload = {
                 "affiliate_offer_count": enrichment["affiliate_offer_count"],
+                "affiliate_offers_preview": _sanitize_for_json(enrichment.get("affiliate_offers") or []),
+                "affiliate_search_status": enrichment.get("affiliate_search_status"),
+                "affiliate_search_error": enrichment.get("affiliate_search_error"),
                 "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
                 "updated_at": now,
             }
@@ -2308,6 +2431,29 @@ def refresh_keywords_for_library():
                 update_payload["average_difficulty"] = enrichment["average_difficulty"]
             payload_attempts = [
                 {
+                    **update_payload,
+                    **keyword_projection_payload,
+                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
+                    "idea_metadata": {
+                        **(idea.get("idea_metadata") or {}),
+                        "seo_offer_enrichment": {
+                            "keywords_used": enrichment["keywords_used"],
+                            "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
+                            "keyword_ranked_candidates": enrichment.get("keyword_ranked_candidates") or [],
+                            "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
+                            "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
+                            "dataforseo_diagnostics": enrichment.get("dataforseo_diagnostics") or {},
+                            "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
+                            "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
+                            "affiliate_offer_count": enrichment["affiliate_offer_count"],
+                            "affiliate_offers_preview": enrichment["affiliate_offers"],
+                            "affiliate_search_status": enrichment.get("affiliate_search_status"),
+                            "affiliate_search_error": enrichment.get("affiliate_search_error"),
+                            "enriched_at": now,
+                        },
+                    },
+                },
+                {
                     "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
                     "keywords": _sanitize_for_json(keyword_projection_payload.get("keywords") or []),
                     "updated_at": now,
@@ -2316,26 +2462,6 @@ def refresh_keywords_for_library():
                     **update_payload,
                     **keyword_projection_payload,
                     "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
-                    "idea_metadata": {
-                        **(idea.get("idea_metadata") or {}),
-                        "seo_offer_enrichment": {
-                            "keywords_used": enrichment["keywords_used"],
-                            "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
-                            "keyword_ranked_candidates": enrichment.get("keyword_ranked_candidates") or [],
-                            "keyword_quality_summary": enrichment.get("keyword_quality_summary") or {},
-                            "keyword_budget_ladder_used": enrichment.get("keyword_budget_ladder_used") or [],
-                            "dataforseo_diagnostics": enrichment.get("dataforseo_diagnostics") or {},
-                            "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
-                            "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
-                            "affiliate_offers_preview": enrichment["affiliate_offers"],
-                            "enriched_at": now,
-                        },
-                    },
-                },
-                {
-                    **update_payload,
-                    **keyword_projection_payload,
-                    "keyword_metrics": _sanitize_for_json(enrichment.get("keyword_metrics_map") or {}),
                 },
                 {
                     **update_payload,
@@ -2355,7 +2481,10 @@ def refresh_keywords_for_library():
                             "dataforseo_diagnostics": enrichment.get("dataforseo_diagnostics") or {},
                             "raw_dataforseo_output": _sanitize_for_json(enrichment.get("raw_dataforseo_output") or {}),
                             "dataforseo_call_count_estimate": enrichment.get("dataforseo_call_count_estimate") or 0,
+                            "affiliate_offer_count": enrichment["affiliate_offer_count"],
                             "affiliate_offers_preview": enrichment["affiliate_offers"],
+                            "affiliate_search_status": enrichment.get("affiliate_search_status"),
+                            "affiliate_search_error": enrichment.get("affiliate_search_error"),
                             "enriched_at": now,
                         },
                     },
@@ -2410,6 +2539,9 @@ def refresh_keywords_for_library():
                 "selected_primary_keyword": enrichment.get("selected_primary_keyword"),
                 "keyword_metrics_map": enrichment.get("keyword_metrics_map") or {},
                 "raw_dataforseo_output": enrichment.get("raw_dataforseo_output"),
+                "affiliate_offers_preview": enrichment.get("affiliate_offers") or [],
+                "affiliate_search_status": enrichment.get("affiliate_search_status"),
+                "affiliate_search_error": enrichment.get("affiliate_search_error"),
             })
 
         return jsonify({

@@ -36,6 +36,14 @@ export interface ContentIdea {
     total_search_volume: number | null;
     average_difficulty: number | null;
     average_cpc: number | null;
+    affiliate_offer_count?: number | null;
+    affiliate_search_status?: 'success' | 'failed' | 'not_run' | string | null;
+    affiliate_search_error?: string | null;
+    affiliate_offers_preview?: Array<{
+        name?: string | null;
+        network?: string | null;
+        commission_rate?: string | null;
+    }> | null;
     created_at: string;
     updated_at?: string;
     status?: ContentIdeaStatus;
@@ -77,6 +85,23 @@ export interface ContentIdea {
         output_result?: string;
         build_complexity?: string;
         distribution_angle?: string;
+        seo_offer_enrichment?: {
+            keywords_used?: string[];
+            keyword_metrics?: Record<string, {
+                search_volume?: number;
+                keyword_difficulty?: number;
+                cpc?: number;
+            }>;
+            affiliate_offer_count?: number;
+            affiliate_offers_preview?: Array<{
+                name?: string | null;
+                network?: string | null;
+                commission_rate?: string | null;
+            }>;
+            affiliate_search_status?: string | null;
+            affiliate_search_error?: string | null;
+            raw_dataforseo_output?: Record<string, unknown> | null;
+        };
     };
     opportunity_score?: number;
     ranking_breakdown?: {
