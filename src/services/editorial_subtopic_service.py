@@ -8,7 +8,7 @@ import logging
 import re
 from typing import Any, Dict, List
 
-from supabase_client import LLM_ROLE_RESEARCH_SUBTOPIC_GENERATION
+from supabase_client import LLM_ROLE_RESEARCH_SUBTOPIC_GENERATION, resolve_llm_provider
 from .llm.llm_service import llm_service
 
 logger = logging.getLogger(__name__)
@@ -183,6 +183,7 @@ FORMAT RULES
         debug_info: Dict[str, Any] = {
             "topic_title": brief.get("topic_title"),
             "format_requested": "tagged_subtopic_blocks",
+            "resolver_source": None,
             "provider": None,
             "model": None,
             "raw_output_chars": 0,
@@ -191,6 +192,11 @@ FORMAT RULES
             "parser_match_mode": None,
         }
         try:
+            resolved = resolve_llm_provider(task_role=LLM_ROLE_RESEARCH_SUBTOPIC_GENERATION)
+            debug_info["resolver_source"] = resolved.get("source")
+            debug_info["provider"] = resolved.get("provider")
+            debug_info["model"] = resolved.get("model")
+
             response = await asyncio.wait_for(
                 llm_service.generate_text(
                     prompt=prompt,
@@ -240,7 +246,7 @@ FORMAT RULES
                     "debug": debug_info,
                 }
         except Exception as e:
-            debug_info["error"] = str(e)
+            debug_info["error"] = str(e) or e.__class__.__name__
             logger.warning("Editorial subtopic generation failed: %s", e)
 
         logger.warning(

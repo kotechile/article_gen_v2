@@ -374,11 +374,11 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
         if role_assignments and role in role_assignments:
             target_provider_id = role_assignments[role]
             role_match = next(
-                (row for row in candidate_rows if str(row.get('id') or '').strip() == target_provider_id),
+                (row for row in rows if str(row.get('id') or '').strip() == target_provider_id),
                 None,
             )
         if not role_match:
-            role_candidates = [row for row in candidate_rows if role in row.get('used_for', [])]
+            role_candidates = [row for row in rows if role in row.get('used_for', [])]
             sorted_role_candidates = _sort_llm_provider_rows(role_candidates)
             if sorted_role_candidates:
                 role_match = sorted_role_candidates[0]
@@ -387,11 +387,11 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
         if role_assignments and fallback_role in role_assignments:
             fallback_provider_id = role_assignments[fallback_role]
             role_match = next(
-                (row for row in candidate_rows if str(row.get('id') or '').strip() == fallback_provider_id),
+                (row for row in rows if str(row.get('id') or '').strip() == fallback_provider_id),
                 None,
             )
         if not role_match:
-            fallback_candidates = [row for row in candidate_rows if fallback_role in row.get('used_for', [])]
+            fallback_candidates = [row for row in rows if fallback_role in row.get('used_for', [])]
             sorted_fallback_candidates = _sort_llm_provider_rows(fallback_candidates)
             if sorted_fallback_candidates:
                 role_match = sorted_fallback_candidates[0]
