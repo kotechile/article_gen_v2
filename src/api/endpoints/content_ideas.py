@@ -1601,6 +1601,33 @@ def _select_preferred_project_category_row(
     return sorted(category_rows, key=_sort_key)[0]
 
 
+def _detach_titles_source_idea_link(supabase, user_id: str, idea_id: str) -> int:
+    """Detach Titles->content_ideas association so Content Library rows are preserved."""
+    if not str(idea_id or "").strip():
+        return 0
+    try:
+        response = (
+            supabase
+            .table("Titles")
+            .update({
+                "source_idea_id": None,
+                "updated_at": datetime.utcnow().isoformat(),
+            })
+            .eq("user_id", user_id)
+            .eq("source_idea_id", idea_id)
+            .execute()
+        )
+        return len(response.data or [])
+    except Exception as e:
+        logger.warning(
+            "Failed to detach Titles.source_idea_id for idea_id=%s user_id=%s err=%s",
+            idea_id,
+            user_id,
+            e,
+        )
+        return 0
+
+
 def _resolve_publish_context_from_idea(supabase_admin, idea: dict, user_id: str) -> dict:
     """
     Ensure publish has content_ideas category/domain fields; backfill from project context when absent.
@@ -2584,6 +2611,14 @@ def delete_content_idea(idea_id):
                 status=403,
             ).dict()), 403
 
+        # Preserve Content Library rows even if DB foreign keys are configured
+        # to cascade from content_ideas.
+        detached_titles = _detach_titles_source_idea_link(
+            supabase=supabase,
+            user_id=user_id,
+            idea_id=idea_id,
+        )
+
         response = (
             supabase
             .table("content_ideas")
@@ -2601,7 +2636,11 @@ def delete_content_idea(idea_id):
                 status=404,
             ).dict()), 404
 
-        return jsonify({"success": True, "id": idea_id}), 200
+        return jsonify({
+            "success": True,
+            "id": idea_id,
+            "detached_content_library_records": detached_titles,
+        }), 200
 
     except Exception as e:
         logger.error(f"Error deleting content idea {idea_id}: {e}", exc_info=True)

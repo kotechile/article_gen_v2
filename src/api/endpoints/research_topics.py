@@ -116,6 +116,42 @@ def _get_admin_supabase_client(default_client):
         return default_client
 
 
+def _unlink_titles_for_idea_ids(supabase, user_id: str, idea_ids: list[str]) -> int:
+    """
+    Preserve Content Library records when content ideas are deleted by detaching
+    the `Titles.source_idea_id` link first.
+    """
+    clean_ids = [str(idea_id).strip() for idea_id in (idea_ids or []) if str(idea_id).strip()]
+    if not clean_ids:
+        return 0
+
+    detached = 0
+    chunk_size = 100
+    for index in range(0, len(clean_ids), chunk_size):
+        chunk = clean_ids[index:index + chunk_size]
+        try:
+            res = (
+                supabase
+                .table("Titles")
+                .update({
+                    "source_idea_id": None,
+                    "updated_at": datetime.utcnow().isoformat(),
+                })
+                .eq("user_id", user_id)
+                .in_("source_idea_id", chunk)
+                .execute()
+            )
+            detached += len(res.data or [])
+        except Exception as detach_err:
+            logger.warning(
+                "Failed to detach Titles.source_idea_id for user_id=%s chunk_size=%s err=%s",
+                user_id,
+                len(chunk),
+                detach_err,
+            )
+    return detached
+
+
 def _normalize_keyword_metric_term(term) -> str:
     cleaned = re.sub(r"\s+", " ", str(term or "").strip().lower())
     cleaned = cleaned.replace("&", " and ")
@@ -1297,7 +1333,23 @@ def delete_research_topic(topic_id):
 
         # 1) Delete content ideas linked to this topic.
         deleted_content_ideas = 0
+        detached_titles = 0
         try:
+            idea_rows = (
+                supabase
+                .table('content_ideas')
+                .select('id')
+                .eq('topic_id', topic_id)
+                .eq('user_id', user_id)
+                .execute()
+                .data
+                or []
+            )
+            detached_titles = _unlink_titles_for_idea_ids(
+                supabase=supabase,
+                user_id=user_id,
+                idea_ids=[row.get("id") for row in idea_rows if row.get("id")],
+            )
             ideas_deleted = (
                 supabase
                 .table('content_ideas')
@@ -1384,18 +1436,20 @@ def delete_research_topic(topic_id):
             ).dict()), 404
 
         logger.info(
-            "Topic delete cascade completed topic_id=%s user_id=%s deleted_topics=%s deleted_subtopics=%s deleted_content_ideas=%s",
+            "Topic delete cascade completed topic_id=%s user_id=%s deleted_topics=%s deleted_subtopics=%s deleted_content_ideas=%s detached_titles=%s",
             topic_id,
             user_id,
             deleted_topics,
             deleted_subtopics,
             deleted_content_ideas,
+            detached_titles,
         )
         return jsonify({
             "message": "Topic deleted successfully",
             "deleted_topics": deleted_topics,
             "deleted_subtopics": deleted_subtopics,
             "deleted_content_ideas": deleted_content_ideas,
+            "detached_content_library_records": detached_titles,
         }), 200
 
     except Exception as e:
@@ -1463,10 +1517,27 @@ def delete_subtopic(topic_id, subtopic_id):
 
         subtopic_name = (subtopic_rows[0].get('name') or '').strip()
         deleted_content_ideas = 0
+        detached_titles = 0
 
         # Delete content ideas linked by topic + subtopic name.
         if subtopic_name:
             try:
+                idea_rows = (
+                    supabase
+                    .table('content_ideas')
+                    .select('id')
+                    .eq('topic_id', topic_id)
+                    .eq('subtopic', subtopic_name)
+                    .eq('user_id', user_id)
+                    .execute()
+                    .data
+                    or []
+                )
+                detached_titles = _unlink_titles_for_idea_ids(
+                    supabase=supabase,
+                    user_id=user_id,
+                    idea_ids=[row.get("id") for row in idea_rows if row.get("id")],
+                )
                 ideas_deleted = (
                     supabase
                     .table('content_ideas')
@@ -1516,18 +1587,20 @@ def delete_subtopic(topic_id, subtopic_id):
             ).dict()), 404
 
         logger.info(
-            "Subtopic delete cascade completed topic_id=%s subtopic_id=%s subtopic_name=%r user_id=%s deleted_subtopics=%s deleted_content_ideas=%s",
+            "Subtopic delete cascade completed topic_id=%s subtopic_id=%s subtopic_name=%r user_id=%s deleted_subtopics=%s deleted_content_ideas=%s detached_titles=%s",
             topic_id,
             subtopic_id,
             subtopic_name,
             user_id,
             deleted_subtopics,
             deleted_content_ideas,
+            detached_titles,
         )
         return jsonify({
             "message": "Subtopic deleted successfully",
             "deleted_subtopics": deleted_subtopics,
             "deleted_content_ideas": deleted_content_ideas,
+            "detached_content_library_records": detached_titles,
         }), 200
 
     except Exception as e:
