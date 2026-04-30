@@ -152,6 +152,14 @@ class LLMService:
         model = str(resolved.get("model") or "").strip()
         api_key = str(resolved.get("api_key") or "").strip()
         base_url = resolved.get("base_url")
+        logger.info(
+            "Resolved LLM role=%s source=%s provider=%s model=%s has_api_key=%s",
+            task_role,
+            resolved.get("source"),
+            provider,
+            model,
+            bool(api_key),
+        )
 
         if not provider or not model:
             raise ValueError(f"No LLM provider/model resolved for role '{task_role}'")

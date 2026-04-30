@@ -397,13 +397,53 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
                 role_match = sorted_fallback_candidates[0]
 
     default_candidates = [row for row in candidate_rows if row.get('is_default')]
-    selected = explicit_match or role_match
-    if not selected and default_candidates:
-        selected = _sort_llm_provider_rows(default_candidates)[0]
-    if not selected:
-        selected = _sort_llm_provider_rows(candidate_rows)[0]
+    ordered_candidates: list[tuple[dict, str]] = []
 
-    resolved_key = _fetch_api_key_value_by_id(client, selected.get('api_keys_id'))
+    def _append_candidate(row: Optional[dict], source: str) -> None:
+        if not row:
+            return
+        row_id = str(row.get("id") or "").strip()
+        if not row_id:
+            return
+        if any(str(existing.get("id") or "").strip() == row_id for existing, _ in ordered_candidates):
+            return
+        ordered_candidates.append((row, source))
+
+    _append_candidate(explicit_match, "explicit")
+    _append_candidate(role_match, "task_role")
+
+    for row in _sort_llm_provider_rows(default_candidates):
+        _append_candidate(row, "default")
+    for row in _sort_llm_provider_rows(candidate_rows):
+        _append_candidate(row, "default")
+
+    selected: Optional[dict] = None
+    selected_source = "default"
+    resolved_key: Optional[str] = None
+    for row, source in ordered_candidates:
+        key_value = _fetch_api_key_value_by_id(client, row.get('api_keys_id'))
+        if key_value:
+            selected = row
+            selected_source = source
+            resolved_key = key_value
+            break
+
+    if not selected:
+        selected = ordered_candidates[0][0] if ordered_candidates else None
+        selected_source = ordered_candidates[0][1] if ordered_candidates else "default"
+
+    if not selected:
+        return {
+            "provider": provider or None,
+            "model": model or None,
+            "api_key": None,
+            "base_url": None,
+            "name": None,
+            "used_for": [],
+            "is_default": False,
+            "source": "no_candidates",
+        }
+
     return {
         "provider": selected.get('provider') or explicit_provider or None,
         "model": selected.get('model_name') or explicit_model or None,
@@ -412,7 +452,7 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
         "name": selected.get('name'),
         "used_for": selected.get('used_for', []),
         "is_default": bool(selected.get('is_default')),
-        "source": "explicit" if explicit_match else ("task_role" if role_match else "default"),
+        "source": selected_source,
     }
 
 
