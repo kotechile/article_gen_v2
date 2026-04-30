@@ -16,75 +16,6 @@ logger = logging.getLogger(__name__)
 class EditorialSubtopicService:
     """Generate structured editorial subtopics from a topic brief."""
 
-    _TOKEN_SYNONYMS = {
-        "affordable": "price",
-        "budget": "price",
-        "cost": "price",
-        "costs": "price",
-        "lowcost": "price",
-        "overpaying": "price",
-        "pricing": "price",
-        "priced": "price",
-        "provider": "platform",
-        "providers": "platform",
-        "select": "choose",
-        "selected": "choose",
-        "selecting": "choose",
-        "selection": "choose",
-        "software": "platform",
-        "tool": "platform",
-        "tools": "platform",
-        "vendor": "platform",
-        "vendors": "platform",
-    }
-
-    _GENERIC_CONCEPT_TOKENS = {
-        "about",
-        "against",
-        "analysis",
-        "approach",
-        "audit",
-        "best",
-        "better",
-        "checklist",
-        "comparison",
-        "comparisons",
-        "complete",
-        "decision",
-        "decisions",
-        "for",
-        "framework",
-        "frameworks",
-        "from",
-        "guide",
-        "guides",
-        "how",
-        "into",
-        "more",
-        "overview",
-        "playbook",
-        "problem",
-        "problems",
-        "scenario",
-        "scenarios",
-        "strategic",
-        "strategy",
-        "strategies",
-        "than",
-        "that",
-        "the",
-        "their",
-        "them",
-        "these",
-        "those",
-        "using",
-        "what",
-        "when",
-        "which",
-        "with",
-        "your",
-    }
-
     def _build_prompt(self, brief: Dict[str, Any], max_subtopics: int) -> str:
         return f"""
 You are a senior editorial strategist for SEO and GEO content planning.
@@ -120,127 +51,124 @@ DIVERSITY RULES
 - Before finalizing, remove any near-duplicate or synonym-based variation.
 
 OUTPUT FORMAT
-Return only repeated blocks in this format:
+Return only repeated blocks in this exact tagged format:
 
-[SUBTOPIC]
-TITLE: <clear human-readable subtopic title>
-SUMMARY: <one sentence summary>
-DECISION_TYPE: <comparison|framework|checklist|audit|calculator|scenario|decision|problem>
-USER_PROBLEM: <what user is trying to solve>
-TARGET_AUDIENCE: <specific audience>
-SEED_PHRASES: <phrase 1>, <phrase 2>, <phrase 3>, <phrase 4>
-GEO_ENTITY_HINTS: <entity 1>, <entity 2>, <entity 3>
-COMMERCIAL_PATHS: <path 1>, <path 2>
-[END]
+<<SUBTOPIC>>
+<<TITLE>>
+<clear human-readable subtopic title>
+<</TITLE>>
+<<SUMMARY>>
+<one sentence summary>
+<</SUMMARY>>
+<<DECISION_TYPE>>
+<comparison|framework|checklist|audit|calculator|scenario|decision|problem>
+<</DECISION_TYPE>>
+<<USER_PROBLEM>>
+<what user is trying to solve>
+<</USER_PROBLEM>>
+<<TARGET_AUDIENCE>>
+<specific audience>
+<</TARGET_AUDIENCE>>
+<<SEED_PHRASES>>
+<phrase 1> | <phrase 2> | <phrase 3> | <phrase 4>
+<</SEED_PHRASES>>
+<<GEO_ENTITY_HINTS>>
+<entity 1> | <entity 2> | <entity 3>
+<</GEO_ENTITY_HINTS>>
+<<COMMERCIAL_PATHS>>
+<path 1> | <path 2>
+<</COMMERCIAL_PATHS>>
+<</SUBTOPIC>>
+
+FORMAT RULES
+- Use the tags exactly as written.
+- Do not use JSON.
+- Do not add numbering, commentary, markdown, or prose outside the tagged blocks.
 """
 
-    def _normalize_token(self, token: str) -> str:
-        token = re.sub(r"[^a-z0-9]", "", token.lower())
-        if len(token) <= 2:
-            return ""
-        if token.endswith("ies") and len(token) > 4:
-            token = f"{token[:-3]}y"
-        elif token.endswith("ing") and len(token) > 5:
-            token = token[:-3]
-        elif token.endswith("ed") and len(token) > 4:
-            token = token[:-2]
-        elif token.endswith("es") and len(token) > 4:
-            token = token[:-2]
-        elif token.endswith("s") and len(token) > 4:
-            token = token[:-1]
-        token = self._TOKEN_SYNONYMS.get(token, token)
-        return token
+    def _split_multi_value_field(self, raw_value: str) -> List[str]:
+        return [
+            p.strip()
+            for p in re.split(r"\s*\|\s*|\s*,\s*", raw_value or "")
+            if p.strip()
+        ]
 
-    def _concept_tokens(self, subtopic: Dict[str, Any]) -> List[str]:
-        text = " ".join(
-            [
-                subtopic.get("title") or "",
-                subtopic.get("summary") or "",
-                subtopic.get("user_problem") or "",
-            ]
-        )
-        tokens: List[str] = []
-        seen = set()
-        for raw in re.findall(r"[a-zA-Z0-9]+", text.lower()):
-            token = self._normalize_token(raw)
-            if not token or token in self._GENERIC_CONCEPT_TOKENS:
+    def _parse_tagged_block(self, block: str) -> Dict[str, Any]:
+        def extract(tag: str) -> str:
+            pattern = rf"<<{tag}>>\s*(.*?)\s*<</{tag}>>"
+            match = re.search(pattern, block, flags=re.DOTALL | re.IGNORECASE)
+            return match.group(1).strip() if match else ""
+
+        title = extract("TITLE")
+        if not title:
+            return {}
+
+        return {
+            "title": title,
+            "summary": extract("SUMMARY"),
+            "decision_type": (extract("DECISION_TYPE") or "decision").lower(),
+            "user_problem": extract("USER_PROBLEM"),
+            "target_audience": extract("TARGET_AUDIENCE"),
+            "seed_phrases": self._split_multi_value_field(extract("SEED_PHRASES"))[:8],
+            "geo_entity_hints": self._split_multi_value_field(extract("GEO_ENTITY_HINTS"))[:8],
+            "commercial_paths": self._split_multi_value_field(extract("COMMERCIAL_PATHS"))[:6],
+        }
+
+    def _parse_structured_block(self, block: str) -> Dict[str, Any]:
+        fields: Dict[str, str] = {}
+        for raw_line in block.splitlines():
+            line = raw_line.strip()
+            if not line or ":" not in line:
                 continue
-            if token in seen:
-                continue
-            seen.add(token)
-            tokens.append(token)
-        return tokens
+            key, val = line.split(":", 1)
+            normalized_key = re.sub(r"[^A-Z_ ]", "", key.strip().upper()).replace(" ", "_")
+            fields[normalized_key] = val.strip()
 
-    def _is_near_duplicate(self, candidate: Dict[str, Any], existing: Dict[str, Any]) -> bool:
-        candidate_title = re.sub(r"\s+", " ", (candidate.get("title") or "").strip().lower())
-        existing_title = re.sub(r"\s+", " ", (existing.get("title") or "").strip().lower())
-        if candidate_title and candidate_title == existing_title:
-            return True
+        title = fields.get("TITLE", "").strip()
+        if not title:
+            return {}
 
-        candidate_tokens = set(self._concept_tokens(candidate))
-        existing_tokens = set(self._concept_tokens(existing))
-        if not candidate_tokens or not existing_tokens:
-            return False
-
-        overlap = len(candidate_tokens & existing_tokens)
-        coverage = overlap / max(1, min(len(candidate_tokens), len(existing_tokens)))
-        jaccard = overlap / max(1, len(candidate_tokens | existing_tokens))
-        same_decision_type = (
-            (candidate.get("decision_type") or "").lower()
-            == (existing.get("decision_type") or "").lower()
-        )
-
-        return (
-            coverage >= 0.8
-            or (same_decision_type and jaccard >= 0.6)
-            or (same_decision_type and overlap >= 3 and coverage >= 0.5)
-        )
-
-    def _dedupe_distinct_subtopics(
-        self,
-        subtopics: List[Dict[str, Any]],
-        max_subtopics: int,
-    ) -> List[Dict[str, Any]]:
-        distinct: List[Dict[str, Any]] = []
-        for subtopic in subtopics:
-            if any(self._is_near_duplicate(subtopic, existing) for existing in distinct):
-                logger.info("Dropping near-duplicate editorial subtopic title=%r", subtopic.get("title"))
-                continue
-            distinct.append(subtopic)
-            if len(distinct) >= max_subtopics:
-                break
-        return distinct
+        seed_phrases = self._split_multi_value_field(fields.get("SEED_PHRASES", ""))
+        geo_hints = self._split_multi_value_field(fields.get("GEO_ENTITY_HINTS", ""))
+        commercial_paths = self._split_multi_value_field(fields.get("COMMERCIAL_PATHS", ""))
+        return {
+            "title": title,
+            "summary": fields.get("SUMMARY", ""),
+            "decision_type": (fields.get("DECISION_TYPE") or "decision").lower(),
+            "user_problem": fields.get("USER_PROBLEM", ""),
+            "target_audience": fields.get("TARGET_AUDIENCE", ""),
+            "seed_phrases": seed_phrases[:8],
+            "geo_entity_hints": geo_hints[:8],
+            "commercial_paths": commercial_paths[:6],
+        }
 
     def _parse(self, text: str) -> List[Dict[str, Any]]:
-        blocks = re.findall(r"\[SUBTOPIC\](.*?)\[END\]", text, flags=re.DOTALL | re.IGNORECASE)
+        tagged_blocks = re.findall(r"<<SUBTOPIC>>\s*(.*?)\s*<</SUBTOPIC>>", text, flags=re.DOTALL | re.IGNORECASE)
         parsed: List[Dict[str, Any]] = []
-        for block in blocks:
-            fields: Dict[str, str] = {}
-            for raw_line in block.splitlines():
-                line = raw_line.strip()
-                if not line or ":" not in line:
-                    continue
-                key, val = line.split(":", 1)
-                fields[key.strip().upper()] = val.strip()
+        for block in tagged_blocks:
+            parsed_block = self._parse_tagged_block(block)
+            if parsed_block:
+                parsed.append(parsed_block)
 
-            title = fields.get("TITLE", "").strip()
-            if not title:
+        if parsed:
+            return parsed
+
+        blocks = re.findall(r"\[SUBTOPIC\](.*?)\[END\]", text, flags=re.DOTALL | re.IGNORECASE)
+        for block in blocks:
+            parsed_block = self._parse_structured_block(block)
+            if parsed_block:
+                parsed.append(parsed_block)
+
+        if parsed:
+            return parsed
+
+        numbered_blocks = re.split(r"\n\s*(?=\d+\.\s+)", text.strip())
+        for block in numbered_blocks:
+            if "TITLE:" not in block.upper():
                 continue
-            seed_phrases = [p.strip() for p in fields.get("SEED_PHRASES", "").split(",") if p.strip()]
-            geo_hints = [p.strip() for p in fields.get("GEO_ENTITY_HINTS", "").split(",") if p.strip()]
-            commercial_paths = [p.strip() for p in fields.get("COMMERCIAL_PATHS", "").split(",") if p.strip()]
-            parsed.append(
-                {
-                    "title": title,
-                    "summary": fields.get("SUMMARY", ""),
-                    "decision_type": (fields.get("DECISION_TYPE") or "decision").lower(),
-                    "user_problem": fields.get("USER_PROBLEM", ""),
-                    "target_audience": fields.get("TARGET_AUDIENCE", ""),
-                    "seed_phrases": seed_phrases[:8],
-                    "geo_entity_hints": geo_hints[:8],
-                    "commercial_paths": commercial_paths[:6],
-                }
-            )
+            parsed_block = self._parse_structured_block(block)
+            if parsed_block:
+                parsed.append(parsed_block)
         return parsed
 
     async def generate(self, brief: Dict[str, Any], max_subtopics: int = 8) -> List[Dict[str, Any]]:
@@ -257,10 +185,7 @@ COMMERCIAL_PATHS: <path 1>, <path 2>
                 len(response.content or ""),
                 brief.get("topic_title"),
             )
-            parsed = self._dedupe_distinct_subtopics(
-                self._parse(response.content or ""),
-                max_subtopics=max_subtopics,
-            )
+            parsed = self._parse(response.content or "")
             if parsed:
                 logger.info("Editorial subtopics generated count=%s", len(parsed))
                 return parsed[:max_subtopics]
