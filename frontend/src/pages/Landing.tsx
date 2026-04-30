@@ -45,6 +45,7 @@ export function Landing() {
     const [manualLoading, setManualLoading] = React.useState(false)
     const [startLoading, setStartLoading] = React.useState(false)
     const [researchTopicByTitle, setResearchTopicByTitle] = React.useState<Record<string, ResearchTopic>>({})
+    const workspaceKeyRef = React.useRef<string | null>(null)
 
     const primaryCategories = React.useMemo(
         () => categories.filter((category) => category.level === 1),
@@ -121,14 +122,28 @@ export function Landing() {
             if (!activeProject || !secondaryCategoryId) {
                 setTopicCandidates([])
                 setSelectedTopicIds(new Set())
+                workspaceKeyRef.current = null
                 return
             }
 
             setTopicsLoading(true)
+            const workspaceKey = `${activeProject.id}:${secondaryCategoryId}`
 
             try {
                 const loadedTopics = await commandCenterService.listTopicCandidates(activeProject.id, secondaryCategoryId)
-                setTopicCandidates(loadedTopics)
+                setTopicCandidates((current) => {
+                    // For the same workspace, append/merge instead of replacing.
+                    // On workspace switch (project/subcategory), replace with fresh results.
+                    if (workspaceKeyRef.current !== workspaceKey) {
+                        workspaceKeyRef.current = workspaceKey
+                        return loadedTopics
+                    }
+
+                    const byId = new Map<string, TopicCandidate>()
+                    current.forEach((topic) => byId.set(topic.id, topic))
+                    loadedTopics.forEach((topic) => byId.set(topic.id, topic))
+                    return Array.from(byId.values())
+                })
             } catch (error) {
                 console.error(error)
                 const msg = (error as any)?.message || ''
