@@ -2242,6 +2242,7 @@ def idea_burst():
 
         # Generate ideas using LLM
         import asyncio
+        from supabase_client import LLM_ROLE_RESEARCH_IDEA_GENERATION
         from src.services.llm.llm_service import llm_service
 
         async def generate_ideas():
@@ -2378,8 +2379,16 @@ Critical naming and language rules:
 """
 
             # Generate both in parallel
-            blog_response = await llm_service.generate_text(blog_prompt, max_tokens=2000)
-            software_response = await llm_service.generate_text(software_prompt, max_tokens=1500)
+            blog_response = await llm_service.generate_text(
+                blog_prompt,
+                task_role=LLM_ROLE_RESEARCH_IDEA_GENERATION,
+                max_tokens=2000,
+            )
+            software_response = await llm_service.generate_text(
+                software_prompt,
+                task_role=LLM_ROLE_RESEARCH_IDEA_GENERATION,
+                max_tokens=1500,
+            )
             logger.info(
                 "Idea burst LLM responses subtopic=%r blog_provider=%s blog_model=%s software_provider=%s software_model=%s blog_chars=%s software_chars=%s",
                 subtopic_name,

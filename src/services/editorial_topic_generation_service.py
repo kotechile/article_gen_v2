@@ -8,6 +8,7 @@ import logging
 import re
 from typing import Any, Dict, List
 
+from supabase_client import LLM_ROLE_RESEARCH_TOPIC_GENERATION
 from .llm.llm_service import llm_service
 
 logger = logging.getLogger(__name__)
@@ -206,7 +207,11 @@ SOURCE_SIGNALS: AI, Category Strategy
         count = int(brief.get("count") or 10)
         try:
             response = await asyncio.wait_for(
-                llm_service.generate_text(prompt=prompt, max_tokens=2200),
+                llm_service.generate_text(
+                    prompt=prompt,
+                    task_role=LLM_ROLE_RESEARCH_TOPIC_GENERATION,
+                    max_tokens=2200,
+                ),
                 timeout=40.0,
             )
             parsed = self._parse(response.content or "")

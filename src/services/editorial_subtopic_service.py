@@ -8,6 +8,7 @@ import logging
 import re
 from typing import Any, Dict, List
 
+from supabase_client import LLM_ROLE_RESEARCH_SUBTOPIC_GENERATION
 from .llm.llm_service import llm_service
 
 logger = logging.getLogger(__name__)
@@ -191,7 +192,11 @@ FORMAT RULES
         }
         try:
             response = await asyncio.wait_for(
-                llm_service.generate_text(prompt=prompt, max_tokens=1800),
+                llm_service.generate_text(
+                    prompt=prompt,
+                    task_role=LLM_ROLE_RESEARCH_SUBTOPIC_GENERATION,
+                    max_tokens=1800,
+                ),
                 timeout=35.0,
             )
             raw_content = response.content or ""

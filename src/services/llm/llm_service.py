@@ -3,6 +3,7 @@ from typing import Optional, Any
 from src.core.supabase_singleton import get_supabase_client
 from .llm_provider import LLMResponse
 from .providers import get_provider_class
+from supabase_client import resolve_llm_provider
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,46 @@ class LLMService:
             logger.error(f"Error getting LLM provider: {e}")
             raise
 
-    async def generate_text(self, prompt: str, provider: Optional[str] = None, **kwargs) -> LLMResponse:
+    async def get_provider_for_role(
+        self,
+        task_role: str,
+        provider_name: Optional[str] = None,
+        model_name: Optional[str] = None,
+    ):
+        """
+        Resolve provider/model/API key from llm_used_for/llm_providers for a task role.
+        Falls back according to resolver policy (role -> research -> default).
+        """
+        resolved = resolve_llm_provider(task_role=task_role, provider=provider_name, model=model_name)
+        provider = str(resolved.get("provider") or "").strip().lower()
+        model = str(resolved.get("model") or "").strip()
+        api_key = str(resolved.get("api_key") or "").strip()
+        base_url = resolved.get("base_url")
+
+        if not provider or not model:
+            raise ValueError(f"No LLM provider/model resolved for role '{task_role}'")
+        if not api_key:
+            raise ValueError(
+                f"No API key resolved for role '{task_role}' provider='{provider}' model='{model}'"
+            )
+
+        cache_key = f"role:{task_role}:{provider}:{model}:{base_url or ''}"
+        if cache_key in self.provider_cache:
+            return self.provider_cache[cache_key]
+
+        ProviderClass = get_provider_class(provider)
+        instance = ProviderClass(api_key=api_key, model_name=model, base_url=base_url)
+        self.provider_cache[cache_key] = instance
+        return instance
+
+    async def generate_text(
+        self,
+        prompt: str,
+        provider: Optional[str] = None,
+        task_role: Optional[str] = None,
+        model: Optional[str] = None,
+        **kwargs,
+    ) -> LLMResponse:
         """
         Generate text using the specified or default LLM provider.
         
@@ -146,7 +186,14 @@ class LLMService:
             **kwargs: Overrides for generation config (temperature, max_tokens)
         """
         try:
-            llm_instance = await self.get_provider(provider)
+            if task_role:
+                llm_instance = await self.get_provider_for_role(
+                    task_role=task_role,
+                    provider_name=provider,
+                    model_name=model,
+                )
+            else:
+                llm_instance = await self.get_provider(provider)
             
             # TODO: Merge kwargs with DB defaults if needed (e.g., temperature from DB)
             # Currently we pass kwargs directly, allowing caller to override
@@ -158,7 +205,14 @@ class LLMService:
             logger.error(f"LLM Generation failed: {e}")
             raise
 
-    async def generate_json(self, prompt: str, provider: Optional[str] = None, **kwargs) -> Any:
+    async def generate_json(
+        self,
+        prompt: str,
+        provider: Optional[str] = None,
+        task_role: Optional[str] = None,
+        model: Optional[str] = None,
+        **kwargs,
+    ) -> Any:
         """
         Generate a JSON response.
         Wraps generate_text and parses the output.
@@ -171,7 +225,13 @@ class LLMService:
             prompt += "\n\nPlease output valid JSON."
 
         try:
-            response = await self.generate_text(prompt, provider, **kwargs)
+            response = await self.generate_text(
+                prompt=prompt,
+                provider=provider,
+                task_role=task_role,
+                model=model,
+                **kwargs,
+            )
             content = response.content.strip()
 
             # Strategy 1: complete ```json ... ``` block

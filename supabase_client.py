@@ -27,6 +27,10 @@ LLM_ROLE_DEEP_RESEARCH = "deep_research"
 LLM_ROLE_SVG = "svg"
 LLM_ROLE_FINAL_REVIEW = "final_review"
 LLM_ROLE_TOC = "toc"
+LLM_ROLE_RESEARCH = "research"
+LLM_ROLE_RESEARCH_TOPIC_GENERATION = "research_topic_generation"
+LLM_ROLE_RESEARCH_SUBTOPIC_GENERATION = "research_subtopic_generation"
+LLM_ROLE_RESEARCH_IDEA_GENERATION = "research_idea_generation"
 
 _LLM_ROLE_ALIASES = {
     "all_other": LLM_ROLE_ARTICLE_GENERATION,
@@ -34,6 +38,10 @@ _LLM_ROLE_ALIASES = {
     "default_generation": LLM_ROLE_ARTICLE_GENERATION,
     "deep_research": LLM_ROLE_DEEP_RESEARCH,
     "deep research": LLM_ROLE_DEEP_RESEARCH,
+    "research": LLM_ROLE_RESEARCH,
+    "research_topic_generation": LLM_ROLE_RESEARCH_TOPIC_GENERATION,
+    "research_subtopic_generation": LLM_ROLE_RESEARCH_SUBTOPIC_GENERATION,
+    "research_idea_generation": LLM_ROLE_RESEARCH_IDEA_GENERATION,
     "svg": LLM_ROLE_SVG,
     "final_review": LLM_ROLE_FINAL_REVIEW,
     "final review": LLM_ROLE_FINAL_REVIEW,
@@ -205,6 +213,7 @@ def _normalize_llm_provider_row(row: dict) -> Optional[dict]:
         'provider': provider_name,
         'model_name': model_name,
         'api_keys_id': row.get('api_keys_id') or row.get('api_key_id'),
+        'base_url': row.get('base_url'),
         'is_default': row.get('is_default') if isinstance(row.get('is_default'), bool) else False,
         'is_active': row.get('is_active') if isinstance(row.get('is_active'), bool) else None,
         'used_for': _normalize_used_for(row.get('used_for')),
@@ -213,10 +222,10 @@ def _normalize_llm_provider_row(row: dict) -> Optional[dict]:
 
 def _fetch_llm_provider_rows(client: Client) -> list[dict]:
     attempts = [
-        ("role-aware", "id,name,provider,model_name,api_keys_id,is_default,is_active,used_for"),
-        ("active-default", "id,name,provider,model_name,api_keys_id,is_default,is_active"),
-        ("legacy-default", "id,name,provider,model_name,api_keys_id,is_default"),
-        ("legacy-core", "id,name,provider,model_name,api_keys_id"),
+        ("role-aware", "id,name,provider,model_name,api_keys_id,base_url,is_default,is_active,used_for"),
+        ("active-default", "id,name,provider,model_name,api_keys_id,base_url,is_default,is_active"),
+        ("legacy-default", "id,name,provider,model_name,api_keys_id,base_url,is_default"),
+        ("legacy-core", "id,name,provider,model_name,api_keys_id,base_url"),
     ]
 
     for label, select_fields in attempts:
@@ -239,6 +248,7 @@ def _fetch_llm_provider_rows(client: Client) -> list[dict]:
             provider,
             model_name,
             api_keys_id::text AS api_keys_id,
+            base_url,
             is_default,
             is_active,
             used_for
@@ -356,6 +366,9 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
             break
 
     role = _normalize_llm_role(task_role)
+    fallback_role = None
+    if role and role != LLM_ROLE_RESEARCH and role.startswith("research_"):
+        fallback_role = LLM_ROLE_RESEARCH
     role_match = None
     if not explicit_match and role:
         if role_assignments and role in role_assignments:
@@ -370,6 +383,19 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
             if sorted_role_candidates:
                 role_match = sorted_role_candidates[0]
 
+    if not explicit_match and not role_match and fallback_role:
+        if role_assignments and fallback_role in role_assignments:
+            fallback_provider_id = role_assignments[fallback_role]
+            role_match = next(
+                (row for row in candidate_rows if str(row.get('id') or '').strip() == fallback_provider_id),
+                None,
+            )
+        if not role_match:
+            fallback_candidates = [row for row in candidate_rows if fallback_role in row.get('used_for', [])]
+            sorted_fallback_candidates = _sort_llm_provider_rows(fallback_candidates)
+            if sorted_fallback_candidates:
+                role_match = sorted_fallback_candidates[0]
+
     default_candidates = [row for row in candidate_rows if row.get('is_default')]
     selected = explicit_match or role_match
     if not selected and default_candidates:
@@ -382,6 +408,7 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
         "provider": selected.get('provider') or explicit_provider or None,
         "model": selected.get('model_name') or explicit_model or None,
         "api_key": resolved_key,
+        "base_url": selected.get('base_url'),
         "name": selected.get('name'),
         "used_for": selected.get('used_for', []),
         "is_default": bool(selected.get('is_default')),
