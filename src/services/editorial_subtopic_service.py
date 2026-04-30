@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 class EditorialSubtopicService:
     """Generate structured editorial subtopics from a topic brief."""
 
+    _RAW_RESPONSE_LOG_LIMIT = 4000
+
     def _build_prompt(self, brief: Dict[str, Any], max_subtopics: int) -> str:
         return f"""
 You are a senior editorial strategist for SEO and GEO content planning.
@@ -178,14 +180,21 @@ FORMAT RULES
                 llm_service.generate_text(prompt=prompt, max_tokens=1800),
                 timeout=35.0,
             )
+            raw_content = response.content or ""
             logger.info(
                 "Editorial subtopic LLM response provider=%s model=%s chars=%s topic=%r",
                 response.provider,
                 response.model_name,
-                len(response.content or ""),
+                len(raw_content),
                 brief.get("topic_title"),
             )
-            parsed = self._parse(response.content or "")
+            logger.info(
+                "Editorial subtopic raw LLM output topic=%r preview=%r truncated=%s",
+                brief.get("topic_title"),
+                raw_content[:self._RAW_RESPONSE_LOG_LIMIT],
+                len(raw_content) > self._RAW_RESPONSE_LOG_LIMIT,
+            )
+            parsed = self._parse(raw_content)
             if parsed:
                 logger.info("Editorial subtopics generated count=%s", len(parsed))
                 return parsed[:max_subtopics]
