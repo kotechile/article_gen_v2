@@ -183,3 +183,29 @@ COMMERCIAL_PATHS: software, services
 
     assert len(parsed) == 1
     assert parsed[0]["title"] == "Email Automation Migration Checklist"
+
+
+def test_relevance_guard_prefers_topic_anchored_subtopics():
+    service = EditorialSubtopicService()
+    brief = {
+        "topic_title": "Incremental ROI Decision Logic",
+        "decision_focus": "Deciding where to put the next dollar for highest marginal return",
+        "angle_question": "Should we allocate next capital to debt payoff or growth?",
+        "category_path": "Finance / Capital Allocation",
+    }
+
+    related = {
+        "title": "Incremental ROI Allocation Framework",
+        "summary": "A decision model for where the next dollar creates the highest marginal ROI.",
+        "user_problem": "Need a repeatable allocation logic for next capital decisions.",
+        "seed_phrases": ["incremental roi", "next dollar allocation", "marginal return framework"],
+    }
+    unrelated = {
+        "title": "Remote Team Hiring Checklist",
+        "summary": "How to evaluate candidates for distributed engineering teams.",
+        "user_problem": "Need a better hiring workflow for remote staff.",
+        "seed_phrases": ["remote hiring", "interview process", "talent pipeline"],
+    }
+
+    assert service._is_relevant_to_brief(related, brief) is True
+    assert service._is_relevant_to_brief(unrelated, brief) is False

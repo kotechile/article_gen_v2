@@ -18,6 +18,7 @@ class EditorialSubtopicService:
     """Generate structured editorial subtopics from a topic brief."""
 
     _RAW_RESPONSE_LOG_LIMIT = 4000
+    _MIN_RELEVANCE_TOKEN_OVERLAP = 0.2
 
     def _build_prompt(self, brief: Dict[str, Any], max_subtopics: int) -> str:
         return f"""
@@ -44,6 +45,13 @@ Generate exactly {max_subtopics} editorial subtopics. These are decision/problem
 Use concrete types: comparison, framework, checklist, audit, calculator, scenario, decision, or problem.
 Keep every idea tightly aligned with the category lens and sub-category strategy.
 SEED_PHRASES must be short search-style phrases (2-5 words), plain language, without symbols or meta-text.
+
+TOPIC-ANCHOR RULES (MANDATORY)
+- Every subtopic must be directly about the main Topic, not just generally related business/finance strategy.
+- Each TITLE must include at least one concrete anchor term from the Topic or Decision Focus.
+- SUMMARY must explicitly explain the connection to the Topic context.
+- If a candidate could stand alone as a generic article outside this Topic, reject it and replace it.
+- Prefer subtopics that share the same core decision object as the Topic.
 
 DIVERSITY RULES
 - Every subtopic must represent a meaningfully different concept, not a paraphrase of another one.
@@ -174,6 +182,50 @@ FORMAT RULES
                 parsed.append(parsed_block)
         return parsed
 
+    def _tokenize(self, text: str) -> List[str]:
+        return [
+            token
+            for token in re.split(r"[^a-zA-Z0-9]+", (text or "").lower())
+            if len(token) >= 3
+        ]
+
+    def _is_relevant_to_brief(self, subtopic: Dict[str, Any], brief: Dict[str, Any]) -> bool:
+        topic_tokens = set(
+            self._tokenize(
+                " ".join(
+                    [
+                        str(brief.get("topic_title") or ""),
+                        str(brief.get("decision_focus") or ""),
+                        str(brief.get("angle_question") or ""),
+                        str(brief.get("category_path") or ""),
+                    ]
+                )
+            )
+        )
+        if not topic_tokens:
+            return True
+
+        subtopic_tokens = set(
+            self._tokenize(
+                " ".join(
+                    [
+                        str(subtopic.get("title") or ""),
+                        str(subtopic.get("summary") or ""),
+                        str(subtopic.get("user_problem") or ""),
+                        " ".join(subtopic.get("seed_phrases") or []),
+                    ]
+                )
+            )
+        )
+        if not subtopic_tokens:
+            return False
+
+        overlap = topic_tokens.intersection(subtopic_tokens)
+        overlap_ratio = len(overlap) / max(1, len(topic_tokens))
+
+        # Enforce at least one shared anchor token and minimum overlap strength.
+        return bool(overlap) and overlap_ratio >= self._MIN_RELEVANCE_TOKEN_OVERLAP
+
     async def generate_with_debug(
         self,
         brief: Dict[str, Any],
@@ -190,6 +242,8 @@ FORMAT RULES
             "raw_output_preview": "",
             "raw_output_truncated": False,
             "parser_match_mode": None,
+            "parsed_count": 0,
+            "relevance_filtered_count": 0,
         }
         try:
             resolved = resolve_llm_provider(task_role=LLM_ROLE_RESEARCH_SUBTOPIC_GENERATION)
@@ -239,6 +293,15 @@ FORMAT RULES
                 debug_info["parser_match_mode"] = "no_known_format_marker"
 
             parsed = self._parse(raw_content)
+            debug_info["parsed_count"] = len(parsed)
+
+            # Soft relevance filtering: prefer strongly aligned subtopics, but avoid returning
+            # an empty set only because the model used broader language.
+            filtered = [item for item in parsed if self._is_relevant_to_brief(item, brief)]
+            debug_info["relevance_filtered_count"] = len(filtered)
+            if filtered:
+                parsed = filtered
+
             if parsed:
                 logger.info("Editorial subtopics generated count=%s", len(parsed))
                 return {
