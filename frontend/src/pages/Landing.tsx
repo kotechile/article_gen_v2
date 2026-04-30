@@ -10,7 +10,6 @@ import { researchTopicsService } from '@/services/research-topics.service'
 import type { Project } from '@/types'
 import type { ProjectCategory, TopicCandidate, TopicDraft } from '@/types/command-center'
 import type { ResearchTopic } from '@/types/research'
-import { ScrollArea } from '@/components/ui/scroll-area'
 
 const inputSelectClasses =
     "h-11 w-full rounded-xl border border-border bg-muted/50 pl-10 pr-4 text-sm text-foreground outline-none transition focus:border-blue-400/30 hover:border-border disabled:cursor-not-allowed disabled:opacity-50"
@@ -613,7 +612,7 @@ export function Landing() {
                                 </p>
                             </div>
                         ) : (
-                            <ScrollArea className="max-h-[440px]">
+                            <div className="max-h-[440px] overflow-y-auto rounded-lg">
                                 <div className="divide-y divide-border">
                                     {topicCandidates.map((topic) => {
                                         const checked = selectedTopicIds.has(topic.id)
@@ -667,7 +666,7 @@ export function Landing() {
                                         )
                                     })}
                                 </div>
-                            </ScrollArea>
+                            </div>
                         )}
                     </div>
 
