@@ -273,6 +273,7 @@ export function normalizeInfographicHtmlForEditor(html: string): string {
 
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
+    unwrapBlockElementsFromParagraphs(doc);
 
     doc.querySelectorAll<HTMLElement>('div.zenith-infographic-container').forEach((node) => {
         if (node.dataset.infographic === 'true' && node.dataset.svg) return;
@@ -291,6 +292,54 @@ export function normalizeInfographicHtmlForEditor(html: string): string {
     return doc.body.innerHTML;
 }
 
+function unwrapBlockElementsFromParagraphs(doc: Document): void {
+    const disallowedBlockTags = new Set([
+        'TABLE', 'DIV', 'SECTION', 'ARTICLE', 'ASIDE', 'FIGURE', 'BLOCKQUOTE',
+        'UL', 'OL', 'DL', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'PRE',
+    ]);
+
+    doc.querySelectorAll('p').forEach((paragraph) => {
+        const childNodes = Array.from(paragraph.childNodes);
+        const hasDisallowedBlockChild = childNodes.some(
+            (node) => node instanceof HTMLElement && disallowedBlockTags.has(node.tagName),
+        );
+        if (!hasDisallowedBlockChild) return;
+
+        const fragment = doc.createDocumentFragment();
+        let inlineBuffer: ChildNode[] = [];
+
+        const flushInlineBuffer = () => {
+            const hasMeaningfulContent = inlineBuffer.some((node) => {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    return Boolean(node.textContent?.trim());
+                }
+                return true;
+            });
+            if (!hasMeaningfulContent) {
+                inlineBuffer = [];
+                return;
+            }
+
+            const nextParagraph = doc.createElement('p');
+            inlineBuffer.forEach((node) => nextParagraph.appendChild(node));
+            fragment.appendChild(nextParagraph);
+            inlineBuffer = [];
+        };
+
+        childNodes.forEach((node) => {
+            if (node instanceof HTMLElement && disallowedBlockTags.has(node.tagName)) {
+                flushInlineBuffer();
+                fragment.appendChild(node);
+                return;
+            }
+            inlineBuffer.push(node);
+        });
+
+        flushInlineBuffer();
+        paragraph.replaceWith(fragment);
+    });
+}
+
 /**
  * Applies premium inline styling to HTML tables to ensure they look excellent 
  * when exported to WordPress, bypassing default plain theme styles.
@@ -300,6 +349,7 @@ export function beautifyTablesHtml(html: string): string {
 
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
+    unwrapBlockElementsFromParagraphs(doc);
 
     doc.querySelectorAll('table').forEach((table) => {
         // Essential layout
