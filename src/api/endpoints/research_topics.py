@@ -3144,8 +3144,19 @@ def create_idea_dict(
         return " ".join(tokens)
 
     def _build_simple_keyword_seeds(title_value: str, subtopic_value: str, seeds: list[str]) -> list[str]:
+        def _context_tokens(raw_text: str) -> set[str]:
+            cleaned = re.sub(r"[^a-zA-Z0-9\s-]", " ", str(raw_text or "").lower())
+            tokens = [t for t in re.sub(r"\s+", " ", cleaned).split(" ") if t]
+            return {
+                t for t in tokens
+                if len(t) >= 3 and t not in SIMPLE_STOPWORDS and t not in JARGON_TOKENS
+            }
+
         raw_candidates = list(seeds or [])
         raw_candidates.extend([title_value, subtopic_value])
+        title_context = _context_tokens(title_value)
+        subtopic_context = _context_tokens(subtopic_value)
+        relevance_context = title_context | subtopic_context
 
         expanded = []
         for raw in raw_candidates:
@@ -3178,10 +3189,31 @@ def create_idea_dict(
                 score += 1
             if any(conn in normalized for conn in (" or ", " vs ", " versus ", " and ")):
                 score -= 3
-            scored.append((score, normalized))
+            candidate_tokens = {
+                t for t in normalized.split(" ")
+                if t and t not in SIMPLE_STOPWORDS and t not in JARGON_TOKENS
+            }
+            overlap = len(candidate_tokens & relevance_context)
+            if overlap > 0:
+                score += overlap * 4
+            else:
+                # Strongly discourage seeds that don't match title/subtopic semantics.
+                score -= 8
+            scored.append((score, overlap, normalized))
 
-        scored.sort(key=lambda x: (-x[0], len(x[1])))
-        return [item for _, item in scored[:5]]
+        # Prefer semantically aligned terms when available.
+        overlap_scored = [row for row in scored if row[1] > 0]
+        target_rows = overlap_scored if overlap_scored else scored
+        target_rows.sort(key=lambda x: (-x[0], -x[1], len(x[2])))
+        selected = [item for _, _, item in target_rows[:5]]
+        if selected:
+            return selected
+
+        # Last-resort fallback: derive simple n-grams from title/subtopic text.
+        fallback_tokens = [t for t in (title_value or "").lower().split() if len(t) >= 3][:4]
+        if len(fallback_tokens) >= 2:
+            return [" ".join(fallback_tokens[:2]), " ".join(fallback_tokens[-2:])]
+        return [str(subtopic_value or "").strip().lower()] if str(subtopic_value or "").strip() else []
 
     input_keywords = idea_data.get('input_keywords', [])
     if not isinstance(input_keywords, list):
