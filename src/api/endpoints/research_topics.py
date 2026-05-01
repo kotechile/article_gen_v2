@@ -2367,7 +2367,7 @@ Output format (use exactly this format):
 BLOG_IDEA: [number]
 TITLE: [title]
 DESCRIPTION: [description]
-SEARCH_PHRASE: [2-5 word query]
+SEARCH_PHRASE: [1-3 word query]
 INPUT_KEYWORDS: [keyword1, keyword2, keyword3, keyword4]
 INTENT: [informational/commercial/transactional]
 FORMAT: [comparison/checklist/framework/case-study/how-to/calculator-guide]
@@ -2803,10 +2803,12 @@ def parse_idea_response(
         if not phrase:
             return ""
         tokens = [token for token in phrase.split(" ") if token]
-        if len(tokens) < 2:
+        if not tokens:
             return ""
-        if len(tokens) > 5:
-            tokens = tokens[:5]
+        if len(tokens) == 1 and len(tokens[0]) < 3:
+            return ""
+        if len(tokens) > 3:
+            tokens = tokens[:3]
         return " ".join(tokens)
 
     def _normalize_idea_title(raw_title: str) -> str:
@@ -3070,10 +3072,12 @@ def create_idea_dict(
         if not phrase:
             return ""
         tokens = [token for token in phrase.split(" ") if token]
-        if len(tokens) < 2:
+        if not tokens:
             return ""
-        if len(tokens) > 5:
-            tokens = tokens[:5]
+        if len(tokens) == 1 and len(tokens[0]) < 3:
+            return ""
+        if len(tokens) > 3:
+            tokens = tokens[:3]
         return " ".join(tokens)
 
     def _derive_search_phrase(raw_title: str, raw_keywords: list[str]) -> str:
@@ -3083,7 +3087,9 @@ def create_idea_dict(
                 return normalized_kw
         title_tokens = re.sub(r"[^a-zA-Z0-9\s\-]", " ", raw_title.lower()).split()
         if len(title_tokens) >= 2:
-            return " ".join(title_tokens[: min(4, len(title_tokens))])
+            return " ".join(title_tokens[: min(3, len(title_tokens))])
+        if len(title_tokens) == 1 and len(title_tokens[0]) >= 3:
+            return title_tokens[0]
         return ""
 
     def _title_contains_phrase(raw_title: str, phrase: str) -> bool:
