@@ -217,6 +217,65 @@ def _contains_keyword(text: str, keyword: str) -> bool:
     return bool(normalized_keyword and normalized_keyword in normalized_text)
 
 
+_TITLE_CONTEXT_STOPWORDS = {
+    "about", "above", "after", "again", "against", "all", "also", "among", "and", "are", "because",
+    "before", "being", "between", "both", "build", "complex", "could", "deciding", "does", "down",
+    "each", "from", "have", "helps", "holdings", "how", "into", "just", "keep", "lack", "many",
+    "more", "most", "much", "need", "only", "onto", "other", "over", "portfolio", "practical",
+    "same", "sell", "should", "show", "specific", "than", "that", "their", "them", "then", "there",
+    "these", "they", "this", "through", "too", "under", "very", "what", "when", "which", "while",
+    "with", "without", "your", "guide", "strategy", "approach", "outcome",
+}
+
+
+def _extract_context_fragments(title: str, description: str, keyword: str, limit: int = 4) -> list[str]:
+    keyword_terms = {
+        token
+        for token in re.findall(r"[a-z0-9]+", str(keyword or "").lower())
+        if len(token) >= 3
+    }
+    fragments: list[str] = []
+    seen = set()
+    source_text = f"{title}. {description}"
+    for raw_phrase in re.findall(r"[A-Za-z0-9][A-Za-z0-9'/-]*(?:\s+[A-Za-z0-9][A-Za-z0-9'/-]*){1,2}", source_text):
+        cleaned_words = []
+        for word in re.findall(r"[a-z0-9]+", raw_phrase.lower()):
+            if len(word) < 4:
+                continue
+            if word in _TITLE_CONTEXT_STOPWORDS:
+                continue
+            if word in keyword_terms:
+                continue
+            cleaned_words.append(word)
+        if len(cleaned_words) < 2:
+            continue
+        phrase = " ".join(cleaned_words[:3])
+        if phrase in seen:
+            continue
+        seen.add(phrase)
+        fragments.append(phrase)
+        if len(fragments) >= limit:
+            break
+    return fragments
+
+
+def _fit_keyword_title(keyword: str, fragment: str | None = None, connector: str = "for") -> str:
+    clean_keyword = re.sub(r"\s+", " ", str(keyword or "").strip())
+    clean_fragment = re.sub(r"\s+", " ", str(fragment or "").strip())
+    if not clean_keyword:
+        return clean_fragment[:60].strip()
+    if not clean_fragment:
+        return clean_keyword[:60].strip()
+    candidate = f"{clean_keyword} {connector} {clean_fragment}".strip()
+    if len(candidate) <= 60:
+        return candidate
+    shorter_fragment = " ".join(clean_fragment.split()[:2]).strip()
+    candidate = f"{clean_keyword} {connector} {shorter_fragment}".strip()
+    if len(candidate) <= 60:
+        return candidate
+    return clean_keyword[:60].strip()
+
+
 def _normalize_title_with_keyword(title: str, keyword: str) -> str:
     clean_title = re.sub(r"\s+", " ", str(title or "").strip())
     clean_keyword = re.sub(r"\s+", " ", str(keyword or "").strip())
@@ -246,6 +305,9 @@ def _build_default_refinement_options(
     title: str,
     description: str,
     primary_keyword: str,
+    decision_focus: str = "",
+    angle_question: str = "",
+    primary_user_outcome: str = "",
 ) -> list[dict]:
     base_title = re.sub(r"\s+", " ", str(title or "").strip())
     base_description = re.sub(r"\s+", " ", str(description or "").strip())
@@ -258,6 +320,14 @@ def _build_default_refinement_options(
             "rationale": "Original metadata kept because no primary keyword was provided.",
         }]
 
+    context_description = " ".join(
+        part for part in [primary_user_outcome, decision_focus, angle_question, base_description] if str(part or "").strip()
+    ).strip()
+    fragments = _extract_context_fragments(base_title, context_description, keyword, limit=4)
+    intro_sentence = _safe_context_string(primary_user_outcome or decision_focus or base_description, 180)
+    if intro_sentence and not intro_sentence.endswith("."):
+        intro_sentence = intro_sentence.rstrip(" .") + "."
+
     options: list[dict] = []
     candidates = [
         (
@@ -266,20 +336,20 @@ def _build_default_refinement_options(
             "Keyword-forward conservative rewrite.",
         ),
         (
-            _normalize_title_with_keyword(f"{keyword} strategy", keyword),
+            _fit_keyword_title(keyword, fragments[0] if len(fragments) > 0 else None, "for"),
             _normalize_description_with_keyword(
-                f"Actionable guide focused on {keyword}. {base_description}",
+                f"{intro_sentence} Practical guidance on {keyword} with concrete next-step framing.",
                 keyword,
             ),
-            "Keyword-led strategic framing.",
+            "Context-aware rewrite anchored to the original article angle.",
         ),
         (
-            _normalize_title_with_keyword(f"Best {keyword} approach", keyword),
+            _fit_keyword_title(keyword, fragments[1] if len(fragments) > 1 else fragments[0] if fragments else None, "and"),
             _normalize_description_with_keyword(
-                f"Decision-focused explanation of {keyword} with practical steps and trade-offs.",
+                f"Decision-focused explanation of {keyword} tied to {fragments[2] if len(fragments) > 2 else 'the original user problem'} and practical trade-offs.",
                 keyword,
             ),
-            "Decision-oriented variant optimized for query intent.",
+            "Fallback variant that preserves the article's problem framing.",
         ),
     ]
     for candidate_title, candidate_description, rationale in candidates:
@@ -301,6 +371,31 @@ def _build_default_refinement_options(
         seen.add(key)
         deduped.append(opt)
     return deduped[:3]
+
+
+def _safe_context_string(value, limit: int = 220) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"\s+", " ", text)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def _safe_context_list(value, limit_items: int = 6, item_limit: int = 80) -> list[str]:
+    if isinstance(value, str):
+        value = [item.strip() for item in value.split(",") if item.strip()]
+    if not isinstance(value, list):
+        return []
+    cleaned: list[str] = []
+    for item in value:
+        text = _safe_context_string(item, item_limit)
+        if text:
+            cleaned.append(text)
+        if len(cleaned) >= limit_items:
+            break
+    return cleaned
 
 
 @research_bp.route('/research', methods=['POST'])
@@ -517,6 +612,23 @@ def refine_research_metadata():
             secondary_keywords = []
         secondary_keywords = [str(k).strip() for k in secondary_keywords if str(k).strip()][:8]
         domain = str(data.get("domain") or "").strip()
+        context = data.get("context") or {}
+        if not isinstance(context, dict):
+            context = {}
+
+        target_audience = _safe_context_string(context.get("target_audience"), 120)
+        article_length = _safe_context_string(context.get("article_length"), 40)
+        tone = _safe_context_string(context.get("tone"), 80)
+        keyword_intent = _safe_context_string(context.get("keyword_intent"), 80)
+        keyword_search_volume = _safe_context_string(context.get("keyword_search_volume"), 40)
+        keyword_difficulty = _safe_context_string(context.get("keyword_difficulty"), 40)
+        supporting_entities = _safe_context_list(context.get("supporting_entities"), limit_items=8, item_limit=60)
+        priority_questions = _safe_context_list(context.get("priority_questions"), limit_items=6, item_limit=120)
+        decision_focus = _safe_context_string(context.get("decision_focus"), 220)
+        angle_question = _safe_context_string(context.get("angle_question"), 220)
+        primary_user_outcome = _safe_context_string(context.get("primary_user_outcome"), 220)
+        internal_link_hook = _safe_context_string(context.get("internal_link_hook"), 180)
+        affiliate_offer_names = _safe_context_list(context.get("affiliate_offer_names"), limit_items=6, item_limit=80)
 
         if not title or not description:
             return jsonify({
@@ -567,9 +679,41 @@ def refine_research_metadata():
         )
 
         secondary_part = ", ".join(secondary_keywords) if secondary_keywords else "none"
+        context_lines = []
+        if target_audience:
+            context_lines.append(f"Target audience: {target_audience}")
+        if article_length:
+            context_lines.append(f"Requested article length: {article_length}")
+        if tone:
+            context_lines.append(f"Tone: {tone}")
+        if keyword_intent:
+            metrics_suffix = []
+            if keyword_search_volume:
+                metrics_suffix.append(f"search volume {keyword_search_volume}")
+            if keyword_difficulty:
+                metrics_suffix.append(f"difficulty {keyword_difficulty}")
+            keyword_line = f"Selected keyword intent: {keyword_intent}"
+            if metrics_suffix:
+                keyword_line += f" ({', '.join(metrics_suffix)})"
+            context_lines.append(keyword_line)
+        if decision_focus:
+            context_lines.append(f"Decision focus: {decision_focus}")
+        if angle_question:
+            context_lines.append(f"Angle question: {angle_question}")
+        if primary_user_outcome:
+            context_lines.append(f"Primary user outcome: {primary_user_outcome}")
+        if internal_link_hook:
+            context_lines.append(f"Internal link hook: {internal_link_hook}")
+        if supporting_entities:
+            context_lines.append(f"Supporting entities to preserve when relevant: {', '.join(supporting_entities)}")
+        if priority_questions:
+            context_lines.append("Priority questions the article should help answer: " + " | ".join(priority_questions))
+        if affiliate_offer_names:
+            context_lines.append(f"Relevant affiliate/commercial context: {', '.join(affiliate_offer_names)}")
+        context_block = "\n".join(context_lines) if context_lines else "No additional article context provided."
         prompt = f"""
 You are a GEO + SEO editorial optimizer.
-Rewrite title + description to improve AI-search discoverability while preserving original intent.
+Rewrite title + description to improve AI-search discoverability while preserving original intent and the article's editorial brief.
 
 Rules:
 - Keep the title <= 60 characters.
@@ -578,6 +722,9 @@ Rules:
 - Include primary keyword naturally when provided.
 - Keep tone authoritative and data-driven.
 - Generate exactly 3 distinct options.
+- Treat the original description plus additional article context as the source brief.
+- Preserve the core audience, decision frame, and promised outcome unless the keyword requires tighter phrasing.
+- Use the angle question, supporting entities, and priority questions to keep the new metadata directionally aligned with the original article.
 - Return STRICT JSON only with this schema:
 {{
   "options": [
@@ -594,6 +741,8 @@ Original description: {description}
 Primary keyword: {primary_keyword or "none"}
 Secondary keywords: {secondary_part}
 Domain context: {domain or "none"}
+Additional article context:
+{context_block}
 """.strip()
 
         fallback_reason = ""
@@ -621,6 +770,9 @@ Domain context: {domain or "none"}
                 title=title,
                 description=description,
                 primary_keyword=primary_keyword,
+                decision_focus=decision_focus,
+                angle_question=angle_question,
+                primary_user_outcome=primary_user_outcome,
             )
 
             normalized_options: list[dict] = []
@@ -667,6 +819,9 @@ Domain context: {domain or "none"}
                 title=refined_title,
                 description=refined_description,
                 primary_keyword=primary_keyword,
+                decision_focus=decision_focus,
+                angle_question=angle_question,
+                primary_user_outcome=primary_user_outcome,
             )
 
         return jsonify({

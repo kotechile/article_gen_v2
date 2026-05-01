@@ -140,6 +140,16 @@ function normalizeKeywordList(value: unknown): string[] {
     return [];
 }
 
+function pickFirstNonEmptyString(...values: unknown[]): string {
+    for (const value of values) {
+        if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (trimmed) return trimmed;
+        }
+    }
+    return '';
+}
+
 // ─── SEO Validation ───────────────────────────────────────────────────────────
 
 interface SEOValidation {
@@ -523,6 +533,22 @@ export const ContentStudio: React.FC = () => {
         const token = session?.access_token;
         if (!token) throw new Error("No session token found");
 
+        const ideaMetadata = (article?.idea_metadata && typeof article.idea_metadata === 'object')
+            ? article.idea_metadata
+            : {};
+        const rawOutput = (article?.raw_supabase_output && typeof article.raw_supabase_output === 'object')
+            ? article.raw_supabase_output
+            : {};
+        const affiliatePrograms = Array.isArray((article?.affiliate_opportunities as any)?.programs)
+            ? (article?.affiliate_opportunities as any).programs
+            : [];
+        const supportingEntities = normalizeKeywordList(article?.supporting_entities_json).slice(0, 8);
+        const priorityQuestions = normalizeKeywordList(article?.priority_questions_json).slice(0, 6);
+        const affiliateOfferNames = affiliatePrograms
+            .map((program: any) => pickFirstNonEmptyString(program?.program_name, program?.name, program?.merchant, program?.title))
+            .filter(Boolean)
+            .slice(0, 6);
+
         const response = await axios.post(
             `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/v1/research/refine-metadata`,
             {
@@ -531,6 +557,33 @@ export const ContentStudio: React.FC = () => {
                 primary_keyword: params.primaryKw || undefined,
                 secondary_keywords: params.secondaryKeywords,
                 domain: article?.domain || undefined,
+                context: {
+                    target_audience: article?.target_audience || undefined,
+                    article_length: article?.articleLength || undefined,
+                    tone: formData.tone || article?.tone || undefined,
+                    keyword_intent: article?.selected_keyword_intent || undefined,
+                    keyword_search_volume: article?.selected_keyword_search_volume || undefined,
+                    keyword_difficulty: article?.selected_keyword_difficulty || undefined,
+                    supporting_entities: supportingEntities,
+                    priority_questions: priorityQuestions,
+                    decision_focus: pickFirstNonEmptyString(
+                        (ideaMetadata as any)?.decision_focus,
+                        (rawOutput as any)?.decision_focus,
+                    ) || undefined,
+                    angle_question: pickFirstNonEmptyString(
+                        (ideaMetadata as any)?.angle_question,
+                        (rawOutput as any)?.angle_question,
+                    ) || undefined,
+                    primary_user_outcome: pickFirstNonEmptyString(
+                        (ideaMetadata as any)?.primary_user_outcome,
+                        (rawOutput as any)?.primary_user_outcome,
+                    ) || undefined,
+                    internal_link_hook: pickFirstNonEmptyString(
+                        (ideaMetadata as any)?.internal_link_hook,
+                        (rawOutput as any)?.internal_link_hook,
+                    ) || undefined,
+                    affiliate_offer_names: affiliateOfferNames,
+                },
             },
             {
                 headers: {
@@ -1321,11 +1374,24 @@ export const ContentStudio: React.FC = () => {
                             </div>
                         )}
 
-                        <div className="space-y-3">
+                        <div className="space-y-5">
                             {Array.isArray(refinementPreview?.options) && refinementPreview!.options!.length > 1 && (
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">Proposed Options</label>
-                                    <div className="grid grid-cols-1 gap-2 max-h-56 overflow-auto pr-1">
+                                <section className="rounded-2xl border border-sky-400/35 bg-slate-950/80 p-4 shadow-[inset_0_0_0_1px_rgba(56,189,248,0.08)]">
+                                    <div className="flex items-start justify-between gap-3 mb-3">
+                                        <div>
+                                            <div className="inline-flex items-center gap-2 rounded-full border border-sky-400/35 bg-sky-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-200 mb-2">
+                                                Step 1
+                                            </div>
+                                            <label className="block text-sm font-semibold text-foreground">Choose a Proposed Option</label>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                Pick the closest keyword-aligned draft. The selected option will populate the editable fields below.
+                                            </p>
+                                        </div>
+                                        <div className="shrink-0 rounded-full border border-sky-400/30 bg-sky-400/10 px-2.5 py-1 text-[11px] font-medium text-sky-200">
+                                            {refinementPreview!.options!.length} options
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-3 max-h-72 overflow-auto pr-1 pt-1">
                                         {refinementPreview!.options!.map((option, idx) => {
                                             const selected =
                                                 refinementDraft.title.trim() === option.refined_title.trim() &&
@@ -1338,38 +1404,66 @@ export const ContentStudio: React.FC = () => {
                                                         title: option.refined_title,
                                                         description: option.refined_description,
                                                     })}
-                                                    className={`text-left rounded-xl border px-3 py-2 transition ${
+                                                    className={`text-left rounded-2xl border px-4 py-3 transition focus:outline-none ${
                                                         selected
-                                                            ? 'border-primary bg-primary/10'
-                                                            : 'border-border bg-muted/30 hover:bg-muted/50'
+                                                            ? 'border-emerald-300/90 bg-emerald-500/10 shadow-[0_0_0_1px_rgba(16,185,129,0.35)]'
+                                                            : 'border-slate-700 bg-slate-900/70 hover:border-sky-400/45 hover:bg-slate-900'
                                                     }`}
                                                 >
-                                                    <div className="text-xs font-semibold text-foreground mb-1">Option {idx + 1}</div>
-                                                    <div className="text-xs text-foreground line-clamp-1">{option.refined_title}</div>
-                                                    <div className="text-xs text-muted-foreground line-clamp-2 mt-1">{option.refined_description}</div>
+                                                    <div className="flex items-center justify-between gap-3 mb-2">
+                                                        <div className="text-xs font-semibold text-foreground">Option {idx + 1}</div>
+                                                        <div
+                                                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                                                selected
+                                                                    ? 'bg-emerald-300 text-emerald-950'
+                                                                    : 'bg-slate-800 text-slate-300'
+                                                            }`}
+                                                        >
+                                                            {selected ? 'Selected' : 'Preview'}
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-sm font-medium text-foreground line-clamp-1">{option.refined_title}</div>
+                                                    <div className="text-xs text-muted-foreground line-clamp-3 mt-1.5 leading-relaxed">{option.refined_description}</div>
                                                 </button>
                                             );
                                         })}
                                     </div>
-                                </div>
+                                </section>
                             )}
-                            <div>
-                                <label className="block text-sm font-medium mb-1">Refined Title <span className="text-muted-foreground text-xs">(must include primary keyword, ≤60 chars)</span></label>
-                                <input
-                                    className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
-                                    value={refinementDraft.title}
-                                    onChange={(e) => setRefinementDraft((prev) => ({ ...prev, title: e.target.value }))}
-                                />
-                                <p className="text-xs text-muted-foreground mt-1">{refinementDraft.title.length}/60 characters</p>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1">Refined Description <span className="text-muted-foreground text-xs">(directionally aligned with original)</span></label>
-                                <textarea
-                                    className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none min-h-[130px]"
-                                    value={refinementDraft.description}
-                                    onChange={(e) => setRefinementDraft((prev) => ({ ...prev, description: e.target.value }))}
-                                />
-                            </div>
+                            <div className="border-t border-white/10" />
+                            <section className="rounded-2xl border border-emerald-400/35 bg-emerald-500/[0.06] p-4 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]">
+                                <div className="flex items-start justify-between gap-3 mb-3">
+                                    <div>
+                                        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/35 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200 mb-2">
+                                            Step 2
+                                        </div>
+                                        <h4 className="text-sm font-semibold text-foreground">Selected Draft</h4>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            This is the version that will be used for article generation. You can still edit it before continuing.
+                                        </p>
+                                    </div>
+                                    <div className="shrink-0 rounded-full border border-emerald-400/35 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-medium text-emerald-200">
+                                        Active version
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Refined Title <span className="text-muted-foreground text-xs">(must include primary keyword, ≤60 chars)</span></label>
+                                    <input
+                                        className="w-full px-4 py-2 rounded-xl border border-emerald-400/20 bg-background/80 focus:ring-2 focus:ring-emerald-400/40 outline-none"
+                                        value={refinementDraft.title}
+                                        onChange={(e) => setRefinementDraft((prev) => ({ ...prev, title: e.target.value }))}
+                                    />
+                                    <p className="text-xs text-muted-foreground mt-1">{refinementDraft.title.length}/60 characters</p>
+                                </div>
+                                <div className="mt-3">
+                                    <label className="block text-sm font-medium mb-1">Refined Description <span className="text-muted-foreground text-xs">(directionally aligned with original)</span></label>
+                                    <textarea
+                                        className="w-full px-4 py-2 rounded-xl border border-emerald-400/20 bg-background/80 focus:ring-2 focus:ring-emerald-400/40 outline-none min-h-[130px]"
+                                        value={refinementDraft.description}
+                                        onChange={(e) => setRefinementDraft((prev) => ({ ...prev, description: e.target.value }))}
+                                    />
+                                </div>
+                            </section>
                         </div>
 
                         <div className="flex items-center justify-end gap-2 pt-1">
