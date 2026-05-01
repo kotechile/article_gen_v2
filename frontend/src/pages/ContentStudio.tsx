@@ -193,6 +193,11 @@ interface MetadataRefinementPreview {
     rationale?: string;
     changed: boolean;
     fallback_used?: boolean;
+    options?: Array<{
+        refined_title: string;
+        refined_description: string;
+        rationale?: string;
+    }>;
 }
 
 function buildRefinementSignature(
@@ -536,12 +541,21 @@ export const ContentStudio: React.FC = () => {
         );
 
         const payload = response.data?.data || {};
+        const rawOptions = Array.isArray(payload.options) ? payload.options : [];
+        const options = rawOptions
+            .map((option: any) => ({
+                refined_title: String(option?.refined_title || '').trim(),
+                refined_description: String(option?.refined_description || '').trim(),
+                rationale: String(option?.rationale || '').trim(),
+            }))
+            .filter((option: any) => option.refined_title && option.refined_description);
         return {
             refined_title: String(payload.refined_title || params.title),
             refined_description: String(payload.refined_description || params.description),
             rationale: String(payload.rationale || ''),
             changed: Boolean(payload.changed),
             fallback_used: Boolean(payload.fallback_used),
+            options,
         };
     };
 
@@ -629,12 +643,18 @@ export const ContentStudio: React.FC = () => {
                             changed: false,
                             fallback_used: true,
                             rationale: 'Automatic refinement is unavailable right now. Review and approve to continue.',
+                            options: [{
+                                refined_title: effectiveTitle,
+                                refined_description: effectiveDescription,
+                                rationale: 'Original metadata',
+                            }],
                         };
                     }
                     setRefinementPreview(preview);
+                    const firstOption = preview.options?.[0];
                     setRefinementDraft({
-                        title: preview.refined_title || effectiveTitle,
-                        description: preview.refined_description || effectiveDescription,
+                        title: firstOption?.refined_title || preview.refined_title || effectiveTitle,
+                        description: firstOption?.refined_description || preview.refined_description || effectiveDescription,
                     });
                     setShowRefinementGate(true);
                 } finally {
@@ -1302,6 +1322,37 @@ export const ContentStudio: React.FC = () => {
                         )}
 
                         <div className="space-y-3">
+                            {Array.isArray(refinementPreview?.options) && refinementPreview!.options!.length > 1 && (
+                                <div>
+                                    <label className="block text-sm font-medium mb-2">Proposed Options</label>
+                                    <div className="grid grid-cols-1 gap-2 max-h-56 overflow-auto pr-1">
+                                        {refinementPreview!.options!.map((option, idx) => {
+                                            const selected =
+                                                refinementDraft.title.trim() === option.refined_title.trim() &&
+                                                refinementDraft.description.trim() === option.refined_description.trim();
+                                            return (
+                                                <button
+                                                    key={`refine-option-${idx}`}
+                                                    type="button"
+                                                    onClick={() => setRefinementDraft({
+                                                        title: option.refined_title,
+                                                        description: option.refined_description,
+                                                    })}
+                                                    className={`text-left rounded-xl border px-3 py-2 transition ${
+                                                        selected
+                                                            ? 'border-primary bg-primary/10'
+                                                            : 'border-border bg-muted/30 hover:bg-muted/50'
+                                                    }`}
+                                                >
+                                                    <div className="text-xs font-semibold text-foreground mb-1">Option {idx + 1}</div>
+                                                    <div className="text-xs text-foreground line-clamp-1">{option.refined_title}</div>
+                                                    <div className="text-xs text-muted-foreground line-clamp-2 mt-1">{option.refined_description}</div>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
                             <div>
                                 <label className="block text-sm font-medium mb-1">Refined Title <span className="text-muted-foreground text-xs">(must include primary keyword, ≤60 chars)</span></label>
                                 <input

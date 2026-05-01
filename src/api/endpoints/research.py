@@ -156,6 +156,60 @@ def _extract_refined_metadata_from_response(raw: str, fallback_title: str, fallb
     }
 
 
+def _extract_refined_metadata_options_from_response(raw: str, fallback_title: str, fallback_description: str) -> list[dict]:
+    cleaned = str(raw or "").strip()
+    if not cleaned:
+        return []
+
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        cleaned = cleaned.replace("json", "", 1).strip()
+
+    def _normalize_option(candidate: dict) -> dict | None:
+        if not isinstance(candidate, dict):
+            return None
+        refined_title = str(candidate.get("refined_title") or "").strip()
+        refined_description = str(candidate.get("refined_description") or "").strip()
+        if not refined_title or not refined_description:
+            return None
+        return {
+            "refined_title": refined_title,
+            "refined_description": refined_description,
+            "rationale": str(candidate.get("rationale") or "").strip(),
+        }
+
+    options: list[dict] = []
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            parsed_options = parsed.get("options")
+            if isinstance(parsed_options, list):
+                for item in parsed_options:
+                    normalized = _normalize_option(item)
+                    if normalized:
+                        options.append(normalized)
+        elif isinstance(parsed, list):
+            for item in parsed:
+                normalized = _normalize_option(item)
+                if normalized:
+                    options.append(normalized)
+    except Exception:
+        pass
+
+    deduped: list[dict] = []
+    seen = set()
+    for opt in options:
+        key = (
+            re.sub(r"\s+", " ", opt.get("refined_title", "").strip().lower()),
+            re.sub(r"\s+", " ", opt.get("refined_description", "").strip().lower()),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(opt)
+    return deduped
+
+
 @research_bp.route('/research', methods=['POST'])
 @require_api_key
 @limiter.limit("10 per minute")
@@ -430,7 +484,17 @@ Rules:
 - Prioritize information density and keyword relevance.
 - Include primary keyword naturally when provided.
 - Keep tone authoritative and data-driven.
-- Return STRICT JSON only with keys: refined_title, refined_description, rationale.
+- Generate exactly 3 distinct options.
+- Return STRICT JSON only with this schema:
+{{
+  "options": [
+    {{"refined_title":"...","refined_description":"...","rationale":"..."}},
+    {{"refined_title":"...","refined_description":"...","rationale":"..."}},
+    {{"refined_title":"...","refined_description":"...","rationale":"..."}}
+  ],
+  "selected_index": 0,
+  "rationale": "optional overall note"
+}}
 
 Original title: {title}
 Original description: {description}
@@ -452,9 +516,16 @@ Domain context: {domain or "none"}
                 },
             ])
             parsed = _extract_refined_metadata_from_response(response.content, title, description)
-            refined_title = parsed.get("refined_title") or title
-            refined_description = parsed.get("refined_description") or description
-            rationale = parsed.get("rationale") or ""
+            options = _extract_refined_metadata_options_from_response(response.content, title, description)
+            if not options:
+                options = [{
+                    "refined_title": parsed.get("refined_title") or title,
+                    "refined_description": parsed.get("refined_description") or description,
+                    "rationale": parsed.get("rationale") or "",
+                }]
+            refined_title = str(options[0].get("refined_title") or title).strip()
+            refined_description = str(options[0].get("refined_description") or description).strip()
+            rationale = parsed.get("rationale") or options[0].get("rationale") or ""
             changed = (refined_title != title) or (refined_description != description)
         except Exception as llm_error:
             logger.warning(
@@ -471,6 +542,11 @@ Domain context: {domain or "none"}
                 "Review the original metadata and approve to continue."
             )
             rationale = fallback_reason
+            options = [{
+                "refined_title": refined_title,
+                "refined_description": refined_description,
+                "rationale": fallback_reason,
+            }]
 
         return jsonify({
             "success": True,
@@ -480,6 +556,7 @@ Domain context: {domain or "none"}
                 "rationale": rationale,
                 "changed": changed,
                 "fallback_used": bool(fallback_reason),
+                "options": options,
             }
         }), 200
 
