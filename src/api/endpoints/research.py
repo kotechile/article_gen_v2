@@ -8,6 +8,7 @@ monitoring, and retrieving research tasks.
 import logging
 import json
 import os
+import re
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, current_app
 from flask_limiter import Limiter
@@ -208,6 +209,98 @@ def _extract_refined_metadata_options_from_response(raw: str, fallback_title: st
         seen.add(key)
         deduped.append(opt)
     return deduped
+
+
+def _contains_keyword(text: str, keyword: str) -> bool:
+    normalized_text = re.sub(r"\s+", " ", str(text or "").lower()).strip()
+    normalized_keyword = re.sub(r"\s+", " ", str(keyword or "").lower()).strip()
+    return bool(normalized_keyword and normalized_keyword in normalized_text)
+
+
+def _normalize_title_with_keyword(title: str, keyword: str) -> str:
+    clean_title = re.sub(r"\s+", " ", str(title or "").strip())
+    clean_keyword = re.sub(r"\s+", " ", str(keyword or "").strip())
+    if not clean_keyword:
+        return clean_title
+    if _contains_keyword(clean_title, clean_keyword):
+        return clean_title[:60].strip()
+    candidate = f"{clean_keyword}: {clean_title}".strip(" :")
+    if len(candidate) <= 60:
+        return candidate
+    compact = f"{clean_keyword} guide".strip()
+    return compact[:60].strip()
+
+
+def _normalize_description_with_keyword(description: str, keyword: str) -> str:
+    clean_description = re.sub(r"\s+", " ", str(description or "").strip())
+    clean_keyword = re.sub(r"\s+", " ", str(keyword or "").strip())
+    if not clean_keyword:
+        return clean_description[:320].strip()
+    if _contains_keyword(clean_description, clean_keyword):
+        return clean_description[:320].strip()
+    prefixed = f"{clean_keyword}: {clean_description}".strip(" :")
+    return prefixed[:320].strip()
+
+
+def _build_default_refinement_options(
+    title: str,
+    description: str,
+    primary_keyword: str,
+) -> list[dict]:
+    base_title = re.sub(r"\s+", " ", str(title or "").strip())
+    base_description = re.sub(r"\s+", " ", str(description or "").strip())
+    keyword = re.sub(r"\s+", " ", str(primary_keyword or "").strip())
+
+    if not keyword:
+        return [{
+            "refined_title": base_title[:60].strip(),
+            "refined_description": base_description[:320].strip(),
+            "rationale": "Original metadata kept because no primary keyword was provided.",
+        }]
+
+    options: list[dict] = []
+    candidates = [
+        (
+            _normalize_title_with_keyword(base_title, keyword),
+            _normalize_description_with_keyword(base_description, keyword),
+            "Keyword-forward conservative rewrite.",
+        ),
+        (
+            _normalize_title_with_keyword(f"{keyword} strategy", keyword),
+            _normalize_description_with_keyword(
+                f"Actionable guide focused on {keyword}. {base_description}",
+                keyword,
+            ),
+            "Keyword-led strategic framing.",
+        ),
+        (
+            _normalize_title_with_keyword(f"Best {keyword} approach", keyword),
+            _normalize_description_with_keyword(
+                f"Decision-focused explanation of {keyword} with practical steps and trade-offs.",
+                keyword,
+            ),
+            "Decision-oriented variant optimized for query intent.",
+        ),
+    ]
+    for candidate_title, candidate_description, rationale in candidates:
+        options.append({
+            "refined_title": candidate_title[:60].strip(),
+            "refined_description": candidate_description[:320].strip(),
+            "rationale": rationale,
+        })
+
+    deduped: list[dict] = []
+    seen = set()
+    for opt in options:
+        key = (
+            re.sub(r"\s+", " ", opt["refined_title"].lower()).strip(),
+            re.sub(r"\s+", " ", opt["refined_description"].lower()).strip(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(opt)
+    return deduped[:3]
 
 
 @research_bp.route('/research', methods=['POST'])
@@ -523,6 +616,34 @@ Domain context: {domain or "none"}
                     "refined_description": parsed.get("refined_description") or description,
                     "rationale": parsed.get("rationale") or "",
                 }]
+
+            default_options = _build_default_refinement_options(
+                title=title,
+                description=description,
+                primary_keyword=primary_keyword,
+            )
+
+            normalized_options: list[dict] = []
+            seen = set()
+            for opt in options + default_options:
+                refined_title = _normalize_title_with_keyword(opt.get("refined_title") or title, primary_keyword)
+                refined_description = _normalize_description_with_keyword(opt.get("refined_description") or description, primary_keyword)
+                key = (
+                    re.sub(r"\s+", " ", refined_title.lower()).strip(),
+                    re.sub(r"\s+", " ", refined_description.lower()).strip(),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                normalized_options.append({
+                    "refined_title": refined_title,
+                    "refined_description": refined_description,
+                    "rationale": str(opt.get("rationale") or "").strip(),
+                })
+                if len(normalized_options) >= 3:
+                    break
+
+            options = normalized_options if normalized_options else default_options
             refined_title = str(options[0].get("refined_title") or title).strip()
             refined_description = str(options[0].get("refined_description") or description).strip()
             rationale = parsed.get("rationale") or options[0].get("rationale") or ""
@@ -542,11 +663,11 @@ Domain context: {domain or "none"}
                 "Review the original metadata and approve to continue."
             )
             rationale = fallback_reason
-            options = [{
-                "refined_title": refined_title,
-                "refined_description": refined_description,
-                "rationale": fallback_reason,
-            }]
+            options = _build_default_refinement_options(
+                title=refined_title,
+                description=refined_description,
+                primary_keyword=primary_keyword,
+            )
 
         return jsonify({
             "success": True,
