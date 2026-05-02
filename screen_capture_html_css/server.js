@@ -19,21 +19,15 @@ const initializeBrowser = async () => {
 };
 
 app.post('/generate-image', async (req, res) => {
-  const { html, css, width = 1920, height = 1080, clip } = req.body;
+  const { html, css, width = 1920, height = 1080, clip, rootSelector } = req.body;
 
   console.log('Received request:', { html, css, width, height, clip });
 
-  const fullScreenCSS = `
+  const baseCss = `
     html, body {
       margin: 0;
       padding: 0;
-      width: 100%;
-      min-height: 100%;
-    }
-    .full-screen {
-      width: 100%;
-      min-height: 100vh;
-      position: relative;
+      background: transparent;
     }
   `;
 
@@ -44,13 +38,11 @@ app.post('/generate-image', async (req, res) => {
         <link href="https://fonts.googleapis.com/css2?family=Material+Icons" rel="stylesheet">        
       </head>
       <style>
-        ${fullScreenCSS}
+        ${baseCss}
         ${css}
       </style>
       <body>
-        <div class="full-screen">
-          ${html}
-        </div>
+        ${html}
       </body>
     </html>
   `;
@@ -68,45 +60,81 @@ app.post('/generate-image', async (req, res) => {
     // Set content and wait for network to be idle
     await page.setContent(fullHtml, { waitUntil: 'networkidle0', timeout: 60000 });
 
-    // Wait for images to load
-    await page.evaluate(() => {
-      const images = document.querySelectorAll('img');
-      return Promise.all(Array.from(images).map(img => new Promise(resolve => {
-        if (img.complete) resolve();
-      img.onload = img.onerror = resolve;
-      })));
-    });
-
-    // Scroll to the bottom of the page if necessary
-    await page.evaluate(() => {
-      return new Promise((resolve) => {
-        const intervalId = setInterval(() => {
-          if (document.body.scrollTop + window.innerHeight >= document.body.offsetHeight) {
-            clearInterval(intervalId);
+    // Wait for both <img> tags and CSS background images so the final
+    // element size matches the template artwork.
+    await page.evaluate(async () => {
+      const imagePromises = Array.from(document.querySelectorAll('img')).map((img) => (
+        new Promise((resolve) => {
+          if (img.complete) {
             resolve();
-          } else {
-            window.scrollTo(0, document.body.scrollTop + 100);
+            return;
           }
-        }, 100);
+
+          img.onload = img.onerror = resolve;
+        })
+      ));
+
+      const backgroundUrls = new Set();
+      document.querySelectorAll('*').forEach((node) => {
+        const backgroundImage = window.getComputedStyle(node).backgroundImage;
+        const matches = backgroundImage.match(/url\((["']?)(.*?)\1\)/g) || [];
+        matches.forEach((match) => {
+          const urlMatch = match.match(/url\((["']?)(.*?)\1\)/);
+          const url = urlMatch && urlMatch[2];
+          if (url) backgroundUrls.add(url);
+        });
       });
+
+      const backgroundPromises = Array.from(backgroundUrls).map((url) => (
+        new Promise((resolve) => {
+          const img = new Image();
+          img.onload = img.onerror = resolve;
+          img.src = url;
+        })
+      ));
+
+      await Promise.all([...imagePromises, ...backgroundPromises]);
     });
 
     // Additional wait to ensure all resources are loaded
     await page.waitForNetworkIdle({ timeout: 60000 });
 
-    const { fullPage = false } = req.body;
-    const screenshotOptions = {
-      type: 'png',
-      fullPage: clip ? false : fullPage,
-      clip: clip ? {
-        x: Number(clip.x),
-        y: Number(clip.y),
-        width: Number(clip.width),
-        height: Number(clip.height),
-      } : undefined,
-    };
+    let imageBuffer;
 
-    const imageBuffer = await page.screenshot(screenshotOptions);
+    if (clip) {
+      imageBuffer = await page.screenshot({
+        type: 'png',
+        clip: {
+          x: Number(clip.x),
+          y: Number(clip.y),
+          width: Number(clip.width),
+          height: Number(clip.height),
+        },
+      });
+    } else if (rootSelector) {
+      const element = await page.$(rootSelector);
+      if (!element) {
+        throw new Error(`Root selector not found: ${rootSelector}`);
+      }
+
+      const bounds = await element.boundingBox();
+      if (!bounds) {
+        throw new Error(`Unable to measure root selector: ${rootSelector}`);
+      }
+
+      const viewportWidth = Math.max(parseInt(width), Math.ceil(bounds.x + bounds.width));
+      const viewportHeight = Math.max(parseInt(height), Math.ceil(bounds.y + bounds.height));
+
+      await page.setViewport({
+        width: viewportWidth,
+        height: viewportHeight,
+        deviceScaleFactor: 1,
+      });
+
+      imageBuffer = await element.screenshot({ type: 'png' });
+    } else {
+      imageBuffer = await page.screenshot({ type: 'png' });
+    }
 
     await page.close();
 
@@ -122,4 +150,3 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`);
 });
-

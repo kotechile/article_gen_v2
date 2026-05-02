@@ -9,7 +9,7 @@ class ScreenCaptureService:
     Service for generating screenshots from HTML/CSS using Playwright.
     """
 
-    def generate_screenshot(self, html: str, css: str, width: int = 1920, height: int = 1080, clip: dict = None) -> bytes:
+    def generate_screenshot(self, html: str, css: str, width: int = 1920, height: int = 1080, clip: dict = None, root_selector: str = None) -> bytes:
         """
         Generate a screenshot from HTML and CSS.
 
@@ -19,21 +19,16 @@ class ScreenCaptureService:
             width (int): Viewport width.
             height (int): Viewport height.
             clip (dict): Optional clipping region {x, y, width, height}.
+            root_selector (str): Optional selector for element-based capture.
 
         Returns:
             bytes: The PNG image data.
         """
-        full_screen_css = """
+        base_css = """
         html, body {
             margin: 0;
             padding: 0;
-            width: 100%;
-            height: 100%;
-        }
-        .full-screen {
-            width: 100vw;
-            height: 100vh;
-            object-fit: cover;
+            background: transparent;
         }
         """
 
@@ -44,13 +39,11 @@ class ScreenCaptureService:
             <link href="https://fonts.googleapis.com/css2?family=Material+Icons" rel="stylesheet">
         </head>
         <style>
-            {full_screen_css}
+            {base_css}
             {css}
         </style>
         <body>
-            <div class="full-screen">
             {html}
-            </div>
         </body>
         </html>
         """
@@ -69,35 +62,32 @@ class ScreenCaptureService:
                 # Set content
                 page.set_content(full_html, wait_until='networkidle', timeout=60000)
 
-                # Wait for images to load explicitly (similar to original logic)
-                page.evaluate("""() => {
+                # Wait for both <img> tags and CSS background images.
+                page.evaluate("""async () => {
                     const images = document.querySelectorAll('img');
-                    return Promise.all(Array.from(images).map(img => new Promise(resolve => {
+                    const imagePromises = Array.from(images).map(img => new Promise(resolve => {
                         if (img.complete) resolve();
                         img.onload = img.onerror = resolve;
-                    })));
-                }""")
+                    }));
 
-                # Scroll to bottom if necessary (replicated from original logic)
-                # But typically for a single screen capture, scrolling might not be needed if we capture the viewport
-                # or full page. The original code had a scroll loop.
-                # If we are just capturing a specific size, maybe not strictly needed unless content renders on scroll.
-                # I will include a simplified scroll to bottom just in case.
-                page.evaluate("""async () => {
-                    await new Promise((resolve) => {
-                        let totalHeight = 0;
-                        const distance = 100;
-                        const timer = setInterval(() => {
-                            const scrollHeight = document.body.scrollHeight;
-                            window.scrollBy(0, distance);
-                            totalHeight += distance;
-
-                            if(totalHeight >= scrollHeight){
-                                clearInterval(timer);
-                                resolve();
-                            }
-                        }, 100);
+                    const backgroundUrls = new Set();
+                    document.querySelectorAll('*').forEach((node) => {
+                        const backgroundImage = window.getComputedStyle(node).backgroundImage;
+                        const matches = backgroundImage.match(/url\\((["']?)(.*?)\\1\\)/g) || [];
+                        matches.forEach((match) => {
+                            const urlMatch = match.match(/url\\((["']?)(.*?)\\1\\)/);
+                            const url = urlMatch && urlMatch[2];
+                            if (url) backgroundUrls.add(url);
+                        });
                     });
+
+                    const backgroundPromises = Array.from(backgroundUrls).map(url => new Promise(resolve => {
+                        const img = new Image();
+                        img.onload = img.onerror = resolve;
+                        img.src = url;
+                    }));
+
+                    await Promise.all([...imagePromises, ...backgroundPromises]);
                 }""")
                 
                 # Final network idle wait
@@ -106,16 +96,32 @@ class ScreenCaptureService:
                 except:
                    logger.warning("Timeout waiting for final network idle, proceeding to capture.")
 
-                screenshot_args = {'type': 'png'}
                 if clip:
-                    screenshot_args['clip'] = {
-                        'x': clip['x'],
-                        'y': clip['y'],
-                        'width': clip['width'],
-                        'height': clip['height']
-                    }
+                    image_buffer = page.screenshot(
+                        type='png',
+                        clip={
+                            'x': clip['x'],
+                            'y': clip['y'],
+                            'width': clip['width'],
+                            'height': clip['height']
+                        }
+                    )
+                elif root_selector:
+                    element = page.query_selector(root_selector)
+                    if not element:
+                        raise ValueError(f"Root selector not found: {root_selector}")
 
-                image_buffer = page.screenshot(**screenshot_args)
+                    bounds = element.bounding_box()
+                    if not bounds:
+                        raise ValueError(f"Unable to measure root selector: {root_selector}")
+
+                    page.set_viewport_size({
+                        'width': max(width, int(bounds['x'] + bounds['width'])),
+                        'height': max(height, int(bounds['y'] + bounds['height']))
+                    })
+                    image_buffer = element.screenshot(type='png')
+                else:
+                    image_buffer = page.screenshot(type='png')
                 
                 browser.close()
                 return image_buffer

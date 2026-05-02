@@ -29,11 +29,12 @@ def generate_image():
         width = data.get('width', 1920)
         height = data.get('height', 1080)
         clip = data.get('clip')
+        root_selector = data.get('rootSelector')
 
         if not html:
             return jsonify({'error': 'Validation error', 'message': 'HTML content is required'}), 400
 
-        image_bytes = service.generate_screenshot(html, css, int(width), int(height), clip)
+        image_bytes = service.generate_screenshot(html, css, int(width), int(height), clip, root_selector)
 
         return Response(image_bytes, mimetype='image/png')
 

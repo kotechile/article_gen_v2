@@ -1016,9 +1016,17 @@ def generate_infographic():
         html_content = template.data.get('HTML') or template.data.get('html') or ""
         css_content = template.data.get('CSS') or template.data.get('css') or ""
         
-        # Default dimensions if not present
-        width = template.data.get('width') or 800
-        height = template.data.get('height') or 600
+        def _coerce_dimension(value, fallback):
+            try:
+                if value is None or value == "":
+                    return fallback
+                return max(1, int(float(value)))
+            except (TypeError, ValueError):
+                return fallback
+
+        # Use the template canvas dimensions when available.
+        width = _coerce_dimension(template.data.get('width'), 1254)
+        height = _coerce_dimension(template.data.get('height'), 1254)
         
         # --- LLM Content Generation ---
         
@@ -1157,17 +1165,17 @@ def generate_infographic():
             "height": template.data.get('clipHeight')
         }
         
-        # If any clip parameters are missing, we default to fullPage capture
+        # If any clip parameters are missing, prefer element capture over full-page capture.
         use_clip = all(v is not None for v in clip_data.values())
         
         # Call Screen Capture Service
         render_url = current_app.config.get('RENDER_SERVICE_URL', 'http://localhost:8082/generate-image')
         payload = {
-            "html": f'<div class="full-screen">{html_content}</div>',
+            "html": html_content,
             "css": css_content,
             "width": width,
             "height": height,
-            "fullPage": not use_clip
+            "rootSelector": ".infographic-template"
         }
         
         if use_clip:
