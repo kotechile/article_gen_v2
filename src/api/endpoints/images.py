@@ -1027,6 +1027,17 @@ def generate_infographic():
         # Use the template canvas dimensions when available.
         width = _coerce_dimension(template.data.get('width'), 1254)
         height = _coerce_dimension(template.data.get('height'), 1254)
+
+        if html_content:
+            if 'class="infographic-template"' in html_content or "class='infographic-template'" in html_content:
+                css_content = f"""{css_content}
+
+.infographic-template {{
+  width: {width}px !important;
+  height: {height}px !important;
+  max-width: none !important;
+}}
+"""
         
         # --- LLM Content Generation ---
         
