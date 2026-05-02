@@ -1024,20 +1024,36 @@ def generate_infographic():
             except (TypeError, ValueError):
                 return fallback
 
-        # Use the template canvas dimensions when available.
-        width = _coerce_dimension(template.data.get('width'), 1254)
-        height = _coerce_dimension(template.data.get('height'), 1254)
+        def _extract_css_dimension(css_value: str, selector: str, prop: str):
+            if not css_value:
+                return None
 
-        if html_content:
-            if 'class="infographic-template"' in html_content or "class='infographic-template'" in html_content:
-                css_content = f"""{css_content}
+            block_start = css_value.find(selector)
+            if block_start == -1:
+                return None
 
-.infographic-template {{
-  width: {width}px !important;
-  height: {height}px !important;
-  max-width: none !important;
-}}
-"""
+            brace_start = css_value.find('{', block_start)
+            brace_end = css_value.find('}', brace_start)
+            if brace_start == -1 or brace_end == -1:
+                return None
+
+            block = css_value[brace_start + 1:brace_end]
+            match = re.search(rf'{re.escape(prop)}\s*:\s*([0-9]+(?:\.[0-9]+)?)px', block, re.IGNORECASE)
+            if not match:
+                return None
+
+            return _coerce_dimension(match.group(1), None)
+
+        # Prefer dimensions declared in the template itself. DB width/height are
+        # treated only as a fallback for the initial viewport.
+        width = (
+            _extract_css_dimension(css_content, '.infographic-template', 'width')
+            or _coerce_dimension(template.data.get('width'), 1280)
+        )
+        height = (
+            _extract_css_dimension(css_content, '.infographic-template', 'height')
+            or _coerce_dimension(template.data.get('height'), max(720, width))
+        )
         
         # --- LLM Content Generation ---
         

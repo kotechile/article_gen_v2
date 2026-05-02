@@ -8,6 +8,45 @@ app.use(express.json());
 
 let browser;
 
+const applyBackgroundCanvasSizing = async (page, element) => {
+  return page.evaluate(async (node) => {
+    if (!node) return null;
+
+    const computed = window.getComputedStyle(node);
+    const backgroundImage = computed.backgroundImage || '';
+    const urlMatch = backgroundImage.match(/url\((["']?)(.*?)\1\)/);
+    const imageUrl = urlMatch && urlMatch[2];
+    if (!imageUrl) return null;
+
+    const assetSize = await new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      img.onerror = () => resolve(null);
+      img.src = imageUrl;
+    });
+
+    if (!assetSize || !assetSize.width || !assetSize.height) return null;
+
+    const rect = node.getBoundingClientRect();
+    const currentWidth = rect.width || parseFloat(computed.width) || assetSize.width;
+    const currentHeight = rect.height || parseFloat(computed.height) || 0;
+    const expectedHeight = currentWidth * (assetSize.height / assetSize.width);
+
+    if (currentHeight < 2 || Math.abs(currentHeight - expectedHeight) > 1) {
+      node.style.width = `${currentWidth}px`;
+      node.style.maxWidth = 'none';
+      node.style.height = `${expectedHeight}px`;
+    }
+
+    return {
+      assetWidth: assetSize.width,
+      assetHeight: assetSize.height,
+      width: currentWidth,
+      expectedHeight,
+    };
+  }, element);
+};
+
 const initializeBrowser = async () => {
   if (!browser) {
     browser = await puppeteer.launch({
@@ -137,6 +176,7 @@ app.post('/generate-image', async (req, res) => {
         return;
       }
 
+      await applyBackgroundCanvasSizing(page, element);
       const bounds = await element.boundingBox();
       if (!bounds) {
         throw new Error(`Unable to measure root selector: ${matchedSelector}`);

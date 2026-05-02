@@ -9,6 +9,47 @@ class ScreenCaptureService:
     Service for generating screenshots from HTML/CSS using Playwright.
     """
 
+    def _apply_background_canvas_sizing(self, page, element):
+        return page.evaluate(
+            """async (node) => {
+                if (!node) return null;
+
+                const computed = window.getComputedStyle(node);
+                const backgroundImage = computed.backgroundImage || '';
+                const urlMatch = backgroundImage.match(/url\\((["']?)(.*?)\\1\\)/);
+                const imageUrl = urlMatch && urlMatch[2];
+                if (!imageUrl) return null;
+
+                const assetSize = await new Promise((resolve) => {
+                    const img = new Image();
+                    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+                    img.onerror = () => resolve(null);
+                    img.src = imageUrl;
+                });
+
+                if (!assetSize || !assetSize.width || !assetSize.height) return null;
+
+                const rect = node.getBoundingClientRect();
+                const currentWidth = rect.width || parseFloat(computed.width) || assetSize.width;
+                const currentHeight = rect.height || parseFloat(computed.height) || 0;
+                const expectedHeight = currentWidth * (assetSize.height / assetSize.width);
+
+                if (currentHeight < 2 || Math.abs(currentHeight - expectedHeight) > 1) {
+                    node.style.width = `${currentWidth}px`;
+                    node.style.maxWidth = 'none';
+                    node.style.height = `${expectedHeight}px`;
+                }
+
+                return {
+                    assetWidth: assetSize.width,
+                    assetHeight: assetSize.height,
+                    width: currentWidth,
+                    expectedHeight,
+                };
+            }""",
+            element,
+        )
+
     def generate_screenshot(self, html: str, css: str, width: int = 1920, height: int = 1080, clip: dict = None, root_selector: str = None, root_selectors: list[str] | None = None) -> bytes:
         """
         Generate a screenshot from HTML and CSS.
@@ -126,6 +167,7 @@ class ScreenCaptureService:
                         browser.close()
                         return image_buffer
 
+                    self._apply_background_canvas_sizing(page, element)
                     bounds = element.bounding_box()
                     if not bounds:
                         raise ValueError(f"Unable to measure root selector: {matched_selector}")
