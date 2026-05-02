@@ -30,21 +30,41 @@ class ScreenCaptureService:
                 if (!assetSize || !assetSize.width || !assetSize.height) return null;
 
                 const rect = node.getBoundingClientRect();
-                const currentWidth = rect.width || parseFloat(computed.width) || assetSize.width;
-                const currentHeight = rect.height || parseFloat(computed.height) || 0;
-                const expectedHeight = currentWidth * (assetSize.height / assetSize.width);
+                const declaredWidth = parseFloat(node.style.width) || parseFloat(computed.width) || 0;
+                const declaredHeight = parseFloat(node.style.height) || parseFloat(computed.height) || 0;
+                const hasExplicitWidth = declaredWidth > 0;
+                const hasExplicitHeight = declaredHeight > 0;
 
-                if (currentHeight < 2 || Math.abs(currentHeight - expectedHeight) > 1) {
-                    node.style.width = `${currentWidth}px`;
+                let targetWidth = rect.width || declaredWidth || assetSize.width;
+                let targetHeight = rect.height || declaredHeight || assetSize.height;
+
+                if (!hasExplicitWidth && !hasExplicitHeight) {
+                    targetWidth = assetSize.width;
+                    targetHeight = assetSize.height;
+                } else if (hasExplicitWidth && !hasExplicitHeight) {
+                    targetWidth = declaredWidth;
+                    targetHeight = declaredWidth * (assetSize.height / assetSize.width);
+                } else if (!hasExplicitWidth && hasExplicitHeight) {
+                    targetHeight = declaredHeight;
+                    targetWidth = declaredHeight * (assetSize.width / assetSize.height);
+                }
+
+                if (
+                    rect.width < 2 ||
+                    rect.height < 2 ||
+                    Math.abs(rect.width - targetWidth) > 1 ||
+                    Math.abs(rect.height - targetHeight) > 1
+                ) {
+                    node.style.width = `${targetWidth}px`;
                     node.style.maxWidth = 'none';
-                    node.style.height = `${expectedHeight}px`;
+                    node.style.height = `${targetHeight}px`;
                 }
 
                 return {
                     assetWidth: assetSize.width,
                     assetHeight: assetSize.height,
-                    width: currentWidth,
-                    expectedHeight,
+                    width: targetWidth,
+                    height: targetHeight,
                 };
             }""",
             element,

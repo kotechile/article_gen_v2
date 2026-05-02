@@ -1044,16 +1044,11 @@ def generate_infographic():
 
             return _coerce_dimension(match.group(1), None)
 
-        # Prefer dimensions declared in the template itself. DB width/height are
-        # treated only as a fallback for the initial viewport.
-        width = (
-            _extract_css_dimension(css_content, '.infographic-template', 'width')
-            or _coerce_dimension(template.data.get('width'), 1280)
-        )
-        height = (
-            _extract_css_dimension(css_content, '.infographic-template', 'height')
-            or _coerce_dimension(template.data.get('height'), max(720, width))
-        )
+        # Prefer dimensions declared in the template itself. If the template
+        # relies on a background asset for sizing, the render service will
+        # derive the final canvas from that image rather than DB metadata.
+        width = _extract_css_dimension(css_content, '.infographic-template', 'width') or 1920
+        height = _extract_css_dimension(css_content, '.infographic-template', 'height') or 1080
         
         # --- LLM Content Generation ---
         
