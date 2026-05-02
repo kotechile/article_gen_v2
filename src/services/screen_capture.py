@@ -9,7 +9,7 @@ class ScreenCaptureService:
     Service for generating screenshots from HTML/CSS using Playwright.
     """
 
-    def generate_screenshot(self, html: str, css: str, width: int = 1920, height: int = 1080, clip: dict = None, root_selector: str = None) -> bytes:
+    def generate_screenshot(self, html: str, css: str, width: int = 1920, height: int = 1080, clip: dict = None, root_selector: str = None, root_selectors: list[str] | None = None) -> bytes:
         """
         Generate a screenshot from HTML and CSS.
 
@@ -20,6 +20,7 @@ class ScreenCaptureService:
             height (int): Viewport height.
             clip (dict): Optional clipping region {x, y, width, height}.
             root_selector (str): Optional selector for element-based capture.
+            root_selectors (list[str] | None): Optional ordered selector candidates.
 
         Returns:
             bytes: The PNG image data.
@@ -106,14 +107,28 @@ class ScreenCaptureService:
                             'height': clip['height']
                         }
                     )
-                elif root_selector:
-                    element = page.query_selector(root_selector)
+                elif root_selector or root_selectors:
+                    selectors = root_selectors or [root_selector]
+                    element = None
+                    matched_selector = None
+
+                    for selector in selectors:
+                        if not selector:
+                            continue
+                        element = page.query_selector(selector)
+                        if element:
+                            matched_selector = selector
+                            break
+
                     if not element:
-                        raise ValueError(f"Root selector not found: {root_selector}")
+                        logger.warning("No root selector matched; falling back to viewport screenshot.")
+                        image_buffer = page.screenshot(type='png')
+                        browser.close()
+                        return image_buffer
 
                     bounds = element.bounding_box()
                     if not bounds:
-                        raise ValueError(f"Unable to measure root selector: {root_selector}")
+                        raise ValueError(f"Unable to measure root selector: {matched_selector}")
 
                     page.set_viewport_size({
                         'width': max(width, int(bounds['x'] + bounds['width'])),

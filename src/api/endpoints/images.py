@@ -1168,6 +1168,22 @@ def generate_infographic():
         # If any clip parameters are missing, prefer element capture over full-page capture.
         use_clip = all(v is not None for v in clip_data.values())
         
+        root_selectors = []
+        if 'class="infographic-template"' in html_content or "class='infographic-template'" in html_content:
+            root_selectors.append('.infographic-template')
+        if 'id="infographic-template"' in html_content or "id='infographic-template'" in html_content:
+            root_selectors.append('#infographic-template')
+
+        root_selectors.extend([
+            '[data-infographic-root="true"]',
+            'section',
+            'main',
+            'body > *:first-child'
+        ])
+
+        # Preserve order while removing duplicates.
+        root_selectors = list(dict.fromkeys(root_selectors))
+
         # Call Screen Capture Service
         render_url = current_app.config.get('RENDER_SERVICE_URL', 'http://localhost:8082/generate-image')
         payload = {
@@ -1175,7 +1191,7 @@ def generate_infographic():
             "css": css_content,
             "width": width,
             "height": height,
-            "rootSelector": ".infographic-template"
+            "rootSelectors": root_selectors
         }
         
         if use_clip:

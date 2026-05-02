@@ -19,9 +19,9 @@ const initializeBrowser = async () => {
 };
 
 app.post('/generate-image', async (req, res) => {
-  const { html, css, width = 1920, height = 1080, clip, rootSelector } = req.body;
+  const { html, css, width = 1920, height = 1080, clip, rootSelector, rootSelectors } = req.body;
 
-  console.log('Received request:', { html, css, width, height, clip });
+  console.log('Received request:', { width, height, clip, rootSelector, rootSelectors });
 
   const baseCss = `
     html, body {
@@ -111,15 +111,35 @@ app.post('/generate-image', async (req, res) => {
           height: Number(clip.height),
         },
       });
-    } else if (rootSelector) {
-      const element = await page.$(rootSelector);
+    } else if (rootSelector || (Array.isArray(rootSelectors) && rootSelectors.length > 0)) {
+      const selectors = Array.isArray(rootSelectors) && rootSelectors.length > 0
+        ? rootSelectors
+        : [rootSelector];
+
+      let element = null;
+      let matchedSelector = null;
+
+      for (const selector of selectors) {
+        if (!selector) continue;
+        element = await page.$(selector);
+        if (element) {
+          matchedSelector = selector;
+          break;
+        }
+      }
+
       if (!element) {
-        throw new Error(`Root selector not found: ${rootSelector}`);
+        console.warn('No root selector matched; falling back to viewport screenshot.', { selectors });
+        imageBuffer = await page.screenshot({ type: 'png' });
+        await page.close();
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        res.end(imageBuffer, 'binary');
+        return;
       }
 
       const bounds = await element.boundingBox();
       if (!bounds) {
-        throw new Error(`Unable to measure root selector: ${rootSelector}`);
+        throw new Error(`Unable to measure root selector: ${matchedSelector}`);
       }
 
       const viewportWidth = Math.max(parseInt(width), Math.ceil(bounds.x + bounds.width));
