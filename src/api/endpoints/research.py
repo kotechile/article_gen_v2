@@ -217,6 +217,63 @@ def _contains_keyword(text: str, keyword: str) -> bool:
     return bool(normalized_keyword and normalized_keyword in normalized_text)
 
 
+def _sanitize_keyword_value(value) -> str:
+    current = str(value or "").strip()
+    if not current:
+        return ""
+
+    for _ in range(5):
+        if not current:
+            return ""
+        try:
+            parsed = json.loads(current)
+        except Exception:
+            break
+
+        if isinstance(parsed, list):
+            for item in parsed:
+                candidate = _sanitize_keyword_value(item)
+                if candidate:
+                    return candidate
+            return ""
+        if isinstance(parsed, dict):
+            candidate = _sanitize_keyword_value(parsed.get("keyword"))
+            if candidate:
+                return candidate
+            break
+        if isinstance(parsed, str):
+            next_value = parsed.strip()
+            if next_value == current:
+                break
+            current = next_value
+            continue
+        break
+
+    while (
+        (current.startswith("[") and current.endswith("]")) or
+        (current.startswith('"') and current.endswith('"')) or
+        (current.startswith("'") and current.endswith("'"))
+    ):
+        current = current[1:-1].strip()
+
+    parts = [
+        re.sub(r"\s+", " ", piece.strip().strip("\"'")).strip()
+        for piece in current.split(",")
+    ]
+    parts = [piece for piece in parts if piece]
+    return parts[0] if parts else ""
+
+
+def _sanitize_refined_title(value: str) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    if not text:
+        return ""
+    text = re.sub(r'^\[\s*["\']?(.*?)["\']?\s*\]$', r"\1", text).strip()
+    text = re.sub(r'\[\s*["\']([^"\']+)["\']\s*\]', r"\1", text).strip()
+    text = re.sub(r"\s+", " ", text).strip(" -:;,")
+    return text
+
+
 _TITLE_CONTEXT_STOPWORDS = {
     "about", "above", "after", "again", "against", "all", "also", "among", "and", "are", "because",
     "before", "being", "between", "both", "build", "complex", "could", "deciding", "does", "down",
@@ -260,7 +317,7 @@ def _extract_context_fragments(title: str, description: str, keyword: str, limit
 
 
 def _fit_keyword_title(keyword: str, fragment: str | None = None, connector: str = "for") -> str:
-    clean_keyword = re.sub(r"\s+", " ", str(keyword or "").strip())
+    clean_keyword = _sanitize_keyword_value(keyword)
     clean_fragment = re.sub(r"\s+", " ", str(fragment or "").strip())
     if not clean_keyword:
         return clean_fragment[:60].strip()
@@ -277,8 +334,8 @@ def _fit_keyword_title(keyword: str, fragment: str | None = None, connector: str
 
 
 def _normalize_title_with_keyword(title: str, keyword: str) -> str:
-    clean_title = re.sub(r"\s+", " ", str(title or "").strip())
-    clean_keyword = re.sub(r"\s+", " ", str(keyword or "").strip())
+    clean_title = _sanitize_refined_title(title)
+    clean_keyword = _sanitize_keyword_value(keyword)
     if not clean_keyword:
         return clean_title
     if _contains_keyword(clean_title, clean_keyword):
@@ -292,7 +349,8 @@ def _normalize_title_with_keyword(title: str, keyword: str) -> str:
 
 def _normalize_description_with_keyword(description: str, keyword: str) -> str:
     clean_description = re.sub(r"\s+", " ", str(description or "").strip())
-    clean_keyword = re.sub(r"\s+", " ", str(keyword or "").strip())
+    clean_description = re.sub(r'\[\s*["\']([^"\']+)["\']\s*\]', r"\1", clean_description).strip()
+    clean_keyword = _sanitize_keyword_value(keyword)
     if not clean_keyword:
         return clean_description[:320].strip()
     if _contains_keyword(clean_description, clean_keyword):
@@ -311,7 +369,7 @@ def _build_default_refinement_options(
 ) -> list[dict]:
     base_title = re.sub(r"\s+", " ", str(title or "").strip())
     base_description = re.sub(r"\s+", " ", str(description or "").strip())
-    keyword = re.sub(r"\s+", " ", str(primary_keyword or "").strip())
+    keyword = _sanitize_keyword_value(primary_keyword)
 
     if not keyword:
         return [{
@@ -370,6 +428,34 @@ def _build_default_refinement_options(
             continue
         seen.add(key)
         deduped.append(opt)
+
+    if len(deduped) >= 3:
+        return deduped[:3]
+
+    filler_fragments = _extract_context_fragments(base_title, context_description, keyword, limit=6)
+    filler_connectors = ["for", "with", "and"]
+    for idx, connector in enumerate(filler_connectors):
+        fragment = filler_fragments[idx] if idx < len(filler_fragments) else None
+        fallback_title = _fit_keyword_title(keyword, fragment, connector)
+        fallback_description = _normalize_description_with_keyword(
+            f"{keyword} guidance tailored to {fragment or 'the original article intent'} with a clear reader takeaway.",
+            keyword,
+        )
+        key = (
+            re.sub(r"\s+", " ", fallback_title.lower()).strip(),
+            re.sub(r"\s+", " ", fallback_description.lower()).strip(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append({
+            "refined_title": fallback_title[:60].strip(),
+            "refined_description": fallback_description[:320].strip(),
+            "rationale": "Guaranteed fallback variant to keep three distinct keyword-aligned choices.",
+        })
+        if len(deduped) >= 3:
+            break
+
     return deduped[:3]
 
 
@@ -604,7 +690,7 @@ def refine_research_metadata():
         model = str(data.get("model") or "").strip()
         llm_model = str(data.get("llm_model") or "").strip()
         api_key = str(data.get("api_key") or data.get("llm_key") or "").strip()
-        primary_keyword = str(data.get("primary_keyword") or "").strip()
+        primary_keyword = _sanitize_keyword_value(data.get("primary_keyword"))
         secondary_keywords = data.get("secondary_keywords") or []
         if isinstance(secondary_keywords, str):
             secondary_keywords = [k.strip() for k in secondary_keywords.split(",") if k.strip()]

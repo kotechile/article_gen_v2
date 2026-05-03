@@ -111,33 +111,72 @@ interface ArticleData {
 }
 
 function normalizeKeywordList(value: unknown): string[] {
+    return extractKeywordValues(value);
+}
+
+function extractKeywordValues(value: unknown, depth = 0): string[] {
+    if (depth > 5 || value === null || value === undefined) return [];
+
     if (Array.isArray(value)) {
-        return value
-            .map((item) => String(item ?? '').trim())
-            .filter(Boolean);
+        return value.flatMap((item) => extractKeywordValues(item, depth + 1));
     }
 
-    if (typeof value === 'string') {
-        const raw = value.trim();
-        if (!raw) return [];
-        try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-                return parsed
-                    .map((item) => String(item ?? '').trim())
-                    .filter(Boolean);
-            }
-        } catch {
-            // Fall back to comma-separated parsing.
+    if (typeof value === 'object') {
+        const maybeKeyword = (value as any)?.keyword;
+        if (typeof maybeKeyword === 'string') {
+            return extractKeywordValues(maybeKeyword, depth + 1);
         }
-
-        return raw
-            .split(',')
-            .map((item) => item.trim())
-            .filter(Boolean);
+        return [];
     }
 
-    return [];
+    if (typeof value !== 'string') return [];
+    const raw = value.trim();
+    if (!raw) return [];
+
+    let cleaned = raw;
+    while (
+        (cleaned.startsWith('[') && cleaned.endsWith(']')) ||
+        (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+        (cleaned.startsWith("'") && cleaned.endsWith("'"))
+    ) {
+        cleaned = cleaned.slice(1, -1).trim();
+        if (!cleaned) break;
+    }
+    if (!cleaned) return [];
+
+    try {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed === 'string' && parsed !== raw) {
+            return extractKeywordValues(parsed, depth + 1);
+        }
+        if (Array.isArray(parsed)) {
+            return parsed.flatMap((item) => extractKeywordValues(item, depth + 1));
+        }
+    } catch {
+        // Fall back to comma-separated parsing.
+    }
+
+    const parts = cleaned
+        .split(',')
+        .map((item) => item.trim().replace(/^["']|["']$/g, '').trim())
+        .filter(Boolean);
+    return parts.length > 1 ? parts : [cleaned.replace(/^["']|["']$/g, '').trim()];
+}
+
+function getPrimaryKeyword(article: ArticleData | null, fallbackKeywords = ''): string {
+    const candidates = [
+        ...(article?.primary_keywords ?? []),
+        ...extractKeywordValues(article?.search_phrase),
+        ...extractKeywordValues(article?.primary_keyword),
+        ...extractKeywordValues(fallbackKeywords),
+    ];
+
+    for (const candidate of candidates) {
+        const keyword = String(candidate || '').trim();
+        if (keyword) return keyword;
+    }
+
+    return '';
 }
 
 function pickFirstNonEmptyString(...values: unknown[]): string {
@@ -161,11 +200,9 @@ interface SEOValidation {
 function validateSEOReadiness(article: ArticleData): SEOValidation {
     const errors: string[] = [];
     const warnings: string[] = [];
+    const primaryKeyword = getPrimaryKeyword(article);
 
-    const hasPrimary =
-        (article.primary_keywords?.length ?? 0) > 0 ||
-        !!article.search_phrase ||
-        !!article.primary_keyword;
+    const hasPrimary = Boolean(primaryKeyword);
 
     if (!hasPrimary) {
         errors.push('Missing primary keyword — open Keyword Intelligence and save a selection first.');
@@ -656,12 +693,7 @@ export const ContentStudio: React.FC = () => {
             }
 
             // ── Phase 3: Build SEO-enriched brief (Directional Shift) ─────────────
-            const primaryKw =
-                article?.primary_keywords?.[0] ??
-                article?.search_phrase ??
-                article?.primary_keyword ??
-                formData.keywords.split(',')[0]?.trim() ??
-                '';
+            const primaryKw = getPrimaryKeyword(article, formData.keywords);
 
             const secondaryKeywords = article?.secondary_keywords ?? [];
             const secondaryKwList = secondaryKeywords.slice(0, 4).join(', ');
@@ -836,12 +868,7 @@ export const ContentStudio: React.FC = () => {
     };
 
     const handleApproveRefinement = async () => {
-        const primaryKw =
-            article?.primary_keywords?.[0] ??
-            article?.search_phrase ??
-            article?.primary_keyword ??
-            formData.keywords.split(',')[0]?.trim() ??
-            '';
+        const primaryKw = getPrimaryKeyword(article, formData.keywords);
         const signature = buildRefinementSignature(
             refinementDraft.title,
             refinementDraft.description,
@@ -1226,7 +1253,7 @@ export const ContentStudio: React.FC = () => {
                             <div className="flex items-center justify-between p-3 bg-muted/50 rounded-xl">
                                 <span className="text-sm text-muted-foreground">Primary Keyword</span>
                                 <span className="font-medium text-foreground text-right max-w-[60%] truncate">
-                                    {article.primary_keywords?.[0] ?? article.search_phrase ?? article.primary_keyword ?? '-'}
+                                    {getPrimaryKeyword(article) || '-'}
                                 </span>
                             </div>
                             <div className="grid grid-cols-2 gap-3">
@@ -1298,7 +1325,7 @@ export const ContentStudio: React.FC = () => {
                                     <span className="text-[10px] text-muted-foreground uppercase">Primary Keyword</span>
                                 </div>
                                 <div className="font-medium text-sm text-foreground">
-                                    {article.primary_keywords?.[0] ?? article.search_phrase ?? (
+                                    {getPrimaryKeyword(article) || (
                                         <span className="text-muted-foreground italic">Not set — use Keyword Intelligence</span>
                                     )}
                                 </div>
@@ -1339,7 +1366,7 @@ export const ContentStudio: React.FC = () => {
                                 </div>
                             </div>
                             {(() => {
-                                const primaryKw = article.primary_keywords?.[0] ?? article.search_phrase ?? '';
+                                const primaryKw = getPrimaryKeyword(article);
                                 if (!primaryKw) return null;
                                 const geo = computeGEOContext(primaryKw, article.domain);
                                 if (!geo.hasGEOSignal) return null;
