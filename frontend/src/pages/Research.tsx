@@ -424,10 +424,19 @@ export function Research() {
                                                     {(() => {
                                                         const subtopicsCount = Number(topic.subtopics_count || 0)
                                                         const researchedSubtopicsCount = Number(topic.researched_subtopics_count || 0)
+                                                        const keywordCount = Number(topic.topic_keyword_candidate_count || 0)
+                                                        const clusterCount = Number(topic.topic_keyword_cluster_count || 0)
+                                                        const keywordResearchStatus = String(topic.topic_keyword_research_status || '').trim().toLowerCase()
                                                         const ideasCount = Number(topic.content_ideas_count || 0)
                                                         const inLibraryCount = Number(topic.in_library_count || 0)
                                                         const isFullyResearched = Boolean(topic.all_subtopics_researched)
-                                                        const hasAnyProgress = subtopicsCount > 0 || ideasCount > 0 || inLibraryCount > 0 || Boolean(topic.has_underlying_data)
+                                                        const hasKeywordResearch = keywordCount > 0 || clusterCount > 0 || ['pending', 'running', 'completed', 'failed'].includes(keywordResearchStatus)
+                                                        const hasAnyProgress =
+                                                            subtopicsCount > 0 ||
+                                                            hasKeywordResearch ||
+                                                            ideasCount > 0 ||
+                                                            inLibraryCount > 0 ||
+                                                            Boolean(topic.has_underlying_data)
                                                         const isNotStarted = !hasAnyProgress && !isFullyResearched
                                                         const chipBase =
                                                             "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-1 text-xs font-medium leading-none"
@@ -439,9 +448,29 @@ export function Research() {
                                                                         {subtopicsCount} Sub-Topics
                                                                     </span>
                                                                 )}
+                                                                {keywordCount > 0 && (
+                                                                    <span className={`${chipBase} border-violet-500/20 bg-violet-500/10 text-violet-300`}>
+                                                                        {keywordCount} Keywords
+                                                                    </span>
+                                                                )}
+                                                                {clusterCount > 0 && (
+                                                                    <span className={`${chipBase} border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-300`}>
+                                                                        {clusterCount} Clusters
+                                                                    </span>
+                                                                )}
                                                                 {isFullyResearched && (
                                                                     <span className={`${chipBase} border-emerald-500/30 bg-emerald-500/10 text-emerald-300`}>
                                                                         Researched
+                                                                    </span>
+                                                                )}
+                                                                {!isFullyResearched && keywordResearchStatus === 'running' && (
+                                                                    <span className={`${chipBase} border-amber-500/20 bg-amber-500/10 text-amber-300`}>
+                                                                        Keyword Research Running
+                                                                    </span>
+                                                                )}
+                                                                {!isFullyResearched && keywordResearchStatus === 'completed' && hasKeywordResearch && ideasCount === 0 && (
+                                                                    <span className={`${chipBase} border-cyan-500/20 bg-cyan-500/10 text-cyan-300`}>
+                                                                        Keywords Ready
                                                                     </span>
                                                                 )}
                                                                 {isNotStarted && (

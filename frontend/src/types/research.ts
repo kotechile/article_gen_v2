@@ -28,6 +28,9 @@ export interface ResearchTopic {
     secondary_category_name?: string | null
     subtopics_count?: number | null
     researched_subtopics_count?: number | null
+    topic_keyword_candidate_count?: number | null
+    topic_keyword_cluster_count?: number | null
+    topic_keyword_research_status?: 'pending' | 'running' | 'completed' | 'failed' | string | null
     content_ideas_count?: number | null
     in_library_count?: number | null
     has_underlying_data?: boolean | null

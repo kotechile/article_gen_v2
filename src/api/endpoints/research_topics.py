@@ -1134,6 +1134,9 @@ def _attach_topic_progress_counts(supabase, user_id, topics):
 
     Adds (best-effort) fields:
     - subtopics_count: number of subtopics for the topic
+    - topic_keyword_candidate_count: number of ranked topic-level keywords
+    - topic_keyword_cluster_count: number of topic-level intent clusters
+    - topic_keyword_research_status: latest topic-level research run status
     - content_ideas_count: number of content ideas generated for the topic
     - in_library_count: number of ideas that were published/sent to library
 
@@ -1151,6 +1154,9 @@ def _attach_topic_progress_counts(supabase, user_id, topics):
     subtopics_by_topic = {tid: 0 for tid in topic_ids}
     researched_subtopics_by_topic = {tid: 0 for tid in topic_ids}
     has_underlying_data_by_topic = {tid: False for tid in topic_ids}
+    topic_keyword_candidate_counts = {tid: 0 for tid in topic_ids}
+    topic_keyword_cluster_counts = {tid: 0 for tid in topic_ids}
+    topic_keyword_research_status_by_topic = {tid: None for tid in topic_ids}
     ideas_by_topic = {tid: 0 for tid in topic_ids}
     in_library_by_topic = {tid: 0 for tid in topic_ids}
 
@@ -1216,6 +1222,60 @@ def _attach_topic_progress_counts(supabase, user_id, topics):
     except Exception:
         logger.debug("Could not compute subtopics_count via legacy project_id fallback", exc_info=True)
 
+    # Topic-level keyword research: new pipeline counts and latest run status.
+    try:
+        runs_resp = (
+            supabase
+            .table("topic_keyword_research_runs")
+            .select("id,topic_id,status,updated_at,created_at")
+            .eq("user_id", user_id)
+            .in_("topic_id", topic_ids)
+            .execute()
+        )
+        latest_run_ids = {}
+        latest_run_sort_keys = {}
+        for row in (runs_resp.data or []):
+            tid = row.get("topic_id")
+            if tid not in topic_keyword_research_status_by_topic:
+                continue
+            sort_key = row.get("updated_at") or row.get("created_at") or ""
+            if tid not in latest_run_sort_keys or str(sort_key) > str(latest_run_sort_keys[tid]):
+                latest_run_sort_keys[tid] = sort_key
+                latest_run_ids[tid] = row.get("id")
+                topic_keyword_research_status_by_topic[tid] = row.get("status")
+
+        candidate_run_ids = [run_id for run_id in latest_run_ids.values() if run_id]
+        if candidate_run_ids:
+            candidates_resp = (
+                supabase
+                .table("topic_keyword_candidates")
+                .select("topic_id,research_run_id")
+                .eq("user_id", user_id)
+                .in_("research_run_id", candidate_run_ids)
+                .execute()
+            )
+            for row in (candidates_resp.data or []):
+                tid = row.get("topic_id")
+                if tid in topic_keyword_candidate_counts:
+                    topic_keyword_candidate_counts[tid] += 1
+                    has_underlying_data_by_topic[tid] = True
+
+            clusters_resp = (
+                supabase
+                .table("topic_keyword_clusters")
+                .select("topic_id,research_run_id")
+                .eq("user_id", user_id)
+                .in_("research_run_id", candidate_run_ids)
+                .execute()
+            )
+            for row in (clusters_resp.data or []):
+                tid = row.get("topic_id")
+                if tid in topic_keyword_cluster_counts:
+                    topic_keyword_cluster_counts[tid] += 1
+                    has_underlying_data_by_topic[tid] = True
+    except Exception:
+        logger.debug("Could not compute topic keyword research counts", exc_info=True)
+
     # Content ideas: created by idea-burst and linked by topic_id.
     try:
         ideas_resp = (
@@ -1253,6 +1313,9 @@ def _attach_topic_progress_counts(supabase, user_id, topics):
         topic["researched_subtopics_count"] = researched_count
         topic["has_underlying_data"] = has_underlying_data_by_topic.get(tid, False)
         topic["all_subtopics_researched"] = bool(total_subtopics > 0 and researched_count == total_subtopics)
+        topic["topic_keyword_candidate_count"] = topic_keyword_candidate_counts.get(tid, 0)
+        topic["topic_keyword_cluster_count"] = topic_keyword_cluster_counts.get(tid, 0)
+        topic["topic_keyword_research_status"] = topic_keyword_research_status_by_topic.get(tid)
         topic["content_ideas_count"] = ideas_by_topic.get(tid, 0)
         topic["in_library_count"] = in_library_by_topic.get(tid, 0)
 
