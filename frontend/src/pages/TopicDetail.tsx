@@ -50,6 +50,7 @@ export function TopicDetail() {
     const [generatedIdeaTypeFilter, setGeneratedIdeaTypeFilter] = React.useState<'all' | 'blog' | 'software'>('all')
     const [generatedIdeaStatusFilter, setGeneratedIdeaStatusFilter] = React.useState<'all' | 'draft' | 'published'>('draft')
     const [generatedIdeaSort, setGeneratedIdeaSort] = React.useState<'score' | 'volume' | 'difficulty' | 'recent'>('score')
+    const [latestGeneratedIdeas, setLatestGeneratedIdeas] = React.useState<ContentIdea[]>([])
 
     const mergeContentIdeas = React.useCallback((baseIdeas: ContentIdea[], incomingIdeas: ContentIdea[]) => {
         const merged = new Map<string, ContentIdea>()
@@ -72,6 +73,10 @@ export function TopicDetail() {
             return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
         })
     }, [])
+
+    React.useEffect(() => {
+        setLatestGeneratedIdeas([])
+    }, [id])
 
     const loadKeywordResearch = React.useCallback(async (topicId: string) => {
         setKeywordResearchLoading(true)
@@ -215,6 +220,7 @@ export function TopicDetail() {
 
             setStoredIdeas(mergedIdeas)
             setHasStoredIdeas(mergedIdeas.length > 0)
+            setLatestGeneratedIdeas(responseIdeas)
 
             toast.success(
                 `Generated ${result.generated_count || 0} ideas from ${clusterIds.length} cluster${clusterIds.length === 1 ? '' : 's'}.`,
@@ -251,13 +257,25 @@ export function TopicDetail() {
         }
     }, [keywordResearchRun, keywordCandidates.length, keywordClusters])
 
+    const isClusterGeneratedIdea = React.useCallback((idea: ContentIdea) => {
+        const metadata = (idea.idea_metadata || {}) as any
+        const topicKeywordResearch = metadata?.topic_keyword_research || {}
+        const rawOutput = (idea.raw_dataforseo_output || {}) as Record<string, any>
+
+        return Boolean(
+            topicKeywordResearch?.generation_origin === 'topic_keyword_pipeline_v1' ||
+            topicKeywordResearch?.keyword_cluster_id ||
+            topicKeywordResearch?.cluster_name ||
+            rawOutput?.topic_keyword_research_run_id
+        )
+    }, [])
+
     const generatedClusterIdeas = React.useMemo(() => {
-        return (storedIdeas || []).filter((idea) => {
-            const metadata = (idea.idea_metadata || {}) as any
-            const topicKeywordResearch = metadata?.topic_keyword_research || {}
-            return topicKeywordResearch?.generation_origin === 'topic_keyword_pipeline_v1'
-        })
-    }, [storedIdeas])
+        return mergeContentIdeas(
+            (storedIdeas || []).filter((idea) => isClusterGeneratedIdea(idea)),
+            latestGeneratedIdeas || [],
+        )
+    }, [isClusterGeneratedIdea, latestGeneratedIdeas, mergeContentIdeas, storedIdeas])
 
     const visibleGeneratedClusterIdeas = React.useMemo(() => {
         const filtered = generatedClusterIdeas.filter((idea) => {
