@@ -146,4 +146,52 @@ describe('WordPressExportModal loopback banner', () => {
         await screen.findByText('Published, but Titles loopback update had issues.');
         expect(publishToWordPressMock).toHaveBeenCalledTimes(1);
     });
+
+    it('publishes both parent and child WordPress categories when both are available', async () => {
+        fetchWordPressCategoriesMock.mockResolvedValue([
+            { id: 10, name: 'Parent Category', slug: 'parent-category' } as any,
+            { id: 20, name: 'Child Category', slug: 'child-category', parent: 10 } as any,
+        ]);
+        resolveLinkedWordPressCategoryIdsMock.mockResolvedValue([20, 10]);
+        publishToWordPressMock.mockResolvedValue({
+            link: 'https://example.com/post',
+            loopback_summary: {
+                success: true,
+                attemptedFields: ['status'],
+                savedFields: ['status'],
+                removedFields: [],
+            },
+        } as any);
+
+        render(
+            <WordPressExportModal
+                {...baseProps}
+                articleData={{
+                    ...baseProps.articleData,
+                    wordpress_category_id: 20,
+                    wordpress_parent_category_id: 10,
+                }}
+            />
+        );
+
+        await waitFor(() =>
+            expect(screen.getByRole('button', { name: /publish to wordpress/i })).toBeEnabled()
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: /publish to wordpress/i }));
+
+        await waitFor(() =>
+            expect(publishToWordPressMock).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({
+                    wordpress_category_id: 20,
+                    wordpress_parent_category_id: 10,
+                }),
+                expect.objectContaining({
+                    categoryIds: [20, 10],
+                }),
+                expect.anything()
+            )
+        );
+    });
 });

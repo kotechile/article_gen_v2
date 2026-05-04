@@ -4,13 +4,23 @@ import { useParams, useNavigate, useLocation } from "react-router-dom"
 import { useAuth } from "@/context/auth-context"
 import { researchTopicsService } from "@/services/research-topics.service"
 import { subtopicsService } from "@/services/subtopics.service"
+import { topicKeywordResearchService } from "@/services/topic-keyword-research.service"
 import { contentIdeasService } from "@/services/content-ideas.service"
-import type { ResearchTopic, Subtopic } from "@/types/research"
+import type { ContentIdea } from "@/types/idea-burst"
+import type {
+    ResearchTopic,
+    Subtopic,
+    TopicKeywordCandidate,
+    TopicKeywordCluster,
+    TopicKeywordResearchRun,
+} from "@/types/research"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ArrowLeft, ListTree, CheckCircle2, LibraryBig, Sparkles, RefreshCw, Lightbulb, Trash2, Archive, RotateCcw, Star } from "lucide-react"
+import { ArrowLeft, ListTree, CheckCircle2, LibraryBig, Sparkles, RefreshCw, Lightbulb, Trash2, Archive, RotateCcw, Star, ChevronDown, ChevronRight } from "lucide-react"
 import { motion } from "framer-motion"
 import { IdeaBurstModal } from "@/components/IdeaBurstModal"
+import { GeneratedIdeasPanel } from "@/components/GeneratedIdeasPanel"
+import { TopicKeywordResearchPanel } from "@/components/TopicKeywordResearchPanel"
 import { toast } from "sonner"
 
 export function TopicDetail() {
@@ -37,17 +47,65 @@ export function TopicDetail() {
     const [archivingSubtopicIds, setArchivingSubtopicIds] = React.useState<Set<string>>(new Set())
     const [ratingSubtopicIds, setRatingSubtopicIds] = React.useState<Set<string>>(new Set())
     const [hasStoredIdeas, setHasStoredIdeas] = React.useState(false)
+    const [storedIdeas, setStoredIdeas] = React.useState<ContentIdea[]>([])
     const [savedIdeasCountBySubtopicName, setSavedIdeasCountBySubtopicName] = React.useState<Map<string, number>>(new Map())
     const [subtopicsReadyForContent, setSubtopicsReadyForContent] = React.useState<Set<string>>(new Set())
+    const [keywordResearchRun, setKeywordResearchRun] = React.useState<TopicKeywordResearchRun | null>(null)
+    const [keywordCandidates, setKeywordCandidates] = React.useState<TopicKeywordCandidate[]>([])
+    const [keywordClusters, setKeywordClusters] = React.useState<TopicKeywordCluster[]>([])
+    const [keywordResearchLoading, setKeywordResearchLoading] = React.useState(false)
+    const [runningKeywordResearch, setRunningKeywordResearch] = React.useState(false)
+    const [keywordResearchError, setKeywordResearchError] = React.useState<string | null>(null)
+    const [selectedClusterIds, setSelectedClusterIds] = React.useState<Set<string>>(new Set())
+    const [generatingClusterIdeas, setGeneratingClusterIdeas] = React.useState(false)
+    const [selectedGeneratedIdeaIds, setSelectedGeneratedIdeaIds] = React.useState<Set<string>>(new Set())
+    const [publishingGeneratedIdeas, setPublishingGeneratedIdeas] = React.useState(false)
+    const [showLegacySubtopics, setShowLegacySubtopics] = React.useState(false)
+    const [activeGeneratedIdea, setActiveGeneratedIdea] = React.useState<ContentIdea | null>(null)
+    const [generatedIdeaTypeFilter, setGeneratedIdeaTypeFilter] = React.useState<'all' | 'blog' | 'software'>('all')
+    const [generatedIdeaStatusFilter, setGeneratedIdeaStatusFilter] = React.useState<'all' | 'draft' | 'published'>('draft')
+    const [generatedIdeaSort, setGeneratedIdeaSort] = React.useState<'score' | 'volume' | 'difficulty' | 'recent'>('score')
     const decomposeToastIdRef = React.useRef<string | number | null>(null)
     const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
+
+    const loadKeywordResearch = React.useCallback(async (topicId: string) => {
+        setKeywordResearchLoading(true)
+        try {
+            const latestRun = await topicKeywordResearchService.getLatestRun(topicId)
+            setKeywordResearchRun(latestRun)
+
+            const [keywordsResponse, clustersResponse] = await Promise.all([
+                topicKeywordResearchService.listKeywords(topicId, latestRun.id, false),
+                topicKeywordResearchService.listClusters(topicId, latestRun.id),
+            ])
+
+            setKeywordCandidates(keywordsResponse.items || [])
+            setKeywordClusters(clustersResponse.items || [])
+            setSelectedClusterIds(new Set((clustersResponse.items || []).slice(0, 1).map((cluster) => cluster.id)))
+            setKeywordResearchError(null)
+        } catch (err) {
+            const status = (err as any)?.response?.status ?? (err as any)?.status
+            if (status === 404) {
+                setKeywordResearchRun(null)
+                setKeywordCandidates([])
+                setKeywordClusters([])
+                setSelectedClusterIds(new Set())
+                setKeywordResearchError(null)
+            } else {
+                console.error('Failed to load topic keyword research:', err)
+                setKeywordResearchError('Keyword research is not available yet. Apply the new SQL migration, then run the topic-level research flow.')
+            }
+        } finally {
+            setKeywordResearchLoading(false)
+        }
+    }, [])
 
     const refreshStoredIdeasState = React.useCallback(async (topicId: string) => {
         if (!user?.id) {
             setHasStoredIdeas(false)
             setSavedIdeasCountBySubtopicName(new Map())
             setSubtopicsReadyForContent(new Set())
-            return
+            return [] as ContentIdea[]
         }
 
         const storedIdeas = await contentIdeasService.getContentIdeas(topicId, user.id)
@@ -58,6 +116,7 @@ export function TopicDetail() {
             software: storedIdeas.filter((idea) => idea.content_type === 'software').length,
         })
 
+        setStoredIdeas(storedIdeas || [])
         setHasStoredIdeas(Array.isArray(storedIdeas) && storedIdeas.length > 0)
         const savedSubtopicCounts = new Map<string, number>()
         for (const idea of storedIdeas || []) {
@@ -80,6 +139,7 @@ export function TopicDetail() {
         )
         setSavedIdeasCountBySubtopicName(savedSubtopicCounts)
         setSubtopicsReadyForContent(readySubtopicNames)
+        return storedIdeas || []
     }, [user?.id])
 
     React.useEffect(() => {
@@ -100,6 +160,7 @@ export function TopicDetail() {
             setTopic(topicData)
             setSubtopics(subtopicsData || [])
             await refreshStoredIdeasState(topicId)
+            await loadKeywordResearch(topicId)
             setError(null)
         } catch (err) {
             console.error('Failed to load topic data:', err)
@@ -108,6 +169,88 @@ export function TopicDetail() {
             setLoading(false)
         }
     }
+
+    const handleRunKeywordResearch = async () => {
+        if (!id) return
+        try {
+            setRunningKeywordResearch(true)
+            setKeywordResearchError(null)
+            toast.loading('Running topic keyword research. This can take a couple of minutes while keyword data is collected.', {
+                id: 'topic-keyword-research',
+            })
+
+            const result = await topicKeywordResearchService.runTopicKeywordResearch(id, {
+                replace_existing: true,
+            })
+
+            toast.success(
+                `Keyword research completed with ${result.keyword_count} keywords and ${result.cluster_count} clusters.`,
+                { id: 'topic-keyword-research' }
+            )
+            await loadKeywordResearch(id)
+        } catch (err) {
+            console.error('Failed to run topic keyword research:', err)
+            setKeywordResearchError('Failed to run topic keyword research.')
+            toast.error('Topic keyword research failed. If the migration has not been applied yet, apply it in Supabase and try again.', {
+                id: 'topic-keyword-research',
+            })
+        } finally {
+            setRunningKeywordResearch(false)
+        }
+    }
+
+    const toggleClusterSelection = React.useCallback((clusterId: string) => {
+        setSelectedClusterIds((current) => {
+            const next = new Set(current)
+            if (next.has(clusterId)) {
+                next.delete(clusterId)
+            } else {
+                next.add(clusterId)
+            }
+            return next
+        })
+    }, [])
+
+    const handleGenerateIdeasFromClusters = React.useCallback(async () => {
+        if (!id || !user?.id || !keywordResearchRun) return
+        const clusterIds = Array.from(selectedClusterIds)
+        if (clusterIds.length === 0) {
+            toast.error('Select at least one keyword cluster first.')
+            return
+        }
+
+        try {
+            setGeneratingClusterIdeas(true)
+            toast.loading('Generating content ideas from the selected keyword clusters.', {
+                id: 'topic-cluster-ideas',
+            })
+
+            const result = await topicKeywordResearchService.generateIdeasFromClusters(id, keywordResearchRun.id, {
+                user_id: user.id,
+                cluster_ids: clusterIds,
+            })
+
+            await refreshStoredIdeasState(id)
+
+            toast.success(
+                `Generated ${result.generated_count || 0} ideas from ${clusterIds.length} cluster${clusterIds.length === 1 ? '' : 's'}.`,
+                { id: 'topic-cluster-ideas' }
+            )
+
+            if (result.persistence_warning) {
+                setError(result.persistence_warning)
+            } else {
+                setError(null)
+            }
+        } catch (err) {
+            console.error('Failed to generate ideas from keyword clusters:', err)
+            toast.error('Failed to generate ideas from the selected clusters.', {
+                id: 'topic-cluster-ideas',
+            })
+        } finally {
+            setGeneratingClusterIdeas(false)
+        }
+    }, [id, keywordResearchRun, refreshStoredIdeasState, selectedClusterIds, user?.id])
 
     const handleIdeaModalClose = React.useCallback(async () => {
         setShowIdeaModal(false)
@@ -262,6 +405,72 @@ export function TopicDetail() {
         return 'Still working and waiting on upstream data providers. You can keep this page open.'
     }, [decomposing, decomposeElapsedSec])
 
+    const keywordResearchSummary = React.useMemo(() => {
+        const summary = (keywordResearchRun?.summary_json || {}) as Record<string, any>
+        return {
+            seedCount: Number(summary.seed_count || keywordResearchRun?.seed_keywords_json?.length || 0),
+            candidateCount: Number(summary.active_candidate_count || keywordCandidates.length || 0),
+            clusterCount: Number(summary.cluster_count || keywordClusters.length || 0),
+            generatedAt: summary.generated_at || keywordResearchRun?.updated_at || null,
+            topKeywords: Array.isArray(summary.top_keywords) ? summary.top_keywords : [],
+            topClusters: keywordClusters.slice(0, 4),
+        }
+    }, [keywordResearchRun, keywordCandidates.length, keywordClusters])
+
+    const generatedClusterIdeas = React.useMemo(() => {
+        return (storedIdeas || []).filter((idea) => {
+            const metadata = (idea.idea_metadata || {}) as any
+            const topicKeywordResearch = metadata?.topic_keyword_research || {}
+            return topicKeywordResearch?.generation_origin === 'topic_keyword_pipeline_v1'
+        })
+    }, [storedIdeas])
+
+    const visibleGeneratedClusterIdeas = React.useMemo(() => {
+        const filtered = generatedClusterIdeas.filter((idea) => {
+            const isPublished = Boolean(
+                idea.published ||
+                idea.published_to_titles ||
+                idea.titles_record_id ||
+                idea.status?.toLowerCase() === 'published'
+            )
+
+            if (generatedIdeaStatusFilter === 'draft' && isPublished) {
+                return false
+            }
+            if (generatedIdeaStatusFilter === 'published' && !isPublished) {
+                return false
+            }
+            if (generatedIdeaTypeFilter === 'all') {
+                return true
+            }
+            return idea.content_type === generatedIdeaTypeFilter
+        })
+
+        const sorted = [...filtered].sort((a, b) => {
+            if (generatedIdeaSort === 'volume') {
+                return Number(b.total_search_volume || 0) - Number(a.total_search_volume || 0)
+            }
+            if (generatedIdeaSort === 'difficulty') {
+                return Number(a.average_difficulty || 999) - Number(b.average_difficulty || 999)
+            }
+            if (generatedIdeaSort === 'recent') {
+                return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+            }
+            return Number(b.opportunity_score || 0) - Number(a.opportunity_score || 0)
+        })
+
+        return sorted
+    }, [generatedClusterIdeas, generatedIdeaSort, generatedIdeaStatusFilter, generatedIdeaTypeFilter])
+
+    const formatDateTime = React.useCallback((value?: string | null) => {
+        if (!value) return 'Not available'
+        try {
+            return new Date(value).toLocaleString()
+        } catch {
+            return value
+        }
+    }, [])
+
     const decomposeElapsedLabel = React.useMemo(() => {
         if (!decomposing) {
             return ''
@@ -278,6 +487,169 @@ export function TopicDetail() {
         setSelectedSubtopic(sub)
         setShowIdeaModal(true)
     }
+
+    const toggleGeneratedIdeaSelection = React.useCallback((ideaId: string) => {
+        setSelectedGeneratedIdeaIds((current) => {
+            const next = new Set(current)
+            if (next.has(ideaId)) {
+                next.delete(ideaId)
+            } else {
+                next.add(ideaId)
+            }
+            return next
+        })
+    }, [])
+
+    const openGeneratedIdeaDetail = React.useCallback((idea: ContentIdea) => {
+        setActiveGeneratedIdea(idea)
+    }, [])
+
+    const closeGeneratedIdeaDetail = React.useCallback(() => {
+        setActiveGeneratedIdea(null)
+    }, [])
+
+    const syncGeneratedIdeaReviewState = React.useCallback((latestIdeas: ContentIdea[]) => {
+        setSelectedGeneratedIdeaIds((current) => {
+            const next = new Set<string>()
+            const latestIds = new Set((latestIdeas || []).map((idea) => idea.id))
+            current.forEach((ideaId) => {
+                if (latestIds.has(ideaId)) {
+                    next.add(ideaId)
+                }
+            })
+            return next
+        })
+
+        setActiveGeneratedIdea((current) => {
+            if (!current?.id) {
+                return null
+            }
+            const refreshed = (latestIdeas || []).find((idea) => idea.id === current.id) || null
+            if (!refreshed) {
+                return null
+            }
+            const isPublished = Boolean(
+                refreshed.published ||
+                refreshed.published_to_titles ||
+                refreshed.titles_record_id ||
+                refreshed.status?.toLowerCase() === 'published'
+            )
+            if (generatedIdeaStatusFilter === 'draft' && isPublished) {
+                return null
+            }
+            if (generatedIdeaStatusFilter === 'published' && !isPublished) {
+                return null
+            }
+            return refreshed
+        })
+    }, [generatedIdeaStatusFilter])
+
+    const activeGeneratedIdeaIndex = React.useMemo(() => {
+        if (!activeGeneratedIdea?.id) {
+            return -1
+        }
+        return visibleGeneratedClusterIdeas.findIndex((idea) => idea.id === activeGeneratedIdea.id)
+    }, [activeGeneratedIdea?.id, visibleGeneratedClusterIdeas])
+
+    const hasPreviousGeneratedIdea = activeGeneratedIdeaIndex > 0
+    const hasNextGeneratedIdea = activeGeneratedIdeaIndex >= 0 && activeGeneratedIdeaIndex < visibleGeneratedClusterIdeas.length - 1
+
+    const openPreviousGeneratedIdea = React.useCallback(() => {
+        if (activeGeneratedIdeaIndex <= 0) {
+            return
+        }
+        setActiveGeneratedIdea(visibleGeneratedClusterIdeas[activeGeneratedIdeaIndex - 1] || null)
+    }, [activeGeneratedIdeaIndex, visibleGeneratedClusterIdeas])
+
+    const openNextGeneratedIdea = React.useCallback(() => {
+        if (activeGeneratedIdeaIndex < 0 || activeGeneratedIdeaIndex >= visibleGeneratedClusterIdeas.length - 1) {
+            return
+        }
+        setActiveGeneratedIdea(visibleGeneratedClusterIdeas[activeGeneratedIdeaIndex + 1] || null)
+    }, [activeGeneratedIdeaIndex, visibleGeneratedClusterIdeas])
+
+    const handleSelectVisibleGeneratedIdeas = React.useCallback(() => {
+        setSelectedGeneratedIdeaIds(new Set(visibleGeneratedClusterIdeas.map((idea) => idea.id)))
+    }, [visibleGeneratedClusterIdeas])
+
+    const handleSelectTopGeneratedIdeas = React.useCallback((count: number) => {
+        setSelectedGeneratedIdeaIds(new Set(visibleGeneratedClusterIdeas.slice(0, count).map((idea) => idea.id)))
+    }, [visibleGeneratedClusterIdeas])
+
+    const handleClearGeneratedIdeaSelection = React.useCallback(() => {
+        setSelectedGeneratedIdeaIds(new Set())
+    }, [])
+
+    const handlePublishSingleGeneratedIdea = React.useCallback(async (ideaId: string) => {
+        if (!user?.id || !id) return
+
+        try {
+            setPublishingGeneratedIdeas(true)
+            toast.loading('Publishing idea to Content Studio.', {
+                id: 'publish-single-generated-idea',
+            })
+
+            const result = await contentIdeasService.publishContentIdeas([ideaId], user.id)
+            const refreshedIdeas = await refreshStoredIdeasState(id)
+            syncGeneratedIdeaReviewState(refreshedIdeas || [])
+
+            if (result.success) {
+                toast.success('Published idea to Titles.', {
+                    id: 'publish-single-generated-idea',
+                })
+            } else {
+                toast.error(result.message || 'Failed to publish idea.', {
+                    id: 'publish-single-generated-idea',
+                })
+            }
+        } catch (err) {
+            console.error('Failed to publish generated idea:', err)
+            toast.error('Failed to publish idea.', {
+                id: 'publish-single-generated-idea',
+            })
+        } finally {
+            setPublishingGeneratedIdeas(false)
+        }
+    }, [id, refreshStoredIdeasState, syncGeneratedIdeaReviewState, user?.id])
+
+    const handlePublishGeneratedIdeas = React.useCallback(async () => {
+        if (!user?.id || !id) return
+        const ideaIds = Array.from(selectedGeneratedIdeaIds)
+        if (ideaIds.length === 0) {
+            toast.error('Select at least one generated idea first.')
+            return
+        }
+
+        try {
+            setPublishingGeneratedIdeas(true)
+            toast.loading('Publishing selected ideas to Content Studio.', {
+                id: 'publish-generated-ideas',
+            })
+
+            const result = await contentIdeasService.publishContentIdeas(ideaIds, user.id)
+            const refreshedIdeas = await refreshStoredIdeasState(id)
+            syncGeneratedIdeaReviewState(refreshedIdeas || [])
+
+            if (result.success) {
+                toast.success(
+                    `Published ${result.publishedToTitlesCount} idea${result.publishedToTitlesCount === 1 ? '' : 's'} to Titles.`,
+                    { id: 'publish-generated-ideas' }
+                )
+                setSelectedGeneratedIdeaIds(new Set())
+            } else {
+                toast.error(result.message || 'Failed to publish generated ideas.', {
+                    id: 'publish-generated-ideas',
+                })
+            }
+        } catch (err) {
+            console.error('Failed to publish generated ideas:', err)
+            toast.error('Failed to publish generated ideas.', {
+                id: 'publish-generated-ideas',
+            })
+        } finally {
+            setPublishingGeneratedIdeas(false)
+        }
+    }, [id, refreshStoredIdeasState, selectedGeneratedIdeaIds, syncGeneratedIdeaReviewState, user?.id])
 
     const handleDeleteSubtopic = async (subtopic: Subtopic) => {
         if (!id || !subtopic?.id) return
@@ -530,14 +902,14 @@ export function TopicDetail() {
                             className="bg-muted/30 backdrop-blur-md border border-border rounded-xl p-6"
                         >
                             <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm text-muted-foreground">Sub-Topics</span>
+                                <span className="text-sm text-muted-foreground">Legacy Sub-Topics</span>
                                 <ListTree className="h-4 w-4 text-muted-foreground" />
                             </div>
                             <div className="text-2xl font-bold text-foreground">
                                 {summary.totalSubtopics.toLocaleString()}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                                Total generated clusters
+                                Fallback workflow items
                             </div>
                         </motion.div>
 
@@ -600,6 +972,25 @@ export function TopicDetail() {
                     </div>
                 </div>
 
+                <TopicKeywordResearchPanel
+                    topicId={id || ''}
+                    keywordResearchRun={keywordResearchRun}
+                    keywordCandidates={keywordCandidates}
+                    keywordClusters={keywordClusters}
+                    keywordResearchLoading={keywordResearchLoading}
+                    runningKeywordResearch={runningKeywordResearch}
+                    keywordResearchError={keywordResearchError}
+                    generatingClusterIdeas={generatingClusterIdeas}
+                    selectedClusterIds={selectedClusterIds}
+                    canGenerateIdeas={Boolean(user?.id)}
+                    keywordResearchSummary={keywordResearchSummary}
+                    onRefreshKeywordResearch={() => loadKeywordResearch(id || '')}
+                    onRunKeywordResearch={handleRunKeywordResearch}
+                    onGenerateIdeasFromClusters={handleGenerateIdeasFromClusters}
+                    onToggleClusterSelection={toggleClusterSelection}
+                    formatDateTime={formatDateTime}
+                />
+
                 {/* Topic Context */}
                 <div className="max-w-7xl mx-auto mb-8">
                     <div className="bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-6">
@@ -637,13 +1028,84 @@ export function TopicDetail() {
                     </div>
                 </div>
 
+                <GeneratedIdeasPanel
+                    generatedClusterIdeas={generatedClusterIdeas}
+                    visibleGeneratedClusterIdeas={visibleGeneratedClusterIdeas}
+                    selectedGeneratedIdeaIds={selectedGeneratedIdeaIds}
+                    publishingGeneratedIdeas={publishingGeneratedIdeas}
+                    generatedIdeaTypeFilter={generatedIdeaTypeFilter}
+                    generatedIdeaStatusFilter={generatedIdeaStatusFilter}
+                    generatedIdeaSort={generatedIdeaSort}
+                    setGeneratedIdeaTypeFilter={setGeneratedIdeaTypeFilter}
+                    setGeneratedIdeaStatusFilter={setGeneratedIdeaStatusFilter}
+                    setGeneratedIdeaSort={setGeneratedIdeaSort}
+                    activeGeneratedIdea={activeGeneratedIdea}
+                    activeGeneratedIdeaIndex={activeGeneratedIdeaIndex}
+                    hasPreviousGeneratedIdea={hasPreviousGeneratedIdea}
+                    hasNextGeneratedIdea={hasNextGeneratedIdea}
+                    canPublish={Boolean(user?.id)}
+                    openGeneratedIdeaDetail={openGeneratedIdeaDetail}
+                    closeGeneratedIdeaDetail={closeGeneratedIdeaDetail}
+                    toggleGeneratedIdeaSelection={toggleGeneratedIdeaSelection}
+                    handlePublishGeneratedIdeas={handlePublishGeneratedIdeas}
+                    handlePublishSingleGeneratedIdea={handlePublishSingleGeneratedIdea}
+                    handleSelectVisibleGeneratedIdeas={handleSelectVisibleGeneratedIdeas}
+                    handleSelectTopGeneratedIdeas={handleSelectTopGeneratedIdeas}
+                    handleClearGeneratedIdeaSelection={handleClearGeneratedIdeaSelection}
+                    openPreviousGeneratedIdea={openPreviousGeneratedIdea}
+                    openNextGeneratedIdea={openNextGeneratedIdea}
+                />
+
                 {/* Sub-Topics Section */}
                 <div className="max-w-7xl mx-auto">
                     <div className="bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-6">
+                        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <div className="mb-2 flex items-center gap-2">
+                                    <h2 className="text-xl font-semibold text-foreground">Legacy Sub-Topic Workflow</h2>
+                                    <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-300">
+                                        Fallback
+                                    </span>
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                    Use this only when you need the older subtopic-first process. The keyword research and cluster-based generation flow above is now the primary path.
+                                </p>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setShowLegacySubtopics((current) => !current)}
+                                className="border-border hover:bg-muted"
+                            >
+                                {showLegacySubtopics ? (
+                                    <>
+                                        <ChevronDown className="mr-2 h-4 w-4" />
+                                        Hide Legacy Workflow
+                                    </>
+                                ) : (
+                                    <>
+                                        <ChevronRight className="mr-2 h-4 w-4" />
+                                        Show Legacy Workflow
+                                    </>
+                                )}
+                            </Button>
+                        </div>
+
+                        {!showLegacySubtopics ? (
+                            <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center">
+                                <ListTree className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+                                <h3 className="text-base font-semibold text-foreground mb-2">Legacy workflow hidden</h3>
+                                <p className="text-sm text-muted-foreground max-w-2xl mx-auto">
+                                    Open this section only if you need the older subtopic generation and idea-burst workflow.
+                                </p>
+                            </div>
+                        ) : (
+                            <>
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-xl font-semibold text-foreground">
+                            <h3 className="text-lg font-semibold text-foreground">
                                 Sub-Topics for {topic?.title || 'this topic'}
-                            </h2>
+                            </h3>
                             {subtopics.length > 0 && (
                                 <div className="flex items-center gap-2">
                                     <Button
@@ -971,6 +1433,8 @@ export function TopicDetail() {
                                 )}
                             </div>
                         )}
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -986,6 +1450,7 @@ export function TopicDetail() {
                         </motion.div>
                     </div>
                 )}
+
                 {/* Idea Burst Modal */}
                 <IdeaBurstModal
                     isOpen={showIdeaModal}

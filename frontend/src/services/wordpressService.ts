@@ -6,13 +6,140 @@ import type {
     WordPressPostData,
     WordPressApiResponse,
     WordPressMediaResponse,
-    SEOMetadata
+    SEOMetadata,
+    WordPressSeoPlugin
 } from '../types/wordpress';
+
+type ResolvedSocialMetadata = {
+    canonicalUrl: string;
+    metaTitle: string;
+    metaDescription: string;
+    ogTitle: string;
+    ogDescription: string;
+    ogImageUrl: string;
+    ogType: 'article' | 'website';
+    twitterTitle: string;
+    twitterDescription: string;
+    twitterImageUrl: string;
+    twitterCardType: 'summary' | 'summary_large_image';
+};
+
+const describeFeaturedImageFetchFailure = (status: number): string => {
+    if (status === 401 || status === 403) {
+        return 'The featured image URL appears to be private or expired, so WordPress could not access it.';
+    }
+    if (status === 404) {
+        return 'The featured image URL no longer exists.';
+    }
+    if (status >= 500) {
+        return 'The image host returned a server error while WordPress was trying to fetch the featured image.';
+    }
+    return `The featured image source could not be fetched (${status}).`;
+};
+
+const describeFeaturedImageUploadFailure = (status: number): string => {
+    if (status === 401 || status === 403) {
+        return 'WordPress rejected the featured image upload. The WordPress credentials may not have permission to upload media.';
+    }
+    if (status === 413) {
+        return 'WordPress rejected the featured image because the file is too large for the Media library upload limit.';
+    }
+    if (status >= 500) {
+        return 'WordPress had a server error while saving the featured image to the Media library.';
+    }
+    return `WordPress rejected the featured image upload (${status}).`;
+};
+
+const describeFeaturedImageException = (error: unknown): string => {
+    const message = error instanceof Error ? error.message : '';
+    if (/failed to fetch/i.test(message)) {
+        return 'The featured image could not be reached from the browser. The image URL may be blocked, expired, or unavailable.';
+    }
+    if (/network/i.test(message)) {
+        return 'A network error interrupted the featured image upload.';
+    }
+    return message || 'Unknown error while uploading the featured image.';
+};
 
 const extractMissingColumns = (errorMessage: string): string[] => {
     if (!errorMessage) return [];
     const matches = Array.from(errorMessage.matchAll(/Could not find the '([^']+)' column/gi));
     return matches.map((m) => m[1]).filter(Boolean);
+};
+
+const normalizeSiteUrl = (value?: string): string => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    return withProtocol.replace(/\/+$/, '');
+};
+
+const buildCanonicalUrl = (site: WordPressSite, slug: string, explicitCanonical?: string): string => {
+    const supplied = String(explicitCanonical || '').trim();
+    if (supplied) return supplied;
+    const baseUrl = normalizeSiteUrl(site.site_url_override || site.domain);
+    if (!baseUrl) return '';
+    return slug ? `${baseUrl}/${slug}` : baseUrl;
+};
+
+const getArticleFeaturedImageUrl = (articleData: any, seoData: SEOMetadata, site: WordPressSite): string => {
+    return String(
+        seoData.ogImageUrl ||
+        seoData.twitterImageUrl ||
+        articleData.featuredImageUrl ||
+        articleData.featuredImageURL ||
+        articleData.featuredimageurl ||
+        site.social_default_image_url ||
+        ''
+    ).trim();
+};
+
+const resolveSocialMetadata = (
+    site: WordPressSite,
+    articleData: any,
+    seoData: SEOMetadata,
+    slug: string
+): ResolvedSocialMetadata => {
+    const metaTitle = String(
+        seoData.metaTitle ||
+        articleData.seo_title_optimized ||
+        articleData.metaTitle ||
+        articleData.Title ||
+        articleData.title ||
+        ''
+    ).trim();
+    const metaDescription = String(
+        seoData.metaDescription ||
+        articleData.seo_meta_desc_optimized ||
+        articleData.metaDescription ||
+        articleData.excerpt ||
+        articleData.thesis ||
+        articleData.Thesis ||
+        ''
+    ).trim();
+    const canonicalUrl = buildCanonicalUrl(site, slug, seoData.canonicalUrl || articleData.canonical_url);
+    const ogImageUrl = getArticleFeaturedImageUrl(articleData, seoData, site);
+    const ogTitle = String(seoData.ogTitle || metaTitle).trim();
+    const ogDescription = String(seoData.ogDescription || metaDescription).trim();
+    const ogType = seoData.ogType || 'article';
+    const twitterTitle = String(seoData.twitterTitle || ogTitle || metaTitle).trim();
+    const twitterDescription = String(seoData.twitterDescription || ogDescription || metaDescription).trim();
+    const twitterImageUrl = String(seoData.twitterImageUrl || ogImageUrl).trim();
+    const twitterCardType = seoData.twitterCardType || (twitterImageUrl ? 'summary_large_image' : 'summary');
+
+    return {
+        canonicalUrl,
+        metaTitle,
+        metaDescription,
+        ogTitle,
+        ogDescription,
+        ogImageUrl,
+        ogType,
+        twitterTitle,
+        twitterDescription,
+        twitterImageUrl,
+        twitterCardType
+    };
 };
 
 /**
@@ -78,13 +205,16 @@ export const uploadFeaturedImage = async (
     imageUrl: string,
     site: WordPressSite,
     metadata: { alt?: string; title?: string; caption?: string }
-): Promise<number | null> => {
+): Promise<{ mediaId: number | null; error?: string }> => {
     try {
         // Fetch the image as a blob
         const imageResponse = await fetch(imageUrl);
         if (!imageResponse.ok) {
             console.warn('Failed to fetch featured image');
-            return null;
+            return {
+                mediaId: null,
+                error: describeFeaturedImageFetchFailure(imageResponse.status)
+            };
         }
 
         const imageBlob = await imageResponse.blob();
@@ -107,49 +237,68 @@ export const uploadFeaturedImage = async (
 
         if (!uploadResponse.ok) {
             console.warn('Failed to upload featured image to WordPress');
-            return null;
+            return {
+                mediaId: null,
+                error: describeFeaturedImageUploadFailure(uploadResponse.status)
+            };
         }
 
         const mediaData: WordPressMediaResponse = await uploadResponse.json();
-        return mediaData.id;
+        return { mediaId: mediaData.id };
     } catch (error) {
         console.error('Error uploading featured image:', error);
-        return null;
+        return {
+            mediaId: null,
+            error: describeFeaturedImageException(error)
+        };
     }
 };
 
 /**
  * Build SEO metadata for WordPress post
  */
-const buildSEOMetadata = (articleData: any, seoData: SEOMetadata, categoryId?: number) => {
-    const metaTitle = seoData.metaTitle || articleData.metaTitle || articleData.Title || articleData.title;
-    const metaDescription = seoData.metaDescription || articleData.seo_meta_desc_optimized || articleData.thesis || articleData.Thesis;
+const buildSEOMetadata = (
+    site: WordPressSite,
+    articleData: any,
+    seoData: SEOMetadata,
+    slug: string,
+    categoryId?: number
+) => {
     const focusKeyword = seoData.focusKeyword || articleData.focus_keyword || '';
-    const canonicalUrl = seoData.canonicalUrl || articleData.canonical_url || '';
     const robotsMeta = seoData.robotsMeta || articleData.robots_meta || 'index,follow';
     const schemaType = seoData.schemaType || articleData.schema_type || 'Article';
+    const seoPlugin: WordPressSeoPlugin = site.seo_plugin || 'unknown';
+    const socialMetadata = resolveSocialMetadata(site, articleData, seoData, slug);
 
     const meta: any = {
         // Yoast SEO fields
-        _yoast_wpseo_title: metaTitle,
-        _yoast_wpseo_metadesc: metaDescription,
+        _yoast_wpseo_title: socialMetadata.metaTitle,
+        _yoast_wpseo_metadesc: socialMetadata.metaDescription,
         _yoast_wpseo_focuskw: focusKeyword,
-        _yoast_wpseo_canonical: canonicalUrl,
+        _yoast_wpseo_canonical: socialMetadata.canonicalUrl,
         _yoast_wpseo_meta_robots_noindex: robotsMeta.includes('noindex') ? 1 : 0,
         _yoast_wpseo_meta_robots_nofollow: robotsMeta.includes('nofollow') ? 1 : 0,
 
         // RankMath fields
-        rank_math_title: metaTitle,
-        rank_math_description: metaDescription,
+        rank_math_title: socialMetadata.metaTitle,
+        rank_math_description: socialMetadata.metaDescription,
         rank_math_focus_keyword: focusKeyword,
-        rank_math_canonical_url: canonicalUrl,
+        rank_math_canonical_url: socialMetadata.canonicalUrl,
         rank_math_robots: robotsMeta.split(','),
 
         // Custom SEO fields
         seo_focus_keyword: focusKeyword,
         seo_schema_type: schemaType,
         seo_readability_score: seoData.readabilityScore || articleData.readability_score || 0,
-        seo_keyword_density: seoData.keywordDensity || articleData.keyword_density || 0
+        seo_keyword_density: seoData.keywordDensity || articleData.keyword_density || 0,
+        seo_og_title: socialMetadata.ogTitle,
+        seo_og_description: socialMetadata.ogDescription,
+        seo_og_image: socialMetadata.ogImageUrl,
+        seo_og_type: socialMetadata.ogType,
+        seo_twitter_title: socialMetadata.twitterTitle,
+        seo_twitter_description: socialMetadata.twitterDescription,
+        seo_twitter_image: socialMetadata.twitterImageUrl,
+        seo_twitter_card: socialMetadata.twitterCardType
     };
 
     // Add primary category if available
@@ -173,6 +322,26 @@ const buildSEOMetadata = (articleData: any, seoData: SEOMetadata, categoryId?: n
     if (seoData.optimizationTips || articleData.content_optimization_tips) {
         const tips = seoData.optimizationTips || articleData.content_optimization_tips || [];
         meta.seo_optimization_tips = Array.isArray(tips) ? tips.join('; ') : tips;
+    }
+
+    if (seoPlugin === 'yoast') {
+        meta['_yoast_wpseo_opengraph-title'] = socialMetadata.ogTitle;
+        meta['_yoast_wpseo_opengraph-description'] = socialMetadata.ogDescription;
+        meta['_yoast_wpseo_opengraph-image'] = socialMetadata.ogImageUrl;
+        meta['_yoast_wpseo_twitter-title'] = socialMetadata.twitterTitle;
+        meta['_yoast_wpseo_twitter-description'] = socialMetadata.twitterDescription;
+        meta['_yoast_wpseo_twitter-image'] = socialMetadata.twitterImageUrl;
+        meta['_yoast_wpseo_twitter-card'] = socialMetadata.twitterCardType;
+    }
+
+    if (seoPlugin === 'rankmath') {
+        meta.rank_math_facebook_title = socialMetadata.ogTitle;
+        meta.rank_math_facebook_description = socialMetadata.ogDescription;
+        meta.rank_math_facebook_image = socialMetadata.ogImageUrl;
+        meta.rank_math_twitter_title = socialMetadata.twitterTitle;
+        meta.rank_math_twitter_description = socialMetadata.twitterDescription;
+        meta.rank_math_twitter_image = socialMetadata.twitterImageUrl;
+        meta.rank_math_twitter_card_type = socialMetadata.twitterCardType;
     }
 
     return meta;
@@ -417,15 +586,25 @@ export const publishToWordPress = async (
 ): Promise<WordPressApiResponse> => {
     try {
         const credentials = btoa(`${site.wpUserName}:${site.wordpress_key}`);
+        const publishWarnings: string[] = [];
 
         // Upload featured image if provided
         let featuredMediaId: number | null = null;
         if (settings.featuredImageUrl) {
-            featuredMediaId = await uploadFeaturedImage(
+            const featuredUpload = await uploadFeaturedImage(
                 settings.featuredImageUrl,
                 site,
                 settings.featuredImageMetadata || {}
             );
+            featuredMediaId = featuredUpload.mediaId;
+            if (!featuredMediaId) {
+                const reason = featuredUpload.error
+                    ? ` ${featuredUpload.error}`
+                    : '';
+                publishWarnings.push(
+                    `Featured image was not uploaded to WordPress Media and was not attached to the post.${reason}`
+                );
+            }
         }
 
         // Prepare post data
@@ -441,6 +620,7 @@ export const publishToWordPress = async (
 
         const slug = generateSlug(articleData.Title || articleData.title || '', maxSlugLength);
         console.log(`Generated slug: '${slug}' (max len: ${maxSlugLength}) for domain: ${site.domain}`);
+        const resolvedMetadata = resolveSocialMetadata(site, articleData, seoData, slug);
 
         const postData: WordPressPostData = {
             title: articleData.Title || articleData.title || '',
@@ -449,7 +629,7 @@ export const publishToWordPress = async (
             status: settings.postStatus,
             excerpt: articleData.excerpt || articleData.hook || articleData.Hook || '',
             categories: settings.categoryIds,
-            meta: buildSEOMetadata(articleData, seoData, settings.categoryIds[0])
+            meta: buildSEOMetadata(site, articleData, seoData, slug, settings.categoryIds[0])
         };
 
         // Add scheduled date if publishing in the future
@@ -478,6 +658,9 @@ export const publishToWordPress = async (
         }
 
         const result: WordPressApiResponse = await response.json();
+        if (publishWarnings.length > 0) {
+            result.publish_warnings = publishWarnings;
+        }
 
         // Update Titles loopback with publish outcome and GEO/SEO canonical fields.
         if (articleData.id) {
@@ -507,6 +690,7 @@ export const publishToWordPress = async (
                 metaTitle: optimizedTitle || null,
                 seo_meta_desc_optimized: optimizedDescription || null,
                 metaDescription: optimizedDescription || null,
+                canonical_url: resolvedMetadata.canonicalUrl || null,
                 last_wp_post_status: result.status || settings.postStatus,
                 published_at: new Date().toISOString(),
                 wp_post_id: result.id,
@@ -627,6 +811,20 @@ const normalizeDomain = (domain: string): string => {
     return cleaned.replace(/^https?:\/\//, '').replace(/\/+$/, '');
 };
 
+const normalizeCategoryContext = (articleData: any): {
+    projectId: string | null;
+    primaryCategoryId: string | null;
+    secondaryCategoryId: string | null;
+} => {
+    const context = articleData?.idea_metadata?.category_context || articleData?.category_context || {};
+
+    return {
+        projectId: context?.project_id ? String(context.project_id) : null,
+        primaryCategoryId: context?.primary_category_id ? String(context.primary_category_id) : null,
+        secondaryCategoryId: context?.secondary_category_id ? String(context.secondary_category_id) : null,
+    };
+};
+
 /**
  * Resolve synced WordPress category IDs from the article's linked project/topic categories.
  * Returns IDs in preferred order: subcategory first (if present), then primary category.
@@ -636,28 +834,36 @@ export const resolveLinkedWordPressCategoryIds = async (
     siteDomain: string
 ): Promise<number[]> => {
     try {
+        const categoryContext = normalizeCategoryContext(articleData);
         let topicId: string | null = articleData?.topic_id || null;
+        let projectId: string | null = categoryContext.projectId;
+        let primaryCategoryId: string | null = categoryContext.primaryCategoryId;
+        let secondaryCategoryId: string | null = categoryContext.secondaryCategoryId;
 
         if (!topicId && articleData?.source_idea_id) {
             const { data: idea } = await supabase
                 .from('content_ideas')
-                .select('topic_id')
+                .select('topic_id, idea_metadata')
                 .eq('id', articleData.source_idea_id)
                 .maybeSingle();
             topicId = idea?.topic_id || null;
+            const ideaCategoryContext = normalizeCategoryContext(idea);
+            projectId = projectId || ideaCategoryContext.projectId;
+            primaryCategoryId = primaryCategoryId || ideaCategoryContext.primaryCategoryId;
+            secondaryCategoryId = secondaryCategoryId || ideaCategoryContext.secondaryCategoryId;
         }
 
-        if (!topicId) return [];
+        if (topicId) {
+            const { data: topic } = await supabase
+                .from('research_topics')
+                .select('project_id, primary_category_id, secondary_category_id')
+                .eq('id', topicId)
+                .maybeSingle();
 
-        const { data: topic } = await supabase
-            .from('research_topics')
-            .select('project_id, primary_category_id, secondary_category_id')
-            .eq('id', topicId)
-            .maybeSingle();
-
-        const projectId = topic?.project_id;
-        const primaryCategoryId = topic?.primary_category_id;
-        const secondaryCategoryId = topic?.secondary_category_id;
+            projectId = topic?.project_id ? String(topic.project_id) : projectId;
+            primaryCategoryId = topic?.primary_category_id ? String(topic.primary_category_id) : primaryCategoryId;
+            secondaryCategoryId = topic?.secondary_category_id ? String(topic.secondary_category_id) : secondaryCategoryId;
+        }
 
         if (!projectId || (!primaryCategoryId && !secondaryCategoryId)) return [];
 

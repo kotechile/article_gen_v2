@@ -106,6 +106,7 @@ interface ArticleData {
     wordpress_category_id?: number | null;
     wordpress_parent_category_id?: number | null;
     source_idea_id?: string;
+    topic_id?: string | null;
     // Affiliate
     affiliate_opportunities?: any;
     // DataForSEO traces for Keyword Intelligence modal
@@ -352,6 +353,7 @@ export const ContentStudio: React.FC = () => {
 
     // Data State
     const [article, setArticle] = useState<ArticleData | null>(null);
+    const [categoryPath, setCategoryPath] = useState<string | null>(null);
     const [ragCollections, setRagCollections] = useState<RagCollection[]>([]);
     const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
     // Form State
@@ -389,7 +391,57 @@ export const ContentStudio: React.FC = () => {
                     secondary_keywords: normalizeKeywordList((artData as any)?.secondary_keywords),
                 };
 
+                let resolvedCategoryPath: string | null =
+                    typeof (artData as any)?.idea_metadata?.category_context?.category_path === 'string'
+                        ? String((artData as any).idea_metadata.category_context.category_path).trim() || null
+                        : null;
+
+                if (!resolvedCategoryPath) {
+                    let linkedTopicId = (artData as any)?.topic_id ? String((artData as any).topic_id) : null;
+
+                    if (!linkedTopicId && (artData as any)?.source_idea_id) {
+                        const { data: linkedIdea } = await supabase
+                            .from('content_ideas')
+                            .select('topic_id, idea_metadata')
+                            .eq('id', (artData as any).source_idea_id)
+                            .maybeSingle();
+
+                        linkedTopicId = linkedIdea?.topic_id ? String(linkedIdea.topic_id) : null;
+                        const ideaCategoryPath = linkedIdea?.idea_metadata?.category_context?.category_path;
+                        if (typeof ideaCategoryPath === 'string' && ideaCategoryPath.trim()) {
+                            resolvedCategoryPath = ideaCategoryPath.trim();
+                        }
+                    }
+
+                    if (linkedTopicId && !resolvedCategoryPath) {
+                        const { data: topicRow } = await supabase
+                            .from('research_topics')
+                            .select('primary_category_id, secondary_category_id')
+                            .eq('id', linkedTopicId)
+                            .maybeSingle();
+
+                        const categoryIds = [topicRow?.primary_category_id, topicRow?.secondary_category_id].filter(Boolean);
+                        if (categoryIds.length > 0) {
+                            const { data: categoryRows } = await supabase
+                                .from('project_categories')
+                                .select('id, name')
+                                .in('id', categoryIds as string[]);
+
+                            const categoryById = new Map<string, string>();
+                            for (const row of categoryRows || []) {
+                                categoryById.set(String((row as any).id), String((row as any).name || '').trim());
+                            }
+
+                            resolvedCategoryPath = [
+                                categoryById.get(String(topicRow?.primary_category_id || '')),
+                                categoryById.get(String(topicRow?.secondary_category_id || '')),
+                            ].filter(Boolean).join(' / ') || null;
+                        }
+                    }
+                }
+
                 setArticle(normalizedArticle);
+                setCategoryPath(resolvedCategoryPath);
                 setSeoValidation(validateSEOReadiness(normalizedArticle));
                 const savedGenerationSession = localStorage.getItem(getContentStudioGenerationStorageKey(articleId));
                 if (savedGenerationSession) {
@@ -518,7 +570,7 @@ export const ContentStudio: React.FC = () => {
             average_cpc: null,
             created_at: '',
             user_id: user?.id || '',
-            topic_id: article.source_idea_id || '',
+            topic_id: article.topic_id || article.source_idea_id || '',
             description: article.userDescription,
             search_phrase: article.search_phrase,
             keyword_metrics: article.selected_keyword_metrics_json || undefined,
@@ -1405,6 +1457,11 @@ export const ContentStudio: React.FC = () => {
                                     <div className={`font-medium text-xs ${article.wordpress_category_id ? 'text-foreground' : 'text-amber-500'}`}>
                                         {article.wordpress_category_id ?? 'Not mapped'}
                                     </div>
+                                    {categoryPath && (
+                                        <div className="mt-1 text-[10px] text-muted-foreground">
+                                            {categoryPath}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             {(() => {

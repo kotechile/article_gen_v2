@@ -1926,6 +1926,8 @@ def publish_content_ideas():
                     "category": publish_context.get("category"),
                     "domain": publish_context.get("domain"),
                     "source_idea_id": idea.get("id"),
+                    "topic_id": idea.get("topic_id"),
+                    "idea_metadata": idea.get("idea_metadata") or {},
                     # ── Keyword data parity fields ──────────────────────────────
                     # Copy raw DataForSEO output so Keyword Intelligence Modal
                     # can operate on live Titles records without re-enriching.

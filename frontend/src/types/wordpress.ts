@@ -1,5 +1,7 @@
 // WordPress-related type definitions
 
+export type WordPressSeoPlugin = 'unknown' | 'yoast' | 'rankmath' | 'custom' | 'none';
+
 export interface WordPressSite {
     id: number;
     created_at: string;
@@ -14,6 +16,9 @@ export interface WordPressSite {
     brand_text_color?: string;
     brand_secondary_color?: string;
     brand_neutral_color?: string;
+    seo_plugin?: WordPressSeoPlugin;
+    site_url_override?: string;
+    social_default_image_url?: string;
 }
 
 export interface WordPressCategory {
@@ -47,6 +52,14 @@ export interface SEOMetadata {
     internalLinks?: any[];
     externalLinks?: any[];
     optimizationTips?: string[];
+    ogTitle?: string;
+    ogDescription?: string;
+    ogImageUrl?: string;
+    ogType?: 'article' | 'website';
+    twitterTitle?: string;
+    twitterDescription?: string;
+    twitterImageUrl?: string;
+    twitterCardType?: 'summary' | 'summary_large_image';
 }
 
 export interface WordPressPostData {
@@ -77,6 +90,13 @@ export interface WordPressPostData {
         rank_math_canonical_url?: string;
         rank_math_robots?: string[];
         rank_math_primary_category?: number;
+        rank_math_facebook_title?: string;
+        rank_math_facebook_description?: string;
+        rank_math_facebook_image?: string;
+        rank_math_twitter_title?: string;
+        rank_math_twitter_description?: string;
+        rank_math_twitter_image?: string;
+        rank_math_twitter_card_type?: string;
 
         // Custom SEO fields
         seo_focus_keyword?: string;
@@ -86,6 +106,21 @@ export interface WordPressPostData {
         seo_keyword_density?: number;
         seo_schema_type?: string;
         seo_optimization_tips?: string;
+        seo_og_title?: string;
+        seo_og_description?: string;
+        seo_og_image?: string;
+        seo_og_type?: string;
+        seo_twitter_title?: string;
+        seo_twitter_description?: string;
+        seo_twitter_image?: string;
+        seo_twitter_card?: string;
+        '_yoast_wpseo_opengraph-title'?: string;
+        '_yoast_wpseo_opengraph-description'?: string;
+        '_yoast_wpseo_opengraph-image'?: string;
+        '_yoast_wpseo_twitter-title'?: string;
+        '_yoast_wpseo_twitter-description'?: string;
+        '_yoast_wpseo_twitter-image'?: string;
+        '_yoast_wpseo_twitter-card'?: string;
     };
 }
 
@@ -96,6 +131,7 @@ export interface WordPressApiResponse {
     title: {
         rendered: string;
     };
+    publish_warnings?: string[];
     loopback_summary?: {
         success: boolean;
         attemptedFields: string[];

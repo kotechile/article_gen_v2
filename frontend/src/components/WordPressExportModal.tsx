@@ -100,31 +100,41 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                 setCategories(wpCategories);
                 setAutoCategoryHint(null);
 
-                // Priority 1: Use the article's own wordpress_category_id if set and valid
-                // This reflects the current category assignment in the app
-                const directCategoryId = articleData?.wordpress_category_id
-                    ? Number(articleData.wordpress_category_id)
-                    : null;
-                if (directCategoryId && wpCategories.some((cat) => cat.id === directCategoryId)) {
-                    setSelectedCategoryIds([directCategoryId]);
-                    setAutoCategoryHint('Auto-selected from article\'s WordPress Category ID.');
-                    return;
-                }
+                const candidateIds: number[] = [];
 
-                // Priority 2: Restore saved category from previous export (if no direct assignment)
+                const directCategoryIds = [
+                    articleData?.wordpress_category_id,
+                    articleData?.wordpress_parent_category_id,
+                ]
+                    .map((value) => Number(value))
+                    .filter((value) => Number.isFinite(value))
+                    .filter((value) => wpCategories.some((cat) => cat.id === value));
+                candidateIds.push(...directCategoryIds);
+
                 const savedSettings = await loadWordPressSettings(articleId);
                 if (savedSettings?.categoryId && wpCategories.find(c => c.id === savedSettings.categoryId)) {
-                    setSelectedCategoryIds([savedSettings.categoryId]);
-                    setAutoCategoryHint('Using your previously saved category selection.');
-                    return;
+                    candidateIds.push(savedSettings.categoryId);
                 }
 
-                // Priority 3: Auto-link from article topic -> research topic -> project categories synced to WordPress
                 const linkedCategoryIds = await resolveLinkedWordPressCategoryIds(articleData, selectedSite.domain);
                 const validLinkedIds = linkedCategoryIds.filter((id) => wpCategories.some((cat) => cat.id === id));
-                if (validLinkedIds.length > 0) {
-                    setSelectedCategoryIds(validLinkedIds);
-                    setAutoCategoryHint('Auto-selected from linked project category/subcategory.');
+                candidateIds.push(...validLinkedIds);
+
+                const mergedIds = Array.from(new Set(candidateIds)).filter((id) =>
+                    wpCategories.some((cat) => cat.id === id)
+                );
+
+                if (mergedIds.length > 0) {
+                    setSelectedCategoryIds(mergedIds);
+                    if (validLinkedIds.length > 1) {
+                        setAutoCategoryHint('Auto-selected from linked project category and subcategory.');
+                    } else if (validLinkedIds.length === 1) {
+                        setAutoCategoryHint('Auto-selected from linked project category/subcategory.');
+                    } else if (directCategoryIds.length > 0) {
+                        setAutoCategoryHint('Auto-selected from article\'s WordPress category IDs.');
+                    } else if (savedSettings?.categoryId) {
+                        setAutoCategoryHint('Using your previously saved category selection.');
+                    }
                 }
             } catch (err) {
                 setError('Failed to load categories from WordPress. Please check your credentials.');
@@ -215,7 +225,27 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
             });
 
             const loopbackSummary = result.loopback_summary;
-            if (loopbackSummary?.success) {
+            const publishWarnings = result.publish_warnings || [];
+            if (publishWarnings.length > 0 && loopbackSummary?.success) {
+                const savedCount = loopbackSummary.savedFields.length;
+                setLoopbackBanner({
+                    type: 'warning',
+                    message: `Published and synced ${savedCount} Titles fields. ${publishWarnings.join(' ')}`,
+                });
+            } else if (publishWarnings.length > 0 && loopbackSummary) {
+                const removedCount = loopbackSummary.removedFields.length;
+                setLoopbackBanner({
+                    type: 'warning',
+                    message: removedCount > 0
+                        ? `Published, but ${removedCount} loopback fields were skipped due to schema mismatch. ${publishWarnings.join(' ')}`
+                        : `Published, but Titles loopback update had issues. ${publishWarnings.join(' ')}`,
+                });
+            } else if (publishWarnings.length > 0) {
+                setLoopbackBanner({
+                    type: 'warning',
+                    message: `Published, but ${publishWarnings.join(' ')}`,
+                });
+            } else if (loopbackSummary?.success) {
                 const savedCount = loopbackSummary.savedFields.length;
                 setLoopbackBanner({
                     type: 'success',

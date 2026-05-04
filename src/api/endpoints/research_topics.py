@@ -312,6 +312,650 @@ def _build_idea_keyword_metrics_payload(idea: dict, source_metrics_map: dict) ->
     return keyword_metrics, aggregates
 
 
+def _normalize_search_phrase_text(raw_phrase: str) -> str:
+    phrase = re.sub(r"[^a-zA-Z0-9\s\-]", " ", str(raw_phrase or "")).lower()
+    phrase = re.sub(r"\s+", " ", phrase).strip(" -")
+    if not phrase:
+        return ""
+    tokens = [token for token in phrase.split(" ") if token]
+    if not tokens:
+        return ""
+    if len(tokens) == 1 and len(tokens[0]) < 3:
+        return ""
+    if len(tokens) > 3:
+        tokens = tokens[:3]
+    return " ".join(tokens)
+
+
+def _normalize_idea_title_text(raw_title: str) -> str:
+    """Normalize LLM titles to plain language and reduce consultant-speak drift."""
+    if not raw_title:
+        return raw_title
+
+    title = re.sub(r"\s+", " ", raw_title.strip())
+    jargon_map = {
+        r"\bframework\b": "guide",
+        r"\bplaybook\b": "plan",
+        r"\bmethodology\b": "method",
+        r"\boptimization\b": "improvements",
+        r"\bscenario\b": "plan",
+        r"\bsolvency\b": "financial health",
+        r"\barbitrage\b": "price gap",
+        r"\bamortization\b": "paydown",
+        r"\bvaluation\b": "value",
+    }
+    for pattern, replacement in jargon_map.items():
+        title = re.sub(pattern, replacement, title, flags=re.IGNORECASE)
+
+    title = re.sub(r"\s*[-–—]{2,}\s*", " - ", title)
+    title = re.sub(r"\s{2,}", " ", title).strip(" -")
+    return title
+
+
+def _build_keyword_metrics_fallback_payload(raw_keywords) -> tuple[dict, dict]:
+    """
+    Build a fallback metrics payload from a cluster's stored keyword candidates.
+    This keeps idea metrics available even when the generated phrasing does not
+    exactly match the cluster keywords used during research.
+    """
+    keyword_metrics: dict = {}
+    volumes = []
+    difficulties = []
+    cpcs = []
+
+    for item in _coerce_keyword_metric_entries(raw_keywords):
+        keyword = str(item.get("keyword") or "").strip()
+        if not keyword or keyword in keyword_metrics:
+            continue
+
+        search_volume = item.get("search_volume")
+        cpc = item.get("cpc")
+        keyword_difficulty = item.get("keyword_difficulty")
+        keyword_metrics[keyword] = {
+            "search_volume": search_volume,
+            "cpc": round(float(cpc), 2) if cpc is not None else None,
+            "keyword_difficulty": round(float(keyword_difficulty), 1) if keyword_difficulty is not None else None,
+        }
+        if search_volume is not None and search_volume > 0:
+            volumes.append(int(search_volume))
+        if cpc is not None and cpc > 0:
+            cpcs.append(float(cpc))
+        if keyword_difficulty is not None and keyword_difficulty > 0:
+            difficulties.append(float(keyword_difficulty))
+
+    aggregates = {
+        "total_search_volume": int(sum(volumes)) if volumes else None,
+        "average_cpc": round((sum(cpcs) / len(cpcs)) if cpcs else 0.0, 2) if cpcs else None,
+        "average_difficulty": round((sum(difficulties) / len(difficulties)) if difficulties else 0.0, 1) if difficulties else None,
+        "keywords_used": list(keyword_metrics.keys()),
+    }
+    return keyword_metrics, aggregates
+
+
+def _apply_keyword_metrics_to_idea(
+    idea: dict,
+    source_metrics_map: dict,
+    *,
+    fallback_keywords: list[str] | None = None,
+    fallback_metric_entries=None,
+    exact_source: str,
+    fallback_source: str | None = None,
+    estimate_only_source: str = "llm_estimate_only",
+) -> dict:
+    """
+    Attach the strongest available keyword metrics to an idea.
+    Preference order:
+    1. Exact/fuzzy matches from the provided source metrics map
+    2. Fallback aggregate metrics from supplied metric entries
+    3. LLM-estimated keywords only, with no attached numeric metrics
+    """
+    idea_copy = dict(idea or {})
+    idea_metadata = idea_copy.get("idea_metadata") or {}
+    if not isinstance(idea_metadata, dict):
+        idea_metadata = {}
+
+    fallback_keywords = [str(keyword).strip() for keyword in (fallback_keywords or []) if str(keyword).strip()]
+    fallback_keyword_metrics = {}
+    fallback_aggregates = {"keywords_used": [], "total_search_volume": None, "average_cpc": None, "average_difficulty": None}
+    if fallback_metric_entries:
+        fallback_keyword_metrics, fallback_aggregates = _build_keyword_metrics_fallback_payload(fallback_metric_entries)
+
+    keyword_metrics, aggregates = _build_idea_keyword_metrics_payload(
+        idea_copy,
+        source_metrics_map,
+    )
+    if keyword_metrics:
+        idea_copy["keyword_metrics"] = keyword_metrics
+        idea_copy["keywords"] = aggregates["keywords_used"] or idea_copy.get("keywords") or []
+        idea_copy["primary_keywords"] = aggregates["keywords_used"] or idea_copy.get("primary_keywords") or []
+        if not idea_copy.get("secondary_keywords"):
+            idea_copy["secondary_keywords"] = (aggregates["keywords_used"] or [])[1:]
+        idea_copy["total_search_volume"] = aggregates["total_search_volume"]
+        idea_copy["average_cpc"] = aggregates["average_cpc"]
+        idea_copy["average_difficulty"] = aggregates["average_difficulty"]
+        idea_metadata["seo_offer_enrichment"] = {
+            **(idea_metadata.get("seo_offer_enrichment") or {}),
+            "keywords_used": aggregates["keywords_used"],
+            "keyword_metrics": keyword_metrics,
+            "source": exact_source,
+            "enriched_at": datetime.utcnow().isoformat(),
+        }
+    elif fallback_keyword_metrics:
+        idea_copy["keyword_metrics"] = fallback_keyword_metrics
+        if not idea_copy.get("keywords"):
+            idea_copy["keywords"] = fallback_aggregates["keywords_used"] or fallback_keywords
+        if not idea_copy.get("primary_keywords"):
+            idea_copy["primary_keywords"] = fallback_aggregates["keywords_used"] or fallback_keywords
+        if not idea_copy.get("secondary_keywords"):
+            fallback_secondary = (fallback_aggregates["keywords_used"] or fallback_keywords)[1:]
+            idea_copy["secondary_keywords"] = fallback_secondary
+        idea_copy["total_search_volume"] = fallback_aggregates["total_search_volume"]
+        idea_copy["average_cpc"] = fallback_aggregates["average_cpc"]
+        idea_copy["average_difficulty"] = fallback_aggregates["average_difficulty"]
+        idea_metadata["seo_offer_enrichment"] = {
+            **(idea_metadata.get("seo_offer_enrichment") or {}),
+            "keywords_used": fallback_aggregates["keywords_used"] or fallback_keywords,
+            "keyword_metrics": fallback_keyword_metrics,
+            "source": fallback_source or exact_source,
+            "enriched_at": datetime.utcnow().isoformat(),
+        }
+    elif fallback_keywords:
+        idea_metadata["seo_offer_enrichment"] = {
+            **(idea_metadata.get("seo_offer_enrichment") or {}),
+            "keywords_used": idea_copy.get("primary_keywords") or idea_copy.get("keywords") or fallback_keywords,
+            "source": estimate_only_source,
+        }
+
+    idea_copy["idea_metadata"] = idea_metadata
+    return idea_copy
+
+
+def _coerce_optional_int(value):
+    try:
+        return int(value) if value is not None and str(value).strip() != "" else None
+    except Exception:
+        return None
+
+
+def _coerce_optional_float(value):
+    try:
+        return float(value) if value is not None and str(value).strip() != "" else None
+    except Exception:
+        return None
+
+
+def _build_content_idea_persist_row(
+    *,
+    idea: dict,
+    topic_id: str,
+    user_id: str,
+    default_subtopic_name: str,
+    idea_wp_context: dict,
+    category_path: str | None,
+    category_context_project_id=None,
+    category_context_primary_category_id=None,
+    category_context_secondary_category_id=None,
+    raw_dataforseo_output=None,
+) -> dict:
+    keywords = idea.get("primary_keywords") or idea.get("keywords") or []
+    if not isinstance(keywords, list):
+        keywords = []
+    keywords = [str(k).strip() for k in keywords if str(k).strip()]
+
+    secondary_keywords = idea.get("secondary_keywords") or []
+    if not isinstance(secondary_keywords, list):
+        secondary_keywords = []
+    secondary_keywords = [str(k).strip() for k in secondary_keywords if str(k).strip()]
+    if not secondary_keywords and len(keywords) > 1:
+        secondary_keywords = keywords[1:]
+
+    content_type = (idea.get("content_type") or "blog").strip().lower()
+    category = "software_tool" if content_type == "software" else "seo_optimized"
+    mapped_category_description = str(idea_wp_context.get("category_description") or "").strip()
+    if mapped_category_description:
+        category = mapped_category_description
+
+    idea_metadata = idea.get("idea_metadata") or {}
+    if not isinstance(idea_metadata, dict):
+        idea_metadata = {}
+    idea_metadata["category_context"] = {
+        "project_id": category_context_project_id,
+        "primary_category_id": category_context_primary_category_id,
+        "secondary_category_id": category_context_secondary_category_id,
+        "primary_category_name": idea_wp_context.get("primary_category_name"),
+        "secondary_category_name": idea_wp_context.get("secondary_category_name"),
+        "primary_category_description": idea_wp_context.get("primary_category_description"),
+        "secondary_category_description": idea_wp_context.get("secondary_category_description"),
+        "category_path": idea_wp_context.get("category_path") or category_path,
+    }
+
+    total_search_volume = _coerce_optional_int(idea.get("total_search_volume"))
+    average_difficulty = _coerce_optional_float(idea.get("average_difficulty"))
+    average_cpc = _coerce_optional_float(idea.get("average_cpc"))
+
+    return {
+        "id": idea.get("id"),
+        "title": idea.get("title") or "Untitled Idea",
+        "description": idea.get("description") or "",
+        "content_type": content_type,
+        "category": category,
+        "subtopic": str(idea.get("subtopic") or default_subtopic_name or "Idea").strip(),
+        "topic_id": topic_id,
+        "user_id": user_id,
+        "keywords": keywords,
+        "primary_keywords": keywords,
+        "secondary_keywords": secondary_keywords,
+        "wordpress_category_id": idea_wp_context.get("wordpress_category_id"),
+        "wordpress_parent_category_id": idea_wp_context.get("wordpress_parent_category_id"),
+        "domain": idea_wp_context.get("domain"),
+        "search_phrase": idea.get("search_phrase") or "",
+        "total_search_volume": total_search_volume,
+        "average_difficulty": average_difficulty,
+        "average_cpc": average_cpc,
+        "viability_score": int(idea.get("viability_score") or 0),
+        "traffic_potential_score": int(idea.get("traffic_potential_score") or 0),
+        "seo_optimization_score": int(idea.get("seo_optimization_score") or 0),
+        "target_intent": idea.get("target_intent") or "",
+        "article_format": idea.get("article_format") or "",
+        "user_decision_helped": idea.get("user_decision_helped") or "",
+        "internal_link_hook": idea.get("internal_link_hook") or "",
+        "monetization_hook": idea.get("monetization_hook") or "",
+        "product_type": idea.get("product_type") or "",
+        "user_job_to_be_done": idea.get("user_job_to_be_done") or "",
+        "key_inputs": idea.get("key_inputs") or [],
+        "output_result": idea.get("output_result") or "",
+        "build_complexity": idea.get("build_complexity") or "",
+        "distribution_angle": idea.get("distribution_angle") or "",
+        "keyword_metrics": idea.get("keyword_metrics") or {},
+        "raw_dataforseo_output": raw_dataforseo_output if raw_dataforseo_output is not None else (idea.get("raw_dataforseo_output") or {}),
+        "idea_metadata": idea_metadata,
+        "status": idea.get("status") or "draft",
+        "created_at": idea.get("created_at") or datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+
+
+def _insert_content_idea_with_schema_fallback(supabase_admin, row: dict, *, log_label: str) -> bool:
+    payload = dict(row)
+    last_error = None
+    max_attempts = max(12, len(payload) + 4)
+    for _ in range(max_attempts):
+        try:
+            supabase_admin.table("content_ideas").insert(payload).execute()
+            return True
+        except Exception as insert_error:
+            last_error = insert_error
+            err = str(insert_error)
+            missing_cols = re.findall(r"Could not find the '([^']+)' column", err)
+            if not missing_cols:
+                logger.warning(
+                    "%s insert failed without recoverable schema hint payload_keys=%s err=%s",
+                    log_label,
+                    sorted(payload.keys()),
+                    err,
+                    exc_info=True,
+                )
+                return False
+            removed_any = False
+            for col in missing_cols:
+                if col in payload:
+                    payload.pop(col, None)
+                    removed_any = True
+            if not payload:
+                return False
+            if not removed_any:
+                break
+    if last_error:
+        logger.error(
+            "%s insert exhausted schema fallback payload_keys=%s err=%s",
+            log_label,
+                sorted(payload.keys()),
+            last_error,
+        )
+    return False
+
+
+def _rank_idea_groups(
+    *,
+    blog_ideas: list[dict],
+    software_ideas: list[dict],
+    target_intent,
+    tool_potential_score,
+    serp_intent_match,
+) -> tuple[list[dict], list[dict]]:
+    ranked_blog_ideas = _rank_ideas(
+        ideas=blog_ideas,
+        content_type="blog",
+        context_target_intent=target_intent,
+        context_tool_potential_score=tool_potential_score,
+        context_serp_intent_match=serp_intent_match,
+    )
+    ranked_software_ideas = _rank_ideas(
+        ideas=software_ideas,
+        content_type="software",
+        context_target_intent=target_intent,
+        context_tool_potential_score=tool_potential_score,
+        context_serp_intent_match=serp_intent_match,
+    )
+    return ranked_blog_ideas, ranked_software_ideas
+
+
+def _build_idea_generation_success_payload(
+    *,
+    blog_ideas: list[dict],
+    software_ideas: list[dict],
+    persisted_count: int,
+    persisted_idea_ids: list[str],
+    extra_fields: dict | None = None,
+) -> dict:
+    all_ideas = (blog_ideas or []) + (software_ideas or [])
+    persistence_warning = None
+    if all_ideas and persisted_count != len(all_ideas):
+        persistence_warning = (
+            f"Generated {len(all_ideas)} ideas but saved {persisted_count}. "
+            "Some ideas may not persist across reloads."
+        )
+
+    payload = {
+        "success": True,
+        "blog_ideas": [idea.to_dict() if hasattr(idea, 'to_dict') else idea for idea in (blog_ideas or [])],
+        "software_ideas": [idea.to_dict() if hasattr(idea, 'to_dict') else idea for idea in (software_ideas or [])],
+        "generated_count": len(all_ideas),
+        "persisted_count": persisted_count,
+        "persisted_idea_ids": persisted_idea_ids,
+        "persistence_warning": persistence_warning,
+    }
+    if extra_fields:
+        payload.update(extra_fields)
+    return payload
+
+
+def _create_cluster_generated_idea(
+    *,
+    current_idea: dict,
+    content_type: str,
+    topic_id: str,
+    user_id: str,
+    run_id: str,
+    matched_cluster: dict | None,
+) -> dict:
+    subtopic_name = (matched_cluster or {}).get("cluster_name") or "Keyword Cluster"
+    current_idea = dict(current_idea or {})
+    current_idea.setdefault("keywords", [str((matched_cluster or {}).get("primary_keyword") or "").strip()])
+    current_idea.setdefault("input_keywords", [str((matched_cluster or {}).get("primary_keyword") or "").strip()])
+
+    idea = create_idea_dict(
+        current_idea,
+        content_type,
+        topic_id,
+        user_id,
+        subtopic_name,
+        primary_user_outcome=(matched_cluster or {}).get("article_angle"),
+    )
+    if matched_cluster:
+        idea_metadata = idea.get("idea_metadata") or {}
+        idea_metadata["topic_keyword_research"] = {
+            "research_run_id": run_id,
+            "keyword_cluster_id": matched_cluster.get("id"),
+            "cluster_name": matched_cluster.get("cluster_name"),
+            "primary_keyword": matched_cluster.get("primary_keyword"),
+            "secondary_keywords": matched_cluster.get("secondary_keywords_json") or [],
+            "generation_origin": "topic_keyword_pipeline_v1",
+        }
+        idea["idea_metadata"] = idea_metadata
+    return idea
+
+
+def _parse_cluster_idea_response_text(
+    *,
+    text: str,
+    content_type: str,
+    topic_id: str,
+    user_id: str,
+    run_id: str,
+    selected_clusters: list[dict],
+) -> list[dict]:
+    ideas = []
+    current_idea = {}
+    lines = text.split('\n')
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if re.match(r'^(BLOG_IDEA|SOFTWARE_IDEA):', line, re.IGNORECASE):
+            if current_idea and 'title' in current_idea:
+                cluster_id = current_idea.get("cluster_id")
+                matched_cluster = next((item for item in selected_clusters if str(item.get("id")) == str(cluster_id)), None)
+                ideas.append(_create_cluster_generated_idea(
+                    current_idea=current_idea,
+                    content_type=content_type,
+                    topic_id=topic_id,
+                    user_id=user_id,
+                    run_id=run_id,
+                    matched_cluster=matched_cluster,
+                ))
+            current_idea = {'id': str(uuid4())}
+        elif line.upper().startswith('CLUSTER_ID:'):
+            current_idea['cluster_id'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('TITLE:'):
+            current_idea['title'] = _normalize_idea_title_text(line.split(':', 1)[1].strip())
+        elif line.upper().startswith('DESCRIPTION:'):
+            current_idea['description'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('SEARCH_PHRASE:'):
+            current_idea['search_phrase'] = _normalize_search_phrase_text(line.split(':', 1)[1].strip())
+        elif line.upper().startswith('INPUT_KEYWORDS:'):
+            kw_text = line.split(':', 1)[1].strip()
+            current_idea['input_keywords'] = [k.strip() for k in kw_text.split(',') if k.strip()]
+        elif line.upper().startswith('MONETIZATION:'):
+            current_idea['monetization_hook'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('INTENT:'):
+            current_idea['target_intent'] = line.split(':', 1)[1].strip().lower()
+        elif line.upper().startswith('FORMAT:'):
+            current_idea['article_format'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('USER_DECISION_HELPED:'):
+            current_idea['user_decision_helped'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('INTERNAL_LINK_HOOK:'):
+            current_idea['internal_link_hook'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('PRODUCT_TYPE:'):
+            current_idea['product_type'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('USER_JOB:'):
+            current_idea['user_job_to_be_done'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('KEY_INPUTS:'):
+            current_idea['key_inputs'] = [item.strip() for item in line.split(':', 1)[1].strip().split(',') if item.strip()]
+        elif line.upper().startswith('OUTPUT_RESULT:'):
+            current_idea['output_result'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('BUILD_COMPLEXITY:'):
+            current_idea['build_complexity'] = line.split(':', 1)[1].strip().lower()
+        elif line.upper().startswith('DISTRIBUTION_ANGLE:'):
+            current_idea['distribution_angle'] = line.split(':', 1)[1].strip()
+        elif line.upper().startswith('VIABILITY:'):
+            try:
+                via_text = line.split(':', 1)[1].strip()
+                via_match = re.search(r'(\d+)', via_text)
+                current_idea['viability_score'] = int(via_match.group(1)) if via_match else 50
+            except Exception:
+                current_idea['viability_score'] = 50
+        elif re.match(r'^END_IDEA', line, re.IGNORECASE):
+            if current_idea and 'title' in current_idea:
+                cluster_id = current_idea.get("cluster_id")
+                matched_cluster = next((item for item in selected_clusters if str(item.get("id")) == str(cluster_id)), None)
+                ideas.append(_create_cluster_generated_idea(
+                    current_idea=current_idea,
+                    content_type=content_type,
+                    topic_id=topic_id,
+                    user_id=user_id,
+                    run_id=run_id,
+                    matched_cluster=matched_cluster,
+                ))
+                current_idea = {}
+
+    if current_idea and 'title' in current_idea:
+        cluster_id = current_idea.get("cluster_id")
+        matched_cluster = next((item for item in selected_clusters if str(item.get("id")) == str(cluster_id)), None)
+        ideas.append(_create_cluster_generated_idea(
+            current_idea=current_idea,
+            content_type=content_type,
+            topic_id=topic_id,
+            user_id=user_id,
+            run_id=run_id,
+            matched_cluster=matched_cluster,
+        ))
+
+    return ideas
+
+
+def _clip_prompt_text(value: str, limit: int = 220) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit - 3].rstrip()}..."
+
+
+def _serialize_cluster_prompt_context(selected_clusters: list[dict]) -> tuple[list[dict], str]:
+    prompt_clusters = []
+    for cluster in selected_clusters or []:
+        prompt_clusters.append({
+            "id": cluster.get("id"),
+            "cluster_name": cluster.get("cluster_name"),
+            "primary_keyword": cluster.get("primary_keyword"),
+            "secondary_keywords": (cluster.get("secondary_keywords_json") or [])[:5],
+            "intent_label": cluster.get("intent_label"),
+            "article_angle": cluster.get("article_angle"),
+            "opportunity_score": cluster.get("opportunity_score"),
+            "software_opportunity_score": cluster.get("software_opportunity_score"),
+            "rationale": cluster.get("rationale"),
+        })
+
+    clusters_text = "\n".join(
+        [
+            (
+                f"CLUSTER_ID: {cluster.get('id')}\n"
+                f"CLUSTER_NAME: {_clip_prompt_text(cluster.get('cluster_name'), 140)}\n"
+                f"PRIMARY_KEYWORD: {_clip_prompt_text(cluster.get('primary_keyword'), 120)}\n"
+                f"SECONDARY_KEYWORDS: {', '.join([str(k).strip() for k in (cluster.get('secondary_keywords') or []) if str(k).strip()]) or 'N/A'}\n"
+                f"INTENT: {_clip_prompt_text(cluster.get('intent_label'), 80)}\n"
+                f"ARTICLE_ANGLE: {_clip_prompt_text(cluster.get('article_angle'), 180)}\n"
+                f"OPPORTUNITY_SCORE: {cluster.get('opportunity_score') or 0}\n"
+                f"SOFTWARE_OPPORTUNITY_SCORE: {cluster.get('software_opportunity_score') or 0}\n"
+                f"RATIONALE: {_clip_prompt_text(cluster.get('rationale'), 220)}"
+            )
+            for cluster in prompt_clusters
+        ]
+    )
+    return prompt_clusters, clusters_text
+
+
+def _build_cluster_generation_prompts(
+    *,
+    topic_context: dict,
+    category_path: str,
+    effective_value_layer_tags: list,
+    effective_intent_bucket: str,
+    effective_decision_focus: str,
+    effective_angle_question: str,
+    effective_tool_potential_score: int,
+    selected_clusters: list[dict],
+    clusters_text: str,
+) -> tuple[str, str]:
+    blog_prompt = f"""
+You are a veteran SEO content strategist. Generate article ideas from keyword clusters in plain, human language that sounds like real Google searches.
+Also act as a Search Intent Specialist: reverse complex concepts into short query terms users actually type.
+
+Current Year: 2026
+Topic: {_clip_prompt_text(topic_context.get('title') or 'N/A', 140)}
+Topic Description: {_clip_prompt_text(topic_context.get('description') or 'N/A', 220)}
+Category Path: {_clip_prompt_text(category_path or 'N/A', 140)}
+Intent Bucket: {_clip_prompt_text(effective_intent_bucket, 80)}
+Decision Focus: {_clip_prompt_text(effective_decision_focus, 220)}
+Angle Question: {_clip_prompt_text(effective_angle_question, 220)}
+Value Tags: {', '.join([str(tag).strip() for tag in effective_value_layer_tags[:6] if str(tag).strip()]) or 'N/A'}
+
+Selected Keyword Clusters:
+{clusters_text}
+
+Generate exactly {len(selected_clusters)} BLOG article ideas, using one idea per cluster.
+
+Hard constraints:
+1. Each idea MUST map clearly to one cluster and include the exact CLUSTER_ID in the output.
+2. Use the cluster's primary keyword and supporting keywords as the basis for the article.
+3. Every idea must target a meaningfully different user decision or question.
+4. Avoid consultant/corporate jargon in titles and search phrases.
+5. Each idea MUST include SEARCH_PHRASE (1-3 words, lowercase).
+6. TITLE must include SEARCH_PHRASE verbatim.
+7. INPUT_KEYWORDS must be 3-5 simple query-like phrases, aligned to that cluster only.
+8. DESCRIPTION is required and cannot be empty.
+9. Prefer article angles that are realistically rankable and monetizable.
+
+For each idea, provide:
+- Cluster ID
+- Title
+- Description
+- Search Phrase
+- Input Keywords
+- Intent
+- Format
+- User Decision Helped
+- Internal Link Hook
+- Monetization Hook
+- Viability
+
+Output format (use exactly this format):
+BLOG_IDEA: [number]
+CLUSTER_ID: [cluster uuid]
+TITLE: [title]
+DESCRIPTION: [description]
+SEARCH_PHRASE: [1-3 word query]
+INPUT_KEYWORDS: [keyword1, keyword2, keyword3, keyword4]
+INTENT: [informational/commercial/transactional]
+FORMAT: [comparison/checklist/framework/case-study/how-to/calculator-guide]
+USER_DECISION_HELPED: [decision]
+INTERNAL_LINK_HOOK: [internal link strategy]
+MONETIZATION: [monetization approach]
+VIABILITY: [overall viability score 1-100]
+END_IDEA
+"""
+
+    software_prompt = f"""
+You are a product strategist generating software tools users can discover through search. Use plain language and practical naming.
+
+Current Year: 2026
+Topic: {_clip_prompt_text(topic_context.get('title') or 'N/A', 140)}
+Category Path: {_clip_prompt_text(category_path or 'N/A', 140)}
+Tool Potential Score: {effective_tool_potential_score}/100
+
+Selected Keyword Clusters:
+{clusters_text}
+
+Generate up to {len(selected_clusters)} SOFTWARE ideas. Only generate a software idea for a cluster if it has real tool, calculator, planner, comparison, or workflow-helper potential.
+
+Hard constraints:
+1. Each idea MUST include the exact CLUSTER_ID in the output.
+2. These are products/features to build, not articles.
+3. Avoid duplicating the same tool concept across clusters.
+4. Tool names must be plain-English and practical.
+5. SEARCH_PHRASE must be 1-3 words and realistic search language.
+6. INPUT_KEYWORDS must be 3-5 simple phrases tied to the cluster.
+
+Output format (use exactly this format):
+SOFTWARE_IDEA: [number]
+CLUSTER_ID: [cluster uuid]
+TITLE: [tool name]
+DESCRIPTION: [what the tool does and user interaction]
+SEARCH_PHRASE: [1-3 word query]
+INPUT_KEYWORDS: [keyword1, keyword2, keyword3, keyword4]
+PRODUCT_TYPE: [calculator/planner/evaluator/comparison-tool/dashboard/workflow-helper]
+USER_JOB: [job to be done]
+KEY_INPUTS: [input1, input2, input3]
+OUTPUT_RESULT: [result]
+MONETIZATION: [how to monetize the tool]
+BUILD_COMPLEXITY: [low/medium/high]
+DISTRIBUTION_ANGLE: [distribution strategy]
+VIABILITY: [overall viability score 1-100]
+END_IDEA
+"""
+    return blog_prompt, software_prompt
+
+
 def _select_preferred_project_category_row(
     category_rows: list[dict],
     primary_category_id=None,
@@ -366,6 +1010,13 @@ def _resolve_idea_wordpress_category_context(
         "wordpress_category_id": None,
         "wordpress_parent_category_id": None,
         "category_description": None,
+        "category_path": None,
+        "primary_category_id": primary_category_id,
+        "secondary_category_id": secondary_category_id,
+        "primary_category_name": None,
+        "secondary_category_name": None,
+        "primary_category_description": None,
+        "secondary_category_description": None,
         "domain": None,
     }
     if not project_id:
@@ -404,6 +1055,28 @@ def _resolve_idea_wordpress_category_context(
             primary_category_id=primary_category_id,
             secondary_category_id=secondary_category_id,
         )
+        category_by_id = {
+            str(row.get("id")): row
+            for row in category_rows
+            if row.get("id")
+        }
+        primary_row = category_by_id.get(str(primary_category_id)) if primary_category_id else None
+        secondary_row = category_by_id.get(str(secondary_category_id)) if secondary_category_id else None
+
+        context["primary_category_name"] = (primary_row or {}).get("name")
+        context["secondary_category_name"] = (secondary_row or {}).get("name")
+        context["primary_category_description"] = (primary_row or {}).get("description")
+        context["secondary_category_description"] = (secondary_row or {}).get("description")
+        context["category_path"] = " / ".join(
+            [
+                part
+                for part in [
+                    context.get("primary_category_name"),
+                    context.get("secondary_category_name"),
+                ]
+                if str(part or "").strip()
+            ]
+        ) or None
         if selected_row:
             context["wordpress_category_id"] = selected_row.get("wordpress_category_id")
             context["wordpress_parent_category_id"] = selected_row.get("wordpress_parent_category_id")
@@ -1835,11 +2508,19 @@ def update_subtopic(topic_id, subtopic_id):
 # Additional imports for Enhanced Logic
 from src.services.enhanced_topic_decomposition_service import EnhancedTopicDecompositionService
 from src.services.subtopics_service import SubtopicsService
+from src.services.topic_keyword_research_service import TopicKeywordResearchService
 from src.core.models.enhanced_subtopic import EnhancedSubtopic
 
 # Instantiate services
 enhanced_decomposition_service = EnhancedTopicDecompositionService()
 subtopics_service = SubtopicsService()
+
+
+def _get_topic_keyword_research_service(supabase):
+    return TopicKeywordResearchService(
+        supabase=supabase,
+        supabase_admin=_get_admin_supabase_client(supabase),
+    )
 
 @research_topics_bp.route('/<topic_id>/subtopics/generate', methods=['POST'])
 @require_api_key
@@ -2151,6 +2832,503 @@ def generate_subtopics(topic_id):
         return jsonify(ErrorResponse(
             error="internal_error",
             message=str(e),
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@research_topics_bp.route('/<topic_id>/keyword-research/run', methods=['POST'])
+@require_api_key
+def run_topic_keyword_research(topic_id):
+    """Run the new topic-level keyword research pipeline for a single research topic."""
+    import asyncio
+
+    try:
+        data = request.get_json(silent=True) or {}
+        supabase = get_supabase_client()
+        user_id = _resolve_user_id_from_request(supabase, data)
+        if not user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        service = _get_topic_keyword_research_service(supabase)
+        result = asyncio.run(
+            service.run_topic_research(
+                topic_id=topic_id,
+                user_id=user_id,
+                replace_existing=bool(data.get("replace_existing", False)),
+                filters=data.get("filters") if isinstance(data.get("filters"), dict) else None,
+                score_config=data.get("score_config") if isinstance(data.get("score_config"), dict) else None,
+            )
+        )
+
+        return jsonify({
+            "success": True,
+            "run": result.get("run"),
+            "summary": result.get("summary"),
+            "keyword_count": len(result.get("keywords") or []),
+            "cluster_count": len(result.get("clusters") or []),
+            "top_clusters": (result.get("clusters") or [])[:5],
+        }), 200
+    except ValueError as err:
+        return jsonify(ErrorResponse(
+            error="not_found",
+            message=str(err),
+            error_code="NOT_FOUND",
+            status=404
+        ).dict()), 404
+    except Exception as err:
+        logger.error("Error running topic keyword research topic_id=%s err=%s", topic_id, err, exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message="Failed to run topic keyword research",
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@research_topics_bp.route('/<topic_id>/keyword-research/latest', methods=['GET'])
+@require_api_key
+def get_latest_topic_keyword_research(topic_id):
+    """Fetch the latest topic-level keyword research run for a research topic."""
+    try:
+        supabase = get_supabase_client()
+        user_id = _resolve_user_id_from_request(supabase)
+        if not user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        service = _get_topic_keyword_research_service(supabase)
+        run = service.get_latest_run(topic_id=topic_id, user_id=user_id)
+        if not run:
+            return jsonify(ErrorResponse(
+                error="not_found",
+                message="No topic keyword research run found for this topic",
+                error_code="NOT_FOUND",
+                status=404
+            ).dict()), 404
+
+        return jsonify(run), 200
+    except Exception as err:
+        logger.error("Error fetching latest topic keyword research topic_id=%s err=%s", topic_id, err, exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message="Failed to fetch topic keyword research",
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@research_topics_bp.route('/<topic_id>/keyword-research/runs/<run_id>', methods=['GET'])
+@require_api_key
+def get_topic_keyword_research_run(topic_id, run_id):
+    """Fetch one topic-level keyword research run."""
+    try:
+        supabase = get_supabase_client()
+        user_id = _resolve_user_id_from_request(supabase)
+        if not user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        service = _get_topic_keyword_research_service(supabase)
+        run = service.get_run(run_id=run_id, topic_id=topic_id, user_id=user_id)
+        if not run:
+            return jsonify(ErrorResponse(
+                error="not_found",
+                message="Topic keyword research run not found",
+                error_code="NOT_FOUND",
+                status=404
+            ).dict()), 404
+
+        return jsonify(run), 200
+    except Exception as err:
+        logger.error("Error fetching topic keyword research run topic_id=%s run_id=%s err=%s", topic_id, run_id, err, exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message="Failed to fetch topic keyword research run",
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@research_topics_bp.route('/<topic_id>/keyword-research/runs/<run_id>/keywords', methods=['GET'])
+@require_api_key
+def list_topic_keyword_research_keywords(topic_id, run_id):
+    """List persisted keyword candidates for a topic-level research run."""
+    try:
+        supabase = get_supabase_client()
+        user_id = _resolve_user_id_from_request(supabase)
+        if not user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        include_filtered = request.args.get("include_filtered", "true").strip().lower() != "false"
+        service = _get_topic_keyword_research_service(supabase)
+        run = service.get_run(run_id=run_id, topic_id=topic_id, user_id=user_id)
+        if not run:
+            return jsonify(ErrorResponse(
+                error="not_found",
+                message="Topic keyword research run not found",
+                error_code="NOT_FOUND",
+                status=404
+            ).dict()), 404
+
+        rows = service.list_keywords(
+            run_id=run_id,
+            topic_id=topic_id,
+            user_id=user_id,
+            include_filtered=include_filtered,
+        )
+        return jsonify({
+            "items": rows,
+            "total": len(rows),
+            "include_filtered": include_filtered,
+        }), 200
+    except Exception as err:
+        logger.error("Error listing topic keyword research keywords topic_id=%s run_id=%s err=%s", topic_id, run_id, err, exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message="Failed to list topic keyword research keywords",
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@research_topics_bp.route('/<topic_id>/keyword-research/runs/<run_id>/clusters', methods=['GET'])
+@require_api_key
+def list_topic_keyword_research_clusters(topic_id, run_id):
+    """List persisted keyword clusters for a topic-level research run."""
+    try:
+        supabase = get_supabase_client()
+        user_id = _resolve_user_id_from_request(supabase)
+        if not user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        service = _get_topic_keyword_research_service(supabase)
+        run = service.get_run(run_id=run_id, topic_id=topic_id, user_id=user_id)
+        if not run:
+            return jsonify(ErrorResponse(
+                error="not_found",
+                message="Topic keyword research run not found",
+                error_code="NOT_FOUND",
+                status=404
+            ).dict()), 404
+
+        rows = service.list_clusters(
+            run_id=run_id,
+            topic_id=topic_id,
+            user_id=user_id,
+        )
+        return jsonify({
+            "items": rows,
+            "total": len(rows),
+        }), 200
+    except Exception as err:
+        logger.error("Error listing topic keyword research clusters topic_id=%s run_id=%s err=%s", topic_id, run_id, err, exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message="Failed to list topic keyword research clusters",
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@research_topics_bp.route('/<topic_id>/keyword-research/runs/<run_id>/generate-ideas', methods=['POST'])
+@require_api_key
+def generate_ideas_from_topic_keyword_clusters(topic_id, run_id):
+    """Generate content ideas from selected topic keyword clusters and persist them to content_ideas."""
+    try:
+        if not request.is_json:
+            return jsonify(ErrorResponse(
+                error="invalid_content_type",
+                message="Content-Type must be application/json",
+                error_code="INVALID_CONTENT_TYPE",
+                status=400
+            ).dict()), 400
+
+        data = request.get_json() or {}
+        supabase = get_supabase_client()
+        request_user_id = _resolve_user_id_from_request(supabase, data)
+        if not request_user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        user_id = data.get("user_id") or request_user_id
+        if user_id != request_user_id:
+            return jsonify(ErrorResponse(
+                error="forbidden",
+                message="You do not have access to this user_id",
+                error_code="FORBIDDEN",
+                status=403
+            ).dict()), 403
+
+        service = _get_topic_keyword_research_service(supabase)
+        run = service.get_run(run_id=run_id, topic_id=topic_id, user_id=user_id)
+        if not run:
+            return jsonify(ErrorResponse(
+                error="not_found",
+                message="Topic keyword research run not found",
+                error_code="NOT_FOUND",
+                status=404
+            ).dict()), 404
+
+        cluster_rows = service.list_clusters(run_id=run_id, topic_id=topic_id, user_id=user_id)
+        cluster_ids = [str(item).strip() for item in (data.get("cluster_ids") or []) if str(item).strip()]
+        selected_clusters = [
+            row for row in cluster_rows
+            if not cluster_ids or str(row.get("id") or "") in cluster_ids
+        ]
+        selected_clusters = selected_clusters[:3]
+        if not selected_clusters:
+            return jsonify(ErrorResponse(
+                error="validation_error",
+                message="No keyword clusters selected",
+                error_code="VALIDATION_ERROR",
+                status=400
+            ).dict()), 400
+
+        supabase_admin = _get_admin_supabase_client(supabase)
+        topic_context_res = (
+            supabase_admin
+            .table('research_topics')
+            .select(
+                'title, description, project_id, primary_category_id, secondary_category_id, '
+                'intent_bucket, decision_focus, angle_question, value_layer_tags, target_audience'
+            )
+            .eq('id', topic_id)
+            .single()
+            .execute()
+        )
+        topic_context = topic_context_res.data or {}
+        idea_wp_context = _resolve_idea_wordpress_category_context(
+            supabase_admin,
+            project_id=topic_context.get("project_id"),
+            user_id=user_id,
+            primary_category_id=topic_context.get("primary_category_id"),
+            secondary_category_id=topic_context.get("secondary_category_id"),
+        )
+
+        category_path = idea_wp_context.get("category_path") or "N/A"
+        category_ids = [
+            category_id
+            for category_id in [topic_context.get('primary_category_id'), topic_context.get('secondary_category_id')]
+            if category_id
+        ]
+        if category_ids and category_path == "N/A":
+            try:
+                category_response = (
+                    supabase_admin
+                    .table('project_categories')
+                    .select('id, name')
+                    .in_('id', category_ids)
+                    .execute()
+                )
+                category_map = {item['id']: item.get('name') for item in (category_response.data or [])}
+                primary_name = category_map.get(topic_context.get('primary_category_id'))
+                secondary_name = category_map.get(topic_context.get('secondary_category_id'))
+                category_path = " / ".join([part for part in [primary_name, secondary_name] if part]) or category_path
+            except Exception:
+                logger.warning("Could not load category names for cluster idea generation", exc_info=True)
+
+        cluster_keyword_metrics_maps = {
+            str(cluster.get("id")): _build_keyword_metrics_map(cluster.get("keyword_candidates_json") or [])
+            for cluster in selected_clusters
+        }
+        _, clusters_text = _serialize_cluster_prompt_context(selected_clusters)
+
+        effective_value_layer_tags = topic_context.get('value_layer_tags') or ["decision-support"]
+        effective_intent_bucket = topic_context.get('intent_bucket') or "informational_decision"
+        effective_decision_focus = topic_context.get('decision_focus') or f"Help users make a decision about {topic_context.get('title') or 'this topic'}"
+        effective_angle_question = topic_context.get('angle_question') or f"What is the best way to approach {topic_context.get('title') or 'this topic'}?"
+        try:
+            effective_tool_potential_score = int(max([float(cluster.get("software_opportunity_score") or 0.0) for cluster in selected_clusters] or [50]))
+        except Exception:
+            effective_tool_potential_score = 50
+        effective_serp_intent_match = "high" if any(
+            (cluster.get("serp_validation_json") or {}).get("article_intent_confidence", 0) >= 75
+            for cluster in selected_clusters
+        ) else "medium"
+
+        from supabase_client import LLM_ROLE_RESEARCH_IDEA_GENERATION
+        from src.services.llm.llm_service import llm_service
+        import asyncio
+
+        async def generate_cluster_ideas():
+            blog_prompt, software_prompt = _build_cluster_generation_prompts(
+                topic_context=topic_context,
+                category_path=category_path,
+                effective_value_layer_tags=effective_value_layer_tags,
+                effective_intent_bucket=effective_intent_bucket,
+                effective_decision_focus=effective_decision_focus,
+                effective_angle_question=effective_angle_question,
+                effective_tool_potential_score=effective_tool_potential_score,
+                selected_clusters=selected_clusters,
+                clusters_text=clusters_text,
+            )
+
+            blog_response = await llm_service.generate_text(
+                blog_prompt,
+                task_role=LLM_ROLE_RESEARCH_IDEA_GENERATION,
+                max_tokens=2200,
+            )
+            software_response = await llm_service.generate_text(
+                software_prompt,
+                task_role=LLM_ROLE_RESEARCH_IDEA_GENERATION,
+                max_tokens=1800,
+            )
+            return blog_response.content, software_response.content
+
+        blog_text, software_text = asyncio.run(generate_cluster_ideas())
+
+        blog_ideas = _parse_cluster_idea_response_text(
+            text=blog_text,
+            content_type='blog',
+            topic_id=topic_id,
+            user_id=user_id,
+            run_id=run_id,
+            selected_clusters=selected_clusters,
+        )
+        software_ideas = _parse_cluster_idea_response_text(
+            text=software_text,
+            content_type='software',
+            topic_id=topic_id,
+            user_id=user_id,
+            run_id=run_id,
+            selected_clusters=selected_clusters,
+        )
+
+        def _cluster_context_for_idea(idea: dict) -> dict:
+            cluster_meta = ((idea.get("idea_metadata") or {}).get("topic_keyword_research") or {})
+            cluster_id = cluster_meta.get("keyword_cluster_id")
+            return next((item for item in selected_clusters if str(item.get("id")) == str(cluster_id)), {}) or {}
+
+        def _attach_cluster_keyword_metrics(ideas: list[dict]) -> list[dict]:
+            enriched_ideas = []
+            for idea in ideas or []:
+                idea_copy = dict(idea)
+                cluster_context = _cluster_context_for_idea(idea_copy)
+                idea_metadata = idea_copy.get("idea_metadata") or {}
+                cluster_id = str(((idea_metadata.get("topic_keyword_research") or {}).get("keyword_cluster_id")) or "")
+                cluster_prompt_keywords = [
+                    str(cluster_context.get("primary_keyword") or "").strip(),
+                    *[str(k).strip() for k in (cluster_context.get("secondary_keywords_json") or []) if str(k).strip()],
+                ]
+                cluster_prompt_keywords = [kw for kw in cluster_prompt_keywords if kw]
+                cluster_id = str(((idea_metadata.get("topic_keyword_research") or {}).get("keyword_cluster_id")) or "")
+                keyword_metrics_map = cluster_keyword_metrics_maps.get(cluster_id, {})
+
+                enriched_ideas.append(_apply_keyword_metrics_to_idea(
+                    idea_copy,
+                    keyword_metrics_map,
+                    fallback_keywords=cluster_prompt_keywords,
+                    fallback_metric_entries=cluster_context.get("keyword_candidates_json") or [],
+                    exact_source="topic_keyword_cluster_metrics",
+                    fallback_source="topic_keyword_cluster_fallback_metrics",
+                ))
+            return enriched_ideas
+
+        blog_ideas, software_ideas = _rank_idea_groups(
+            blog_ideas=_attach_cluster_keyword_metrics(blog_ideas),
+            software_ideas=_attach_cluster_keyword_metrics(software_ideas),
+            target_intent=effective_intent_bucket,
+            tool_potential_score=effective_tool_potential_score,
+            serp_intent_match=effective_serp_intent_match,
+        )
+
+        all_ideas = (blog_ideas or []) + (software_ideas or [])
+        saved_count = 0
+        persisted_idea_ids: list[str] = []
+        if all_ideas:
+            cluster_names = [str(cluster.get("cluster_name") or "").strip() for cluster in selected_clusters if str(cluster.get("cluster_name") or "").strip()]
+            if cluster_names:
+                try:
+                    supabase_admin.table("content_ideas") \
+                        .delete() \
+                        .eq("user_id", user_id) \
+                        .eq("topic_id", topic_id) \
+                        .eq("status", "draft") \
+                        .in_("subtopic", cluster_names) \
+                        .execute()
+                except Exception:
+                    logger.warning("Skipping draft cleanup before cluster idea save", exc_info=True)
+
+            persisted_rows = [
+                _build_content_idea_persist_row(
+                    idea={
+                        **idea,
+                        "subtopic": str(
+                            (((idea.get("idea_metadata") or {}).get("topic_keyword_research") or {}).get("cluster_name")
+                             or idea.get("subtopic")
+                             or "Keyword Cluster")
+                        ).strip(),
+                    },
+                    topic_id=topic_id,
+                    user_id=user_id,
+                    default_subtopic_name="Keyword Cluster",
+                    idea_wp_context=idea_wp_context,
+                    category_path=category_path,
+                    category_context_project_id=topic_context.get("project_id"),
+                    category_context_primary_category_id=topic_context.get("primary_category_id"),
+                    category_context_secondary_category_id=topic_context.get("secondary_category_id"),
+                    raw_dataforseo_output={
+                        "topic_keyword_research_run_id": run_id,
+                        "selected_cluster_ids": [cluster.get("id") for cluster in selected_clusters],
+                    },
+                )
+                for idea in all_ideas
+            ]
+            for row in persisted_rows:
+                if _insert_content_idea_with_schema_fallback(supabase_admin, row, log_label="Cluster idea"):
+                    saved_count += 1
+                    row_id = row.get("id")
+                    if row_id:
+                        persisted_idea_ids.append(str(row_id))
+            try:
+                supabase_admin.table("research_topics").update({
+                    "updated_at": datetime.utcnow().isoformat()
+                }).eq("id", topic_id).eq("user_id", user_id).execute()
+            except Exception:
+                logger.warning("Could not update research topic timestamp after cluster idea generation", exc_info=True)
+
+        return jsonify(_build_idea_generation_success_payload(
+            blog_ideas=blog_ideas,
+            software_ideas=software_ideas,
+            persisted_count=saved_count,
+            persisted_idea_ids=persisted_idea_ids,
+            extra_fields={
+                "selected_cluster_ids": [cluster.get("id") for cluster in selected_clusters],
+            },
+        )), 200
+    except Exception as err:
+        logger.error("Error generating ideas from topic keyword clusters: %s", err, exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message="Failed to generate ideas from keyword clusters",
             error_code="INTERNAL_ERROR",
             status=500
         ).dict()), 500
@@ -2496,74 +3674,31 @@ Critical naming and language rules:
             subtopic_name,
             primary_user_outcome=effective_primary_user_outcome,
         )
-        blog_ideas = _rank_ideas(
-            ideas=blog_ideas,
-            content_type="blog",
-            context_target_intent=effective_intent_bucket,
-            context_tool_potential_score=effective_tool_potential_score,
-            context_serp_intent_match=effective_serp_intent_match,
-        )
-        software_ideas = _rank_ideas(
-            ideas=software_ideas,
-            content_type="software",
-            context_target_intent=effective_intent_bucket,
-            context_tool_potential_score=effective_tool_potential_score,
-            context_serp_intent_match=effective_serp_intent_match,
+        blog_ideas, software_ideas = _rank_idea_groups(
+            blog_ideas=blog_ideas,
+            software_ideas=software_ideas,
+            target_intent=effective_intent_bucket,
+            tool_potential_score=effective_tool_potential_score,
+            serp_intent_match=effective_serp_intent_match,
         )
 
         def _attach_keyword_metrics(ideas: list[dict]) -> list[dict]:
             enriched_ideas = []
             for idea in ideas or []:
-                idea_copy = dict(idea)
-                idea_metadata = idea_copy.get("idea_metadata") or {}
-                if not isinstance(idea_metadata, dict):
-                    idea_metadata = {}
-
-                keyword_metrics, aggregates = _build_idea_keyword_metrics_payload(
-                    idea_copy,
+                enriched_ideas.append(_apply_keyword_metrics_to_idea(
+                    dict(idea),
                     subtopic_keyword_metrics_map,
-                )
-
-                if keyword_metrics:
-                    idea_copy["keyword_metrics"] = keyword_metrics
-                    idea_copy["keywords"] = aggregates["keywords_used"] or idea_copy.get("keywords") or []
-                    idea_copy["primary_keywords"] = aggregates["keywords_used"] or idea_copy.get("primary_keywords") or []
-                    if not idea_copy.get("secondary_keywords"):
-                        idea_copy["secondary_keywords"] = (aggregates["keywords_used"] or [])[1:]
-                    idea_copy["total_search_volume"] = aggregates["total_search_volume"]
-                    idea_copy["average_cpc"] = aggregates["average_cpc"]
-                    idea_copy["average_difficulty"] = aggregates["average_difficulty"]
-                    idea_metadata["seo_offer_enrichment"] = {
-                        **(idea_metadata.get("seo_offer_enrichment") or {}),
-                        "keywords_used": aggregates["keywords_used"],
-                        "keyword_metrics": keyword_metrics,
-                        "source": "subtopic_keyword_metrics",
-                        "enriched_at": datetime.utcnow().isoformat(),
-                    }
-                elif prompt_keywords:
-                    idea_metadata["seo_offer_enrichment"] = {
-                        **(idea_metadata.get("seo_offer_enrichment") or {}),
-                        "keywords_used": idea_copy.get("primary_keywords") or idea_copy.get("keywords") or prompt_keywords,
-                        "source": "llm_estimate_only",
-                    }
-
-                idea_copy["idea_metadata"] = idea_metadata
-                enriched_ideas.append(idea_copy)
+                    fallback_keywords=prompt_keywords,
+                    exact_source="subtopic_keyword_metrics",
+                ))
             return enriched_ideas
 
-        blog_ideas = _rank_ideas(
-            ideas=_attach_keyword_metrics(blog_ideas),
-            content_type="blog",
-            context_target_intent=effective_intent_bucket,
-            context_tool_potential_score=effective_tool_potential_score,
-            context_serp_intent_match=effective_serp_intent_match,
-        )
-        software_ideas = _rank_ideas(
-            ideas=_attach_keyword_metrics(software_ideas),
-            content_type="software",
-            context_target_intent=effective_intent_bucket,
-            context_tool_potential_score=effective_tool_potential_score,
-            context_serp_intent_match=effective_serp_intent_match,
+        blog_ideas, software_ideas = _rank_idea_groups(
+            blog_ideas=_attach_keyword_metrics(blog_ideas),
+            software_ideas=_attach_keyword_metrics(software_ideas),
+            target_intent=effective_intent_bucket,
+            tool_potential_score=effective_tool_potential_score,
+            serp_intent_match=effective_serp_intent_match,
         )
 
         # Persist burst ideas so they appear in Content Library and Software Ideas screens.
@@ -2584,127 +3719,22 @@ Critical naming and language rules:
                 # Some schemas may not include status; skip cleanup in that case.
                 logger.warning("Skipping draft cleanup before idea burst save", exc_info=True)
 
-            def _build_persist_row(idea: dict) -> dict:
-                keywords = idea.get("primary_keywords") or idea.get("keywords") or []
-                if not isinstance(keywords, list):
-                    keywords = []
-                keywords = [str(k).strip() for k in keywords if str(k).strip()]
-
-                secondary_keywords = idea.get("secondary_keywords") or []
-                if not isinstance(secondary_keywords, list):
-                    secondary_keywords = []
-                secondary_keywords = [str(k).strip() for k in secondary_keywords if str(k).strip()]
-                if not secondary_keywords and len(keywords) > 1:
-                    secondary_keywords = keywords[1:]
-
-                content_type = (idea.get("content_type") or "blog").strip().lower()
-                category = "software_tool" if content_type == "software" else "seo_optimized"
-                mapped_category_description = (
-                    str(idea_wp_context.get("category_description") or "").strip()
+            persisted_rows = [
+                _build_content_idea_persist_row(
+                    idea=idea,
+                    topic_id=topic_id,
+                    user_id=user_id,
+                    default_subtopic_name=subtopic_name,
+                    idea_wp_context=idea_wp_context,
+                    category_path=category_path,
+                    category_context_project_id=topic_context.get("project_id"),
+                    category_context_primary_category_id=topic_context.get("primary_category_id"),
+                    category_context_secondary_category_id=topic_context.get("secondary_category_id"),
                 )
-                if mapped_category_description:
-                    category = mapped_category_description
-                idea_metadata = idea.get("idea_metadata") or {}
-                if not isinstance(idea_metadata, dict):
-                    idea_metadata = {}
-
-                raw_total_search_volume = idea.get("total_search_volume")
-                raw_average_difficulty = idea.get("average_difficulty")
-                raw_average_cpc = idea.get("average_cpc")
-                try:
-                    total_search_volume = int(raw_total_search_volume) if raw_total_search_volume is not None and str(raw_total_search_volume).strip() != "" else None
-                except Exception:
-                    total_search_volume = None
-                try:
-                    average_difficulty = float(raw_average_difficulty) if raw_average_difficulty is not None and str(raw_average_difficulty).strip() != "" else None
-                except Exception:
-                    average_difficulty = None
-                try:
-                    average_cpc = float(raw_average_cpc) if raw_average_cpc is not None and str(raw_average_cpc).strip() != "" else None
-                except Exception:
-                    average_cpc = None
-
-                return {
-                    "id": idea.get("id"),
-                    "title": idea.get("title") or "Untitled Idea",
-                    "description": idea.get("description") or "",
-                    "content_type": content_type,
-                    "category": category,
-                    "subtopic": subtopic_name,
-                    "topic_id": topic_id,
-                    "user_id": user_id,
-                    "keywords": keywords,
-                    "primary_keywords": keywords,
-                    "secondary_keywords": secondary_keywords,
-                    "wordpress_category_id": idea_wp_context.get("wordpress_category_id"),
-                    "wordpress_parent_category_id": idea_wp_context.get("wordpress_parent_category_id"),
-                    "domain": idea_wp_context.get("domain"),
-                    "search_phrase": idea.get("search_phrase") or "",
-                    "total_search_volume": total_search_volume,
-                    "average_difficulty": average_difficulty,
-                    "average_cpc": average_cpc,
-                    "viability_score": int(idea.get("viability_score") or 0),
-                    "traffic_potential_score": int(idea.get("traffic_potential_score") or 0),
-                    "seo_optimization_score": int(idea.get("seo_optimization_score") or 0),
-                    "target_intent": idea.get("target_intent") or "",
-                    "article_format": idea.get("article_format") or "",
-                    "user_decision_helped": idea.get("user_decision_helped") or "",
-                    "internal_link_hook": idea.get("internal_link_hook") or "",
-                    "monetization_hook": idea.get("monetization_hook") or "",
-                    "product_type": idea.get("product_type") or "",
-                    "user_job_to_be_done": idea.get("user_job_to_be_done") or "",
-                    "key_inputs": idea.get("key_inputs") or [],
-                    "output_result": idea.get("output_result") or "",
-                    "build_complexity": idea.get("build_complexity") or "",
-                    "distribution_angle": idea.get("distribution_angle") or "",
-                    "keyword_metrics": idea.get("keyword_metrics") or {},
-                    "raw_dataforseo_output": idea.get("raw_dataforseo_output") or {},
-                    "idea_metadata": idea_metadata,
-                    "status": idea.get("status") or "draft",
-                    "created_at": idea.get("created_at") or datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat(),
-                }
-
-            def _insert_with_schema_fallback(row: dict) -> bool:
-                payload = dict(row)
-                last_error = None
-                max_attempts = max(12, len(payload) + 4)
-                for _ in range(max_attempts):
-                    try:
-                        supabase_admin.table("content_ideas").insert(payload).execute()
-                        return True
-                    except Exception as insert_error:
-                        last_error = insert_error
-                        err = str(insert_error)
-                        missing_cols = re.findall(r"Could not find the '([^']+)' column", err)
-                        if not missing_cols:
-                            logger.warning(
-                                "Idea burst insert failed without recoverable schema hint payload_keys=%s err=%s",
-                                sorted(payload.keys()),
-                                err,
-                                exc_info=True,
-                            )
-                            return False
-                        removed_any = False
-                        for col in missing_cols:
-                            if col in payload:
-                                payload.pop(col, None)
-                                removed_any = True
-                        if not payload:
-                            return False
-                        if not removed_any:
-                            break
-                if last_error:
-                    logger.error(
-                        "Idea burst insert exhausted schema fallback payload_keys=%s err=%s",
-                        sorted(payload.keys()),
-                        last_error,
-                    )
-                return False
-
-            persisted_rows = [_build_persist_row(idea) for idea in all_ideas]
+                for idea in all_ideas
+            ]
             for row in persisted_rows:
-                if _insert_with_schema_fallback(row):
+                if _insert_content_idea_with_schema_fallback(supabase_admin, row, log_label="Idea burst"):
                     saved_count += 1
                     row_id = row.get("id")
                     if row_id:
@@ -2725,22 +3755,12 @@ Critical naming and language rules:
             except Exception:
                 logger.warning("Could not update research topic timestamp after idea burst", exc_info=True)
 
-        persistence_warning = None
-        if all_ideas and saved_count != len(all_ideas):
-            persistence_warning = (
-                f"Generated {len(all_ideas)} ideas but saved {saved_count}. "
-                "Some ideas may not persist across reloads."
-            )
-
-        return jsonify({
-            "success": True,
-            "blog_ideas": [idea.to_dict() if hasattr(idea, 'to_dict') else idea for idea in blog_ideas],
-            "software_ideas": [idea.to_dict() if hasattr(idea, 'to_dict') else idea for idea in software_ideas],
-            "generated_count": len(all_ideas),
-            "persisted_count": saved_count,
-            "persisted_idea_ids": persisted_idea_ids,
-            "persistence_warning": persistence_warning,
-        }), 200
+        return jsonify(_build_idea_generation_success_payload(
+            blog_ideas=blog_ideas,
+            software_ideas=software_ideas,
+            persisted_count=saved_count,
+            persisted_idea_ids=persisted_idea_ids,
+        )), 200
 
     except Exception as e:
         logger.error(f"Error in idea burst: {e}", exc_info=True)
@@ -2798,45 +3818,10 @@ def parse_idea_response(
     }
 
     def _normalize_search_phrase(raw_phrase: str) -> str:
-        phrase = re.sub(r"[^a-zA-Z0-9\s\-]", " ", str(raw_phrase or "")).lower()
-        phrase = re.sub(r"\s+", " ", phrase).strip(" -")
-        if not phrase:
-            return ""
-        tokens = [token for token in phrase.split(" ") if token]
-        if not tokens:
-            return ""
-        if len(tokens) == 1 and len(tokens[0]) < 3:
-            return ""
-        if len(tokens) > 3:
-            tokens = tokens[:3]
-        return " ".join(tokens)
+        return _normalize_search_phrase_text(raw_phrase)
 
     def _normalize_idea_title(raw_title: str) -> str:
-        """Normalize LLM titles to plain language and reduce consultant-speak drift."""
-        if not raw_title:
-            return raw_title
-
-        title = re.sub(r"\s+", " ", raw_title.strip())
-
-        # Replace jargon-heavy words with simpler alternatives.
-        jargon_map = {
-            r"\bframework\b": "guide",
-            r"\bplaybook\b": "plan",
-            r"\bmethodology\b": "method",
-            r"\boptimization\b": "improvements",
-            r"\bscenario\b": "plan",
-            r"\bsolvency\b": "financial health",
-            r"\barbitrage\b": "price gap",
-            r"\bamortization\b": "paydown",
-            r"\bvaluation\b": "value",
-        }
-        for pattern, replacement in jargon_map.items():
-            title = re.sub(pattern, replacement, title, flags=re.IGNORECASE)
-
-        # Keep punctuation readable and avoid repeated separators.
-        title = re.sub(r"\s*[-–—]{2,}\s*", " - ", title)
-        title = re.sub(r"\s{2,}", " ", title).strip(" -")
-        return title
+        return _normalize_idea_title_text(raw_title)
 
     def _normalize_idea_token(token: str) -> str:
         token = re.sub(r"[^a-z0-9]", "", token.lower())
@@ -3067,18 +4052,7 @@ def create_idea_dict(
     import re
 
     def _normalize_search_phrase(raw_phrase: str) -> str:
-        phrase = re.sub(r"[^a-zA-Z0-9\s\-]", " ", str(raw_phrase or "")).lower()
-        phrase = re.sub(r"\s+", " ", phrase).strip(" -")
-        if not phrase:
-            return ""
-        tokens = [token for token in phrase.split(" ") if token]
-        if not tokens:
-            return ""
-        if len(tokens) == 1 and len(tokens[0]) < 3:
-            return ""
-        if len(tokens) > 3:
-            tokens = tokens[:3]
-        return " ".join(tokens)
+        return _normalize_search_phrase_text(raw_phrase)
 
     def _derive_search_phrase(raw_title: str, raw_keywords: list[str]) -> str:
         for kw in raw_keywords:

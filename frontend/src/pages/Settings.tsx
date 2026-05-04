@@ -374,6 +374,9 @@ export const Settings: React.FC = () => {
                 ...formData,
                 user_id: user.id,
                 domain: normalizedDomain,
+                seo_plugin: formData.seo_plugin || 'unknown',
+                site_url_override: formData.site_url_override?.trim() || null,
+                social_default_image_url: formData.social_default_image_url?.trim() || null,
                 brand_primary_color: normalizeOptionalHexColor(formData.brand_primary_color) || null,
                 brand_text_color: normalizeOptionalHexColor(formData.brand_text_color) || null,
                 brand_secondary_color: normalizeOptionalHexColor(formData.brand_secondary_color) || null,
@@ -397,6 +400,9 @@ export const Settings: React.FC = () => {
                     app_name: payload.app_name || null,
                     wpUserName: payload.wpUserName || null,
                     wordpress_key: payload.wordpress_key || null,
+                    seo_plugin: payload.seo_plugin || 'unknown',
+                    site_url_override: payload.site_url_override,
+                    social_default_image_url: payload.social_default_image_url,
                     brand_primary_color: payload.brand_primary_color,
                     brand_text_color: payload.brand_text_color,
                     brand_secondary_color: payload.brand_secondary_color,
@@ -987,6 +993,41 @@ export const Settings: React.FC = () => {
                                                     onChange={e => setFormData({ ...formData, wordpress_key: e.target.value })}
                                                     className="h-10 rounded-lg font-mono"
                                                 />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-semibold">SEO Plugin</Label>
+                                                <select
+                                                    value={formData.seo_plugin || 'unknown'}
+                                                    onChange={e => setFormData({ ...formData, seo_plugin: e.target.value as Project['seo_plugin'] })}
+                                                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm"
+                                                >
+                                                    <option value="unknown">Unknown / auto fallback</option>
+                                                    <option value="yoast">Yoast SEO</option>
+                                                    <option value="rankmath">Rank Math</option>
+                                                    <option value="custom">Custom theme/plugin</option>
+                                                    <option value="none">No SEO plugin</option>
+                                                </select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-semibold">Canonical Base URL Override</Label>
+                                                <Input
+                                                    placeholder="https://www.example.com"
+                                                    value={formData.site_url_override || ''}
+                                                    onChange={e => setFormData({ ...formData, site_url_override: e.target.value })}
+                                                    className="h-10 rounded-lg"
+                                                />
+                                            </div>
+                                            <div className="space-y-2 md:col-span-2">
+                                                <Label className="text-xs font-semibold">Default Social Image URL</Label>
+                                                <Input
+                                                    placeholder="https://www.example.com/default-social.jpg"
+                                                    value={formData.social_default_image_url || ''}
+                                                    onChange={e => setFormData({ ...formData, social_default_image_url: e.target.value })}
+                                                    className="h-10 rounded-lg"
+                                                />
+                                                <p className="text-xs text-muted-foreground">
+                                                    Used as a fallback for Open Graph and Twitter Card images when an article has no featured image.
+                                                </p>
                                             </div>
                                         </div>
                                     )}

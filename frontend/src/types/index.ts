@@ -83,6 +83,9 @@ export interface Project {
     brand_secondary_color?: string;
     brand_neutral_color?: string;
     branding_updated_at?: string;
+    seo_plugin?: 'unknown' | 'yoast' | 'rankmath' | 'custom' | 'none';
+    site_url_override?: string;
+    social_default_image_url?: string;
     categories?: string;
     last_trend_report?: any;
     target_keywords?: string[];
@@ -105,6 +108,9 @@ export interface WordPressDetail {
     brand_secondary_color?: string;
     brand_neutral_color?: string;
     branding_updated_at?: string;
+    seo_plugin?: 'unknown' | 'yoast' | 'rankmath' | 'custom' | 'none';
+    site_url_override?: string;
+    social_default_image_url?: string;
     last_trend_report?: any;
     target_keywords?: string[];
 }
