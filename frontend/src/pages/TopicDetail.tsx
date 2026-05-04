@@ -51,6 +51,28 @@ export function TopicDetail() {
     const [generatedIdeaStatusFilter, setGeneratedIdeaStatusFilter] = React.useState<'all' | 'draft' | 'published'>('draft')
     const [generatedIdeaSort, setGeneratedIdeaSort] = React.useState<'score' | 'volume' | 'difficulty' | 'recent'>('score')
 
+    const mergeContentIdeas = React.useCallback((baseIdeas: ContentIdea[], incomingIdeas: ContentIdea[]) => {
+        const merged = new Map<string, ContentIdea>()
+
+        const buildKey = (idea: ContentIdea) => {
+            if (idea.id) {
+                return `id:${idea.id}`
+            }
+            return `fallback:${idea.content_type || 'unknown'}:${(idea.title || '').trim().toLowerCase()}:${(idea.subtopic || '').trim().toLowerCase()}`
+        }
+
+        for (const idea of baseIdeas || []) {
+            merged.set(buildKey(idea), idea)
+        }
+        for (const idea of incomingIdeas || []) {
+            merged.set(buildKey(idea), idea)
+        }
+
+        return Array.from(merged.values()).sort((a, b) => {
+            return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+        })
+    }, [])
+
     const loadKeywordResearch = React.useCallback(async (topicId: string) => {
         setKeywordResearchLoading(true)
         try {
@@ -184,7 +206,15 @@ export function TopicDetail() {
                 cluster_ids: clusterIds,
             })
 
-            await refreshStoredIdeasState(id)
+            const responseIdeas = [
+                ...((result.blog_ideas || []) as ContentIdea[]),
+                ...((result.software_ideas || []) as ContentIdea[]),
+            ]
+            const refreshedIdeas = await refreshStoredIdeasState(id)
+            const mergedIdeas = mergeContentIdeas(refreshedIdeas || [], responseIdeas)
+
+            setStoredIdeas(mergedIdeas)
+            setHasStoredIdeas(mergedIdeas.length > 0)
 
             toast.success(
                 `Generated ${result.generated_count || 0} ideas from ${clusterIds.length} cluster${clusterIds.length === 1 ? '' : 's'}.`,
@@ -193,6 +223,9 @@ export function TopicDetail() {
 
             if (result.persistence_warning) {
                 setError(result.persistence_warning)
+                toast.warning(result.persistence_warning, {
+                    id: 'topic-cluster-ideas-warning',
+                })
             } else {
                 setError(null)
             }
@@ -204,7 +237,7 @@ export function TopicDetail() {
         } finally {
             setGeneratingClusterIdeas(false)
         }
-    }, [id, keywordResearchRun, refreshStoredIdeasState, selectedClusterIds, user?.id])
+    }, [id, keywordResearchRun, mergeContentIdeas, refreshStoredIdeasState, selectedClusterIds, user?.id])
 
     const keywordResearchSummary = React.useMemo(() => {
         const summary = (keywordResearchRun?.summary_json || {}) as Record<string, any>
