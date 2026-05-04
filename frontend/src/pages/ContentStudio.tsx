@@ -50,6 +50,10 @@ function logSafeError(prefix: string, error: unknown, level: 'error' | 'warn' = 
     console.error(prefix, payload);
 }
 
+function getContentStudioGenerationStorageKey(articleId: string): string {
+    return `content_studio_generation_${articleId}`;
+}
+
 
 // Types
 interface ArticleData {
@@ -340,6 +344,12 @@ export const ContentStudio: React.FC = () => {
     const [refinementDraft, setRefinementDraft] = useState({ title: '', description: '' });
     const [approvedRefinementSignature, setApprovedRefinementSignature] = useState('');
 
+    const clearStoredGenerationSession = React.useCallback((targetArticleId?: string | null) => {
+        if (!targetArticleId) return;
+        localStorage.removeItem(getContentStudioGenerationStorageKey(targetArticleId));
+        localStorage.removeItem(`gen_progress_${targetArticleId}`);
+    }, []);
+
     // Data State
     const [article, setArticle] = useState<ArticleData | null>(null);
     const [ragCollections, setRagCollections] = useState<RagCollection[]>([]);
@@ -381,10 +391,33 @@ export const ContentStudio: React.FC = () => {
 
                 setArticle(normalizedArticle);
                 setSeoValidation(validateSEOReadiness(normalizedArticle));
-
-                // Do not auto-open progress modal from DB status alone.
-                // It creates stale 90% hangs when previous runs crashed and left status as Generating.
-                setShowProgress(false);
+                const savedGenerationSession = localStorage.getItem(getContentStudioGenerationStorageKey(articleId));
+                if (savedGenerationSession) {
+                    try {
+                        const parsed = JSON.parse(savedGenerationSession);
+                        const savedTaskId = String(parsed?.taskId || '').trim();
+                        const savedArticleId = String(parsed?.articleId || '').trim();
+                        if (
+                            savedTaskId &&
+                            savedArticleId === articleId &&
+                            !['Created', 'Generated', 'Editing', 'WP Published', 'Scheduled', 'Error', 'Failed'].includes(String(normalizedArticle.status || ''))
+                        ) {
+                            setTaskId(savedTaskId);
+                            setShowProgress(true);
+                        } else {
+                            clearStoredGenerationSession(articleId);
+                            setTaskId(null);
+                            setShowProgress(false);
+                        }
+                    } catch {
+                        clearStoredGenerationSession(articleId);
+                        setTaskId(null);
+                        setShowProgress(false);
+                    }
+                } else {
+                    setTaskId(null);
+                    setShowProgress(false);
+                }
 
                 // 2. Fetch Settings
                 const { data: settingsData, error: settingsError } = await supabase
@@ -437,7 +470,7 @@ export const ContentStudio: React.FC = () => {
         };
 
         fetchData();
-    }, [user, articleId]);
+    }, [user, articleId, clearStoredGenerationSession]);
 
     // Handle Input Changes
     const handleChange = (field: string, value: any) => {
@@ -673,7 +706,7 @@ export const ContentStudio: React.FC = () => {
             }
 
             // Clear any old progress from local storage
-            localStorage.removeItem(`gen_progress_${articleId}`);
+            clearStoredGenerationSession(articleId);
 
             if (effectiveDescription.length < 10) {
                 alert('Please provide a longer description (at least 10 characters).');
@@ -837,7 +870,16 @@ export const ContentStudio: React.FC = () => {
             });
 
             if (response.data && response.data.research_id) {
-                setTaskId(response.data.research_id);
+                const nextTaskId = String(response.data.research_id);
+                setTaskId(nextTaskId);
+                localStorage.setItem(
+                    getContentStudioGenerationStorageKey(articleId),
+                    JSON.stringify({
+                        articleId,
+                        taskId: nextTaskId,
+                        startedAt: new Date().toISOString(),
+                    }),
+                );
                 // Show Progress Modal only when we have a valid task id
                 setShowProgress(true);
                 setGenerating(false);
@@ -1520,10 +1562,12 @@ export const ContentStudio: React.FC = () => {
                 onClose={() => {
                     setShowProgress(false);
                     setTaskId(null);
+                    clearStoredGenerationSession(articleId);
                 }}
                 onComplete={(completedArticleId) => {
                     setShowProgress(false);
                     setTaskId(null);
+                    clearStoredGenerationSession(completedArticleId || articleId || article?.id);
                     const targetId = completedArticleId || articleId || article?.id;
                     if (targetId) {
                         navigate(`/article-editor/${targetId}`);

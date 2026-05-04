@@ -363,6 +363,8 @@ function repairMalformedTrailingTableContent(doc: Document): void {
         const trailingNodes = childNodes.slice(splitIndex);
         if (!trailingNodes.some(hasMeaningfulNodeContent)) return;
 
+        trailingNodes.forEach((node) => node.remove());
+
         const normalizedTrailingNodes = wrapLooseBlockSiblingsInParagraphs(doc, trailingNodes);
         if (normalizedTrailingNodes.length === 0) return;
 

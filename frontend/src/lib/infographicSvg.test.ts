@@ -22,18 +22,23 @@ describe('table repair in article HTML', () => {
         const normalized = normalizeInfographicHtmlForEditor(malformedTableHtml);
         const doc = new DOMParser().parseFromString(normalized, 'text/html');
         const bodyParagraphs = Array.from(doc.body.querySelectorAll('p')).map((node) => node.textContent || '');
+        const tableText = doc.querySelector('table')?.textContent || '';
 
         expect(doc.querySelector('table h2')).toBeNull();
         expect(doc.querySelector('table + h2')?.textContent).toBe('The Experiment Phase');
         expect(bodyParagraphs.some((text) => text.includes('career pivot'))).toBe(true);
         expect(doc.querySelector('table td')?.textContent).toContain('Healthcare support');
+        expect(tableText).not.toContain('The Experiment Phase');
+        expect(tableText).not.toContain('career pivot');
     });
 
     it('applies the same repair on the export/beautify path', () => {
         const beautified = beautifyTablesHtml(malformedTableHtml);
         const doc = new DOMParser().parseFromString(beautified, 'text/html');
+        const tableText = doc.querySelector('table')?.textContent || '';
 
         expect(doc.querySelector('table h2')).toBeNull();
         expect(doc.querySelector('table + h2')?.textContent).toBe('The Experiment Phase');
+        expect(tableText).not.toContain('The Experiment Phase');
     });
 });

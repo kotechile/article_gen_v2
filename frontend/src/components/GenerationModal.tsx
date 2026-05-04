@@ -5,6 +5,10 @@ import { Loader2, AlertCircle } from 'lucide-react';
 import { updateArticleAfterGeneration } from '../lib/contentParser';
 import { useAuth } from '../context/auth-context';
 
+function getContentStudioGenerationStorageKey(articleId: string): string {
+    return `content_studio_generation_${articleId}`;
+}
+
 interface GenerationModalProps {
     articleId: string;
     taskId?: string | null;
@@ -47,6 +51,8 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                     if (data.status === 'SUCCESS') {
                         setProgress(100);
                         setStatus('Completed');
+                        localStorage.removeItem(getContentStudioGenerationStorageKey(articleId));
+                        localStorage.removeItem(`gen_progress_${articleId}`);
 
                         // Trigger final updates
                         if (!hasUpdatedRef.current && user?.id) {
@@ -77,12 +83,14 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                             setStatus(`Status sync issue (${transientFailureCountRef.current})... retrying`);
                             if (transientFailureCountRef.current >= 12) {
                                 setError('Could not read task status after multiple retries. Please refresh and check the article state.');
+                                localStorage.removeItem(getContentStudioGenerationStorageKey(articleId));
                                 clearInterval(pollInterval);
                             }
                             return;
                         }
 
                         setError(`${failureMessage}${rawError ? ` (${rawError})` : ''}`);
+                        localStorage.removeItem(getContentStudioGenerationStorageKey(articleId));
                         clearInterval(pollInterval);
                         return;
                     }
@@ -109,6 +117,7 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                     setStatus(`Reconnecting to status service (${apiFailureCountRef.current})...`);
                     if (apiFailureCountRef.current >= 10) {
                         setError('Lost connection while tracking generation status. Please refresh and check the article status.');
+                        localStorage.removeItem(getContentStudioGenerationStorageKey(articleId));
                         clearInterval(pollInterval);
                     }
                     return;
@@ -138,11 +147,14 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                     // ... existing validation/completion logic ...
                     if (!statusData?.htmlArticle || statusData.htmlArticle.length < 50) {
                         setError('Generation completed but returned empty content. Please try again.');
+                        localStorage.removeItem(getContentStudioGenerationStorageKey(articleId));
                         clearInterval(pollInterval);
                         return;
                     }
 
                     setProgress(100);
+                    localStorage.removeItem(getContentStudioGenerationStorageKey(articleId));
+                    localStorage.removeItem(`gen_progress_${articleId}`);
 
                     if (!hasUpdatedRef.current && user?.id) {
                         hasUpdatedRef.current = true;
@@ -157,6 +169,7 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                     clearInterval(pollInterval);
                 } else if (currentStatus.includes('Error') || currentStatus.includes('Failed')) {
                     setError('Generation failed (DB status).');
+                    localStorage.removeItem(getContentStudioGenerationStorageKey(articleId));
                     clearInterval(pollInterval);
                 } else if (!taskId) {
                     // Only simulate progress if we are strictly using DB polling

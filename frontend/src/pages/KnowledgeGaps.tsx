@@ -40,6 +40,13 @@ export const KnowledgeGaps: React.FC = () => {
     const [llmModels, setLlmModels] = useState<string[]>([]);
     const deletingCollectionRef = useRef(false);
 
+    const hasDocumentsStillProcessing = useMemo(() => {
+        return documents.some((doc) => {
+            const status = String(doc.processing_status || '').trim().toLowerCase();
+            return status === 'pending' || status === 'processing' || status === 'parsed';
+        });
+    }, [documents]);
+
     const refreshCollections = async (preferredCollectionId?: string | number | null) => {
         try {
             const cols = await service.getCollections();
@@ -109,6 +116,39 @@ export const KnowledgeGaps: React.FC = () => {
         };
         loadDocuments();
     }, [selectedCollection, service]);
+
+    useEffect(() => {
+        if (!selectedCollection || activeTab !== 'documents' || !hasDocumentsStillProcessing) {
+            return;
+        }
+
+        let cancelled = false;
+        const pollDelayMs = 3000;
+
+        const pollDocuments = async () => {
+            try {
+                const docs = await service.getDocuments(selectedCollection.id);
+                if (cancelled) return;
+
+                setDocuments(docs);
+                setSelectedDocumentIds((current) => {
+                    const existingIds = new Set(docs.map((doc) => String(doc.id)));
+                    return new Set([...current].filter((id) => existingIds.has(id)));
+                });
+            } catch (error) {
+                if (!cancelled) {
+                    console.error('Failed to refresh document processing status', error);
+                }
+            }
+        };
+
+        const timeoutId = window.setTimeout(pollDocuments, pollDelayMs);
+
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timeoutId);
+        };
+    }, [activeTab, hasDocumentsStillProcessing, selectedCollection, service]);
 
     // Load other tabs data lazily or on mount
     useEffect(() => {
