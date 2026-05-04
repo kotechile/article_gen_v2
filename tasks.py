@@ -110,6 +110,19 @@ _SOURCE_STRATEGIES = {
     "rag_only",
 }
 
+_GENERIC_SECTION_QUERY_MARKERS = (
+    "faq",
+    "frequently asked questions",
+    "key takeaways",
+    "takeaways",
+    "summary",
+    "overview",
+    "introduction",
+    "conclusion",
+    "final thoughts",
+    "next steps",
+)
+
 
 def _is_source_strategy_refactor_enabled() -> bool:
     return os.environ.get("SOURCE_STRATEGY_REFACTOR_ENABLED", "false").strip().lower() == "true"
@@ -535,6 +548,158 @@ def _extract_plain_text(html_content: str) -> str:
     text = re.sub(r"<[^>]+>", " ", str(html_content))
     text = html.unescape(text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _normalize_geo_text(value: Any, max_length: int = 220) -> str:
+    text = _extract_plain_text(str(value or ""))
+    text = re.sub(r"\s+", " ", text).strip(" -:;,.")
+    if not text:
+        return ""
+    if len(text) <= max_length:
+        return text
+    clipped = text[:max_length]
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0]
+    return clipped.rstrip(" -:;,.") + "…"
+
+
+def _is_generic_section_heading(title: str) -> bool:
+    lowered = str(title or "").strip().lower()
+    return any(marker in lowered for marker in _GENERIC_SECTION_QUERY_MARKERS)
+
+
+def _collect_geo_support_points(
+    structure: Dict[str, Any],
+    research_data: Dict[str, Any],
+    sections: List[Dict[str, Any]],
+    claim_bundles: List[Dict[str, Any]],
+    limit: int = 5,
+) -> List[str]:
+    candidates: List[str] = []
+
+    for field in ("thesis", "excerpt", "hook", "summary"):
+        text = _normalize_geo_text(structure.get(field, ""))
+        if text:
+            candidates.append(text)
+
+    brief_text = _normalize_geo_text(research_data.get("brief", ""), max_length=260)
+    if brief_text:
+        candidates.append(brief_text)
+
+    raw_key_points = structure.get("key_points") or []
+    if isinstance(raw_key_points, list):
+        candidates.extend(_normalize_geo_text(item, max_length=140) for item in raw_key_points[:6])
+
+    for section in sections or []:
+        section_points = section.get("key_points") or []
+        if isinstance(section_points, list):
+            candidates.extend(_normalize_geo_text(item, max_length=140) for item in section_points[:4])
+
+    for bundle in claim_bundles or []:
+        claim_text = _normalize_geo_text((bundle or {}).get("claim", ""), max_length=160)
+        if claim_text:
+            candidates.append(claim_text)
+
+    cleaned: List[str] = []
+    seen = set()
+    generic_patterns = (
+        "introduction",
+        "overview",
+        "summary",
+        "final thoughts",
+        "next steps",
+        "key takeaways",
+        "faq",
+    )
+    for candidate in candidates:
+        if not candidate:
+            continue
+        lowered = candidate.lower()
+        if any(pattern == lowered for pattern in generic_patterns):
+            continue
+        dedupe_key = re.sub(r"[^a-z0-9]+", " ", lowered).strip()
+        if not dedupe_key or dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        cleaned.append(candidate)
+        if len(cleaned) >= limit:
+            break
+    return cleaned
+
+
+def _build_geo_definition_paragraph(topic_phrase: str, support_points: List[str]) -> str:
+    lead_point = support_points[0] if support_points else ""
+    if lead_point:
+        body = (
+            f"{topic_phrase} is a practical topic shaped by {lead_point.rstrip('.')}, "
+            "so the best answer depends on your goals, constraints, and timing."
+        )
+    else:
+        body = (
+            f"{topic_phrase} is a practical topic where the strongest approach depends on your goals, "
+            "constraints, and the trade-offs most relevant to your situation."
+        )
+    return f"<p>{html.escape(body)}</p>\n\n"
+
+
+def _build_geo_takeaways_block(topic_phrase: str, support_points: List[str]) -> str:
+    first_point = support_points[0] if len(support_points) > 0 else ""
+    second_point = support_points[1] if len(support_points) > 1 else ""
+    bullet_points = support_points[2:5] if len(support_points) > 2 else support_points[:3]
+    if not bullet_points:
+        bullet_points = [
+            f"Focus on the core decision factors that change the outcome for {topic_phrase.lower()}.",
+            "Match the recommendation to your timeline, budget, and risk tolerance.",
+            "Revisit the decision when your inputs, constraints, or goals change.",
+        ]
+
+    first_sentence = (
+        f"Key takeaway: {first_point.rstrip('.')} because that is one of the main drivers behind a strong {topic_phrase.lower()} decision."
+        if first_point
+        else f"Key takeaway: start with the core decision factors behind {topic_phrase.lower()}, because the right answer depends on your goals and constraints."
+    )
+    second_sentence = (
+        f"Key takeaway: {second_point.rstrip('.')} and adapt that guidance to your budget, timing, and tolerance for trade-offs."
+        if second_point
+        else "Key takeaway: the strongest recommendation is usually the one you can apply consistently, because execution matters as much as theory."
+    )
+
+    bullet_html = "".join(
+        f"<li>{html.escape(point.rstrip('.'))}</li>"
+        for point in bullet_points[:3]
+        if point
+    )
+    return (
+        "<h2>Key Takeaways</h2>\n\n"
+        f"<p>{html.escape(first_sentence)}</p>\n\n"
+        f"<p>{html.escape(second_sentence)}</p>\n\n"
+        f"<ul>{bullet_html}</ul>\n\n"
+    )
+
+
+def _build_geo_faq_block(topic_phrase: str, support_points: List[str]) -> str:
+    topic_lower = topic_phrase.lower()
+    answer_one = (
+        f"Start with {support_points[0].rstrip('.')}. That usually gives you the clearest frame for evaluating {topic_lower} in your own situation."
+        if support_points
+        else f"Start with the main constraints, goals, and trade-offs around {topic_lower}. Those factors usually determine which recommendation fits best."
+    )
+    comparison_point = support_points[1].rstrip('.') if len(support_points) > 1 else "the article's main framework"
+    answer_two = (
+        f"Use {comparison_point} as your comparison point, then adjust for your timeline, resources, and tolerance for risk."
+    )
+    answer_three = (
+        f"Revisit your plan when the assumptions behind {support_points[2].rstrip('.') if len(support_points) > 2 else topic_lower} change, or when your goals, budget, timing, or external conditions shift."
+    )
+    return (
+        "<h2>FAQ</h2>\n\n"
+        f"<h3>What should you evaluate first about {html.escape(topic_lower)}?</h3>\n"
+        f"<p>{html.escape(answer_one)}</p>\n\n"
+        "<h3>How do you know which approach fits your situation best?</h3>\n"
+        f"<p>{html.escape(answer_two)}</p>\n\n"
+        f"<h3>When should you revisit your {html.escape(topic_lower)} plan?</h3>\n"
+        f"<p>{html.escape(answer_three)}</p>\n\n"
+    )
 
 
 def _extract_external_links(citations: List[Dict[str, Any]]) -> List[str]:
@@ -3068,36 +3233,41 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
             if isinstance(questions_list, list):
                 dossier_questions = [str(q).strip() for q in questions_list[:2] if str(q).strip()]
 
-        # Create a focused query that prioritizes keywords first, then section content
+        # Create a focused query that prioritizes article topic over generic section headings.
         strategy_prefix = keyword_strategy_text or keywords
         intent_hint = f" intent:{target_intent}" if target_intent else ""
+        is_generic_section = _is_generic_section_heading(section_title)
+        specific_points = []
         if key_points and len(key_points) > 0:
-            # Use the most specific key points, avoiding generic terms
             specific_points = [point for point in key_points 
                              if not any(generic in point.lower() for generic in 
                                       ['key takeaways', 'next steps', 'final thoughts', 'overview', 'summary', 'introduction', 'conclusion'])]
-            
-            if specific_points:
-                if draft_title:
-                    section_query = f"{strategy_prefix} {draft_title} {section_title} {' '.join(specific_points[:2])} {main_topic}{intent_hint}"
-                else:
-                    section_query = f"{strategy_prefix} {section_title} {' '.join(specific_points[:2])} {main_topic}{intent_hint}"
-            else:
-                if draft_title:
-                    section_query = f"{strategy_prefix} {draft_title} {section_title} {main_topic}{intent_hint}"
-                else:
-                    section_query = f"{strategy_prefix} {section_title} {main_topic}{intent_hint}"
-        else:
-            if draft_title:
-                section_query = f"{strategy_prefix} {draft_title} {section_title} {main_topic}{intent_hint}"
-            else:
-                section_query = f"{strategy_prefix} {section_title} {main_topic}{intent_hint}"
 
-        dossier_context = " ".join(
-            [part for part in [dossier_summary, " ".join(dossier_claims), " ".join(dossier_questions)] if part]
-        ).strip()
-        if dossier_context:
-            section_query = f"{section_query} {dossier_context}"
+        query_fragments = []
+        if strategy_prefix:
+            query_fragments.append(strategy_prefix)
+        if draft_title:
+            query_fragments.append(draft_title)
+        if not is_generic_section and section_title:
+            query_fragments.append(section_title)
+        if main_topic:
+            query_fragments.append(main_topic)
+        if specific_points:
+            query_fragments.extend(specific_points[:2])
+        if dossier_claims:
+            query_fragments.extend(dossier_claims[:2])
+        if is_generic_section and dossier_questions:
+            query_fragments.extend(dossier_questions[:2])
+        elif dossier_questions:
+            query_fragments.append(dossier_questions[0])
+        if dossier_summary:
+            query_fragments.append(dossier_summary)
+        if is_generic_section:
+            query_fragments.append("article topic reader questions practical guidance")
+
+        section_query = " ".join(fragment for fragment in query_fragments if fragment).strip()
+        if intent_hint:
+            section_query = f"{section_query} {intent_hint}".strip()
         
         # Clean up extra spaces and ensure it's not too long
         section_query = ' '.join(section_query.split())
@@ -3133,7 +3303,7 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
                         query=section_query,
                         collection=rag_collection,
                         max_results=3,
-                        similarity_threshold=0.7,
+                        similarity_threshold=0.78 if is_generic_section else 0.7,
                         balance_emphasis=research_data.get('rag_balance_emphasis', 'auto')
                     )
                     
@@ -4460,47 +4630,36 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         geo_topic_phrase = geo_primary_term.title() if geo_primary_term else str(structure.get('title', 'This Strategy')).split(':')[0].strip()
         if not geo_topic_phrase:
             geo_topic_phrase = "This Strategy"
+        geo_support_points = _collect_geo_support_points(
+            structure=structure,
+            research_data=research_data,
+            sections=sections,
+            claim_bundles=claim_bundles,
+        )
 
         has_definition_pattern = bool(
             re.search(r"\b[A-Z][A-Za-z0-9 ]{2,30}\s+is\s+a[n]?\s+", plain_content or "")
         )
         if not has_definition_pattern:
-            definition_paragraph = (
-                f"<p>{geo_topic_phrase} is an approach that balances guaranteed debt savings with long-term return potential, "
-                "because the best decision depends on rate spread, timeline, and risk tolerance.</p>\n\n"
+            definition_paragraph = _build_geo_definition_paragraph(
+                topic_phrase=geo_topic_phrase,
+                support_points=geo_support_points,
             )
             full_content = definition_paragraph + full_content
             geo_enrichment_added["definition"] = True
 
         if "key takeaways" not in lower_plain:
-            takeaways_block = (
-                "<h2>Key Takeaways</h2>\n\n"
-                "<p>Key takeaway: homeowners should compare mortgage interest savings against expected diversified market returns, "
-                "because the spread between those two numbers is the core driver of long-term wealth outcomes.</p>\n\n"
-                "<p>Key takeaway: the answer is usually strongest when you keep liquidity first, because prepaying too aggressively can "
-                "reduce flexibility during job changes, emergencies, or rate shifts.</p>\n\n"
-                "<ul>"
-                "<li>Use a consistent monthly framework to compare prepayment versus investing.</li>"
-                "<li>Favor the option that best supports your risk profile and cash-flow stability.</li>"
-                "<li>Re-check the decision when rates, income, or market assumptions change.</li>"
-                "</ul>\n\n"
+            takeaways_block = _build_geo_takeaways_block(
+                topic_phrase=geo_topic_phrase,
+                support_points=geo_support_points,
             )
             full_content += "\n" + takeaways_block
             geo_enrichment_added["key_takeaways"] = True
 
         if "<h2>faq" not in lower_content and "frequently asked questions" not in lower_plain:
-            faq_topic = geo_primary_term or "paying off a mortgage early"
-            faq_block = (
-                "<h2>FAQ</h2>\n\n"
-                f"<h3>Should you always prioritize {faq_topic} over investing?</h3>\n"
-                "<p>Not always. You should prioritize the option with better risk-adjusted outcomes, because expected return, tax treatment, "
-                "and liquidity needs can outweigh guaranteed interest savings in many scenarios.</p>\n\n"
-                "<h3>What is the safest way to decide month by month?</h3>\n"
-                "<p>The best method is a rules-based split between prepayment and investing, because a repeatable allocation plan reduces "
-                "timing mistakes and keeps progress consistent through market volatility.</p>\n\n"
-                "<h3>When does early payoff become the clearly better choice?</h3>\n"
-                "<p>The answer is clearer when mortgage rates are high and your horizon is shorter, because guaranteed savings become more "
-                "valuable when compounding time is limited.</p>\n\n"
+            faq_block = _build_geo_faq_block(
+                topic_phrase=geo_topic_phrase,
+                support_points=geo_support_points,
             )
             full_content += "\n" + faq_block
             geo_enrichment_added["faq"] = True

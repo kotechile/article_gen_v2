@@ -17,6 +17,19 @@ from enum import Enum
 # Configure logging
 logger = logging.getLogger(__name__)
 
+_SECTION_FILTER_STOP_WORDS = {
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+    'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have',
+    'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may',
+    'might', 'must', 'can', 'this', 'that', 'these', 'those', 'into', 'about', 'your',
+    'you', 'our', 'their', 'them', 'its', 'than', 'then', 'also', 'more', 'most',
+}
+
+_GENERIC_SECTION_MARKERS = (
+    'faq', 'frequently asked questions', 'key takeaways', 'takeaways', 'summary',
+    'overview', 'introduction', 'conclusion', 'final thoughts', 'next steps',
+)
+
 class ContentType(Enum):
     """Types of content that can be generated."""
     PARAGRAPH = "paragraph"
@@ -515,6 +528,7 @@ class ContentGenerator:
                                claims: List[Dict], evidence: List[Dict],
                                previous_sections: List[SectionContent] = None) -> Dict[str, Any]:
         """Prepare context for content generation."""
+        self._active_research_data = research_data or {}
         # Log evidence availability
         self.logger.info(f"Preparing context for section '{title}' - {len(evidence)} total evidence items, {len(claims)} claims")
         
@@ -1336,67 +1350,143 @@ Previous Context:
                 relevant_claims.append(claim)
         
         return relevant_claims[:5]  # Limit to top 5 relevant claims
+
+    def _tokenize_section_terms(self, text: str) -> set[str]:
+        return {
+            token
+            for token in re.findall(r"[a-z0-9]{3,}", str(text or "").lower())
+            if token not in _SECTION_FILTER_STOP_WORDS
+        }
+
+    def _is_generic_section(self, title: str) -> bool:
+        lowered = str(title or "").strip().lower()
+        return any(marker in lowered for marker in _GENERIC_SECTION_MARKERS)
+
+    def _build_section_anchor_terms(self, title: str, key_points: List[str], research_data: Dict[str, Any]) -> set[str]:
+        parts: List[str] = []
+        if not self._is_generic_section(title):
+            parts.append(title)
+
+        parts.extend(key_points or [])
+        parts.append(research_data.get('primary_keyword', ''))
+        secondary_keywords = research_data.get('secondary_keywords') or []
+        if isinstance(secondary_keywords, str):
+            secondary_keywords = [k.strip() for k in secondary_keywords.split(',') if k.strip()]
+        if isinstance(secondary_keywords, list):
+            parts.extend(secondary_keywords[:5])
+        parts.append(research_data.get('keywords', ''))
+        parts.append(research_data.get('draft_title', ''))
+
+        brief = str(research_data.get('brief', '') or '')
+        brief_sentence = brief.split('.')[0].strip() if brief else ''
+        if brief_sentence:
+            parts.append(brief_sentence)
+
+        return self._tokenize_section_terms(" ".join(str(part or "") for part in parts))
+
+    def _score_evidence_relevance(self, evidence_item: Dict[str, Any], anchor_terms: set[str], primary_terms: set[str]) -> Dict[str, Any]:
+        content = str(evidence_item.get('content', '') or '')
+        title = str(evidence_item.get('title', '') or '')
+        metadata_title = ''
+        metadata = evidence_item.get('metadata') or {}
+        if isinstance(metadata, dict):
+            metadata_title = str(metadata.get('title', '') or '')
+
+        combined_terms = self._tokenize_section_terms(f"{title} {metadata_title} {content}")
+        anchor_matches = anchor_terms.intersection(combined_terms) if anchor_terms else set()
+        primary_matches = primary_terms.intersection(combined_terms) if primary_terms else set()
+        return {
+            "anchor_match_count": len(anchor_matches),
+            "primary_match_count": len(primary_matches),
+            "matched_terms": sorted(anchor_matches | primary_matches),
+        }
     
     def _filter_relevant_evidence(self, evidence: List[Dict], title: str, key_points: List[str]) -> List[Dict]:
         """Filter evidence relevant to this section."""
         if not evidence:
             return []
-        
-        # Simple keyword-based filtering with fallback
-        title_keywords = set(title.lower().split())
-        key_point_keywords = set()
-        for point in key_points:
-            key_point_keywords.update(point.lower().split())
-        
-        # Remove stop words from keywords for better matching
-        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those'}
-        title_keywords = title_keywords - stop_words
-        key_point_keywords = key_point_keywords - stop_words
-        
-        relevant_evidence = []
-        rag_evidence_count = 0
+
+        research_data = getattr(self, "_active_research_data", {}) or {}
+        generic_section = self._is_generic_section(title)
+        anchor_terms = self._build_section_anchor_terms(title, key_points, research_data)
+        primary_terms = self._tokenize_section_terms(
+            " ".join(
+                str(part or "")
+                for part in [
+                    research_data.get('primary_keyword', ''),
+                    research_data.get('draft_title', ''),
+                    research_data.get('brief', ''),
+                ]
+            )
+        )
+
+        scored_evidence = []
         for ev in evidence:
-            content = ev.get('content', '').lower()
-            if not content or not content.strip():
+            content = str(ev.get('content', '') or '').strip()
+            if not content:
                 continue
-            
+
+            score = self._score_evidence_relevance(ev, anchor_terms, primary_terms)
             source_type = ev.get('source_type', 'unknown')
-            is_rag = (source_type == 'rag')
-            
-            content_keywords = set(content.split()) - stop_words
-            
-            # Check for keyword overlap
-            title_match = len(title_keywords.intersection(content_keywords)) if title_keywords else 0
-            key_point_match = len(key_point_keywords.intersection(content_keywords)) if key_point_keywords else 0
-            
-            # More lenient matching for RAG sources - they contain valuable structured information
-            # Include RAG sources even with weak keyword matches, as they often contain relevant context
-            if is_rag:
-                # For RAG sources, be very lenient - include if there's any match or if content is substantial
-                if title_match > 0 or key_point_match > 0 or len(content) > 500:
-                    relevant_evidence.append(ev)
-                    rag_evidence_count += 1
+            is_rag = source_type == 'rag'
+            relevance_score = float(ev.get('relevance_score') or 0.0)
+            similarity_score = float(ev.get('similarity_score') or 0.0)
+
+            include = False
+            if generic_section:
+                if is_rag:
+                    include = score["primary_match_count"] > 0 or (
+                        score["anchor_match_count"] >= 2 and max(relevance_score, similarity_score) >= 0.72
+                    )
+                else:
+                    include = score["primary_match_count"] > 0 or score["anchor_match_count"] >= 2
             else:
-                # For other sources, use standard matching
-                if title_match > 0 or key_point_match > 0:
-                    relevant_evidence.append(ev)
-        
-        # Log RAG evidence inclusion
-        if rag_evidence_count > 0:
-            self.logger.info(f"Included {rag_evidence_count} RAG evidence items (using lenient filtering for RAG sources)")
-        
-        # If no evidence matched but we have evidence, return first few items as fallback
-        # This ensures content generation has something to work with
-        if not relevant_evidence and evidence:
-            self.logger.info(f"No keyword-matched evidence for section '{title}', using top {min(3, len(evidence))} global evidence items")
-            relevant_evidence = evidence[:min(10, len(evidence))]
-        
-        # Prioritize RAG evidence - include all RAG sources first, then others
-        rag_evidence = [ev for ev in relevant_evidence if ev.get('source_type') == 'rag']
-        other_evidence = [ev for ev in relevant_evidence if ev.get('source_type') != 'rag']
-        # Return up to 10 items, prioritizing RAG sources
-        prioritized_evidence = rag_evidence + other_evidence
-        return prioritized_evidence[:10]  # Limit to top 10 relevant evidence (increased from 5)
+                if is_rag:
+                    include = score["anchor_match_count"] > 0 or score["primary_match_count"] > 0
+                else:
+                    include = score["anchor_match_count"] > 0
+
+            if include:
+                scored_evidence.append((ev, score, max(relevance_score, similarity_score)))
+
+        if not scored_evidence and evidence:
+            if generic_section:
+                self.logger.info(
+                    "No tightly matched evidence for generic section '%s'; skipping weak fallback evidence to avoid cross-topic bleed",
+                    title,
+                )
+                return []
+            self.logger.info(
+                "No keyword-matched evidence for section '%s'; using limited fallback evidence from already collected sources",
+                title,
+            )
+            fallback_items = []
+            for ev in evidence[:3]:
+                relevance_score = float(ev.get('relevance_score') or 0.0)
+                similarity_score = float(ev.get('similarity_score') or 0.0)
+                fallback_items.append((ev, {"anchor_match_count": 0, "primary_match_count": 0}, max(relevance_score, similarity_score)))
+            scored_evidence = fallback_items
+
+        scored_evidence.sort(
+            key=lambda item: (
+                item[1]["primary_match_count"],
+                item[1]["anchor_match_count"],
+                item[2],
+                1 if item[0].get('source_type') == 'rag' else 0,
+            ),
+            reverse=True,
+        )
+
+        filtered_evidence = [item[0] for item in scored_evidence[:10]]
+        rag_count = len([ev for ev in filtered_evidence if ev.get('source_type') == 'rag'])
+        if rag_count:
+            self.logger.info(
+                "Included %s RAG evidence items for section '%s' after topical filtering (generic=%s)",
+                rag_count,
+                title,
+                generic_section,
+            )
+        return filtered_evidence
     
     def _extract_citations_from_content(self, content: str, evidence: List[Dict]) -> List[Dict[str, Any]]:
         """Extract citations from generated content using proper citation format."""
