@@ -30,6 +30,51 @@ _GENERIC_SECTION_MARKERS = (
     'overview', 'introduction', 'conclusion', 'final thoughts', 'next steps',
 )
 
+
+def _strip_editorial_directives(text: str) -> str:
+    value = str(text or "")
+    if not value.strip():
+        return ""
+
+    directive_markers = (
+        "[seo + generative engine optimization (geo) directive]",
+        "primary keyword:",
+        "secondary keywords",
+        "generative engine optimization (geo):",
+        "title & description rewrite authorization:",
+        "original creative intent",
+        "do not keyword-stuff",
+        "density should be",
+        "ai search engines",
+        "rewrite the title and description",
+        "ensure the rewritten title is under 60 characters",
+    )
+
+    cleaned_lines = []
+    for raw_line in value.splitlines():
+        line = raw_line.strip()
+        lowered = line.lower()
+        if any(marker in lowered for marker in directive_markers):
+            continue
+        if line.startswith("- ") and any(
+            marker in lowered
+            for marker in (
+                "keyword",
+                "geo",
+                "ai search",
+                "title",
+                "description",
+                "density",
+                "direct answer",
+                "h1",
+                "subheading",
+            )
+        ):
+            continue
+        cleaned_lines.append(raw_line)
+
+    return "\n".join(cleaned_lines).strip()
+
 class ContentType(Enum):
     """Types of content that can be generated."""
     PARAGRAPH = "paragraph"
@@ -1367,7 +1412,7 @@ Previous Context:
         if not self._is_generic_section(title):
             parts.append(title)
 
-        parts.extend(key_points or [])
+        parts.extend(_strip_editorial_directives(point) for point in (key_points or []))
         parts.append(research_data.get('primary_keyword', ''))
         secondary_keywords = research_data.get('secondary_keywords') or []
         if isinstance(secondary_keywords, str):
@@ -1377,7 +1422,7 @@ Previous Context:
         parts.append(research_data.get('keywords', ''))
         parts.append(research_data.get('draft_title', ''))
 
-        brief = str(research_data.get('brief', '') or '')
+        brief = _strip_editorial_directives(str(research_data.get('brief', '') or ''))
         brief_sentence = brief.split('.')[0].strip() if brief else ''
         if brief_sentence:
             parts.append(brief_sentence)
@@ -1415,7 +1460,7 @@ Previous Context:
                 for part in [
                     research_data.get('primary_keyword', ''),
                     research_data.get('draft_title', ''),
-                    research_data.get('brief', ''),
+                    _strip_editorial_directives(research_data.get('brief', '')),
                 ]
             )
         )

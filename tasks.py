@@ -563,6 +563,53 @@ def _normalize_geo_text(value: Any, max_length: int = 220) -> str:
     return clipped.rstrip(" -:;,.") + "…"
 
 
+def _strip_editorial_directives(value: Any) -> str:
+    text = str(value or "")
+    if not text.strip():
+        return ""
+
+    directive_markers = (
+        "[seo + generative engine optimization (geo) directive]",
+        "primary keyword:",
+        "secondary keywords",
+        "generative engine optimization (geo):",
+        "title & description rewrite authorization:",
+        "original creative intent",
+        "do not keyword-stuff",
+        "density should be",
+        "ai search engines",
+        "rewrite the title and description",
+        "ensure the rewritten title is under 60 characters",
+    )
+
+    cleaned_lines = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        lowered = line.lower()
+        if any(marker in lowered for marker in directive_markers):
+            continue
+        if line.startswith("- ") and any(
+            marker in lowered
+            for marker in (
+                "keyword",
+                "geo",
+                "ai search",
+                "title",
+                "description",
+                "density",
+                "direct answer",
+                "h1",
+                "subheading",
+            )
+        ):
+            continue
+        cleaned_lines.append(raw_line)
+
+    cleaned = "\n".join(cleaned_lines)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
 def _is_generic_section_heading(title: str) -> bool:
     lowered = str(title or "").strip().lower()
     return any(marker in lowered for marker in _GENERIC_SECTION_QUERY_MARKERS)
@@ -582,21 +629,27 @@ def _collect_geo_support_points(
         if text:
             candidates.append(text)
 
-    brief_text = _normalize_geo_text(research_data.get("brief", ""), max_length=260)
+    brief_text = _normalize_geo_text(_strip_editorial_directives(research_data.get("brief", "")), max_length=260)
     if brief_text:
         candidates.append(brief_text)
 
     raw_key_points = structure.get("key_points") or []
     if isinstance(raw_key_points, list):
-        candidates.extend(_normalize_geo_text(item, max_length=140) for item in raw_key_points[:6])
+        candidates.extend(
+            _normalize_geo_text(_strip_editorial_directives(item), max_length=140)
+            for item in raw_key_points[:6]
+        )
 
     for section in sections or []:
         section_points = section.get("key_points") or []
         if isinstance(section_points, list):
-            candidates.extend(_normalize_geo_text(item, max_length=140) for item in section_points[:4])
+            candidates.extend(
+                _normalize_geo_text(_strip_editorial_directives(item), max_length=140)
+                for item in section_points[:4]
+            )
 
     for bundle in claim_bundles or []:
-        claim_text = _normalize_geo_text((bundle or {}).get("claim", ""), max_length=160)
+        claim_text = _normalize_geo_text(_strip_editorial_directives((bundle or {}).get("claim", "")), max_length=160)
         if claim_text:
             candidates.append(claim_text)
 
@@ -2105,6 +2158,8 @@ def _extract_claims(result: Dict[str, Any], task_instance: Any = None) -> Dict[s
             temperature=0.3  # Lower temperature for more focused extraction
         )
         
+        grounding_brief = _strip_editorial_directives(brief)
+
         # Create prompt for claim extraction
         messages = [
             {
@@ -2113,7 +2168,7 @@ def _extract_claims(result: Dict[str, Any], task_instance: Any = None) -> Dict[s
             },
             {
                 "role": "user",
-                "content": f"Research Brief: {brief}\nKeywords: {keywords}\n\nExtract the main claims and assertions that need to be researched and validated."
+                "content": f"Research Brief: {grounding_brief}\nKeywords: {keywords}\n\nExtract the main claims and assertions that need to be researched and validated."
             }
         ]
         
@@ -2121,7 +2176,7 @@ def _extract_claims(result: Dict[str, Any], task_instance: Any = None) -> Dict[s
         response = llm_client.generate(messages)
         
         # Parse response (simplified for now)
-        fallback_text = _normalize_claim_text(f"Claim extracted from: {brief[:100]}...")
+        fallback_text = _normalize_claim_text(f"Claim extracted from: {grounding_brief[:100]}...")
         claims = [{
             "claim_id": _make_claim_id(fallback_text, 0),
             "claim": fallback_text,
@@ -3193,6 +3248,7 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
         section_title = section_outline.get('title', '')
         key_points = section_outline.get('key_points', [])
         brief = research_data.get('brief', '')
+        grounding_brief = _strip_editorial_directives(brief)
         keywords = research_data.get('keywords', '')
         selected_primary_keyword = str(research_data.get('primary_keyword') or '').strip()
         selected_secondary_keywords = research_data.get('secondary_keywords') or []
@@ -3212,8 +3268,8 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
         
         # Create a focused section query that prioritizes keywords and specific content
         # Extract the main topic from the brief (first sentence or key phrases)
-        brief_sentences = brief.split('.')
-        main_topic = brief_sentences[0].strip() if brief_sentences else brief
+        brief_sentences = grounding_brief.split('.')
+        main_topic = brief_sentences[0].strip() if brief_sentences else grounding_brief
         
         # Include draft title if provided for better focus
         draft_title = research_data.get('draft_title', '')
