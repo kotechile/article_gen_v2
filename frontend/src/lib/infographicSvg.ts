@@ -274,6 +274,7 @@ export function normalizeInfographicHtmlForEditor(html: string): string {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
     unwrapBlockElementsFromParagraphs(doc);
+    repairMalformedTrailingTableContent(doc);
 
     doc.querySelectorAll<HTMLElement>('div.zenith-infographic-container').forEach((node) => {
         if (node.dataset.infographic === 'true' && node.dataset.svg) return;
@@ -290,6 +291,85 @@ export function normalizeInfographicHtmlForEditor(html: string): string {
     });
 
     return doc.body.innerHTML;
+}
+
+function hasMeaningfulNodeContent(node: ChildNode): boolean {
+    if (node.nodeType === Node.TEXT_NODE) {
+        return Boolean(node.textContent?.trim());
+    }
+
+    if (!(node instanceof HTMLElement)) {
+        return false;
+    }
+
+    if (node.tagName === 'BR') {
+        return false;
+    }
+
+    return Boolean(node.textContent?.trim() || node.children.length > 0);
+}
+
+function hasMeaningfulCellContent(cell: HTMLTableCellElement): boolean {
+    return Array.from(cell.childNodes).some(hasMeaningfulNodeContent);
+}
+
+function wrapLooseBlockSiblingsInParagraphs(doc: Document, nodes: ChildNode[]): ChildNode[] {
+    const normalized: ChildNode[] = [];
+    let inlineBuffer: ChildNode[] = [];
+
+    const flushInlineBuffer = () => {
+        if (!inlineBuffer.some(hasMeaningfulNodeContent)) {
+            inlineBuffer = [];
+            return;
+        }
+
+        const paragraph = doc.createElement('p');
+        inlineBuffer.forEach((node) => paragraph.appendChild(node));
+        normalized.push(paragraph);
+        inlineBuffer = [];
+    };
+
+    nodes.forEach((node) => {
+        if (node instanceof HTMLElement && /^H[1-6]$/.test(node.tagName)) {
+            flushInlineBuffer();
+            normalized.push(node);
+            return;
+        }
+
+        inlineBuffer.push(node);
+    });
+
+    flushInlineBuffer();
+    return normalized;
+}
+
+function repairMalformedTrailingTableContent(doc: Document): void {
+    doc.querySelectorAll('table').forEach((table) => {
+        const rows = Array.from(table.rows);
+        if (rows.length === 0) return;
+
+        const lastRow = rows[rows.length - 1];
+        const meaningfulCells = Array.from(lastRow.cells).filter(hasMeaningfulCellContent);
+        if (meaningfulCells.length !== 1) return;
+
+        const sourceCell = meaningfulCells[0];
+        const childNodes = Array.from(sourceCell.childNodes);
+        const splitIndex = childNodes.findIndex(
+            (node) => node instanceof HTMLElement && /^H[1-6]$/.test(node.tagName),
+        );
+
+        if (splitIndex <= 0) return;
+
+        const trailingNodes = childNodes.slice(splitIndex);
+        if (!trailingNodes.some(hasMeaningfulNodeContent)) return;
+
+        const normalizedTrailingNodes = wrapLooseBlockSiblingsInParagraphs(doc, trailingNodes);
+        if (normalizedTrailingNodes.length === 0) return;
+
+        const fragment = doc.createDocumentFragment();
+        normalizedTrailingNodes.forEach((node) => fragment.appendChild(node));
+        table.parentNode?.insertBefore(fragment, table.nextSibling);
+    });
 }
 
 function unwrapBlockElementsFromParagraphs(doc: Document): void {
@@ -350,6 +430,7 @@ export function beautifyTablesHtml(html: string): string {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
     unwrapBlockElementsFromParagraphs(doc);
+    repairMalformedTrailingTableContent(doc);
 
     doc.querySelectorAll('table').forEach((table) => {
         // Essential layout
