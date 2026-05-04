@@ -313,6 +313,14 @@ function hasMeaningfulCellContent(cell: HTMLTableCellElement): boolean {
     return Array.from(cell.childNodes).some(hasMeaningfulNodeContent);
 }
 
+function cellContainsHeadingLikeContent(cell: HTMLTableCellElement): boolean {
+    return Array.from(cell.childNodes).some((node) => {
+        if (!(node instanceof HTMLElement)) return false;
+        if (/^H[1-6]$/.test(node.tagName)) return true;
+        return Boolean(node.querySelector('h1,h2,h3,h4,h5,h6'));
+    });
+}
+
 function wrapLooseBlockSiblingsInParagraphs(doc: Document, nodes: ChildNode[]): ChildNode[] {
     const normalized: ChildNode[] = [];
     let inlineBuffer: ChildNode[] = [];
@@ -349,13 +357,19 @@ function repairMalformedTrailingTableContent(doc: Document): void {
         if (rows.length === 0) return;
 
         const lastRow = rows[rows.length - 1];
-        const meaningfulCells = Array.from(lastRow.cells).filter(hasMeaningfulCellContent);
-        if (meaningfulCells.length !== 1) return;
+        const cells = Array.from(lastRow.cells);
+        const sourceCellIndex = cells.findIndex(cellContainsHeadingLikeContent);
+        if (sourceCellIndex === -1) return;
 
-        const sourceCell = meaningfulCells[0];
+        const sourceCell = cells[sourceCellIndex];
+        const trailingCells = cells.slice(sourceCellIndex + 1);
+        if (trailingCells.some(hasMeaningfulCellContent)) return;
+
         const childNodes = Array.from(sourceCell.childNodes);
         const splitIndex = childNodes.findIndex(
-            (node) => node instanceof HTMLElement && /^H[1-6]$/.test(node.tagName),
+            (node) =>
+                node instanceof HTMLElement &&
+                (/^H[1-6]$/.test(node.tagName) || Boolean(node.querySelector('h1,h2,h3,h4,h5,h6'))),
         );
 
         if (splitIndex <= 0) return;
