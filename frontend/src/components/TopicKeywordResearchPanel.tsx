@@ -60,7 +60,7 @@ export function TopicKeywordResearchPanel({
                     <div>
                         <h2 className="text-xl font-semibold text-foreground">Topic Keyword Research</h2>
                         <p className="text-sm text-muted-foreground mt-1">
-                            This is the new topic-level pipeline that replaces the subtopic-first discovery flow over time.
+                            This topic-level pipeline turns ranked keywords into intent clusters, then turns the strongest clusters into article ideas and companion software opportunities.
                         </p>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -101,7 +101,7 @@ export function TopicKeywordResearchPanel({
                                 ) : (
                                     <>
                                         <Sparkles className="mr-2 h-3 w-3" />
-                                        Generate Ideas From {selectedClusterIds.size} Cluster{selectedClusterIds.size === 1 ? '' : 's'}
+                                        Generate Article + Software Ideas From {selectedClusterIds.size} Cluster{selectedClusterIds.size === 1 ? '' : 's'}
                                     </>
                                 )}
                             </Button>
@@ -157,9 +157,12 @@ export function TopicKeywordResearchPanel({
                             <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                                 <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">1. Refresh or rerun keyword research</span>
                                 <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">2. Select the strongest clusters</span>
-                                <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">3. Generate ideas with attached metrics</span>
+                                <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">3. Generate article ideas plus companion software ideas when tool potential is strong</span>
                                 <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">4. Publish the best ideas to Content Studio</span>
                             </div>
+                            <p className="mt-3 text-xs text-muted-foreground">
+                                Each selected cluster is treated like a distinct user intent. The generator creates one focused article angle per cluster and may also create a companion software concept when that same cluster suggests calculator, planner, comparison, workflow, or app potential.
+                            </p>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
