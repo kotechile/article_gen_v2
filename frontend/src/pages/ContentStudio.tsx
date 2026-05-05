@@ -115,6 +115,12 @@ interface ArticleData {
     idea_metadata?: any;
 }
 
+interface ProjectDomainOption {
+    id: string;
+    label: string;
+    value: string;
+}
+
 function normalizeKeywordList(value: unknown): string[] {
     return extractKeywordValues(value);
 }
@@ -375,11 +381,13 @@ export const ContentStudio: React.FC = () => {
     const [categoryPath, setCategoryPath] = useState<string | null>(null);
     const [ragCollections, setRagCollections] = useState<RagCollection[]>([]);
     const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+    const [projectDomains, setProjectDomains] = useState<ProjectDomainOption[]>([]);
     // Form State
     const [formData, setFormData] = useState({
         title: '',
         description: '',
         keywords: '',
+        domain: '',
         articleLength: '2500',
         tone: 'journalistic',
         ragCollection: '',
@@ -524,6 +532,7 @@ export const ContentStudio: React.FC = () => {
                             ? normalizedArticle.primary_keywords.join(', ')
                             : normalizedArticle.Keywords || ''
                     ),
+                    domain: normalizedArticle.domain || '',
                     articleLength: normalizedArticle.articleLength || '2500',
                     tone: (artData as any).Tone || 'journalistic',
                     ragCollection: normalizedArticle.rag_collection_name || '',
@@ -547,6 +556,40 @@ export const ContentStudio: React.FC = () => {
         fetchData();
     }, [user, articleId, clearStoredGenerationSession]);
 
+    useEffect(() => {
+        if (!user?.id) return;
+
+        const loadProjectDomains = async () => {
+            const { data, error } = await supabase
+                .from('projects')
+                .select('id, domain, app_name')
+                .eq('user_id', user.id)
+                .order('domain', { ascending: true });
+
+            if (error) {
+                logSafeError('Error loading project domains:', error, 'warn');
+                setProjectDomains([]);
+                return;
+            }
+
+            const options = (data || [])
+                .map((row: any) => {
+                    const value = String(row?.domain || row?.app_name || '').trim();
+                    if (!value) return null;
+                    return {
+                        id: String(row.id),
+                        label: value,
+                        value,
+                    } as ProjectDomainOption;
+                })
+                .filter(Boolean) as ProjectDomainOption[];
+
+            setProjectDomains(options);
+        };
+
+        void loadProjectDomains();
+    }, [user?.id]);
+
     // Handle Input Changes
     const handleChange = (field: string, value: any) => {
         setFormData((prev) => {
@@ -561,6 +604,17 @@ export const ContentStudio: React.FC = () => {
             }
             return next;
         });
+
+        if (field === 'domain') {
+            setArticle((prev) => {
+                if (!prev) return prev;
+                const nextDomain = String(value || '').trim();
+                return {
+                    ...prev,
+                    domain: nextDomain || undefined,
+                };
+            });
+        }
     };
 
     const formatReadingTime = (value?: number | string | null) => {
@@ -625,6 +679,7 @@ export const ContentStudio: React.FC = () => {
                 Title: effectiveFormData.title,
                 userDescription: effectiveFormData.description,
                 Keywords: effectiveFormData.keywords,
+                domain: effectiveFormData.domain || null,
                 articleLength: effectiveFormData.articleLength,
                 Tone: effectiveFormData.tone,
                 rag_collection_name: effectiveFormData.ragCollection,
@@ -645,6 +700,7 @@ export const ContentStudio: React.FC = () => {
                 setArticle({
                     ...article,
                     ...updates,
+                    domain: effectiveFormData.domain || undefined,
                     // Ensure type compatibility if needed, though spreading updates should work 
                     // if keys match partial ArticleData. 
                     // However, updates uses 'Tone' while interface sends 'tone' (Title vs title)
@@ -1130,6 +1186,25 @@ export const ContentStudio: React.FC = () => {
                                 onChange={(e) => handleChange('keywords', e.target.value)}
                                 placeholder="Comma separated keywords"
                             />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Domain</label>
+                            <select
+                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
+                                value={formData.domain}
+                                onChange={(e) => handleChange('domain', e.target.value)}
+                            >
+                                <option value="">Select a domain</option>
+                                {projectDomains.map((option) => (
+                                    <option key={option.id} value={option.value}>
+                                        {option.label}
+                                    </option>
+                                ))}
+                            </select>
+                            <p className="text-xs text-muted-foreground mt-1">
+                                Choose the website this article belongs to. This satisfies domain context for SEO-first generation.
+                            </p>
                         </div>
 
                         {/* SEO-First Directional Shift Toggle */}
