@@ -59,6 +59,7 @@ def propose_topics():
         secondary_category_description (str, optional): Secondary category description.
         trend_titles (list[str], optional): Recent trend themes for freshness context.
         count (int, optional): Number of topics to propose.
+        generation_mode (str, optional): keyword_first, editorial_first, or mixed.
 
     Response:
         { "topics": [{ "title": str, "rationale": str, ... }] }
@@ -76,6 +77,9 @@ def propose_topics():
     secondary_category_description = (data.get('secondary_category_description') or '').strip() or None
     trend_titles = data.get('trend_titles') if isinstance(data.get('trend_titles'), list) else []
     count = min(int(data.get('count', 10)), 20)
+    generation_mode = (data.get('generation_mode') or 'mixed').strip().lower()
+    if generation_mode not in {'keyword_first', 'editorial_first', 'mixed'}:
+        generation_mode = 'mixed'
 
     if not any([niche_description, project_description, project_name]):
         return jsonify({"error": "project_description or niche_description is required"}), 400
@@ -102,12 +106,13 @@ def propose_topics():
             fallback_niche_description=niche_description,
             count=count,
         )
-        topics = asyncio.run(editorial_topic_generation_service.generate(brief))
+        topics = asyncio.run(editorial_topic_generation_service.generate(brief, generation_mode=generation_mode))
         logger.info(
-            "propose-topics: generated count=%s category_path=%r project=%r",
+            "propose-topics: generated count=%s category_path=%r project=%r generation_mode=%s",
             len(topics),
             brief.get("category_path"),
             brief.get("project_name"),
+            generation_mode,
         )
         return jsonify({"topics": topics[:count]}), 200
     except Exception as e:

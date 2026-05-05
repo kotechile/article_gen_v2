@@ -1,3 +1,6 @@
+export type TopicMode = 'keyword_first' | 'editorial_first' | 'hybrid'
+export type KeywordViabilityLabel = 'high' | 'medium' | 'low'
+
 // Research Topics Types
 export interface ResearchTopic {
     id: string
@@ -23,6 +26,11 @@ export interface ResearchTopic {
     target_audience?: string | null
     evidence_sources?: string[] | null
     related_terms?: string[] | null
+    topic_mode?: TopicMode | null
+    keyword_viability_score?: number | null
+    keyword_viability_label?: KeywordViabilityLabel | null
+    topic_generation_reasoning?: string | null
+    topic_generation_metadata?: Record<string, any> | null
     project_name?: string | null
     primary_category_name?: string | null
     secondary_category_name?: string | null
@@ -61,6 +69,11 @@ export interface ResearchTopicCreate {
     target_audience?: string | null
     evidence_sources?: string[] | null
     related_terms?: string[] | null
+    topic_mode?: TopicMode | null
+    keyword_viability_score?: number | null
+    keyword_viability_label?: KeywordViabilityLabel | null
+    topic_generation_reasoning?: string | null
+    topic_generation_metadata?: Record<string, any> | null
 }
 
 export interface ResearchTopicBulkCreateItem extends ResearchTopicCreate {}
@@ -83,6 +96,11 @@ export interface ResearchTopicUpdate {
     target_audience?: string | null
     evidence_sources?: string[] | null
     related_terms?: string[] | null
+    topic_mode?: TopicMode | null
+    keyword_viability_score?: number | null
+    keyword_viability_label?: KeywordViabilityLabel | null
+    topic_generation_reasoning?: string | null
+    topic_generation_metadata?: Record<string, any> | null
 }
 
 export interface ResearchTopicListResponse {

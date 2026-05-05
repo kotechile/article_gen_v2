@@ -109,9 +109,9 @@ export function GeneratedIdeasPanel({
                 <div className="bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-6">
                     <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between mb-6">
                         <div>
-                            <h2 className="text-xl font-semibold text-foreground">Generated Ideas From Keyword Clusters</h2>
+                            <h2 className="text-xl font-semibold text-foreground">Generated Ideas For This Topic</h2>
                             <p className="text-sm text-muted-foreground mt-1">
-                                Review the ideas created by the new topic-level keyword pipeline and publish the strongest ones into Content Studio.
+                                Review the ideas created by the topic generation workflow and publish the strongest ones into Content Studio.
                             </p>
                         </div>
                         {generatedClusterIdeas.length > 0 && (
@@ -138,9 +138,9 @@ export function GeneratedIdeasPanel({
                     {generatedClusterIdeas.length === 0 ? (
                         <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center">
                             <Sparkles className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
-                            <h3 className="text-base font-semibold text-foreground mb-2">No cluster-generated ideas yet</h3>
+                            <h3 className="text-base font-semibold text-foreground mb-2">No generated ideas yet</h3>
                             <p className="text-sm text-muted-foreground max-w-2xl mx-auto">
-                                Run topic keyword research, select clusters, and generate ideas to start using the new pipeline end to end.
+                                Run keyword research or use the editorial generation path to create ideas for this topic.
                             </p>
                         </div>
                     ) : (

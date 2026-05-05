@@ -12,6 +12,7 @@ export interface TopicKeywordResearchRunRequest {
     replace_existing?: boolean
     filters?: Record<string, any>
     score_config?: Record<string, any>
+    manual_seed_keywords?: string[]
 }
 
 export interface GenerateIdeasFromClustersRequest {

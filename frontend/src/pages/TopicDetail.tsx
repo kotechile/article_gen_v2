@@ -42,10 +42,12 @@ export function TopicDetail() {
     const [keywordResearchLoading, setKeywordResearchLoading] = React.useState(false)
     const [runningKeywordResearch, setRunningKeywordResearch] = React.useState(false)
     const [keywordResearchError, setKeywordResearchError] = React.useState<string | null>(null)
+    const [manualSeedInput, setManualSeedInput] = React.useState('')
     const [selectedClusterIds, setSelectedClusterIds] = React.useState<Set<string>>(new Set())
     const [generatingClusterIdeas, setGeneratingClusterIdeas] = React.useState(false)
     const [selectedGeneratedIdeaIds, setSelectedGeneratedIdeaIds] = React.useState<Set<string>>(new Set())
     const [publishingGeneratedIdeas, setPublishingGeneratedIdeas] = React.useState(false)
+    const [generatingEditorialIdeas, setGeneratingEditorialIdeas] = React.useState(false)
     const [activeGeneratedIdea, setActiveGeneratedIdea] = React.useState<ContentIdea | null>(null)
     const [generatedIdeaTypeFilter, setGeneratedIdeaTypeFilter] = React.useState<'all' | 'blog' | 'software'>('all')
     const [generatedIdeaStatusFilter, setGeneratedIdeaStatusFilter] = React.useState<'all' | 'draft' | 'published'>('draft')
@@ -160,14 +162,23 @@ export function TopicDetail() {
                 id: 'topic-keyword-research',
             })
 
+            const manualSeeds = manualSeedInput
+                .split(/[\n,]/g)
+                .map((value) => value.trim())
+                .filter(Boolean)
+
             const result = await topicKeywordResearchService.runTopicKeywordResearch(id, {
                 replace_existing: true,
+                manual_seed_keywords: manualSeeds.length > 0 ? manualSeeds : undefined,
             })
 
             toast.success(
                 `Keyword research completed with ${result.keyword_count} keywords and ${result.cluster_count} clusters.`,
                 { id: 'topic-keyword-research' }
             )
+            if (manualSeeds.length > 0) {
+                setManualSeedInput('')
+            }
             await loadKeywordResearch(id)
         } catch (err) {
             console.error('Failed to run topic keyword research:', err)
@@ -246,6 +257,43 @@ export function TopicDetail() {
         }
     }, [id, keywordResearchRun, mergeContentIdeas, refreshStoredIdeasState, selectedClusterIds, user?.id])
 
+    const handleGenerateEditorialIdeas = React.useCallback(async () => {
+        if (!id || !user?.id) return
+        try {
+            setGeneratingEditorialIdeas(true)
+            toast.loading('Generating editorial ideas from topic context.', {
+                id: 'topic-editorial-ideas',
+            })
+
+            const result = await researchTopicsService.generateEditorialIdeas(id, user.id)
+            const responseIdeas = [
+                ...((result.blog_ideas || []) as ContentIdea[]),
+                ...((result.software_ideas || []) as ContentIdea[]),
+            ]
+            const refreshedIdeas = await refreshStoredIdeasState(id)
+            const mergedIdeas = mergeContentIdeas(refreshedIdeas || [], responseIdeas)
+
+            setStoredIdeas(mergedIdeas)
+            setHasStoredIdeas(mergedIdeas.length > 0)
+            setLatestGeneratedIdeas(responseIdeas)
+            setError(null)
+
+            toast.success(
+                `Generated ${result.generated_count || 0} editorial idea${(result.generated_count || 0) === 1 ? '' : 's'}.`,
+                { id: 'topic-editorial-ideas' }
+            )
+        } catch (err) {
+            console.error('Failed to generate editorial ideas:', err)
+            const errorMessage = err instanceof Error ? err.message : 'Failed to generate editorial ideas.'
+            setError(errorMessage)
+            toast.error(errorMessage, {
+                id: 'topic-editorial-ideas',
+            })
+        } finally {
+            setGeneratingEditorialIdeas(false)
+        }
+    }, [id, mergeContentIdeas, refreshStoredIdeasState, user?.id])
+
     const keywordResearchSummary = React.useMemo(() => {
         const summary = (keywordResearchRun?.summary_json || {}) as Record<string, any>
         return {
@@ -258,25 +306,47 @@ export function TopicDetail() {
         }
     }, [keywordResearchRun, keywordCandidates.length, keywordClusters])
 
-    const isClusterGeneratedIdea = React.useCallback((idea: ContentIdea) => {
+    const isTopicGeneratedIdea = React.useCallback((idea: ContentIdea) => {
         const metadata = (idea.idea_metadata || {}) as any
         const topicKeywordResearch = metadata?.topic_keyword_research || {}
+        const topicEditorialGeneration = metadata?.topic_editorial_generation || {}
         const rawOutput = (idea.raw_dataforseo_output || {}) as Record<string, any>
 
         return Boolean(
             topicKeywordResearch?.generation_origin === 'topic_keyword_pipeline_v1' ||
             topicKeywordResearch?.keyword_cluster_id ||
             topicKeywordResearch?.cluster_name ||
+            topicEditorialGeneration?.generation_origin === 'topic_editorial_pipeline_v1' ||
             rawOutput?.topic_keyword_research_run_id
         )
     }, [])
 
     const generatedClusterIdeas = React.useMemo(() => {
         return mergeContentIdeas(
-            (storedIdeas || []).filter((idea) => isClusterGeneratedIdea(idea)),
+            (storedIdeas || []).filter((idea) => isTopicGeneratedIdea(idea)),
             latestGeneratedIdeas || [],
         )
-    }, [isClusterGeneratedIdea, latestGeneratedIdeas, mergeContentIdeas, storedIdeas])
+    }, [isTopicGeneratedIdea, latestGeneratedIdeas, mergeContentIdeas, storedIdeas])
+
+    const topicMode = topic?.topic_mode || 'hybrid'
+    const topicViabilityLabel = topic?.keyword_viability_label || 'medium'
+    const topicViabilityScore = Number(topic?.keyword_viability_score || 0)
+    const shouldShowEditorialFallback = React.useMemo(() => {
+        if (!topic) return false
+        if (topicMode === 'editorial_first') return true
+        return Boolean(
+            topicMode === 'hybrid' &&
+            keywordResearchRun?.status === 'completed' &&
+            keywordCandidates.length === 0
+        )
+    }, [keywordCandidates.length, keywordResearchRun?.status, topic, topicMode])
+
+    const editorialFallbackMessage = React.useMemo(() => {
+        if (topicMode === 'editorial_first') {
+            return 'This topic is classified as editorial-first, so it can generate useful ideas directly from topic context even when keyword demand is weak.'
+        }
+        return 'This hybrid topic did not produce enough viable keyword candidates, so you can fall back to direct editorial idea generation instead of stopping here.'
+    }, [topicMode])
 
     const visibleGeneratedClusterIdeas = React.useMemo(() => {
         const filtered = generatedClusterIdeas.filter((idea) => {
@@ -682,19 +752,66 @@ export function TopicDetail() {
                     generatingClusterIdeas={generatingClusterIdeas}
                     selectedClusterIds={selectedClusterIds}
                     canGenerateIdeas={Boolean(user?.id)}
+                    topicMode={topicMode}
+                    manualSeedInput={manualSeedInput}
                     keywordResearchSummary={keywordResearchSummary}
                     onRefreshKeywordResearch={() => loadKeywordResearch(id || '')}
                     onRunKeywordResearch={handleRunKeywordResearch}
+                    onManualSeedInputChange={setManualSeedInput}
                     onGenerateIdeasFromClusters={handleGenerateIdeasFromClusters}
                     onToggleClusterSelection={toggleClusterSelection}
                     formatDateTime={formatDateTime}
                 />
+
+                {shouldShowEditorialFallback && (
+                    <div className="max-w-7xl mx-auto mb-8">
+                        <div className="bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-6">
+                            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-foreground">Editorial Idea Generation</h2>
+                                    <p className="mt-1 text-sm text-muted-foreground">
+                                        {editorialFallbackMessage}
+                                    </p>
+                                </div>
+                                <Button
+                                    onClick={handleGenerateEditorialIdeas}
+                                    disabled={generatingEditorialIdeas || !user?.id}
+                                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                                >
+                                    {generatingEditorialIdeas ? (
+                                        <>
+                                            <Sparkles className="mr-2 h-4 w-4 animate-pulse" />
+                                            Generating...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Sparkles className="mr-2 h-4 w-4" />
+                                            Generate Editorial Ideas
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Topic Context */}
                 <div className="max-w-7xl mx-auto mb-8">
                     <div className="bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-6">
                         <h2 className="text-lg font-semibold text-foreground mb-4">Topic Context</h2>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                            <div className="rounded-xl border border-border bg-muted/20 p-4">
+                                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Topic Mode</div>
+                                <div className="text-sm font-medium text-foreground capitalize">
+                                    {String(topicMode).replace('_', ' ')}
+                                </div>
+                            </div>
+                            <div className="rounded-xl border border-border bg-muted/20 p-4">
+                                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Keyword Potential</div>
+                                <div className="text-sm font-medium text-foreground capitalize">
+                                    {topicViabilityLabel} {topicViabilityScore ? `(${Math.round(topicViabilityScore)}/100)` : ''}
+                                </div>
+                            </div>
                             <div className="rounded-xl border border-border bg-muted/20 p-4">
                                 <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Intent Bucket</div>
                                 <div className="text-sm font-medium text-foreground">{topic?.intent_bucket || 'Not set'}</div>
@@ -703,21 +820,27 @@ export function TopicDetail() {
                                 <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Decision Focus</div>
                                 <div className="text-sm font-medium text-foreground">{topic?.decision_focus || 'Not set'}</div>
                             </div>
-                            <div className="rounded-xl border border-border bg-muted/20 p-4">
-                                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Value Tags</div>
-                                <div className="flex flex-wrap gap-1">
-                                    {(topic?.value_layer_tags && topic.value_layer_tags.length > 0) ? (
-                                        topic.value_layer_tags.map((tag, idx) => (
-                                            <span key={`${tag}-${idx}`} className="text-[11px] px-2 py-0.5 rounded-full border border-primary/20 bg-primary/10 text-primary">
-                                                {tag}
-                                            </span>
-                                        ))
-                                    ) : (
-                                        <span className="text-sm text-muted-foreground">Not set</span>
-                                    )}
-                                </div>
+                        </div>
+                        <div className="rounded-xl border border-border bg-muted/20 p-4 mb-4">
+                            <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Value Tags</div>
+                            <div className="flex flex-wrap gap-1">
+                                {(topic?.value_layer_tags && topic.value_layer_tags.length > 0) ? (
+                                    topic.value_layer_tags.map((tag, idx) => (
+                                        <span key={`${tag}-${idx}`} className="text-[11px] px-2 py-0.5 rounded-full border border-primary/20 bg-primary/10 text-primary">
+                                            {tag}
+                                        </span>
+                                    ))
+                                ) : (
+                                    <span className="text-sm text-muted-foreground">Not set</span>
+                                )}
                             </div>
                         </div>
+                        {topic?.topic_generation_reasoning && (
+                            <div className="rounded-xl border border-border bg-muted/20 p-4 mb-4">
+                                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Topic Routing Reasoning</div>
+                                <div className="text-sm text-foreground">{topic.topic_generation_reasoning}</div>
+                            </div>
+                        )}
                         {topic?.angle_question && (
                             <div className="rounded-xl border border-border bg-muted/20 p-4">
                                 <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Angle Question</div>

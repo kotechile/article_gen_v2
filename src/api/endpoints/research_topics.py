@@ -1358,6 +1358,17 @@ ANGLE_METADATA_FIELDS = [
     "related_terms",
 ]
 
+TOPIC_MODE_FIELDS = [
+    "topic_mode",
+    "keyword_viability_score",
+    "keyword_viability_label",
+    "topic_generation_reasoning",
+    "topic_generation_metadata",
+]
+
+VALID_TOPIC_MODES = {"keyword_first", "editorial_first", "hybrid"}
+VALID_KEYWORD_VIABILITY_LABELS = {"high", "medium", "low"}
+
 
 def _extract_angle_metadata(payload):
     """Extract optional angle metadata fields when explicitly provided."""
@@ -1369,6 +1380,54 @@ def _extract_angle_metadata(payload):
         if value is None:
             continue
         metadata[key] = value
+    return metadata
+
+
+def _coerce_topic_mode(value):
+    normalized = _safe_string(value)
+    if normalized and normalized.lower() in VALID_TOPIC_MODES:
+        return normalized.lower()
+    return "hybrid"
+
+
+def _coerce_keyword_viability_score(value):
+    if value is None or value == "":
+        return None
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, min(100.0, score))
+
+
+def _coerce_keyword_viability_label(value, score=None):
+    normalized = _safe_string(value)
+    if normalized and normalized.lower() in VALID_KEYWORD_VIABILITY_LABELS:
+        return normalized.lower()
+    numeric_score = _coerce_keyword_viability_score(score)
+    if numeric_score is None:
+        return "medium"
+    if numeric_score >= 70:
+        return "high"
+    if numeric_score >= 40:
+        return "medium"
+    return "low"
+
+
+def _extract_topic_mode_metadata(payload):
+    metadata = {}
+    metadata["topic_mode"] = _coerce_topic_mode(payload.get("topic_mode"))
+    if "keyword_viability_score" in payload:
+        metadata["keyword_viability_score"] = _coerce_keyword_viability_score(payload.get("keyword_viability_score"))
+    else:
+        metadata["keyword_viability_score"] = None
+    metadata["keyword_viability_label"] = _coerce_keyword_viability_label(
+        payload.get("keyword_viability_label"),
+        metadata.get("keyword_viability_score"),
+    )
+    metadata["topic_generation_reasoning"] = _safe_string(payload.get("topic_generation_reasoning"))
+    topic_generation_metadata = payload.get("topic_generation_metadata")
+    metadata["topic_generation_metadata"] = topic_generation_metadata if isinstance(topic_generation_metadata, dict) else {}
     return metadata
 
 
@@ -1811,6 +1870,7 @@ def create_research_topic():
             "source_topic_id": data.get('source_topic_id'),
         }
         insert_data.update(_extract_angle_metadata(data))
+        insert_data.update(_extract_topic_mode_metadata(data))
         hydrated = _hydrate_angle_metadata_for_payloads(supabase, [insert_data])
         insert_data = hydrated[0] if hydrated else insert_data
 
@@ -1923,11 +1983,14 @@ def update_research_topic(topic_id):
                 'topic_source',
                 'source_topic_id',
                 *ANGLE_METADATA_FIELDS,
+                *TOPIC_MODE_FIELDS,
             ]
         }
         update_data['updated_at'] = datetime.utcnow().isoformat()
         if 'topic_rating' in update_data:
             update_data['topic_rating'] = _coerce_topic_rating(update_data.get('topic_rating'))
+        if any(field in update_data for field in TOPIC_MODE_FIELDS):
+            update_data.update(_extract_topic_mode_metadata(update_data))
         
         response = (
             supabase
@@ -2038,6 +2101,7 @@ def bulk_create_research_topics():
                 "source_topic_id": item.get('source_topic_id'),
             }
             item_payload.update(_extract_angle_metadata(item))
+            item_payload.update(_extract_topic_mode_metadata(item))
             insert_payload.append(item_payload)
 
         insert_payload = _hydrate_angle_metadata_for_payloads(supabase, insert_payload)
@@ -2952,6 +3016,7 @@ def run_topic_keyword_research(topic_id):
                 replace_existing=bool(data.get("replace_existing", False)),
                 filters=data.get("filters") if isinstance(data.get("filters"), dict) else None,
                 score_config=data.get("score_config") if isinstance(data.get("score_config"), dict) else None,
+                manual_seed_keywords=data.get("manual_seed_keywords") if isinstance(data.get("manual_seed_keywords"), list) else None,
             )
         )
 
@@ -3421,6 +3486,302 @@ def generate_ideas_from_topic_keyword_clusters(topic_id, run_id):
         return jsonify(ErrorResponse(
             error="internal_error",
             message="Failed to generate ideas from keyword clusters",
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@research_topics_bp.route('/<topic_id>/editorial-ideas/generate', methods=['POST'])
+@require_api_key
+def generate_editorial_ideas_for_topic(topic_id):
+    """Generate topic-level editorial ideas without requiring keyword clusters."""
+    try:
+        data = request.get_json() or {}
+        supabase = get_supabase_client()
+        request_user_id = _resolve_user_id_from_request(supabase, data)
+        if not request_user_id:
+            return jsonify(ErrorResponse(
+                error="authentication_required",
+                message="Authorization bearer token is required",
+                error_code="AUTHENTICATION_REQUIRED",
+                status=401
+            ).dict()), 401
+
+        user_id = data.get('user_id') or request_user_id
+        if user_id != request_user_id:
+            return jsonify(ErrorResponse(
+                error="forbidden",
+                message="You do not have access to this user_id",
+                error_code="FORBIDDEN",
+                status=403
+            ).dict()), 403
+
+        supabase_admin = _get_admin_supabase_client(supabase)
+        topic_context_res = (
+            supabase_admin
+            .table('research_topics')
+            .select(
+                'id, title, description, project_id, primary_category_id, secondary_category_id, '
+                'intent_bucket, decision_focus, angle_question, value_layer_tags, target_audience, '
+                'related_terms, topic_mode, keyword_viability_score, keyword_viability_label, topic_generation_reasoning'
+            )
+            .eq('id', topic_id)
+            .eq('user_id', user_id)
+            .single()
+            .execute()
+        )
+        topic_context = topic_context_res.data or {}
+        if not topic_context:
+            return jsonify(ErrorResponse(
+                error="not_found",
+                message="Research topic not found",
+                error_code="NOT_FOUND",
+                status=404
+            ).dict()), 404
+
+        category_path = "N/A"
+        primary_name = None
+        secondary_name = None
+        category_ids = [
+            category_id
+            for category_id in [topic_context.get('primary_category_id'), topic_context.get('secondary_category_id')]
+            if category_id
+        ]
+        if category_ids:
+            try:
+                category_response = (
+                    supabase_admin
+                    .table('project_categories')
+                    .select('id, name, description')
+                    .in_('id', category_ids)
+                    .execute()
+                )
+                category_map = {item['id']: item for item in (category_response.data or [])}
+                primary_name = (category_map.get(topic_context.get('primary_category_id')) or {}).get('name')
+                secondary_name = (category_map.get(topic_context.get('secondary_category_id')) or {}).get('name')
+                category_path = " / ".join([part for part in [primary_name, secondary_name] if part]) or category_path
+            except Exception:
+                logger.warning("Could not load category names for editorial topic idea context", exc_info=True)
+
+        idea_wp_context = _resolve_idea_wordpress_category_context(
+            supabase_admin,
+            project_id=topic_context.get("project_id"),
+            user_id=user_id,
+            primary_category_id=topic_context.get("primary_category_id"),
+            secondary_category_id=topic_context.get("secondary_category_id"),
+        )
+
+        topic_title = _safe_string(topic_context.get('title')) or 'Untitled Topic'
+        topic_description = _safe_string(topic_context.get('description')) or ''
+        related_terms = [
+            _safe_string(term)
+            for term in (topic_context.get('related_terms') or [])
+            if _safe_string(term)
+        ]
+        topic_mode = _coerce_topic_mode(topic_context.get("topic_mode"))
+        viability_score = _coerce_keyword_viability_score(topic_context.get("keyword_viability_score")) or 0
+        viability_label = _coerce_keyword_viability_label(topic_context.get("keyword_viability_label"), viability_score)
+        effective_intent_bucket = topic_context.get('intent_bucket') or 'informational_decision'
+        effective_decision_focus = topic_context.get('decision_focus') or f"Help readers make a better decision about {topic_title}"
+        effective_angle_question = topic_context.get('angle_question') or f"What practical question should this topic answer about {topic_title}?"
+        effective_value_layer_tags = topic_context.get('value_layer_tags') or ['decision-support']
+        effective_target_audience = topic_context.get('target_audience')
+
+        tool_potential_score = 35
+        if effective_intent_bucket == "solution_enablement" or "tool-builder" in effective_value_layer_tags:
+            tool_potential_score = 72
+        elif topic_mode == "keyword_first":
+            tool_potential_score = 55
+
+        compact_context_pack = (
+            f"- Topic: {topic_title}\n"
+            f"- Topic Mode: {topic_mode}\n"
+            f"- Keyword Viability: {viability_label} ({int(viability_score) if viability_score else 0}/100)\n"
+            f"- Category Path: {category_path}\n"
+            f"- Decision Focus: {effective_decision_focus}\n"
+            f"- Angle Question: {effective_angle_question}\n"
+            f"- Target Audience: {effective_target_audience or 'General audience'}\n"
+            f"- Value Tags: {', '.join([str(tag) for tag in effective_value_layer_tags if str(tag).strip()]) or 'decision-support'}\n"
+            f"- Related Terms: {', '.join(related_terms[:8]) or 'None'}\n"
+        )
+
+        from supabase_client import LLM_ROLE_RESEARCH_IDEA_GENERATION
+        from src.services.llm.llm_service import llm_service
+        import asyncio
+
+        async def generate_ideas():
+            blog_prompt = f"""
+You are a senior editorial strategist generating topic-level content ideas.
+
+Current Year: 2026
+
+Generate 5 BLOG ideas for this topic. These ideas do not need strong keyword demand to be valuable, but they should still be practical, concrete, and publishable.
+
+Compact Context Pack:
+{compact_context_pack}
+
+Rules:
+1. Keep titles practical and human.
+2. Every idea must help with a different user decision, tradeoff, or recurring question.
+3. Favor real reader utility over abstract thought pieces.
+4. If the topic naturally supports search-shaped phrasing, use it. If not, keep the title editorial but concrete.
+5. DESCRIPTION is required.
+6. INPUT_KEYWORDS should be 3-5 short seed phrases we could later use for keyword expansion, even if the topic is mainly editorial.
+7. Avoid near-duplicates and shallow paraphrases.
+
+Output format:
+BLOG_IDEA: [number]
+TITLE: [title]
+DESCRIPTION: [description]
+SEARCH_PHRASE: [1-3 word query]
+INPUT_KEYWORDS: [keyword1, keyword2, keyword3, keyword4]
+INTENT: [informational/commercial/transactional]
+FORMAT: [comparison/checklist/framework/case-study/how-to/calculator-guide]
+USER_DECISION_HELPED: [decision]
+INTERNAL_LINK_HOOK: [internal link strategy]
+MONETIZATION: [monetization approach]
+VIABILITY: [overall viability score 1-100]
+END_IDEA
+"""
+
+            software_prompt = f"""
+You are a product strategist generating companion software ideas only when the topic genuinely supports tool or workflow potential.
+
+Current Year: 2026
+
+Compact Context Pack:
+{compact_context_pack}
+
+Generate up to 3 SOFTWARE ideas.
+
+Rules:
+1. Only generate a software idea if it solves a repeated user task.
+2. If the topic has weak tool potential, return 0-1 strong ideas instead of forcing generic software.
+3. Keep tool names plain and practical.
+4. DESCRIPTION is required whenever an idea is returned.
+5. Each tool must solve a different repeated job.
+
+Output format:
+SOFTWARE_IDEA: [number]
+TITLE: [tool name]
+DESCRIPTION: [what the tool does and user interaction]
+SEARCH_PHRASE: [1-3 word query]
+INPUT_KEYWORDS: [keyword1, keyword2, keyword3, keyword4]
+PRODUCT_TYPE: [calculator/planner/evaluator/comparison-tool/dashboard/workflow-helper]
+USER_JOB: [job to be done]
+KEY_INPUTS: [input1, input2, input3]
+OUTPUT_RESULT: [result]
+MONETIZATION: [how to monetize the tool]
+BUILD_COMPLEXITY: [low/medium/high]
+DISTRIBUTION_ANGLE: [distribution strategy]
+VIABILITY: [overall viability score 1-100]
+END_IDEA
+"""
+
+            blog_response = await llm_service.generate_text(
+                blog_prompt,
+                task_role=LLM_ROLE_RESEARCH_IDEA_GENERATION,
+                max_tokens=1800,
+            )
+            software_response = await llm_service.generate_text(
+                software_prompt,
+                task_role=LLM_ROLE_RESEARCH_IDEA_GENERATION,
+                max_tokens=1400,
+            )
+            return blog_response.content, software_response.content
+
+        blog_text, software_text = asyncio.run(generate_ideas())
+        blog_ideas = parse_idea_response(
+            blog_text,
+            'blog',
+            topic_id,
+            user_id,
+            topic_title,
+            primary_user_outcome=effective_decision_focus,
+        )
+        software_ideas = parse_idea_response(
+            software_text,
+            'software',
+            topic_id,
+            user_id,
+            topic_title,
+            primary_user_outcome=effective_decision_focus,
+        )
+
+        def _attach_editorial_generation_metadata(idea: dict) -> dict:
+            enriched = dict(idea)
+            metadata = dict(enriched.get("idea_metadata") or {})
+            metadata["topic_editorial_generation"] = {
+                "generation_origin": "topic_editorial_pipeline_v1",
+                "topic_mode": topic_mode,
+                "keyword_viability_score": viability_score,
+                "keyword_viability_label": viability_label,
+                "topic_generation_reasoning": topic_context.get("topic_generation_reasoning"),
+                "related_terms": related_terms[:8],
+            }
+            enriched["idea_metadata"] = metadata
+            return enriched
+
+        blog_ideas, software_ideas = _rank_idea_groups(
+            blog_ideas=[_attach_editorial_generation_metadata(idea) for idea in blog_ideas],
+            software_ideas=[_attach_editorial_generation_metadata(idea) for idea in software_ideas],
+            target_intent=effective_intent_bucket,
+            tool_potential_score=tool_potential_score,
+            serp_intent_match="medium",
+        )
+
+        try:
+            supabase_admin.table("content_ideas") \
+                .delete() \
+                .eq("user_id", user_id) \
+                .eq("topic_id", topic_id) \
+                .eq("subtopic", topic_title) \
+                .eq("status", "draft") \
+                .execute()
+        except Exception:
+            logger.warning("Skipping draft cleanup before editorial topic idea save", exc_info=True)
+
+        all_ideas = (blog_ideas or []) + (software_ideas or [])
+        persisted_idea_ids: list[str] = []
+        saved_count = 0
+        for row in [
+            _build_content_idea_persist_row(
+                idea=idea,
+                topic_id=topic_id,
+                user_id=user_id,
+                default_subtopic_name=topic_title,
+                idea_wp_context=idea_wp_context,
+                category_path=category_path,
+                category_context_project_id=topic_context.get("project_id"),
+                category_context_primary_category_id=topic_context.get("primary_category_id"),
+                category_context_secondary_category_id=topic_context.get("secondary_category_id"),
+            )
+            for idea in all_ideas
+        ]:
+            if _insert_content_idea_with_schema_fallback(supabase_admin, row, log_label="Editorial topic ideas"):
+                saved_count += 1
+                if row.get("id"):
+                    persisted_idea_ids.append(str(row.get("id")))
+
+        try:
+            supabase_admin.table("research_topics").update({
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq("id", topic_id).eq("user_id", user_id).execute()
+        except Exception:
+            logger.warning("Could not update research topic timestamp after editorial idea generation", exc_info=True)
+
+        return jsonify(_build_idea_generation_success_payload(
+            blog_ideas=blog_ideas,
+            software_ideas=software_ideas,
+            persisted_count=saved_count,
+            persisted_idea_ids=persisted_idea_ids,
+        )), 200
+
+    except Exception as e:
+        logger.error("Error generating editorial ideas for topic: %s", e, exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message=str(e),
             error_code="INTERNAL_ERROR",
             status=500
         ).dict()), 500

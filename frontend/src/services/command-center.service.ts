@@ -17,6 +17,11 @@ interface TopicInsert {
   value_layer_tags?: string[] | null
   related_terms?: string[] | null
   source_signals?: string[] | null
+  topic_mode?: 'keyword_first' | 'editorial_first' | 'hybrid' | null
+  keyword_viability_score?: number | null
+  keyword_viability_label?: 'high' | 'medium' | 'low' | null
+  topic_generation_reasoning?: string | null
+  topic_generation_metadata?: Record<string, any> | null
   topic_source: TopicCandidateSource
   source_label?: string | null
 }
@@ -152,6 +157,7 @@ class CommandCenterService {
     project: Project
     primaryCategory: ProjectCategory
     secondaryCategory: ProjectCategory | null
+    generationMode?: 'keyword_first' | 'editorial_first' | 'mixed'
   }): Promise<TopicDraft[]> {
     const response = await apiClient.post<{ topics?: TopicDraft[] }>('/ai/propose-topics', {
       niche_description: this.buildContextDescription(params.project, params.primaryCategory, params.secondaryCategory),
@@ -163,6 +169,7 @@ class CommandCenterService {
       secondary_category_description: params.secondaryCategory?.description ?? null,
       trend_titles: this.extractTrendTitles(params.project),
       count: 20,
+      generation_mode: params.generationMode || 'mixed',
     })
 
     return (response.topics || [])
@@ -249,6 +256,11 @@ class CommandCenterService {
       target_audience: null,
       evidence_sources: topic.source_signals || null,
       related_terms: topic.related_terms || null,
+      topic_mode: topic.topic_mode || 'hybrid',
+      keyword_viability_score: topic.keyword_viability_score ?? null,
+      keyword_viability_label: topic.keyword_viability_label ?? null,
+      topic_generation_reasoning: topic.topic_generation_reasoning ?? null,
+      topic_generation_metadata: topic.topic_generation_metadata ?? null,
     }))
 
     const created = await researchTopicsService.bulkCreateResearchTopics(payload)

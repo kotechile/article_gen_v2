@@ -44,6 +44,10 @@ class TopicGenerationBriefService:
             or _safe_text(project.get("targetaudiencedescription"))
             or _safe_text(fallback_niche_description)
         )
+        target_audience = (
+            _safe_text(project.get("targetAudienceDescription"))
+            or _safe_text(project.get("targetaudiencedescription"))
+        )
 
         primary_name = _safe_text(primary_category.get("name"))
         secondary_name = _safe_text(secondary_category.get("name"))
@@ -64,6 +68,7 @@ class TopicGenerationBriefService:
         return {
             "project_name": project_name,
             "project_description": project_description,
+            "target_audience": target_audience,
             "primary_category_name": primary_name,
             "primary_category_description": primary_description,
             "secondary_category_name": secondary_name,

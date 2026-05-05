@@ -18,6 +18,7 @@ interface TopicKeywordResearchSummary {
 
 interface TopicKeywordResearchPanelProps {
     topicId: string
+    topicMode: 'keyword_first' | 'editorial_first' | 'hybrid'
     keywordResearchRun: TopicKeywordResearchRun | null
     keywordCandidates: TopicKeywordCandidate[]
     keywordClusters: TopicKeywordCluster[]
@@ -27,9 +28,11 @@ interface TopicKeywordResearchPanelProps {
     generatingClusterIdeas: boolean
     selectedClusterIds: Set<string>
     canGenerateIdeas: boolean
+    manualSeedInput: string
     keywordResearchSummary: TopicKeywordResearchSummary
     onRefreshKeywordResearch: () => void
     onRunKeywordResearch: () => void
+    onManualSeedInputChange: (value: string) => void
     onGenerateIdeasFromClusters: () => void
     onToggleClusterSelection: (clusterId: string) => void
     formatDateTime: (value?: string | null) => string
@@ -37,6 +40,7 @@ interface TopicKeywordResearchPanelProps {
 
 export function TopicKeywordResearchPanel({
     topicId,
+    topicMode,
     keywordResearchRun,
     keywordCandidates,
     keywordClusters,
@@ -46,9 +50,11 @@ export function TopicKeywordResearchPanel({
     generatingClusterIdeas,
     selectedClusterIds,
     canGenerateIdeas,
+    manualSeedInput,
     keywordResearchSummary,
     onRefreshKeywordResearch,
     onRunKeywordResearch,
+    onManualSeedInputChange,
     onGenerateIdeasFromClusters,
     onToggleClusterSelection,
     formatDateTime,
@@ -60,7 +66,9 @@ export function TopicKeywordResearchPanel({
                     <div>
                         <h2 className="text-xl font-semibold text-foreground">Topic Keyword Research</h2>
                         <p className="text-sm text-muted-foreground mt-1">
-                            This topic-level pipeline turns ranked keywords into intent clusters, then turns the strongest clusters into article ideas and companion software opportunities.
+                            {topicMode === 'editorial_first'
+                                ? 'This topic is editorial-first, so keyword research is optional. Use it when you want search evidence or manual seed exploration.'
+                                : 'This topic-level pipeline turns ranked keywords into intent clusters, then turns the strongest clusters into article ideas and companion software opportunities.'}
                         </p>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -135,6 +143,19 @@ export function TopicKeywordResearchPanel({
                         </div>
                     </div>
                 )}
+
+                <div className="mb-5 rounded-xl border border-border bg-muted/20 p-4">
+                    <div className="text-sm font-medium text-foreground">Optional Manual Seeds</div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                        Leave this empty for fully automated seed generation. Add comma-separated or line-separated seeds only when you want to rescue a hard topic or steer the run more directly.
+                    </p>
+                    <textarea
+                        value={manualSeedInput}
+                        onChange={(event) => onManualSeedInputChange(event.target.value)}
+                        placeholder="example: market spending by state, regional price sensitivity, consumer spending shifts"
+                        className="mt-3 min-h-[84px] w-full rounded-lg border border-border bg-background/70 px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring"
+                    />
+                </div>
 
                 {!keywordResearchRun && !keywordResearchLoading ? (
                     <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center">

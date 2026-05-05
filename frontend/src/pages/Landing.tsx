@@ -17,6 +17,7 @@ const smallSelectClasses =
     "h-10 rounded-lg border border-border bg-muted/50 px-3 text-sm text-foreground outline-none transition focus:border-blue-400/30 hover:border-border disabled:cursor-not-allowed disabled:opacity-50"
 
 type TopicInputMode = 'ai' | 'news' | 'manual'
+type TopicGenerationMode = 'mixed' | 'keyword_first' | 'editorial_first'
 
 function getProjectDescription(project: Project | null) {
     return project?.site_description || project?.websiteDescription || 'Choose a website to load its research workspace.'
@@ -34,6 +35,7 @@ export function Landing() {
     const [selectedTopicIds, setSelectedTopicIds] = React.useState<Set<string>>(new Set())
     const [manualTopic, setManualTopic] = React.useState('')
     const [topicInputMode, setTopicInputMode] = React.useState<TopicInputMode>('ai')
+    const [topicGenerationMode, setTopicGenerationMode] = React.useState<TopicGenerationMode>('mixed')
     const [manualModalOpen, setManualModalOpen] = React.useState(false)
     const [showSiteInfo, setShowSiteInfo] = React.useState(false)
 
@@ -249,6 +251,11 @@ export function Landing() {
                 value_layer_tags: draft.value_layer_tags ?? null,
                 related_terms: draft.related_terms ?? null,
                 source_signals: draft.source_signals ?? null,
+                topic_mode: draft.topic_mode ?? 'hybrid',
+                keyword_viability_score: draft.keyword_viability_score ?? null,
+                keyword_viability_label: draft.keyword_viability_label ?? null,
+                topic_generation_reasoning: draft.topic_generation_reasoning ?? null,
+                topic_generation_metadata: draft.topic_generation_metadata ?? null,
                 topic_source: source,
                 source_label: commandCenterService.getSourceLabel(source),
             })),
@@ -274,6 +281,7 @@ export function Landing() {
                 project: activeProject,
                 primaryCategory: activePrimaryCategory,
                 secondaryCategory: activeSecondaryCategory,
+                generationMode: topicGenerationMode,
             })
             await addTopicsToWorkspace(titles, 'ai')
         } catch (error: any) {
@@ -324,6 +332,15 @@ export function Landing() {
                 primary_category_id: activePrimaryCategory.id,
                 secondary_category_id: activeSecondaryCategory.id,
                 title: manualTopic.trim(),
+                topic_mode: 'hybrid',
+                keyword_viability_label: 'medium',
+                topic_generation_reasoning: 'Manual topic entered by the user. Defaulted to hybrid until the workflow gathers stronger evidence.',
+                topic_generation_metadata: {
+                    generator_version: 'manual_topic_v1',
+                    prompt_mode: 'manual',
+                    topic_mode: 'hybrid',
+                    keyword_viability_label: 'medium',
+                },
                 topic_source: 'manual',
                 source_label: commandCenterService.getSourceLabel('manual'),
             })
@@ -582,6 +599,18 @@ export function Landing() {
                                 <option value="news">Hot in the News</option>
                                 <option value="manual">Manual Entry</option>
                             </select>
+                            {topicInputMode === 'ai' && (
+                                <select
+                                    value={topicGenerationMode}
+                                    onChange={(event) => setTopicGenerationMode(event.target.value as TopicGenerationMode)}
+                                    disabled={selectionLocked || !activePrimaryCategory}
+                                    className={smallSelectClasses}
+                                >
+                                    <option value="mixed">Balanced Mix</option>
+                                    <option value="keyword_first">Keyword First</option>
+                                    <option value="editorial_first">Editorial First</option>
+                                </select>
+                            )}
 
                             <button
                                 type="button"
@@ -632,6 +661,8 @@ export function Landing() {
                                             : hasAnyProgress
                                                 ? 'text-amber-500 dark:text-amber-400'
                                                 : 'text-muted-foreground'
+                                        const topicMode = topic.topic_mode || 'hybrid'
+                                        const viabilityLabel = topic.keyword_viability_label || 'medium'
                                         return (
                                             <div
                                                 key={topic.id}
@@ -645,9 +676,19 @@ export function Landing() {
                                                     onChange={() => toggleTopic(topic.id)}
                                                     className="h-4 w-4 shrink-0 rounded border-border bg-transparent text-primary focus:ring-ring focus:ring-offset-0"
                                                 />
-                                                <span className={`min-w-0 flex-1 truncate text-sm ${checked ? 'text-foreground' : 'text-muted-foreground'}`}>
-                                                    {topic.title}
-                                                </span>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className={`truncate text-sm ${checked ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                                        {topic.title}
+                                                    </div>
+                                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                        <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-300">
+                                                            {topicMode === 'keyword_first' ? 'Keyword First' : topicMode === 'editorial_first' ? 'Editorial First' : 'Hybrid'}
+                                                        </span>
+                                                        <span className="rounded-full border border-slate-500/20 bg-slate-500/10 px-2 py-0.5 text-[10px] text-slate-300">
+                                                            {viabilityLabel.charAt(0).toUpperCase() + viabilityLabel.slice(1)} Keyword Potential
+                                                        </span>
+                                                    </div>
+                                                </div>
                                                 <span className={`shrink-0 text-xs font-medium ${statusClass}`}>
                                                     {statusLabel}
                                                 </span>

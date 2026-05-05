@@ -91,6 +91,17 @@ class ResearchTopicsService {
             throw error
         }
     }
+
+    async generateEditorialIdeas(topicId: string, userId: string): Promise<any> {
+        try {
+            return await apiClient.post(`${this.baseUrl}/${topicId}/editorial-ideas/generate`, {
+                user_id: userId,
+            })
+        } catch (error) {
+            console.error('Failed to generate editorial ideas:', error)
+            throw error
+        }
+    }
 }
 
 export const researchTopicsService = new ResearchTopicsService()

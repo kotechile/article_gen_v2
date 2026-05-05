@@ -429,6 +429,13 @@ export function Research() {
                                                         const keywordResearchStatus = String(topic.topic_keyword_research_status || '').trim().toLowerCase()
                                                         const ideasCount = Number(topic.content_ideas_count || 0)
                                                         const inLibraryCount = Number(topic.in_library_count || 0)
+                                                        const topicMode = String(topic.topic_mode || 'hybrid')
+                                                        const viabilityLabel = String(topic.keyword_viability_label || 'medium')
+                                                        const shouldPreferEditorialRoute =
+                                                            (topicMode === 'editorial_first' || topicMode === 'hybrid') &&
+                                                            keywordResearchStatus === 'completed' &&
+                                                            keywordCount === 0 &&
+                                                            clusterCount === 0
                                                         const isFullyResearched = Boolean(topic.all_subtopics_researched)
                                                         const hasKeywordResearch = keywordCount > 0 || clusterCount > 0 || ['pending', 'running', 'completed', 'failed'].includes(keywordResearchStatus)
                                                         const hasAnyProgress =
@@ -443,6 +450,12 @@ export function Research() {
 
                                                         return (
                                                             <div className="flex flex-col items-end gap-1">
+                                                                <span className={`${chipBase} border-blue-500/20 bg-blue-500/10 text-blue-300`}>
+                                                                    {topicMode === 'keyword_first' ? 'Keyword First' : topicMode === 'editorial_first' ? 'Editorial First' : 'Hybrid'}
+                                                                </span>
+                                                                <span className={`${chipBase} border-slate-500/20 bg-slate-500/10 text-slate-300`}>
+                                                                    {viabilityLabel.charAt(0).toUpperCase() + viabilityLabel.slice(1)} Keyword Potential
+                                                                </span>
                                                                 {subtopicsCount > 0 && (
                                                                     <span className={`${chipBase} border-indigo-500/20 bg-indigo-500/10 text-indigo-300`}>
                                                                         {subtopicsCount} Sub-Topics
@@ -471,6 +484,11 @@ export function Research() {
                                                                 {!isFullyResearched && keywordResearchStatus === 'completed' && hasKeywordResearch && ideasCount === 0 && (
                                                                     <span className={`${chipBase} border-cyan-500/20 bg-cyan-500/10 text-cyan-300`}>
                                                                         Keywords Ready
+                                                                    </span>
+                                                                )}
+                                                                {shouldPreferEditorialRoute && (
+                                                                    <span className={`${chipBase} border-amber-500/20 bg-amber-500/10 text-amber-300`}>
+                                                                        Editorial Route
                                                                     </span>
                                                                 )}
                                                                 {isNotStarted && (

@@ -87,6 +87,7 @@ class TopicKeywordResearchService:
         replace_existing: bool = False,
         filters: Optional[Dict[str, Any]] = None,
         score_config: Optional[Dict[str, Any]] = None,
+        manual_seed_keywords: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         filters = {**self.DEFAULT_FILTERS, **(filters or {})}
         score_config = {**self.DEFAULT_SCORE_CONFIG, **(score_config or {})}
@@ -118,7 +119,7 @@ class TopicKeywordResearchService:
         seeds: List[str] = []
 
         try:
-            seed_package = await self._build_seed_keywords(topic_context)
+            seed_package = await self._build_seed_keywords(topic_context, manual_seed_keywords=manual_seed_keywords)
             seeds = seed_package["seed_keywords"]
             discovered_rows, raw_data = await self._discover_keyword_candidates(seeds=seeds)
             enriched_rows = await self._enrich_and_score_candidates(
@@ -734,7 +735,25 @@ class TopicKeywordResearchService:
                 continue
             self.supabase_admin.table("topic_keyword_clusters").insert(chunk).execute()
 
-    async def _build_seed_keywords(self, topic_context: Dict[str, Any]) -> Dict[str, Any]:
+    async def _build_seed_keywords(self, topic_context: Dict[str, Any], manual_seed_keywords: Optional[List[str]] = None) -> Dict[str, Any]:
+        manual_seed_keywords = [
+            self._clean_seed_phrase(seed)
+            for seed in (manual_seed_keywords or [])
+            if self._clean_seed_phrase(seed)
+        ]
+        if manual_seed_keywords:
+            return {
+                "generation_mode": "manual_override_v1",
+                "seed_keywords": manual_seed_keywords[:20],
+                "deterministic_seeds": self._build_deterministic_seed_keywords(topic_context),
+                "llm_seeds": [],
+                "seed_sources": {seed: "manual_override" for seed in manual_seed_keywords[:20]},
+                "llm_parse_strategy": None,
+                "llm_raw_output": None,
+                "llm_raw_seed_count": 0,
+                "llm_accepted_seed_count": 0,
+                "llm_rejected_candidates": [],
+            }
         deterministic_seeds = self._build_deterministic_seed_keywords(topic_context)
         llm_result = await self._generate_llm_seed_keywords(topic_context, deterministic_seeds)
         llm_seeds = llm_result.get("accepted_seeds") or []
