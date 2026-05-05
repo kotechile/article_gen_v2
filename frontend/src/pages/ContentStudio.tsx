@@ -1029,7 +1029,7 @@ export const ContentStudio: React.FC = () => {
                 </div>
             )}
             {/* SEO Pre-Flight Panel */}
-            {seoValidation && (seoValidation.errors.length > 0 || seoValidation.warnings.length > 0) && (
+            {seoShiftEnabled && seoValidation && (seoValidation.errors.length > 0 || seoValidation.warnings.length > 0) && (
                 <div className="rounded-xl border overflow-hidden">
                     {seoValidation.errors.length > 0 && (
                         <div className="bg-destructive/10 border-b border-destructive/20 px-4 py-3">
@@ -1087,9 +1087,9 @@ export const ContentStudio: React.FC = () => {
                     </button>
                     <button
                         onClick={handleGenerate}
-                        disabled={generating || requestingRefinement || (seoValidation !== null && !seoValidation.isValid)}
+                        disabled={generating || requestingRefinement || (seoShiftEnabled && seoValidation !== null && !seoValidation.isValid)}
                         className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                        title={seoValidation && !seoValidation.isValid ? seoValidation.errors[0] : undefined}
+                        title={seoShiftEnabled && seoValidation && !seoValidation.isValid ? seoValidation.errors[0] : undefined}
                     >
                         {(generating || requestingRefinement) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                         {requestingRefinement ? 'Preparing Approval Gate...' : 'Generate Article'}
@@ -1427,7 +1427,7 @@ export const ContentStudio: React.FC = () => {
                         <div className="flex items-center gap-2 mb-4">
                             <ShieldCheck className="w-5 h-5 text-primary" />
                             <h3 className="font-semibold text-foreground">SEO Data</h3>
-                            {seoValidation && (
+                            {seoShiftEnabled && seoValidation && (
                                 <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${
                                     seoValidation.isValid
                                         ? 'bg-emerald-500/15 text-emerald-400'
