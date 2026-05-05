@@ -63,7 +63,9 @@ class TopicKeywordResearchService:
         "total", "cost", "ownership", "value", "analysis", "planning", "timing",
         "guide", "selection", "decision", "support", "comparison", "compare",
         "investing", "investment", "spending", "power", "capital", "allocation",
-        "market", "consumer", "intelligence", "pricing", "roi",
+        "market", "consumer", "intelligence", "pricing", "roi", "reality",
+        "period", "periods", "still", "make", "determining", "true", "point",
+        "changing", "using", "driven", "future", "strategy", "strategic",
     }
 
     TOKEN_ALIAS_MAP = {
@@ -813,6 +815,7 @@ class TopicKeywordResearchService:
         primary_name = str(primary_category.get("name") or "").strip()
         secondary_name = str(secondary_category.get("name") or "").strip()
         audience = str(topic.get("target_audience") or project.get("targetaudiencedescription") or "").strip()
+        related_terms = [str(term).strip() for term in (topic.get("related_terms") or []) if str(term).strip()]
         decision_focus = str(topic.get("decision_focus") or "").strip()
         angle_question = str(topic.get("angle_question") or "").strip()
 
@@ -840,6 +843,7 @@ class TopicKeywordResearchService:
             self._queryish_fragment(description, max_words=5),
             self._queryish_fragment(decision_focus, max_words=5),
             self._queryish_fragment(angle_question, max_words=5),
+            *related_terms,
             *category_candidates,
             *[
                 f"{category_name} {title_head}".strip()
@@ -1134,7 +1138,15 @@ class TopicKeywordResearchService:
         normalized = self._normalize_keyword_key(text)
         if not normalized:
             return ""
-        tokens = normalized.split(" ")
+        tokens = [token for token in normalized.split(" ") if token]
+        if not tokens:
+            return ""
+        significant_tokens = [token for token in tokens if token not in self.QUERY_STOPWORDS]
+        trimmed_tokens = [token for token in significant_tokens if token not in self.GENERIC_TOPIC_TERMS]
+        if len(trimmed_tokens) >= 2:
+            tokens = trimmed_tokens
+        elif len(significant_tokens) >= 2:
+            tokens = significant_tokens
         if len(tokens) < 2:
             return ""
         if len(tokens) > 6:
@@ -1349,15 +1361,9 @@ Requirements:
         return candidates
 
     def _normalize_llm_seed_phrase(self, text: str) -> str:
-        normalized = self._normalize_keyword_key(text)
-        if not normalized:
+        phrase = self._clean_seed_phrase(text)
+        if not phrase:
             return ""
-        tokens = [token for token in normalized.split(" ") if token]
-        if len(tokens) < 2:
-            return ""
-        if len(tokens) > 6:
-            tokens = tokens[:6]
-        phrase = " ".join(tokens)
         if not self._looks_human_search_like(phrase):
             return ""
         return phrase
