@@ -39,6 +39,12 @@ class TopicKeywordResearchService:
         "jobs", "job", "career", "salary", "pdf", "near me", "nearby", "hiring",
     }
 
+    BUSINESS_DRIFT_TERMS = {
+        "supply chain", "procurement", "construction", "enterprise", "b2b",
+        "business", "industrial", "vendor", "warehouse", "logistics",
+        "manufacturing", "asset management",
+    }
+
     FILTER_STOP_PREFIXES = (
         "deciding between",
         "between ",
@@ -52,6 +58,22 @@ class TopicKeywordResearchService:
         "target audience",
         "site description",
     )
+
+    GENERIC_TOPIC_TERMS = {
+        "total", "cost", "ownership", "value", "analysis", "planning", "timing",
+        "guide", "selection", "decision", "support", "comparison", "compare",
+        "investing", "investment", "spending", "power", "capital", "allocation",
+        "market", "consumer", "intelligence", "pricing", "roi",
+    }
+
+    TOKEN_ALIAS_MAP = {
+        "ev": {"ev", "electric", "vehicle", "vehicles", "car", "cars", "auto", "automotive"},
+        "hybrid": {"hybrid", "phev", "plugin", "plug", "car", "cars", "vehicle", "vehicles"},
+        "phev": {"phev", "plugin", "plug", "hybrid", "car", "cars", "vehicle", "vehicles"},
+        "solar": {"solar", "panel", "panels", "roof", "rooftop"},
+        "mortgage": {"mortgage", "home", "house", "housing"},
+        "insurance": {"insurance", "coverage", "policy"},
+    }
 
     SOFTWARE_SIGNAL_TERMS = {
         "calculator", "tool", "template", "checker", "planner", "estimator",
@@ -305,7 +327,7 @@ class TopicKeywordResearchService:
             .table("research_topics")
             .select(
                 "id, title, description, project_id, primary_category_id, secondary_category_id, "
-                "intent_bucket, decision_focus, angle_question, value_layer_tags, target_audience"
+                "intent_bucket, decision_focus, angle_question, value_layer_tags, target_audience, related_terms"
             )
             .eq("id", topic_id)
             .eq("user_id", user_id)
@@ -559,7 +581,11 @@ class TopicKeywordResearchService:
                 "trend_score": 50,
             }
 
-            is_filtered_out, filter_reason = self._filter_candidate_row(row=row, filters=filters)
+            is_filtered_out, filter_reason = self._filter_candidate_row(
+                row=row,
+                filters=filters,
+                topic_context=topic_context,
+            )
             row["is_filtered_out"] = is_filtered_out
             row["filter_reason"] = filter_reason
             row["opportunity_score"] = self._compute_keyword_opportunity_score(
@@ -912,7 +938,12 @@ class TopicKeywordResearchService:
             "keyword_difficulty": self._safe_float(row.get("keyword_difficulty")),
         }
 
-    def _filter_candidate_row(self, row: Dict[str, Any], filters: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+    def _filter_candidate_row(
+        self,
+        row: Dict[str, Any],
+        filters: Dict[str, Any],
+        topic_context: Dict[str, Any],
+    ) -> tuple[bool, Optional[str]]:
         keyword = (row.get("keyword") or "").lower().strip()
         canonical = row.get("canonical_keyword") or ""
         if not canonical or len(self._token_set(canonical)) < 2:
@@ -925,6 +956,17 @@ class TopicKeywordResearchService:
         for stop_term in self.FILTER_STOP_TERMS:
             if stop_term in keyword:
                 return True, f"blocked_term:{stop_term}"
+
+        anchor_terms = self._topic_anchor_terms(topic_context)
+        anchor_overlap = self._anchor_overlap_count(canonical, anchor_terms)
+        if anchor_terms and anchor_overlap <= 0:
+            return True, "missing_topic_anchor"
+
+        if (
+            self._audience_mode(topic_context) == "consumer"
+            and any(term in keyword for term in self.BUSINESS_DRIFT_TERMS)
+        ):
+            return True, "business_domain_drift"
 
         search_volume = int(row.get("search_volume") or 0)
         keyword_difficulty = float(row.get("keyword_difficulty") or 0.0)
@@ -974,6 +1016,7 @@ class TopicKeywordResearchService:
             " ".join([
                 str(topic.get("title") or ""),
                 str(topic.get("description") or ""),
+                " ".join([str(term).strip() for term in (topic.get("related_terms") or []) if str(term).strip()]),
                 str((topic_context.get("primary_category") or {}).get("name") or ""),
                 str((topic_context.get("secondary_category") or {}).get("name") or ""),
             ])
@@ -982,9 +1025,14 @@ class TopicKeywordResearchService:
         if not topic_tokens or not keyword_tokens:
             return 0.0
         overlap = len(topic_tokens & keyword_tokens)
+        anchor_terms = self._topic_anchor_terms(topic_context)
+        anchor_overlap = self._anchor_overlap_count(keyword, anchor_terms)
+        if anchor_terms and anchor_overlap <= 0:
+            return 5.0
         if overlap <= 0:
             return 20.0
-        return round(min(100.0, 30.0 + (overlap / max(1, len(keyword_tokens))) * 70.0), 2)
+        anchor_bonus = 18.0 if anchor_overlap > 0 else 0.0
+        return round(min(100.0, 24.0 + (overlap / max(1, len(keyword_tokens))) * 58.0 + anchor_bonus), 2)
 
     def _infer_intent_label(self, keyword: str) -> str:
         normalized = str(keyword or "").lower()
@@ -1142,6 +1190,9 @@ Critical Priority Rule:
 - Topic title, decision focus, and angle question are the source of truth.
 - Category path, project/domain context, and audience are only supporting hints.
 - If the category context conflicts with the topic itself, IGNORE the conflicting category context.
+- Preserve the concrete subject of the topic, not just the abstract decision frame.
+- If the topic is about a specific consumer object or comparison (for example EV vs hybrid ownership), seeds must keep that object/domain explicit instead of collapsing into a generic finance or business phrase.
+- Honor the target audience. If the audience is consumer-facing, avoid drifting into enterprise, procurement, supply chain, or industrial search language unless the topic clearly asks for it.
 
 Lane Design Rules:
 - Favor concrete user search lanes grounded in the topic.
@@ -1405,6 +1456,45 @@ Requirements:
             return False
         midpoint = len(tokens) // 2
         return tokens[:midpoint] == tokens[midpoint:]
+
+    def _topic_anchor_terms(self, topic_context: Dict[str, Any]) -> set[str]:
+        topic = topic_context.get("topic") or {}
+        raw_parts: List[str] = [
+            str(topic.get("title") or ""),
+            str(topic.get("decision_focus") or ""),
+            str(topic.get("angle_question") or ""),
+        ]
+        raw_parts.extend([str(term).strip() for term in (topic.get("related_terms") or []) if str(term).strip()])
+        raw_text = " ".join(raw_parts)
+        base_tokens = [
+            token for token in self._meaningful_tokens(raw_text)
+            if token not in self.GENERIC_TOPIC_TERMS
+        ]
+        anchors: set[str] = set()
+        for token in base_tokens:
+            anchors.add(token)
+            anchors.update(self.TOKEN_ALIAS_MAP.get(token, set()))
+        return anchors
+
+    def _anchor_overlap_count(self, keyword: str, anchor_terms: set[str]) -> int:
+        if not anchor_terms:
+            return 0
+        keyword_tokens = set(self._meaningful_tokens(keyword))
+        return len(keyword_tokens & anchor_terms)
+
+    def _audience_mode(self, topic_context: Dict[str, Any]) -> str:
+        topic = topic_context.get("topic") or {}
+        project = topic_context.get("project") or {}
+        combined = " ".join([
+            str(topic.get("target_audience") or ""),
+            str(project.get("targetaudiencedescription") or ""),
+            str(project.get("site_description") or project.get("websitedescription") or ""),
+        ]).lower()
+        if any(term in combined for term in ["consumer", "homeowner", "buyer", "driver", "shopper", "family", "household"]):
+            return "consumer"
+        if any(term in combined for term in ["investor", "operator", "enterprise", "business", "b2b", "procurement", "finance team"]):
+            return "business"
+        return "general"
 
     def _normalize_keyword_key(self, text: Any) -> str:
         cleaned = re.sub(r"\s+", " ", str(text or "").strip().lower())
