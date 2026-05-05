@@ -216,6 +216,7 @@ function getKeywordRows(article: any): Array<{ keyword: string; volume: number; 
 }
 
 export const MyArticles: React.FC = () => {
+    const ITEMS_PER_PAGE = 5
     const { user } = useAuth()
     const { activeProject, projects } = useProject()
     const navigate = useNavigate()
@@ -231,6 +232,7 @@ export const MyArticles: React.FC = () => {
     const [projectFilter, setProjectFilter] = useState('')
     const [primaryCategoryFilter, setPrimaryCategoryFilter] = useState('')
     const [secondaryCategoryFilter, setSecondaryCategoryFilter] = useState('')
+    const [currentPage, setCurrentPage] = useState(1)
     const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>([])
     // Keyword Intelligence Modal (replaces legacy Keyword Lab)
     const [kwIntelOpen, setKwIntelOpen] = useState(false)
@@ -582,6 +584,27 @@ export const MyArticles: React.FC = () => {
         [sortedArticles, search, exactMetricsOnly, projectFilter, primaryCategoryFilter, secondaryCategoryFilter],
     )
 
+    useEffect(() => {
+        setCurrentPage(1)
+    }, [search, exactMetricsOnly, projectFilter, primaryCategoryFilter, secondaryCategoryFilter, sortKey, sortAsc])
+
+    const totalPages = useMemo(
+        () => Math.max(1, Math.ceil(filteredArticles.length / ITEMS_PER_PAGE)),
+        [filteredArticles.length, ITEMS_PER_PAGE]
+    )
+
+    useEffect(() => {
+        setCurrentPage((prev) => Math.min(prev, totalPages))
+    }, [totalPages])
+
+    const paginatedArticles = useMemo(() => {
+        const start = (currentPage - 1) * ITEMS_PER_PAGE
+        return filteredArticles.slice(start, start + ITEMS_PER_PAGE)
+    }, [currentPage, filteredArticles, ITEMS_PER_PAGE])
+
+    const pageStart = filteredArticles.length === 0 ? 0 : (currentPage - 1) * ITEMS_PER_PAGE + 1
+    const pageEnd = Math.min(currentPage * ITEMS_PER_PAGE, filteredArticles.length)
+
     const handleCreateNew = async () => {
         if (!user) return
         try {
@@ -726,7 +749,7 @@ export const MyArticles: React.FC = () => {
         const wpStatus = String(a?.last_wp_post_status || '').trim().toLowerCase()
         return status === 'wp published' || status === 'scheduled' || wpStatus === 'publish' || wpStatus === 'future'
     }).length
-    const allSelected = articles.length > 0 && selectedIds.size === filteredArticles.length
+    const allSelected = paginatedArticles.length > 0 && paginatedArticles.every((article) => selectedIds.has(article.id))
     const titlesOnly = useMemo(() => articles.filter(a => a._source === 'titles'), [articles])
     const qualityMetrics = useMemo(() => {
         const reports = titlesOnly
@@ -815,7 +838,7 @@ export const MyArticles: React.FC = () => {
                                     : 'border-border bg-muted/50 text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground'
                             }`}
                         >
-                            <span>{exactMetricsOnly ? 'Exact Metrics Only' : 'Show All Metrics'}</span>
+                            <span>Exact Metrics Only</span>
                         </button>
                         {selectedIds.size > 0 && (
                             <button
@@ -996,7 +1019,7 @@ export const MyArticles: React.FC = () => {
                                         checked={allSelected}
                                         onChange={(e) => {
                                             setSelectedIds(e.target.checked
-                                                ? new Set(filteredArticles.map(a => a.id))
+                                                ? new Set(paginatedArticles.map(a => a.id))
                                                 : new Set())
                                         }}
                                     />
@@ -1012,7 +1035,7 @@ export const MyArticles: React.FC = () => {
                             </div>
 
                             <div className="divide-y divide-border">
-                                {filteredArticles.map(article => {
+                                {paginatedArticles.map(article => {
                                     const selected = selectedIds.has(article.id)
                                     const status = getStatusStyle(article, article._source)
                                     const metricSource = getKeywordMetricSource(article)
@@ -1210,10 +1233,32 @@ export const MyArticles: React.FC = () => {
                     )}
 
                     {!loading && filteredArticles.length > 0 && (
-                        <div className="mt-4 border-t border-border pt-4">
+                        <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
                             <p className="text-xs text-muted-foreground">
-                                Showing {filteredArticles.length} of {articles.length} items
+                                Showing {pageStart}-{pageEnd} of {filteredArticles.length} filtered items
+                                {filteredArticles.length !== articles.length ? ` (${articles.length} total)` : ''}
                             </p>
+                            <div className="flex items-center justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                                    disabled={currentPage === 1}
+                                    className="inline-flex h-9 items-center rounded-lg border border-border bg-muted/30 px-3 text-sm text-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Previous
+                                </button>
+                                <span className="text-xs text-muted-foreground">
+                                    Page {currentPage} of {totalPages}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                                    disabled={currentPage === totalPages}
+                                    className="inline-flex h-9 items-center rounded-lg border border-border bg-muted/30 px-3 text-sm text-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Next
+                                </button>
+                            </div>
                         </div>
                     )}
                 </motion.div>
