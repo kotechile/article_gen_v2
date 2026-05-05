@@ -33,6 +33,7 @@ interface TopicKeywordResearchPanelProps {
     onRefreshKeywordResearch: () => void
     onRunKeywordResearch: () => void
     onManualSeedInputChange: (value: string) => void
+    onAddManualSeed: (keyword: string) => void
     onGenerateIdeasFromClusters: () => void
     onToggleClusterSelection: (clusterId: string) => void
     formatDateTime: (value?: string | null) => string
@@ -55,6 +56,7 @@ export function TopicKeywordResearchPanel({
     onRefreshKeywordResearch,
     onRunKeywordResearch,
     onManualSeedInputChange,
+    onAddManualSeed,
     onGenerateIdeasFromClusters,
     onToggleClusterSelection,
     formatDateTime,
@@ -126,7 +128,7 @@ export function TopicKeywordResearchPanel({
                 <div className="mb-5 rounded-xl border border-border bg-muted/20 p-4">
                     <div className="text-sm font-medium text-foreground">Optional Manual Seeds</div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                        Leave this empty for fully automated seed generation. Add comma-separated or line-separated seeds only when you want to rescue a hard topic or steer the run more directly.
+                        Leave this empty for fully automated seed generation. Add comma-separated or line-separated seeds when you want to rescue a hard topic, steer the run more directly, or rerun from an already discovered keyword below.
                     </p>
                     <textarea
                         value={manualSeedInput}
@@ -205,9 +207,21 @@ export function TopicKeywordResearchPanel({
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                             <div className="rounded-xl border border-border bg-muted/20 p-5">
-                                <h3 className="text-sm font-semibold text-foreground mb-3">Top Keyword Opportunities</h3>
+                                <div className="mb-3 flex items-center justify-between gap-3">
+                                    <div>
+                                        <h3 className="text-sm font-semibold text-foreground">Top Keyword Opportunities</h3>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            Use strong existing keywords as manual seeds for your next run when the current topic drifts.
+                                        </p>
+                                    </div>
+                                    {keywordCandidates.length > 0 && (
+                                        <span className="text-xs text-muted-foreground">
+                                            Showing {Math.min(keywordCandidates.length, 8)} of {keywordCandidates.length}
+                                        </span>
+                                    )}
+                                </div>
                                 <div className="space-y-3">
-                                    {keywordCandidates.slice(0, 5).map((row) => (
+                                    {keywordCandidates.slice(0, 8).map((row) => (
                                         <div key={row.id} className="rounded-lg border border-border/70 bg-background/40 p-3">
                                             <div className="flex items-start justify-between gap-3">
                                                 <div>
@@ -216,9 +230,20 @@ export function TopicKeywordResearchPanel({
                                                         Intent: {row.intent_label || 'unknown'}
                                                     </div>
                                                 </div>
-                                                <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] text-primary">
-                                                    Score {Math.round(Number(row.opportunity_score || 0))}
-                                                </span>
+                                                <div className="flex flex-col items-end gap-2">
+                                                    <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] text-primary">
+                                                        Score {Math.round(Number(row.opportunity_score || 0))}
+                                                    </span>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => onAddManualSeed(row.keyword)}
+                                                        className="h-7 border-border px-2 text-[11px] hover:bg-muted"
+                                                    >
+                                                        Use as Seed
+                                                    </Button>
+                                                </div>
                                             </div>
                                             <div className="mt-2 text-xs text-muted-foreground">
                                                 {(row.search_volume || 0).toLocaleString()} volume

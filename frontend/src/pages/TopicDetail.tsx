@@ -203,6 +203,28 @@ export function TopicDetail() {
         })
     }, [])
 
+    const handleAddManualSeed = React.useCallback((keyword: string) => {
+        const normalized = String(keyword || '').trim()
+        if (!normalized) {
+            return
+        }
+
+        setManualSeedInput((current) => {
+            const existing = current
+                .split(/[\n,]/g)
+                .map((value) => value.trim())
+                .filter(Boolean)
+
+            if (existing.some((value) => value.toLowerCase() === normalized.toLowerCase())) {
+                return current
+            }
+
+            return [...existing, normalized].join('\n')
+        })
+
+        toast.success(`Added "${normalized}" to manual seeds for the next run.`)
+    }, [])
+
     const handleGenerateIdeasFromClusters = React.useCallback(async () => {
         if (!id || !user?.id || !keywordResearchRun) return
         const clusterIds = Array.from(selectedClusterIds)
@@ -792,6 +814,7 @@ export function TopicDetail() {
                     onRefreshKeywordResearch={() => loadKeywordResearch(id || '')}
                     onRunKeywordResearch={handleRunKeywordResearch}
                     onManualSeedInputChange={setManualSeedInput}
+                    onAddManualSeed={handleAddManualSeed}
                     onGenerateIdeasFromClusters={handleGenerateIdeasFromClusters}
                     onToggleClusterSelection={toggleClusterSelection}
                     formatDateTime={formatDateTime}
