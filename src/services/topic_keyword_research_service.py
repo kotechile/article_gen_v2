@@ -39,6 +39,12 @@ class TopicKeywordResearchService:
         "jobs", "job", "career", "salary", "pdf", "near me", "nearby", "hiring",
     }
 
+    FILTER_STOP_PREFIXES = (
+        "deciding between",
+        "between ",
+        "building on",
+    )
+
     SEED_NOISE_PATTERNS = (
         "building on existing content",
         "existing content about",
@@ -893,6 +899,10 @@ class TopicKeywordResearchService:
         if not canonical or len(self._token_set(canonical)) < 2:
             return True, "not_specific_enough"
 
+        for stop_prefix in self.FILTER_STOP_PREFIXES:
+            if keyword.startswith(stop_prefix):
+                return True, f"blocked_prefix:{stop_prefix.strip()}"
+
         for stop_term in self.FILTER_STOP_TERMS:
             if stop_term in keyword:
                 return True, f"blocked_term:{stop_term}"
@@ -901,7 +911,13 @@ class TopicKeywordResearchService:
         keyword_difficulty = float(row.get("keyword_difficulty") or 0.0)
         competition_index = int(row.get("competition_index") or 0)
 
-        if search_volume <= 0 and (row.get("cpc") or 0) <= 0 and keyword_difficulty <= 0:
+        measurable_demand = (
+            search_volume > 0
+            or float(row.get("cpc") or 0) > 0
+            or competition_index > 0
+        )
+
+        if not measurable_demand:
             return True, "no_measurable_demand"
         if search_volume > 0 and search_volume < int(filters.get("min_search_volume") or 0):
             return True, "below_min_search_volume"
@@ -1109,7 +1125,9 @@ Critical Priority Rule:
 - If the category context conflicts with the topic itself, IGNORE the conflicting category context.
 
 Lane Design Rules:
-- Favor concrete lanes such as durability, maintenance, compatibility, lifecycle, replacement, pricing, resale, support, upgradeability, or risk when relevant.
+- Favor concrete user search lanes grounded in the topic.
+- Example lanes may include durability, maintenance, compatibility, lifecycle, replacement, pricing, resale, support, upgradeability, or risk when relevant.
+- Do not limit yourself to those examples if the topic clearly suggests stronger lanes such as engineering, thermal management, materials, firmware, batteries, modularity, or environmental control.
 - Do not drift into adjacent business categories unless the topic clearly asks for that.
 - Each lane should represent a distinct user search path.
 
