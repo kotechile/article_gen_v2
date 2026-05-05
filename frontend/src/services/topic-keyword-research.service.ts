@@ -1,4 +1,5 @@
 import { apiClient } from '../api-client'
+import axios from 'axios'
 import type {
     TopicKeywordCandidateListResponse,
     TopicKeywordClusterListResponse,
@@ -21,6 +22,19 @@ export interface GenerateIdeasFromClustersRequest {
 class TopicKeywordResearchService {
     private baseUrl = '/research-topics'
 
+    private extractErrorMessage(error: unknown, fallback: string): string {
+        if (axios.isAxiosError(error)) {
+            const serverMessage =
+                (error.response?.data as any)?.message ||
+                (error.response?.data as any)?.error?.message
+            if (serverMessage) return String(serverMessage)
+        }
+        if (error instanceof Error && error.message) {
+            return error.message
+        }
+        return fallback
+    }
+
     async runTopicKeywordResearch(topicId: string, payload: TopicKeywordResearchRunRequest = {}): Promise<TopicKeywordResearchRunResult> {
         try {
             return await apiClient.post<TopicKeywordResearchRunResult>(
@@ -30,7 +44,7 @@ class TopicKeywordResearchService {
             )
         } catch (error) {
             console.error('Failed to run topic keyword research:', error)
-            throw error
+            throw new Error(this.extractErrorMessage(error, 'Failed to run topic keyword research.'))
         }
     }
 

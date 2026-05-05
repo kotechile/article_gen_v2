@@ -171,8 +171,9 @@ export function TopicDetail() {
             await loadKeywordResearch(id)
         } catch (err) {
             console.error('Failed to run topic keyword research:', err)
-            setKeywordResearchError('Failed to run topic keyword research.')
-            toast.error('Topic keyword research failed. If the migration has not been applied yet, apply it in Supabase and try again.', {
+            const errorMessage = err instanceof Error ? err.message : 'Failed to run topic keyword research.'
+            setKeywordResearchError(errorMessage)
+            toast.error(errorMessage, {
                 id: 'topic-keyword-research',
             })
         } finally {

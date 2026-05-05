@@ -91,20 +91,29 @@ class TopicKeywordResearchService:
         if replace_existing:
             self.delete_topic_research(topic_id=topic_id, user_id=user_id)
 
-        seed_package = await self._build_seed_keywords(topic_context)
-        seeds = seed_package["seed_keywords"]
+        pending_seed_package = {
+            "generation_mode": "pending",
+            "seed_keywords": [],
+            "deterministic_seeds": [],
+            "llm_seeds": [],
+            "seed_sources": {},
+        }
         run_row = self._create_run(
             topic_id=topic_id,
             user_id=user_id,
-            seed_keywords=seeds,
+            seed_keywords=[],
             filters=filters,
             score_config=score_config,
             topic_context=topic_context,
-            seed_package=seed_package,
+            seed_package=pending_seed_package,
         )
         run_id = run_row["id"]
+        seed_package = pending_seed_package
+        seeds: List[str] = []
 
         try:
+            seed_package = await self._build_seed_keywords(topic_context)
+            seeds = seed_package["seed_keywords"]
             discovered_rows, raw_data = await self._discover_keyword_candidates(seeds=seeds)
             enriched_rows = await self._enrich_and_score_candidates(
                 candidates=discovered_rows,

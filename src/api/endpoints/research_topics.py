@@ -2964,17 +2964,20 @@ def run_topic_keyword_research(topic_id):
             "top_clusters": (result.get("clusters") or [])[:5],
         }), 200
     except ValueError as err:
+        message = str(err)
+        error_code = "NOT_FOUND" if message == "Research topic not found" else "INVALID_REQUEST"
+        status = 404 if message == "Research topic not found" else 400
         return jsonify(ErrorResponse(
-            error="not_found",
-            message=str(err),
-            error_code="NOT_FOUND",
-            status=404
-        ).dict()), 404
+            error="not_found" if status == 404 else "invalid_request",
+            message=message,
+            error_code=error_code,
+            status=status
+        ).dict()), status
     except Exception as err:
         logger.error("Error running topic keyword research topic_id=%s err=%s", topic_id, err, exc_info=True)
         return jsonify(ErrorResponse(
             error="internal_error",
-            message="Failed to run topic keyword research",
+            message=str(err) or "Failed to run topic keyword research",
             error_code="INTERNAL_ERROR",
             status=500
         ).dict()), 500
