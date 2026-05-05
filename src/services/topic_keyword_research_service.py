@@ -730,19 +730,26 @@ class TopicKeywordResearchService:
 
     async def _build_seed_keywords(self, topic_context: Dict[str, Any]) -> Dict[str, Any]:
         deterministic_seeds = self._build_deterministic_seed_keywords(topic_context)
-        llm_seeds = await self._generate_llm_seed_keywords(topic_context, deterministic_seeds)
+        llm_result = await self._generate_llm_seed_keywords(topic_context, deterministic_seeds)
+        llm_seeds = llm_result.get("accepted_seeds") or []
+        seed_package = {
+            "generation_mode": "llm_only_v2",
+            "seed_keywords": llm_seeds,
+            "deterministic_seeds": deterministic_seeds,
+            "llm_seeds": llm_seeds,
+            "seed_sources": {seed: "llm" for seed in llm_seeds},
+            "llm_parse_strategy": llm_result.get("parse_strategy"),
+            "llm_raw_output": llm_result.get("raw_output"),
+            "llm_raw_seed_count": llm_result.get("raw_seed_count"),
+            "llm_accepted_seed_count": llm_result.get("accepted_seed_count"),
+            "llm_rejected_candidates": llm_result.get("rejected_candidates") or [],
+        }
         if not llm_seeds:
             raise ValueError(
                 "Topic keyword research could not generate usable LLM seed keywords for this topic. "
                 "Please revise the topic context or provide manual seeds."
             )
-        return {
-            "generation_mode": "llm_only_v1",
-            "seed_keywords": llm_seeds,
-            "deterministic_seeds": deterministic_seeds,
-            "llm_seeds": llm_seeds,
-            "seed_sources": {seed: "llm" for seed in llm_seeds},
-        }
+        return seed_package
 
     def _build_deterministic_seed_keywords(self, topic_context: Dict[str, Any]) -> List[str]:
         topic = topic_context.get("topic") or {}
@@ -856,9 +863,10 @@ class TopicKeywordResearchService:
             "topic_title": ((topic_context.get("topic") or {}).get("title") or ""),
             "category_path": topic_context.get("category_path"),
             "seed_count": len(seed_keywords),
-            "seed_generation_mode": (seed_package or {}).get("generation_mode") or "llm_only_v1",
+            "seed_generation_mode": (seed_package or {}).get("generation_mode") or "llm_only_v2",
             "llm_seed_count": len((seed_package or {}).get("llm_seeds") or []),
             "deterministic_seed_count": len((seed_package or {}).get("deterministic_seeds") or []),
+            "llm_parse_strategy": (seed_package or {}).get("llm_parse_strategy"),
             "candidate_count": len(candidate_rows),
             "active_candidate_count": len(active),
             "filtered_candidate_count": len(filtered_out),
@@ -1057,7 +1065,7 @@ class TopicKeywordResearchService:
         self,
         topic_context: Dict[str, Any],
         deterministic_seeds: List[str],
-    ) -> List[str]:
+    ) -> Dict[str, Any]:
         topic = topic_context.get("topic") or {}
         project = topic_context.get("project") or {}
         primary_category = topic_context.get("primary_category") or {}
@@ -1115,25 +1123,25 @@ Seed Rules:
 - Avoid phrases that are too broad to be useful.
 
 Output Contract:
-Return valid JSON with this shape:
-{{
-  "lanes": [
-    {{
-      "name": "short lane name",
-      "reason": "why this lane matters",
-      "seeds": ["seed one", "seed two", "seed three"]
-    }}
-  ]
-}}
+Return ONLY plain text using these exact delimiters:
+LANE:: short lane name
+WHY:: one short reason
+SEED:: seed phrase one
+SEED:: seed phrase two
+SEED:: seed phrase three
+ENDLANE
 
 Requirements:
 - 4 to 6 lanes
 - 3 to 5 seeds per lane
-- No extra keys
+- Every seed must appear on its own SEED:: line
+- Do not return JSON
+- Do not return bullets
+- Do not return commentary
 """
         try:
             response = await asyncio.wait_for(
-                llm_service.generate_json(
+                llm_service.generate_text(
                     prompt=prompt,
                     max_tokens=500,
                     temperature=0.2,
@@ -1141,34 +1149,69 @@ Requirements:
                 ),
                 timeout=25.0,
             )
-            lanes = response.get("lanes") if isinstance(response, dict) else []
+            raw_content = response.content or ""
+            parsed = self._extract_delimited_seed_lines(raw_content)
+            parse_strategy = "delimited"
+            if not parsed:
+                parsed = self._extract_fallback_seed_lines(raw_content)
+                parse_strategy = "fallback_lines"
             seeds: List[str] = []
             seen = set()
-            for lane in lanes or []:
-                lane_seeds = lane.get("seeds") if isinstance(lane, dict) else []
-                for raw in lane_seeds or []:
-                    normalized = self._normalize_llm_seed_phrase(raw)
-                    if not normalized:
-                        continue
-                    key = normalized.lower()
+            rejected_candidates: List[str] = []
+            for raw in parsed:
+                normalized = self._normalize_llm_seed_phrase(raw)
+                if not normalized:
+                    cleaned = self._normalize_keyword_key(raw)
+                    if cleaned:
+                        rejected_candidates.append(cleaned)
+                    continue
+                key = normalized.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                seeds.append(normalized)
+            if len(seeds) < 6:
+                salvage_candidates = self._salvage_seed_candidates_from_hints(
+                    llm_candidates=parsed,
+                    deterministic_hints=deterministic_seeds,
+                    existing_seeds=seeds,
+                )
+                parse_strategy = f"{parse_strategy}+salvage" if salvage_candidates else parse_strategy
+                for candidate in salvage_candidates:
+                    key = candidate.lower()
                     if key in seen:
                         continue
                     seen.add(key)
-                    seeds.append(normalized)
+                    seeds.append(candidate)
             logger.info(
-                "LLM topic seed generation topic=%r generated=%s sample=%s",
+                "LLM topic seed generation topic=%r generated=%s strategy=%s sample=%s",
                 topic_title,
                 len(seeds),
+                parse_strategy,
                 seeds[:8],
             )
-            return seeds[:24]
+            return {
+                "accepted_seeds": seeds[:24],
+                "raw_output": raw_content,
+                "parse_strategy": parse_strategy,
+                "raw_seed_count": len(parsed),
+                "accepted_seed_count": len(seeds[:24]),
+                "rejected_candidates": rejected_candidates[:30],
+            }
         except Exception as exc:
             logger.warning(
                 "LLM topic seed generation failed topic=%r err=%s",
                 topic_title,
                 exc,
             )
-            return []
+            return {
+                "accepted_seeds": [],
+                "raw_output": "",
+                "parse_strategy": "exception",
+                "raw_seed_count": 0,
+                "accepted_seed_count": 0,
+                "rejected_candidates": [],
+            }
 
     def _extract_seed_candidates(self, content: str) -> List[str]:
         if not content:
@@ -1187,6 +1230,36 @@ Requirements:
                 candidates.append(line)
         return candidates
 
+    def _extract_delimited_seed_lines(self, content: str) -> List[str]:
+        if not content:
+            return []
+        seeds: List[str] = []
+        for line in content.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.upper().startswith("SEED::"):
+                value = stripped.split("::", 1)[1].strip()
+                if value:
+                    seeds.append(value)
+        return seeds
+
+    def _extract_fallback_seed_lines(self, content: str) -> List[str]:
+        if not content:
+            return []
+        candidates: List[str] = []
+        for line in content.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            upper = stripped.upper()
+            if upper.startswith(("LANE::", "WHY::", "ENDLANE")):
+                continue
+            if "::" in stripped:
+                stripped = stripped.split("::", 1)[1].strip()
+            candidates.extend(self._extract_seed_candidates(stripped))
+        return candidates
+
     def _normalize_llm_seed_phrase(self, text: str) -> str:
         normalized = self._normalize_keyword_key(text)
         if not normalized:
@@ -1194,8 +1267,8 @@ Requirements:
         tokens = [token for token in normalized.split(" ") if token]
         if len(tokens) < 2:
             return ""
-        if len(tokens) > 5:
-            tokens = tokens[:5]
+        if len(tokens) > 6:
+            tokens = tokens[:6]
         phrase = " ".join(tokens)
         if not self._looks_human_search_like(phrase):
             return ""
@@ -1206,7 +1279,7 @@ Requirements:
         if not lowered:
             return False
         tokens = lowered.split()
-        if len(tokens) < 2 or len(tokens) > 5:
+        if len(tokens) < 2 or len(tokens) > 6:
             return False
         blocked_patterns = (
             "framework",
@@ -1223,6 +1296,36 @@ Requirements:
         if sum(1 for token in tokens if len(token) <= 1) > 1:
             return False
         return True
+
+    def _salvage_seed_candidates_from_hints(
+        self,
+        llm_candidates: List[str],
+        deterministic_hints: List[str],
+        existing_seeds: List[str],
+    ) -> List[str]:
+        if len(existing_seeds) >= 6:
+            return []
+        hint_tokens = set()
+        for candidate in llm_candidates[:24]:
+            hint_tokens.update(self._meaningful_tokens(candidate))
+
+        salvaged: List[str] = []
+        existing_keys = {seed.lower() for seed in existing_seeds}
+        for hint in deterministic_hints:
+            cleaned = self._clean_seed_phrase(hint)
+            if not cleaned or cleaned.lower() in existing_keys:
+                continue
+            if not self._looks_like_useful_seed(cleaned):
+                continue
+            if hint_tokens:
+                overlap = len(set(self._meaningful_tokens(cleaned)) & hint_tokens)
+                if overlap <= 0:
+                    continue
+            salvaged.append(cleaned)
+            existing_keys.add(cleaned.lower())
+            if len(existing_seeds) + len(salvaged) >= 8:
+                break
+        return salvaged
 
     def _looks_like_useful_seed(self, phrase: str) -> bool:
         lowered = phrase.lower().strip()
