@@ -1222,15 +1222,22 @@ export function KeywordIntelligenceModal({
                 return;
             }
 
-            setParsed((prev) => {
-                if (!prev) return prev;
-                return {
-                    ...prev,
-                    rows: [...prev.rows, ...newRows],
-                    total_count: prev.total_count + newRows.length,
-                    items_count: prev.items_count + newRows.length,
+            const nextParsed: DFSParsedOutput = parsed
+                ? {
+                    ...parsed,
+                    rows: [...parsed.rows, ...newRows],
+                    total_count: Number(parsed.total_count || 0) + newRows.length,
+                    items_count: Number(parsed.items_count || 0) + newRows.length,
+                }
+                : {
+                    seed_keyword: result.seed_keyword || seed,
+                    total_count: newRows.length,
+                    items_count: newRows.length,
+                    rows: newRows,
                 };
-            });
+
+            setParsed(nextParsed);
+            setIsDataLoading(false);
             setExpandedKeywords((prev) => {
                 const next = new Set(prev);
                 newRows.forEach((r) => next.add(r.keyword));
@@ -1239,9 +1246,42 @@ export function KeywordIntelligenceModal({
             setExpanderAdded(newRows.length);
             setExpanderSeed(""); // clear after success
 
-            // Auto-save after successfully adding new keywords from DataForSEO
-            // This ensures expanded keywords are persisted even if user switches tabs or modal closes
-            triggerAutoSave(primaryKeyword, secondaryKeywords);
+            if (!primaryKeyword && user) {
+                const nextPrimary = newRows[0]?.keyword || null;
+                if (nextPrimary) {
+                    setPrimaryKeyword(nextPrimary);
+
+                    const primaryRow = nextParsed.rows.find((r) => r.keyword === nextPrimary);
+                    const metrics = {
+                        volume: primaryRow?.search_volume ?? null,
+                        difficulty: primaryRow?.keyword_difficulty ?? null,
+                        cpc: primaryRow?.cpc ?? null,
+                    };
+
+                    const ok = onSave
+                        ? await onSave(nextPrimary, secondaryKeywords, metrics, nextParsed)
+                        : await contentIdeasService.updateKeywordSelection(
+                            idea.id,
+                            user.id,
+                            nextPrimary,
+                            secondaryKeywords,
+                            metrics,
+                            nextParsed
+                        );
+
+                    if (ok) {
+                        setLastAutoSavedPrimary(nextPrimary);
+                        setLastAutoSavedSecondary(secondaryKeywords);
+                        setSaved(true);
+                        onSaved?.(nextPrimary, secondaryKeywords, metrics, nextParsed);
+                        setTimeout(() => setSaved(false), 2000);
+                    }
+                }
+            } else {
+                // Auto-save after successfully adding new keywords from DataForSEO.
+                // This ensures expanded keywords are persisted even if user switches tabs or modal closes.
+                triggerAutoSave(primaryKeyword, secondaryKeywords);
+            }
         } catch (err) {
             setExpanderError("Unexpected error fetching keywords.");
         } finally {
