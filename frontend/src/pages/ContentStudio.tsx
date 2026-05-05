@@ -229,6 +229,16 @@ function validateSEOReadiness(article: ArticleData): SEOValidation {
     return { isValid: errors.length === 0, warnings, errors };
 }
 
+function deriveSEOValidation(
+    article: ArticleData | null,
+    seoShiftEnabled: boolean
+): SEOValidation | null {
+    if (!seoShiftEnabled || !article) {
+        return null;
+    }
+    return validateSEOReadiness(article);
+}
+
 interface RagCollection {
     id: string;
     name: string;
@@ -370,6 +380,10 @@ export const ContentStudio: React.FC = () => {
         claimsValidation: true,
     });
 
+    useEffect(() => {
+        setSeoValidation(deriveSEOValidation(article, seoShiftEnabled));
+    }, [article, seoShiftEnabled]);
+
     // Fetch Data
     useEffect(() => {
         if (!user || !articleId) return;
@@ -442,7 +456,6 @@ export const ContentStudio: React.FC = () => {
 
                 setArticle(normalizedArticle);
                 setCategoryPath(resolvedCategoryPath);
-                setSeoValidation(validateSEOReadiness(normalizedArticle));
                 const savedGenerationSession = localStorage.getItem(getContentStudioGenerationStorageKey(articleId));
                 if (savedGenerationSession) {
                     try {
@@ -767,7 +780,7 @@ export const ContentStudio: React.FC = () => {
             }
 
             // ── Phase 2: Validate SEO readiness ──────────────────────────────────
-            if (article) {
+            if (article && seoShiftEnabled) {
                 const validation = validateSEOReadiness(article);
                 setSeoValidation(validation);
                 if (!validation.isValid) {
@@ -775,6 +788,8 @@ export const ContentStudio: React.FC = () => {
                     setError(validation.errors.join(' '));
                     return;
                 }
+            } else {
+                setSeoValidation(null);
             }
 
             // ── Phase 3: Build SEO-enriched brief (Directional Shift) ─────────────
@@ -1662,7 +1677,6 @@ export const ContentStudio: React.FC = () => {
                                 selected_keyword_difficulty: metrics.difficulty ?? prev.selected_keyword_difficulty,
                                 raw_dataforseo_output: rawOutput ?? prev.raw_dataforseo_output,
                             };
-                            setSeoValidation(validateSEOReadiness(updated));
                             return updated;
                         });
                         setFormData((prev) => ({
