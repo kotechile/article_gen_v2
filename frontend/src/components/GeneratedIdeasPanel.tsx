@@ -1,7 +1,9 @@
-import { LibraryBig, RefreshCw, Sparkles, X } from "lucide-react"
+import * as React from "react"
+import { BarChart2, LibraryBig, RefreshCw, Sparkles, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import type { ContentIdea } from "@/types/idea-burst"
+import { KeywordIntelligenceModal } from "@/components/KeywordIntelligenceModal"
 
 type GeneratedIdeaTypeFilter = 'all' | 'blog' | 'software'
 type GeneratedIdeaStatusFilter = 'all' | 'draft' | 'published'
@@ -56,6 +58,22 @@ const isIdeaPublished = (idea: ContentIdea) =>
         idea.status?.toLowerCase() === 'published'
     )
 
+const getQualifiedKeywordCandidates = (idea: ContentIdea) => {
+    const metadata = (idea.idea_metadata || {}) as any
+    const topicKeywordResearch = metadata?.topic_keyword_research || {}
+    const rows = Array.isArray(topicKeywordResearch?.qualified_keywords)
+        ? topicKeywordResearch.qualified_keywords
+        : Array.isArray(topicKeywordResearch?.keyword_candidates)
+        ? topicKeywordResearch.keyword_candidates.filter((row: any) => {
+            const volume = Number(row?.search_volume || 0)
+            const kd = row?.keyword_difficulty
+            return volume > 100 && kd !== null && Number(kd) < 35
+        })
+        : []
+
+    return rows.slice(0, 12)
+}
+
 export function GeneratedIdeasPanel({
     generatedClusterIdeas,
     visibleGeneratedClusterIdeas,
@@ -83,6 +101,8 @@ export function GeneratedIdeasPanel({
     openPreviousGeneratedIdea,
     openNextGeneratedIdea,
 }: GeneratedIdeasPanelProps) {
+    const [showKeywordModal, setShowKeywordModal] = React.useState(false)
+
     return (
         <>
             <div className="max-w-7xl mx-auto mb-8">
@@ -401,6 +421,62 @@ export function GeneratedIdeasPanel({
                             </div>
 
                             <div className="mb-6">
+                                <div className="mb-3 flex items-center justify-between gap-3">
+                                    <div>
+                                        <h4 className="text-sm font-semibold text-foreground">Keyword Opportunities</h4>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            Recommended keywords are filtered to volume &gt;100 and KD &lt;35 when available.
+                                        </p>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => setShowKeywordModal(true)}
+                                        className="border-border hover:bg-muted"
+                                    >
+                                        <BarChart2 className="mr-2 h-4 w-4" />
+                                        Keyword Intelligence
+                                    </Button>
+                                </div>
+                                {getQualifiedKeywordCandidates(activeGeneratedIdea).length === 0 ? (
+                                    <div className="rounded-xl border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                                        No extra high-volume, low-difficulty keyword candidates are attached yet. Open Keyword Intelligence to inspect all available keywords or run manual expansion.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {getQualifiedKeywordCandidates(activeGeneratedIdea).map((row: any) => (
+                                            <div
+                                                key={`${activeGeneratedIdea.id}-qualified-${row.keyword}`}
+                                                className="rounded-xl border border-border bg-muted/20 p-4"
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div>
+                                                        <div className="text-sm font-medium text-foreground">{row.keyword}</div>
+                                                        <div className="mt-1 text-xs text-muted-foreground">
+                                                            {row.intent_label || "intent not set"}
+                                                            {row.competition_level ? ` • ${String(row.competition_level).toLowerCase()} competition` : ""}
+                                                            {row.opportunity_score != null ? ` • score ${Math.round(Number(row.opportunity_score || 0))}` : ""}
+                                                        </div>
+                                                    </div>
+                                                    <div className="mt-1 flex flex-wrap justify-end gap-2 text-[11px] text-muted-foreground">
+                                                        <span className="rounded-full border border-border bg-background/50 px-2 py-1">
+                                                            Volume {formatMetricValue(row.search_volume)}
+                                                        </span>
+                                                        <span className="rounded-full border border-border bg-background/50 px-2 py-1">
+                                                            Difficulty {formatMetricValue(row.keyword_difficulty, 1)}
+                                                        </span>
+                                                        <span className="rounded-full border border-border bg-background/50 px-2 py-1">
+                                                            CPC ${formatMetricValue(row.cpc, 2)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="mb-6">
                                 <h4 className="mb-3 text-sm font-semibold text-foreground">Keyword Metrics</h4>
                                 {Object.entries(activeGeneratedIdea.keyword_metrics || {}).length === 0 ? (
                                     <div className="rounded-xl border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
@@ -495,6 +571,29 @@ export function GeneratedIdeasPanel({
                         </div>
                     </div>
                 </div>
+            )}
+
+            {activeGeneratedIdea && showKeywordModal && (
+                <KeywordIntelligenceModal
+                    isOpen={showKeywordModal}
+                    onClose={() => setShowKeywordModal(false)}
+                    idea={activeGeneratedIdea}
+                    onSaved={(primary, secondary, metrics, rawOutput) => {
+                        const updatedIdea: ContentIdea = {
+                            ...activeGeneratedIdea,
+                            primary_keywords: primary ? [primary] : [],
+                            secondary_keywords: secondary,
+                            keywords: [primary, ...secondary].filter(Boolean),
+                            search_phrase: primary,
+                            total_search_volume: metrics.volume ?? activeGeneratedIdea.total_search_volume,
+                            average_difficulty: metrics.difficulty ?? activeGeneratedIdea.average_difficulty,
+                            average_cpc: metrics.cpc ?? activeGeneratedIdea.average_cpc,
+                            raw_dataforseo_output: rawOutput ?? activeGeneratedIdea.raw_dataforseo_output,
+                        }
+                        closeGeneratedIdeaDetail()
+                        openGeneratedIdeaDetail(updatedIdea)
+                    }}
+                />
             )}
         </>
     )

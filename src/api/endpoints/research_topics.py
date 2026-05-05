@@ -694,12 +694,38 @@ def _create_cluster_generated_idea(
     )
     if matched_cluster:
         idea_metadata = idea.get("idea_metadata") or {}
+        raw_keyword_candidates = matched_cluster.get("keyword_candidates_json") or []
+        compact_keyword_candidates = []
+        qualified_keyword_candidates = []
+        for row in raw_keyword_candidates[:30]:
+            if not isinstance(row, dict):
+                continue
+            keyword = str(row.get("keyword") or "").strip()
+            if not keyword:
+                continue
+            compact_row = {
+                "keyword": keyword,
+                "search_volume": _coerce_optional_int(row.get("search_volume")),
+                "keyword_difficulty": _coerce_optional_float(row.get("keyword_difficulty")),
+                "cpc": _coerce_optional_float(row.get("cpc")),
+                "intent_label": row.get("intent_label"),
+                "competition_level": row.get("competition_level"),
+                "opportunity_score": _coerce_optional_float(row.get("opportunity_score")),
+            }
+            compact_keyword_candidates.append(compact_row)
+
+            search_volume = compact_row.get("search_volume") or 0
+            keyword_difficulty = compact_row.get("keyword_difficulty")
+            if search_volume > 100 and keyword_difficulty is not None and keyword_difficulty < 35:
+                qualified_keyword_candidates.append(compact_row)
         idea_metadata["topic_keyword_research"] = {
             "research_run_id": run_id,
             "keyword_cluster_id": matched_cluster.get("id"),
             "cluster_name": matched_cluster.get("cluster_name"),
             "primary_keyword": matched_cluster.get("primary_keyword"),
             "secondary_keywords": matched_cluster.get("secondary_keywords_json") or [],
+            "keyword_candidates": compact_keyword_candidates,
+            "qualified_keywords": qualified_keyword_candidates[:12],
             "generation_origin": "topic_keyword_pipeline_v1",
         }
         idea["idea_metadata"] = idea_metadata

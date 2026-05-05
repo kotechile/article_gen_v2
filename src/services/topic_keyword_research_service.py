@@ -8,6 +8,7 @@ keywords and clusters, and exposes read helpers for the API layer.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import re
@@ -16,6 +17,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from src.integrations.dataforseo import dataforseo_api
+from src.services.llm.llm_service import llm_service
+from supabase_client import LLM_ROLE_RESEARCH
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +83,8 @@ class TopicKeywordResearchService:
         if replace_existing:
             self.delete_topic_research(topic_id=topic_id, user_id=user_id)
 
-        seeds = self._build_seed_keywords(topic_context)
+        seed_package = await self._build_seed_keywords(topic_context)
+        seeds = seed_package["seed_keywords"]
         run_row = self._create_run(
             topic_id=topic_id,
             user_id=user_id,
@@ -88,6 +92,7 @@ class TopicKeywordResearchService:
             filters=filters,
             score_config=score_config,
             topic_context=topic_context,
+            seed_package=seed_package,
         )
         run_id = run_row["id"]
 
@@ -113,6 +118,7 @@ class TopicKeywordResearchService:
                 seed_keywords=seeds,
                 candidate_rows=enriched_rows,
                 clusters=clusters,
+                seed_package=seed_package,
             )
             self._update_run(
                 run_id=run_id,
@@ -120,7 +126,7 @@ class TopicKeywordResearchService:
                 user_id=user_id,
                 status="completed",
                 summary_json=summary,
-                raw_data_json=raw_data,
+                raw_data_json={**raw_data, "seed_generation": seed_package},
                 error_message=None,
             )
             run = self.get_run(run_id=run_id, topic_id=topic_id, user_id=user_id)
@@ -147,7 +153,7 @@ class TopicKeywordResearchService:
                     "pipeline_version": "topic_keyword_pipeline_v1",
                     "status": "failed",
                 },
-                raw_data_json={"seed_keywords": seeds},
+                raw_data_json={"seed_keywords": seeds, "seed_generation": seed_package},
                 error_message=str(err),
             )
             raise
@@ -340,6 +346,7 @@ class TopicKeywordResearchService:
         filters: Dict[str, Any],
         score_config: Dict[str, Any],
         topic_context: Dict[str, Any],
+        seed_package: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         payload = {
             "topic_id": topic_id,
@@ -356,6 +363,7 @@ class TopicKeywordResearchService:
             "raw_data_json": {
                 "topic_context": self._sanitize_for_json(topic_context),
                 "seed_keywords": seed_keywords,
+                "seed_generation": self._sanitize_for_json(seed_package or {}),
             },
             "updated_at": datetime.utcnow().isoformat(),
         }
@@ -703,7 +711,22 @@ class TopicKeywordResearchService:
                 continue
             self.supabase_admin.table("topic_keyword_clusters").insert(chunk).execute()
 
-    def _build_seed_keywords(self, topic_context: Dict[str, Any]) -> List[str]:
+    async def _build_seed_keywords(self, topic_context: Dict[str, Any]) -> Dict[str, Any]:
+        deterministic_seeds = self._build_deterministic_seed_keywords(topic_context)
+        llm_seeds = await self._generate_llm_seed_keywords(topic_context, deterministic_seeds)
+        merged_seeds, seed_sources = self._merge_seed_keywords(
+            deterministic_seeds=deterministic_seeds,
+            llm_seeds=llm_seeds,
+        )
+        return {
+            "generation_mode": "hybrid_llm_v1" if llm_seeds else "deterministic_fallback_v1",
+            "seed_keywords": merged_seeds,
+            "deterministic_seeds": deterministic_seeds,
+            "llm_seeds": llm_seeds,
+            "seed_sources": seed_sources,
+        }
+
+    def _build_deterministic_seed_keywords(self, topic_context: Dict[str, Any]) -> List[str]:
         topic = topic_context.get("topic") or {}
         primary_category = topic_context.get("primary_category") or {}
         secondary_category = topic_context.get("secondary_category") or {}
@@ -762,6 +785,7 @@ class TopicKeywordResearchService:
         seed_keywords: List[str],
         candidate_rows: List[Dict[str, Any]],
         clusters: List[Dict[str, Any]],
+        seed_package: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         filtered_out = [row for row in candidate_rows if row.get("is_filtered_out")]
         active = [row for row in candidate_rows if not row.get("is_filtered_out")]
@@ -790,6 +814,9 @@ class TopicKeywordResearchService:
             "topic_title": ((topic_context.get("topic") or {}).get("title") or ""),
             "category_path": topic_context.get("category_path"),
             "seed_count": len(seed_keywords),
+            "seed_generation_mode": (seed_package or {}).get("generation_mode") or "deterministic_fallback_v1",
+            "llm_seed_count": len((seed_package or {}).get("llm_seeds") or []),
+            "deterministic_seed_count": len((seed_package or {}).get("deterministic_seeds") or []),
             "candidate_count": len(candidate_rows),
             "active_candidate_count": len(active),
             "filtered_candidate_count": len(filtered_out),
@@ -980,6 +1007,176 @@ class TopicKeywordResearchService:
         if len(tokens) > 6:
             tokens = tokens[:6]
         return " ".join(tokens)
+
+    async def _generate_llm_seed_keywords(
+        self,
+        topic_context: Dict[str, Any],
+        deterministic_seeds: List[str],
+    ) -> List[str]:
+        topic = topic_context.get("topic") or {}
+        project = topic_context.get("project") or {}
+        primary_category = topic_context.get("primary_category") or {}
+        secondary_category = topic_context.get("secondary_category") or {}
+
+        topic_title = str(topic.get("title") or "").strip()
+        topic_description = str(topic.get("description") or "").strip()
+        category_path = topic_context.get("category_path") or ""
+        decision_focus = str(topic.get("decision_focus") or "").strip()
+        angle_question = str(topic.get("angle_question") or "").strip()
+        intent_bucket = str(topic.get("intent_bucket") or "").strip()
+        audience = str(topic.get("target_audience") or project.get("targetaudiencedescription") or "").strip()
+        domain = str(project.get("domain") or project.get("app_name") or "").strip()
+        primary_name = str(primary_category.get("name") or "").strip()
+        secondary_name = str(secondary_category.get("name") or "").strip()
+        hint_text = ", ".join(deterministic_seeds[:10])
+
+        prompt = f"""
+Role: You are a veteran SEO researcher translating strategy language into real Google searches.
+
+Topic Title: {topic_title}
+Topic Description: {topic_description}
+Category Path: {category_path}
+Primary Category: {primary_name}
+Secondary Category: {secondary_name}
+Decision Focus: {decision_focus}
+Angle Question: {angle_question}
+Intent Bucket: {intent_bucket}
+Target Audience: {audience}
+Project / Domain Context: {domain}
+Existing Seed Hints: {hint_text}
+
+Goal:
+- Propose search seed phrases that a real person would type, not internal strategy labels.
+- Translate abstract topic wording into practical search language.
+- Produce a mix of informational, commercial, comparison, pricing, tool, and problem/outcome phrasing when relevant.
+
+Quality Rules:
+- Each phrase must be 2-5 words.
+- Prefer plain English over consultant-speak.
+- Keep the phrase query-like and natural.
+- Include platform, software, tool, pricing, comparison, alternatives, cost, ROI, or workflow variants only when they naturally fit this topic.
+- Avoid headings, punctuation-heavy phrasing, and sentence fragments.
+- Avoid generic filler like "ultimate guide", "best guide", "tips", or "overview".
+- Avoid phrases that are too broad to be useful.
+
+Output Contract:
+- Return ONLY a flat list.
+- One seed phrase per line.
+- No numbering, bullets, labels, JSON, or commentary.
+- Return 18 to 24 phrases.
+"""
+        try:
+            response = await asyncio.wait_for(
+                llm_service.generate_text(
+                    prompt=prompt,
+                    max_tokens=500,
+                    temperature=0.2,
+                    task_role=LLM_ROLE_RESEARCH,
+                ),
+                timeout=25.0,
+            )
+            parsed = self._extract_seed_candidates(response.content or "")
+            seeds: List[str] = []
+            seen = set()
+            for raw in parsed:
+                normalized = self._normalize_llm_seed_phrase(raw)
+                if not normalized:
+                    continue
+                key = normalized.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                seeds.append(normalized)
+            logger.info(
+                "LLM topic seed generation topic=%r generated=%s sample=%s",
+                topic_title,
+                len(seeds),
+                seeds[:8],
+            )
+            return seeds[:24]
+        except Exception as exc:
+            logger.warning(
+                "LLM topic seed generation failed topic=%r err=%s",
+                topic_title,
+                exc,
+            )
+            return []
+
+    def _merge_seed_keywords(
+        self,
+        deterministic_seeds: List[str],
+        llm_seeds: List[str],
+    ) -> tuple[List[str], Dict[str, str]]:
+        merged: List[str] = []
+        sources: Dict[str, str] = {}
+        seed_buckets = [("llm", llm_seeds), ("deterministic", deterministic_seeds)]
+        for source_name, bucket in seed_buckets:
+            for seed in bucket:
+                cleaned = self._clean_seed_phrase(seed)
+                if not cleaned:
+                    continue
+                key = cleaned.lower()
+                if key in sources:
+                    if sources[key] != source_name:
+                        sources[key] = "hybrid"
+                    continue
+                sources[key] = source_name
+                merged.append(cleaned)
+        return merged[:24], {seed: sources.get(seed.lower(), "unknown") for seed in merged[:24]}
+
+    def _extract_seed_candidates(self, content: str) -> List[str]:
+        if not content:
+            return []
+        candidates: List[str] = []
+        lines = [line.strip() for line in content.splitlines() if line.strip()]
+        for line in lines:
+            lowered = line.lower()
+            if lowered.startswith(("step ", "task ", "output ", "role:", "constraints:", "quality rules:", "goal:")):
+                continue
+            line = re.sub(r"^[\-\*\d\.\)\s]+", "", line).strip()
+            parts = [part.strip() for part in re.split(r",|;|\|", line) if part.strip()]
+            if parts:
+                candidates.extend(parts)
+            else:
+                candidates.append(line)
+        return candidates
+
+    def _normalize_llm_seed_phrase(self, text: str) -> str:
+        normalized = self._normalize_keyword_key(text)
+        if not normalized:
+            return ""
+        tokens = [token for token in normalized.split(" ") if token]
+        if len(tokens) < 2:
+            return ""
+        if len(tokens) > 5:
+            tokens = tokens[:5]
+        phrase = " ".join(tokens)
+        if not self._looks_human_search_like(phrase):
+            return ""
+        return phrase
+
+    def _looks_human_search_like(self, phrase: str) -> bool:
+        lowered = phrase.lower().strip()
+        if not lowered:
+            return False
+        tokens = lowered.split()
+        if len(tokens) < 2 or len(tokens) > 5:
+            return False
+        blocked_patterns = (
+            "framework",
+            "methodology",
+            "enablement",
+            "solutioning",
+            "leverage",
+            "synergy",
+            "playbook",
+            "north star",
+        )
+        if any(pattern in lowered for pattern in blocked_patterns):
+            return False
+        if sum(1 for token in tokens if len(token) <= 1) > 1:
+            return False
+        return True
 
     def _normalize_keyword_key(self, text: Any) -> str:
         cleaned = re.sub(r"\s+", " ", str(text or "").strip().lower())

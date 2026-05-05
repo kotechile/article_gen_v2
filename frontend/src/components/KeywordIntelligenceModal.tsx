@@ -219,10 +219,17 @@ function normalizeKeywordKey(input: string): string {
 
 function collectIdeaKeywordPool(idea: ContentIdea): string[] {
     const metadata = safeJsonParse<any>((idea as any).idea_metadata, {});
+    const topicKeywordResearch = metadata?.topic_keyword_research || {};
     const rankedCandidates = safeJsonParse<any[]>(metadata?.seo_offer_enrichment?.keyword_ranked_candidates, [])
         .map((row) => String(row?.keyword || "").trim())
         .filter(Boolean);
     const pass2Candidates = safeJsonParse<any[]>(metadata?.keyword_pass_2?.keyword_ranked_candidates, [])
+        .map((row) => String(row?.keyword || "").trim())
+        .filter(Boolean);
+    const topicCandidates = safeJsonParse<any[]>(topicKeywordResearch?.keyword_candidates, [])
+        .map((row) => String(row?.keyword || "").trim())
+        .filter(Boolean);
+    const qualifiedCandidates = safeJsonParse<any[]>(topicKeywordResearch?.qualified_keywords, [])
         .map((row) => String(row?.keyword || "").trim())
         .filter(Boolean);
     const merged = [
@@ -232,6 +239,8 @@ function collectIdeaKeywordPool(idea: ContentIdea): string[] {
         ...extractKeywordValues(metadata?.seo_offer_enrichment?.keywords_used),
         ...extractKeywordValues(metadata?.input_keywords),
         ...extractKeywordValues(metadata?.keyword_seed_pack?.input_keywords),
+        ...topicCandidates,
+        ...qualifiedCandidates,
         ...rankedCandidates,
         ...pass2Candidates,
     ];
@@ -250,8 +259,11 @@ function collectIdeaKeywordPool(idea: ContentIdea): string[] {
 function collectIdeaKeywordMetricMap(idea: ContentIdea): Map<string, { search_volume: number | null; keyword_difficulty: number | null; cpc: number | null }> {
     const map = new Map<string, { search_volume: number | null; keyword_difficulty: number | null; cpc: number | null }>();
     const metadata = safeJsonParse<any>((idea as any).idea_metadata, {});
+    const topicKeywordResearch = metadata?.topic_keyword_research || {};
     const fromColumn = safeJsonParse<any>((idea as any).keyword_metrics, {});
     const fromMetadata = safeJsonParse<any>(metadata?.seo_offer_enrichment?.keyword_metrics, {});
+    const fromTopicCandidates = safeJsonParse<any[]>(topicKeywordResearch?.keyword_candidates, []);
+    const fromQualifiedCandidates = safeJsonParse<any[]>(topicKeywordResearch?.qualified_keywords, []);
     const fromCandidates = safeJsonParse<any[]>(metadata?.seo_offer_enrichment?.keyword_ranked_candidates, []);
     const fromPass2Candidates = safeJsonParse<any[]>(metadata?.keyword_pass_2?.keyword_ranked_candidates, []);
 
@@ -281,9 +293,65 @@ function collectIdeaKeywordMetricMap(idea: ContentIdea): Map<string, { search_vo
 
     ingestSource(fromColumn);
     ingestSource(fromMetadata);
+    ingestSource(fromTopicCandidates);
+    ingestSource(fromQualifiedCandidates);
     ingestSource(fromCandidates);
     ingestSource(fromPass2Candidates);
     return map;
+}
+
+function buildSyntheticParsedFromIdea(idea: ContentIdea): DFSParsedOutput | null {
+    const metadata = safeJsonParse<any>((idea as any).idea_metadata, {});
+    const topicKeywordResearch = metadata?.topic_keyword_research || {};
+    const metricMap = collectIdeaKeywordMetricMap(idea);
+    const keywords = collectIdeaKeywordPool(idea);
+    if (!keywords.length && metricMap.size === 0) return null;
+
+    const seedKeyword =
+        String(topicKeywordResearch?.primary_keyword || (idea.primary_keywords || [])[0] || (idea.keywords || [])[0] || "").trim()
+        || "keyword";
+
+    const candidateRows = safeJsonParse<any[]>(topicKeywordResearch?.keyword_candidates, []);
+    const candidateMap = new Map<string, any>();
+    for (const row of candidateRows) {
+        const keyword = String(row?.keyword || "").trim();
+        const key = normalizeKeywordKey(keyword);
+        if (keyword && key && !candidateMap.has(key)) {
+            candidateMap.set(key, row);
+        }
+    }
+
+    const rows: DFSKeywordRow[] = keywords.map((keyword, index) => {
+        const key = normalizeKeywordKey(keyword);
+        const metric = metricMap.get(key);
+        const candidate = candidateMap.get(key) || {};
+        const isSeed = key === normalizeKeywordKey(seedKeyword);
+        return {
+            keyword,
+            type: isSeed ? "seed" : "related",
+            depth: isSeed ? 0 : (index === 0 ? 1 : 2),
+            search_volume: metric?.search_volume ?? candidate?.search_volume ?? null,
+            competition: null,
+            competition_level: candidate?.competition_level ?? null,
+            cpc: metric?.cpc ?? candidate?.cpc ?? null,
+            keyword_difficulty: metric?.keyword_difficulty ?? candidate?.keyword_difficulty ?? null,
+            main_intent: candidate?.intent_label ?? null,
+            foreign_intents: null,
+            monthly_searches: [],
+            search_volume_trend: null,
+            low_top_of_page_bid: null,
+            high_top_of_page_bid: null,
+            se_results_count: null,
+            related_keywords: null,
+        }
+    });
+
+    return {
+        seed_keyword: seedKeyword,
+        total_count: rows.length,
+        items_count: rows.length,
+        rows,
+    };
 }
 
 function mergeParsedWithIdeaKeywordPool(parsed: DFSParsedOutput | null, idea: ContentIdea): DFSParsedOutput | null {
@@ -780,7 +848,7 @@ export function KeywordIntelligenceModal({
             (idea as any).raw_dataforseo_output ??
             (idea as any).raw_supabase_output ??
             (idea as any).idea_metadata?.seo_offer_enrichment?.raw_dataforseo_output;
-        const parsed = parseDataForSEOOutput(rawField);
+        const parsed = parseDataForSEOOutput(rawField) ?? buildSyntheticParsedFromIdea(idea);
         return mergeParsedWithIdeaKeywordPool(parsed, idea);
     }, [idea]);
 
@@ -795,6 +863,8 @@ export function KeywordIntelligenceModal({
     const [expanderLoading, setExpanderLoading] = React.useState(false);
     const [expanderError, setExpanderError] = React.useState<string | null>(null);
     const [expanderAdded, setExpanderAdded] = React.useState(0);
+    const [expanderQualifiedOnly, setExpanderQualifiedOnly] = React.useState(true);
+    const [showQualifiedOnly, setShowQualifiedOnly] = React.useState(false);
 
     // Resolve initial selections from stored idea data
     const initialPrimary = React.useMemo(() => {
@@ -923,6 +993,8 @@ export function KeywordIntelligenceModal({
             setExpanderSeed("");
             setExpanderError(null);
             setExpanderAdded(0);
+            setExpanderQualifiedOnly(true);
+            setShowQualifiedOnly(false);
             setPrimaryKeyword(canonicalPrimary);
             setSecondaryKeywords(canonicalSecondary);
             setExpandedChart(null);
@@ -1024,6 +1096,18 @@ export function KeywordIntelligenceModal({
         setExpandedChart((prev) => (prev === keyword ? null : keyword));
     };
 
+    const qualifiedRows = React.useMemo(() => {
+        return (parsed?.rows || []).filter((row) => {
+            const volume = Number(row.search_volume || 0);
+            const kd = row.keyword_difficulty;
+            return volume > 100 && kd !== null && kd < 35;
+        });
+    }, [parsed]);
+
+    const rowsToRender = React.useMemo(() => {
+        return showQualifiedOnly ? qualifiedRows : (parsed?.rows || []);
+    }, [parsed, qualifiedRows, showQualifiedOnly]);
+
     const handleSave = async () => {
         if (!primaryKeyword || !user) return;
         setSaving(true);
@@ -1099,7 +1183,14 @@ export function KeywordIntelligenceModal({
         setExpanderAdded(0);
         try {
             const existingKeywords = (parsed?.rows ?? []).map((r) => r.keyword);
-            const result = await contentIdeasService.fetchRelatedKeywords(seed, existingKeywords, 20);
+            const result = await contentIdeasService.fetchRelatedKeywords(
+                seed,
+                existingKeywords,
+                20,
+                expanderQualifiedOnly
+                    ? { minSearchVolume: 100, maxKeywordDifficulty: 35 }
+                    : undefined,
+            );
             if (!result.success || result.keywords.length === 0) {
                 setExpanderError("No new keywords found. Try a different seed.");
                 return;
@@ -1250,6 +1341,15 @@ export function KeywordIntelligenceModal({
                                                 <><Plus className="w-3.5 h-3.5" /> Fetch Keywords</>
                                             )}
                                         </button>
+                                        <label className="flex items-center gap-2 text-[11px] text-slate-400">
+                                            <input
+                                                type="checkbox"
+                                                checked={expanderQualifiedOnly}
+                                                onChange={(e) => setExpanderQualifiedOnly(e.target.checked)}
+                                                className="h-3.5 w-3.5 accent-emerald-500"
+                                            />
+                                            Only volume &gt;100 and KD &lt;35
+                                        </label>
                                     </div>
                                 </div>
                                 <div className="flex flex-col gap-1 min-w-[130px]">
@@ -1307,6 +1407,40 @@ export function KeywordIntelligenceModal({
                         {/* ── Summary bar ── */}
                         {parsed && <SummaryBar data={parsed} />}
 
+                        {parsed && (
+                            <div className="border-b border-white/10 bg-slate-900/70 px-6 py-3">
+                                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowQualifiedOnly(false)}
+                                            className={`rounded-full border px-3 py-1 text-[11px] transition ${
+                                                !showQualifiedOnly
+                                                    ? "border-indigo-500/30 bg-indigo-500/15 text-indigo-300"
+                                                    : "border-white/10 text-slate-400 hover:text-white"
+                                            }`}
+                                        >
+                                            All Keywords ({parsed.rows.length})
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowQualifiedOnly(true)}
+                                            className={`rounded-full border px-3 py-1 text-[11px] transition ${
+                                                showQualifiedOnly
+                                                    ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
+                                                    : "border-white/10 text-slate-400 hover:text-white"
+                                            }`}
+                                        >
+                                            Qualified Only ({qualifiedRows.length})
+                                        </button>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500">
+                                        Qualified keywords use volume &gt;100 and KD &lt;35.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
                         {/* ── Column legend ── */}
                         <div className="flex-1 overflow-auto">
                             <table className="w-full text-xs border-collapse">
@@ -1341,7 +1475,7 @@ export function KeywordIntelligenceModal({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {parsed?.rows.map((row) => (
+                                    {rowsToRender.map((row) => (
                                         <KeywordTableRow
                                             key={row.keyword}
                                             row={row}

@@ -75,6 +75,32 @@ export interface ContentIdea {
     distribution_angle?: string;
     search_phrase?: string;
     idea_metadata?: {
+        topic_keyword_research?: {
+            research_run_id?: string;
+            keyword_cluster_id?: string;
+            cluster_name?: string;
+            primary_keyword?: string;
+            secondary_keywords?: string[];
+            keyword_candidates?: Array<{
+                keyword: string;
+                search_volume?: number | null;
+                keyword_difficulty?: number | null;
+                cpc?: number | null;
+                intent_label?: string | null;
+                competition_level?: string | null;
+                opportunity_score?: number | null;
+            }>;
+            qualified_keywords?: Array<{
+                keyword: string;
+                search_volume?: number | null;
+                keyword_difficulty?: number | null;
+                cpc?: number | null;
+                intent_label?: string | null;
+                competition_level?: string | null;
+                opportunity_score?: number | null;
+            }>;
+            generation_origin?: string;
+        };
         target_intent?: string;
         article_format?: string;
         user_decision_helped?: string;

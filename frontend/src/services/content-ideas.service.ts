@@ -463,6 +463,10 @@ class ContentIdeasService {
         seedKeyword: string,
         excludeKeywords?: string[],
         limit = 20,
+        filters?: {
+            minSearchVolume?: number;
+            maxKeywordDifficulty?: number;
+        },
     ): Promise<{
         success: boolean;
         seed_keyword: string;
@@ -479,6 +483,8 @@ class ContentIdeasService {
                 seed_keyword: seedKeyword,
                 exclude_keywords: excludeKeywords ?? [],
                 limit,
+                min_search_volume: filters?.minSearchVolume,
+                max_keyword_difficulty: filters?.maxKeywordDifficulty,
             });
             return {
                 success: Boolean(result?.success),

@@ -2663,6 +2663,9 @@ def keyword_lab_related():
         data = request.get_json() or {}
         seed = _normalize_keyword_term(data.get("seed_keyword") or "")
         limit = int(data.get("limit") or 12)
+        min_search_volume = int(data.get("min_search_volume") or 0)
+        raw_max_kd = data.get("max_keyword_difficulty")
+        max_keyword_difficulty = float(raw_max_kd) if raw_max_kd is not None and str(raw_max_kd).strip() != "" else None
         exclude_keywords = data.get("exclude_keywords") or []
         if isinstance(exclude_keywords, str):
             exclude_keywords = [part.strip() for part in re.split(r"[\n,]+", exclude_keywords) if part.strip()]
@@ -2706,6 +2709,16 @@ def keyword_lab_related():
             )
         )
         ranked = _rank_keywords_by_opportunity(candidate_keywords, metrics_map)
+        if min_search_volume > 0:
+            ranked = [
+                row for row in ranked
+                if int(row.get("search_volume") or 0) >= min_search_volume
+            ]
+        if max_keyword_difficulty is not None:
+            ranked = [
+                row for row in ranked
+                if row.get("keyword_difficulty") is not None and float(row.get("keyword_difficulty") or 0.0) <= max_keyword_difficulty
+            ]
         return jsonify({
             "success": True,
             "seed_keyword": seed,
