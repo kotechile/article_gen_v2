@@ -39,6 +39,14 @@ class TopicKeywordResearchService:
         "jobs", "job", "career", "salary", "pdf", "near me", "nearby", "hiring",
     }
 
+    SEED_NOISE_PATTERNS = (
+        "building on existing content",
+        "existing content about",
+        "homeowners and property buyers",
+        "target audience",
+        "site description",
+    )
+
     SOFTWARE_SIGNAL_TERMS = {
         "calculator", "tool", "template", "checker", "planner", "estimator",
         "generator", "audit", "tracker", "scorecard", "comparison", "compare",
@@ -714,16 +722,17 @@ class TopicKeywordResearchService:
     async def _build_seed_keywords(self, topic_context: Dict[str, Any]) -> Dict[str, Any]:
         deterministic_seeds = self._build_deterministic_seed_keywords(topic_context)
         llm_seeds = await self._generate_llm_seed_keywords(topic_context, deterministic_seeds)
-        merged_seeds, seed_sources = self._merge_seed_keywords(
-            deterministic_seeds=deterministic_seeds,
-            llm_seeds=llm_seeds,
-        )
+        if not llm_seeds:
+            raise ValueError(
+                "Topic keyword research could not generate usable LLM seed keywords for this topic. "
+                "Please revise the topic context or provide manual seeds."
+            )
         return {
-            "generation_mode": "hybrid_llm_v1" if llm_seeds else "deterministic_fallback_v1",
-            "seed_keywords": merged_seeds,
+            "generation_mode": "llm_only_v1",
+            "seed_keywords": llm_seeds,
             "deterministic_seeds": deterministic_seeds,
             "llm_seeds": llm_seeds,
-            "seed_sources": seed_sources,
+            "seed_sources": {seed: "llm" for seed in llm_seeds},
         }
 
     def _build_deterministic_seed_keywords(self, topic_context: Dict[str, Any]) -> List[str]:
@@ -737,33 +746,55 @@ class TopicKeywordResearchService:
         primary_name = str(primary_category.get("name") or "").strip()
         secondary_name = str(secondary_category.get("name") or "").strip()
         audience = str(topic.get("target_audience") or project.get("targetaudiencedescription") or "").strip()
+        decision_focus = str(topic.get("decision_focus") or "").strip()
+        angle_question = str(topic.get("angle_question") or "").strip()
 
         meaningful_title_tokens = self._meaningful_tokens(title)
         title_core = " ".join(meaningful_title_tokens[:4]).strip()
         title_head = " ".join(meaningful_title_tokens[:3]).strip()
         title_tail = " ".join(meaningful_title_tokens[-3:]).strip()
+        decision_tokens = self._meaningful_tokens(decision_focus)
+        angle_tokens = self._meaningful_tokens(angle_question)
+        context_tokens = set(meaningful_title_tokens + decision_tokens + angle_tokens)
+
+        decision_phrases = self._extract_ngrams(decision_tokens, min_size=2, max_size=4)
+        angle_phrases = self._extract_ngrams(angle_tokens, min_size=2, max_size=4)
+        category_candidates = [
+            name for name in [primary_name, secondary_name]
+            if self._category_matches_topic(name, context_tokens)
+        ]
+        audience_seed = audience if self._audience_matches_topic(audience, context_tokens) else ""
 
         candidates = [
             title,
             title_core,
             title_head,
             title_tail,
-            description,
-            primary_name,
-            secondary_name,
-            f"{primary_name} {title_head}".strip(),
-            f"{secondary_name} {title_head}".strip(),
-            f"{title_head} {secondary_name}".strip(),
-            f"{title_head} {primary_name}".strip(),
+            self._queryish_fragment(description, max_words=5),
+            self._queryish_fragment(decision_focus, max_words=5),
+            self._queryish_fragment(angle_question, max_words=5),
+            *category_candidates,
+            *[
+                f"{category_name} {title_head}".strip()
+                for category_name in category_candidates
+                if title_head
+            ],
+            *[
+                f"{title_head} {category_name}".strip()
+                for category_name in category_candidates
+                if title_head
+            ],
             f"{title_head} {title_tail}".strip(),
-            audience,
-            f"{title_head} {audience}".strip(),
+            audience_seed,
+            f"{title_head} {audience_seed}".strip() if title_head and audience_seed else "",
         ]
 
         title_ngrams = self._extract_ngrams(meaningful_title_tokens, min_size=2, max_size=4)
         candidates.extend(title_ngrams)
+        candidates.extend(decision_phrases)
+        candidates.extend(angle_phrases)
 
-        if primary_name and secondary_name:
+        if len(category_candidates) == 2:
             candidates.append(f"{primary_name} {secondary_name}".strip())
 
         seen = set()
@@ -771,6 +802,8 @@ class TopicKeywordResearchService:
         for raw in candidates:
             candidate = self._clean_seed_phrase(raw)
             if not candidate:
+                continue
+            if not self._looks_like_useful_seed(candidate):
                 continue
             normalized = candidate.lower()
             if normalized in seen:
@@ -814,7 +847,7 @@ class TopicKeywordResearchService:
             "topic_title": ((topic_context.get("topic") or {}).get("title") or ""),
             "category_path": topic_context.get("category_path"),
             "seed_count": len(seed_keywords),
-            "seed_generation_mode": (seed_package or {}).get("generation_mode") or "deterministic_fallback_v1",
+            "seed_generation_mode": (seed_package or {}).get("generation_mode") or "llm_only_v1",
             "llm_seed_count": len((seed_package or {}).get("llm_seeds") or []),
             "deterministic_seed_count": len((seed_package or {}).get("deterministic_seeds") or []),
             "candidate_count": len(candidate_rows),
@@ -1006,7 +1039,10 @@ class TopicKeywordResearchService:
             return ""
         if len(tokens) > 6:
             tokens = tokens[:6]
-        return " ".join(tokens)
+        phrase = " ".join(tokens)
+        if self._has_repeated_halves(phrase):
+            return ""
+        return phrase
 
     async def _generate_llm_seed_keywords(
         self,
@@ -1046,28 +1082,49 @@ Project / Domain Context: {domain}
 Existing Seed Hints: {hint_text}
 
 Goal:
-- Propose search seed phrases that a real person would type, not internal strategy labels.
+- Automatically infer 4-6 search lanes a real person would explore around this topic.
 - Translate abstract topic wording into practical search language.
-- Produce a mix of informational, commercial, comparison, pricing, tool, and problem/outcome phrasing when relevant.
+- Produce seed phrases that a real person would type, not internal strategy labels.
 
-Quality Rules:
-- Each phrase must be 2-5 words.
+Critical Priority Rule:
+- Topic title, decision focus, and angle question are the source of truth.
+- Category path, project/domain context, and audience are only supporting hints.
+- If the category context conflicts with the topic itself, IGNORE the conflicting category context.
+
+Lane Design Rules:
+- Favor concrete lanes such as durability, maintenance, compatibility, lifecycle, replacement, pricing, resale, support, upgradeability, or risk when relevant.
+- Do not drift into adjacent business categories unless the topic clearly asks for that.
+- Each lane should represent a distinct user search path.
+
+Seed Rules:
+- Each seed must be 2-5 words.
 - Prefer plain English over consultant-speak.
-- Keep the phrase query-like and natural.
-- Include platform, software, tool, pricing, comparison, alternatives, cost, ROI, or workflow variants only when they naturally fit this topic.
+- Keep each seed query-like and natural.
+- Include pricing, comparison, alternatives, tool, maintenance, support, upgrade, or failure-mode wording only when it genuinely fits the topic.
 - Avoid headings, punctuation-heavy phrasing, and sentence fragments.
 - Avoid generic filler like "ultimate guide", "best guide", "tips", or "overview".
 - Avoid phrases that are too broad to be useful.
 
 Output Contract:
-- Return ONLY a flat list.
-- One seed phrase per line.
-- No numbering, bullets, labels, JSON, or commentary.
-- Return 18 to 24 phrases.
+Return valid JSON with this shape:
+{{
+  "lanes": [
+    {{
+      "name": "short lane name",
+      "reason": "why this lane matters",
+      "seeds": ["seed one", "seed two", "seed three"]
+    }}
+  ]
+}}
+
+Requirements:
+- 4 to 6 lanes
+- 3 to 5 seeds per lane
+- No extra keys
 """
         try:
             response = await asyncio.wait_for(
-                llm_service.generate_text(
+                llm_service.generate_json(
                     prompt=prompt,
                     max_tokens=500,
                     temperature=0.2,
@@ -1075,18 +1132,20 @@ Output Contract:
                 ),
                 timeout=25.0,
             )
-            parsed = self._extract_seed_candidates(response.content or "")
+            lanes = response.get("lanes") if isinstance(response, dict) else []
             seeds: List[str] = []
             seen = set()
-            for raw in parsed:
-                normalized = self._normalize_llm_seed_phrase(raw)
-                if not normalized:
-                    continue
-                key = normalized.lower()
-                if key in seen:
-                    continue
-                seen.add(key)
-                seeds.append(normalized)
+            for lane in lanes or []:
+                lane_seeds = lane.get("seeds") if isinstance(lane, dict) else []
+                for raw in lane_seeds or []:
+                    normalized = self._normalize_llm_seed_phrase(raw)
+                    if not normalized:
+                        continue
+                    key = normalized.lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    seeds.append(normalized)
             logger.info(
                 "LLM topic seed generation topic=%r generated=%s sample=%s",
                 topic_title,
@@ -1101,28 +1160,6 @@ Output Contract:
                 exc,
             )
             return []
-
-    def _merge_seed_keywords(
-        self,
-        deterministic_seeds: List[str],
-        llm_seeds: List[str],
-    ) -> tuple[List[str], Dict[str, str]]:
-        merged: List[str] = []
-        sources: Dict[str, str] = {}
-        seed_buckets = [("llm", llm_seeds), ("deterministic", deterministic_seeds)]
-        for source_name, bucket in seed_buckets:
-            for seed in bucket:
-                cleaned = self._clean_seed_phrase(seed)
-                if not cleaned:
-                    continue
-                key = cleaned.lower()
-                if key in sources:
-                    if sources[key] != source_name:
-                        sources[key] = "hybrid"
-                    continue
-                sources[key] = source_name
-                merged.append(cleaned)
-        return merged[:24], {seed: sources.get(seed.lower(), "unknown") for seed in merged[:24]}
 
     def _extract_seed_candidates(self, content: str) -> List[str]:
         if not content:
@@ -1177,6 +1214,48 @@ Output Contract:
         if sum(1 for token in tokens if len(token) <= 1) > 1:
             return False
         return True
+
+    def _looks_like_useful_seed(self, phrase: str) -> bool:
+        lowered = phrase.lower().strip()
+        if not lowered:
+            return False
+        if any(pattern in lowered for pattern in self.SEED_NOISE_PATTERNS):
+            return False
+        if not self._looks_human_search_like(phrase):
+            return False
+        return True
+
+    def _category_matches_topic(self, category_name: str, context_tokens: set[str]) -> bool:
+        if not category_name or not context_tokens:
+            return False
+        category_tokens = set(self._meaningful_tokens(category_name))
+        if not category_tokens:
+            return False
+        return bool(category_tokens & context_tokens)
+
+    def _audience_matches_topic(self, audience: str, context_tokens: set[str]) -> bool:
+        if not audience or not context_tokens:
+            return False
+        audience_tokens = set(self._meaningful_tokens(audience))
+        if not audience_tokens:
+            return False
+        return len(audience_tokens & context_tokens) >= 2
+
+    def _queryish_fragment(self, text: str, max_words: int = 5) -> str:
+        normalized = self._normalize_keyword_key(text)
+        if not normalized:
+            return ""
+        tokens = [token for token in normalized.split(" ") if token]
+        if len(tokens) < 2:
+            return ""
+        return " ".join(tokens[:max_words])
+
+    def _has_repeated_halves(self, phrase: str) -> bool:
+        tokens = phrase.split()
+        if len(tokens) < 4 or len(tokens) % 2 != 0:
+            return False
+        midpoint = len(tokens) // 2
+        return tokens[:midpoint] == tokens[midpoint:]
 
     def _normalize_keyword_key(self, text: Any) -> str:
         cleaned = re.sub(r"\s+", " ", str(text or "").strip().lower())
