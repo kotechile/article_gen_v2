@@ -239,6 +239,15 @@ function deriveSEOValidation(
     return validateSEOReadiness(article);
 }
 
+function shouldEnableSEOShiftByDefault(article: ArticleData): boolean {
+    const hasDomain = Boolean(String(article.domain || '').trim());
+    const hasTopicLink = Boolean(String((article as any).topic_id || '').trim());
+    const hasIdeaLink = Boolean(String(article.source_idea_id || '').trim());
+    const hasWordPressMapping = Boolean(article.wordpress_category_id);
+
+    return hasDomain || hasTopicLink || hasIdeaLink || hasWordPressMapping;
+}
+
 interface RagCollection {
     id: string;
     name: string;
@@ -455,6 +464,7 @@ export const ContentStudio: React.FC = () => {
                 }
 
                 setArticle(normalizedArticle);
+                setSeoShiftEnabled(shouldEnableSEOShiftByDefault(normalizedArticle));
                 setCategoryPath(resolvedCategoryPath);
                 const savedGenerationSession = localStorage.getItem(getContentStudioGenerationStorageKey(articleId));
                 if (savedGenerationSession) {
