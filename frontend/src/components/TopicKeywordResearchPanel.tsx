@@ -93,27 +93,6 @@ export function TopicKeywordResearchPanel({
                                 )}
                             </Button>
                         )}
-                        {keywordResearchRun && keywordClusters.length > 0 && (
-                            <Button
-                                onClick={onGenerateIdeasFromClusters}
-                                disabled={generatingClusterIdeas || selectedClusterIds.size === 0 || !canGenerateIdeas}
-                                variant="outline"
-                                size="sm"
-                                className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15"
-                            >
-                                {generatingClusterIdeas ? (
-                                    <>
-                                        <RefreshCw className="mr-2 h-3 w-3 animate-spin" />
-                                        Generating Ideas...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Sparkles className="mr-2 h-3 w-3" />
-                                        Generate Article + Software Ideas From {selectedClusterIds.size} Cluster{selectedClusterIds.size === 1 ? '' : 's'}
-                                    </>
-                                )}
-                            </Button>
-                        )}
                         <Button
                             onClick={onRunKeywordResearch}
                             disabled={runningKeywordResearch || !topicId}
@@ -257,12 +236,64 @@ export function TopicKeywordResearchPanel({
                             <div className="rounded-xl border border-border bg-muted/20 p-5">
                                 <div className="mb-3 flex items-center justify-between gap-3">
                                     <h3 className="text-sm font-semibold text-foreground">Top Intent Clusters</h3>
-                                    {keywordClusters.length > 0 && (
-                                        <span className="text-xs text-muted-foreground">
-                                            {selectedClusterIds.size} selected
-                                        </span>
-                                    )}
+                                    <div className="flex items-center gap-2">
+                                        {keywordClusters.length > 0 && (
+                                            <span className="text-xs text-muted-foreground">
+                                                {selectedClusterIds.size} selected
+                                            </span>
+                                        )}
+                                        {keywordClusters.length > 0 && (
+                                            <Button
+                                                onClick={onGenerateIdeasFromClusters}
+                                                disabled={generatingClusterIdeas || selectedClusterIds.size === 0 || !canGenerateIdeas}
+                                                variant="outline"
+                                                size="sm"
+                                                className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15"
+                                            >
+                                                {generatingClusterIdeas ? (
+                                                    <>
+                                                        <RefreshCw className="mr-2 h-3 w-3 animate-spin" />
+                                                        Generating...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Sparkles className="mr-2 h-3 w-3" />
+                                                        Generate Ideas
+                                                    </>
+                                                )}
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
+                                {keywordClusters.length > 0 && (
+                                    <div className="mb-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3">
+                                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                            <div className="text-xs text-muted-foreground">
+                                                {selectedClusterIds.size > 0
+                                                    ? `${selectedClusterIds.size} cluster${selectedClusterIds.size === 1 ? '' : 's'} selected. Generate article and software ideas from the selected intent clusters.`
+                                                    : 'Select one or more clusters below, then generate article and software ideas from that selection.'}
+                                            </div>
+                                            <Button
+                                                onClick={onGenerateIdeasFromClusters}
+                                                disabled={generatingClusterIdeas || selectedClusterIds.size === 0 || !canGenerateIdeas}
+                                                className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                                                size="sm"
+                                            >
+                                                {generatingClusterIdeas ? (
+                                                    <>
+                                                        <RefreshCw className="mr-2 h-3 w-3 animate-spin" />
+                                                        Generating Ideas...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Sparkles className="mr-2 h-3 w-3" />
+                                                        Generate Article + Software Ideas From {selectedClusterIds.size} Cluster{selectedClusterIds.size === 1 ? '' : 's'}
+                                                    </>
+                                                )}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="space-y-3">
                                     {keywordClusters.slice(0, 4).map((cluster) => (
                                         <button

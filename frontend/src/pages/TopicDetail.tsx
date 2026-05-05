@@ -50,7 +50,6 @@ export function TopicDetail() {
     const [generatingEditorialIdeas, setGeneratingEditorialIdeas] = React.useState(false)
     const [activeGeneratedIdea, setActiveGeneratedIdea] = React.useState<ContentIdea | null>(null)
     const [generatedIdeaTypeFilter, setGeneratedIdeaTypeFilter] = React.useState<'all' | 'blog' | 'software'>('all')
-    const [generatedIdeaStatusFilter, setGeneratedIdeaStatusFilter] = React.useState<'all' | 'draft' | 'published'>('draft')
     const [generatedIdeaSort, setGeneratedIdeaSort] = React.useState<'score' | 'volume' | 'difficulty' | 'recent'>('score')
     const [latestGeneratedIdeas, setLatestGeneratedIdeas] = React.useState<ContentIdea[]>([])
 
@@ -323,8 +322,8 @@ export function TopicDetail() {
 
     const generatedClusterIdeas = React.useMemo(() => {
         return mergeContentIdeas(
-            (storedIdeas || []).filter((idea) => isTopicGeneratedIdea(idea)),
             latestGeneratedIdeas || [],
+            (storedIdeas || []).filter((idea) => isTopicGeneratedIdea(idea)),
         )
     }, [isTopicGeneratedIdea, latestGeneratedIdeas, mergeContentIdeas, storedIdeas])
 
@@ -357,10 +356,7 @@ export function TopicDetail() {
                 idea.status?.toLowerCase() === 'published'
             )
 
-            if (generatedIdeaStatusFilter === 'draft' && isPublished) {
-                return false
-            }
-            if (generatedIdeaStatusFilter === 'published' && !isPublished) {
+            if (isPublished) {
                 return false
             }
             if (generatedIdeaTypeFilter === 'all') {
@@ -381,9 +377,8 @@ export function TopicDetail() {
             }
             return Number(b.opportunity_score || 0) - Number(a.opportunity_score || 0)
         })
-
         return sorted
-    }, [generatedClusterIdeas, generatedIdeaSort, generatedIdeaStatusFilter, generatedIdeaTypeFilter])
+    }, [generatedClusterIdeas, generatedIdeaSort, generatedIdeaTypeFilter])
 
     const formatDateTime = React.useCallback((value?: string | null) => {
         if (!value) return 'Not available'
@@ -440,15 +435,24 @@ export function TopicDetail() {
                 refreshed.titles_record_id ||
                 refreshed.status?.toLowerCase() === 'published'
             )
-            if (generatedIdeaStatusFilter === 'draft' && isPublished) {
-                return null
-            }
-            if (generatedIdeaStatusFilter === 'published' && !isPublished) {
+            if (isPublished) {
                 return null
             }
             return refreshed
         })
-    }, [generatedIdeaStatusFilter])
+    }, [])
+
+    const handleGeneratedIdeaUpdated = React.useCallback((updatedIdea: ContentIdea) => {
+        setStoredIdeas((current) =>
+            current.map((idea) => (idea.id === updatedIdea.id ? { ...idea, ...updatedIdea } : idea))
+        )
+        setLatestGeneratedIdeas((current) =>
+            current.map((idea) => (idea.id === updatedIdea.id ? { ...idea, ...updatedIdea } : idea))
+        )
+        setActiveGeneratedIdea((current) =>
+            current?.id === updatedIdea.id ? { ...current, ...updatedIdea } : current
+        )
+    }, [])
 
     const activeGeneratedIdeaIndex = React.useMemo(() => {
         if (!activeGeneratedIdea?.id) {
@@ -497,6 +501,21 @@ export function TopicDetail() {
 
             const result = await contentIdeasService.publishContentIdeas([ideaId], user.id)
             const refreshedIdeas = await refreshStoredIdeasState(id)
+            setLatestGeneratedIdeas((current) =>
+                current.filter((idea) => {
+                    if (idea.id !== ideaId) {
+                        return true
+                    }
+                    const refreshed = (refreshedIdeas || []).find((item) => item.id === ideaId)
+                    const isPublished = Boolean(
+                        refreshed?.published ||
+                        refreshed?.published_to_titles ||
+                        refreshed?.titles_record_id ||
+                        refreshed?.status?.toLowerCase() === 'published'
+                    )
+                    return !isPublished
+                })
+            )
             syncGeneratedIdeaReviewState(refreshedIdeas || [])
 
             if (result.success) {
@@ -534,6 +553,21 @@ export function TopicDetail() {
 
             const result = await contentIdeasService.publishContentIdeas(ideaIds, user.id)
             const refreshedIdeas = await refreshStoredIdeasState(id)
+            setLatestGeneratedIdeas((current) =>
+                current.filter((idea) => {
+                    if (!ideaIds.includes(idea.id)) {
+                        return true
+                    }
+                    const refreshed = (refreshedIdeas || []).find((item) => item.id === idea.id)
+                    const isPublished = Boolean(
+                        refreshed?.published ||
+                        refreshed?.published_to_titles ||
+                        refreshed?.titles_record_id ||
+                        refreshed?.status?.toLowerCase() === 'published'
+                    )
+                    return !isPublished
+                })
+            )
             syncGeneratedIdeaReviewState(refreshedIdeas || [])
 
             if (result.success) {
@@ -856,10 +890,8 @@ export function TopicDetail() {
                     selectedGeneratedIdeaIds={selectedGeneratedIdeaIds}
                     publishingGeneratedIdeas={publishingGeneratedIdeas}
                     generatedIdeaTypeFilter={generatedIdeaTypeFilter}
-                    generatedIdeaStatusFilter={generatedIdeaStatusFilter}
                     generatedIdeaSort={generatedIdeaSort}
                     setGeneratedIdeaTypeFilter={setGeneratedIdeaTypeFilter}
-                    setGeneratedIdeaStatusFilter={setGeneratedIdeaStatusFilter}
                     setGeneratedIdeaSort={setGeneratedIdeaSort}
                     activeGeneratedIdea={activeGeneratedIdea}
                     activeGeneratedIdeaIndex={activeGeneratedIdeaIndex}
@@ -876,6 +908,7 @@ export function TopicDetail() {
                     handleClearGeneratedIdeaSelection={handleClearGeneratedIdeaSelection}
                     openPreviousGeneratedIdea={openPreviousGeneratedIdea}
                     openNextGeneratedIdea={openNextGeneratedIdea}
+                    onIdeaUpdated={handleGeneratedIdeaUpdated}
                 />
 
                 {/* Error Display */}

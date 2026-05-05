@@ -6,7 +6,6 @@ import type { ContentIdea } from "@/types/idea-burst"
 import { KeywordIntelligenceModal } from "@/components/KeywordIntelligenceModal"
 
 type GeneratedIdeaTypeFilter = 'all' | 'blog' | 'software'
-type GeneratedIdeaStatusFilter = 'all' | 'draft' | 'published'
 type GeneratedIdeaSort = 'score' | 'volume' | 'difficulty' | 'recent'
 
 interface GeneratedIdeasPanelProps {
@@ -15,10 +14,8 @@ interface GeneratedIdeasPanelProps {
     selectedGeneratedIdeaIds: Set<string>
     publishingGeneratedIdeas: boolean
     generatedIdeaTypeFilter: GeneratedIdeaTypeFilter
-    generatedIdeaStatusFilter: GeneratedIdeaStatusFilter
     generatedIdeaSort: GeneratedIdeaSort
     setGeneratedIdeaTypeFilter: (value: GeneratedIdeaTypeFilter) => void
-    setGeneratedIdeaStatusFilter: (value: GeneratedIdeaStatusFilter) => void
     setGeneratedIdeaSort: (value: GeneratedIdeaSort) => void
     activeGeneratedIdea: ContentIdea | null
     activeGeneratedIdeaIndex: number
@@ -35,6 +32,7 @@ interface GeneratedIdeasPanelProps {
     handleClearGeneratedIdeaSelection: () => void
     openPreviousGeneratedIdea: () => void
     openNextGeneratedIdea: () => void
+    onIdeaUpdated: (idea: ContentIdea) => void
 }
 
 const formatMetricValue = (value?: number | null, decimals = 0) => {
@@ -80,10 +78,8 @@ export function GeneratedIdeasPanel({
     selectedGeneratedIdeaIds,
     publishingGeneratedIdeas,
     generatedIdeaTypeFilter,
-    generatedIdeaStatusFilter,
     generatedIdeaSort,
     setGeneratedIdeaTypeFilter,
-    setGeneratedIdeaStatusFilter,
     setGeneratedIdeaSort,
     activeGeneratedIdea,
     activeGeneratedIdeaIndex,
@@ -100,6 +96,7 @@ export function GeneratedIdeasPanel({
     handleClearGeneratedIdeaSelection,
     openPreviousGeneratedIdea,
     openNextGeneratedIdea,
+    onIdeaUpdated,
 }: GeneratedIdeasPanelProps) {
     const [showKeywordModal, setShowKeywordModal] = React.useState(false)
 
@@ -156,15 +153,6 @@ export function GeneratedIdeasPanel({
                                     </span>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <select
-                                        value={generatedIdeaStatusFilter}
-                                        onChange={(event) => setGeneratedIdeaStatusFilter(event.target.value as GeneratedIdeaStatusFilter)}
-                                        className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs text-foreground outline-none transition focus:border-ring"
-                                    >
-                                        <option value="draft">Drafts Only</option>
-                                        <option value="published">Published Only</option>
-                                        <option value="all">All Statuses</option>
-                                    </select>
                                     <select
                                         value={generatedIdeaTypeFilter}
                                         onChange={(event) => setGeneratedIdeaTypeFilter(event.target.value as GeneratedIdeaTypeFilter)}
@@ -509,11 +497,11 @@ export function GeneratedIdeasPanel({
                         </div>
 
                         <div className="border-t border-border px-6 py-4">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="text-xs text-muted-foreground">
+                            <div className="flex flex-col gap-4">
+                                <div className="w-full text-xs leading-5 text-muted-foreground">
                                     Review the metrics, then publish this idea directly or add it to the current batch.
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex w-full flex-wrap items-center justify-end gap-2">
                                     <Button
                                         type="button"
                                         variant="outline"
@@ -590,8 +578,8 @@ export function GeneratedIdeasPanel({
                             average_cpc: metrics.cpc ?? activeGeneratedIdea.average_cpc,
                             raw_dataforseo_output: rawOutput ?? activeGeneratedIdea.raw_dataforseo_output,
                         }
-                        closeGeneratedIdeaDetail()
-                        openGeneratedIdeaDetail(updatedIdea)
+                        onIdeaUpdated(updatedIdea)
+                        setShowKeywordModal(false)
                     }}
                 />
             )}
