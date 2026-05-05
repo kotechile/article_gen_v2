@@ -14,6 +14,19 @@ from src.integrations.llm.client import LLMClient
 logger = logging.getLogger(__name__)
 
 class TrendEngine:
+    _VALID_TOPIC_MODES = {"keyword_first", "editorial_first", "hybrid"}
+    _VALID_VIABILITY_LABELS = {"high", "medium", "low"}
+    _KEYWORD_SIGNAL_TERMS = {
+        "best", "compare", "comparison", "pricing", "price", "cost", "software", "tool",
+        "tools", "platform", "app", "calculator", "template", "review", "reviews",
+        "alternatives", "alternative", "buying", "guide", "checklist", "vs",
+    }
+    _EDITORIAL_SIGNAL_TERMS = {
+        "psychology", "behavior", "cultural", "future", "ethics", "narrative",
+        "patterns", "mindset", "signals", "spending power", "decision patterns",
+        "social shift", "macro shift",
+    }
+
     def __init__(self):
         self.supabase = get_supabase_client()
         self.dfs = DataForSEOAPI()
@@ -423,6 +436,168 @@ class TrendEngine:
         for pattern, value in replacements.items():
             normalized = re.sub(pattern, value, normalized, flags=re.IGNORECASE)
         return re.sub(r"\s{2,}", " ", normalized).strip(" -:")
+
+    def _heuristic_keyword_viability_score(
+        self,
+        title: str,
+        rationale: str,
+        related_terms: List[str],
+        intent_bucket: str,
+    ) -> int:
+        text = " ".join([title, rationale, " ".join(related_terms or []), intent_bucket or ""]).lower()
+        score = 50
+        word_count = len([token for token in re.findall(r"[a-zA-Z0-9]+", title.lower()) if token])
+
+        if word_count in (3, 4, 5):
+            score += 8
+        elif word_count <= 2:
+            score -= 10
+        elif word_count >= 7:
+            score -= 8
+
+        for term in self._KEYWORD_SIGNAL_TERMS:
+            if term in text:
+                score += 7
+
+        for term in self._EDITORIAL_SIGNAL_TERMS:
+            if term in text:
+                score -= 8
+
+        if intent_bucket in {"commercial_evaluation", "solution_enablement"}:
+            score += 8
+        elif intent_bucket == "informational_decision":
+            score -= 4
+
+        if re.search(r"\bhow\b|\bwhat\b|\bwhen\b", title.lower()):
+            score += 4
+
+        return max(0, min(100, score))
+
+    def _coerce_topic_mode(self, value: Any, title: str, rationale: str, related_terms: List[str]) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized in self._VALID_TOPIC_MODES:
+            return normalized
+
+        text = " ".join([title, rationale, " ".join(related_terms or [])]).lower()
+        if any(term in text for term in ["software", "tool", "platform", "pricing", "cost", "best", "compare", "comparison", "calculator"]):
+            return "keyword_first"
+        if any(term in text for term in ["why", "future", "psychology", "behavior", "trade-offs", "tradeoffs", "spending power", "decision context"]):
+            return "editorial_first"
+        return "hybrid"
+
+    def _coerce_viability_score(self, value: Any, topic_mode: str, title: str, related_terms: List[str]) -> int:
+        try:
+            score = int(float(value))
+        except Exception:
+            score = 0
+
+        if score <= 0:
+            text = " ".join([title, " ".join(related_terms or [])]).lower()
+            if topic_mode == "keyword_first":
+                score = 76 if any(term in text for term in ["cost", "pricing", "software", "tool", "compare", "best"]) else 68
+            elif topic_mode == "editorial_first":
+                score = 28 if any(term in text for term in ["psychology", "behavior", "future", "culture", "ethics"]) else 36
+            else:
+                score = 55
+        return max(0, min(100, score))
+
+    def _finalize_topic_mode(self, llm_mode: str, viability_score: int, title: str, rationale: str) -> str:
+        text = " ".join([title, rationale]).lower()
+        if viability_score >= 75:
+            return "keyword_first"
+        if viability_score <= 34:
+            return "editorial_first"
+        if any(term in text for term in ["software", "pricing", "cost", "compare", "best", "platform", "tool"]):
+            return "keyword_first"
+        if any(term in text for term in ["psychology", "behavior", "future", "culture", "patterns"]):
+            return "editorial_first"
+        return llm_mode if llm_mode in self._VALID_TOPIC_MODES else "hybrid"
+
+    def _coerce_viability_label(self, value: Any, score: int) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized in self._VALID_VIABILITY_LABELS:
+            return normalized
+        if score >= 70:
+            return "high"
+        if score >= 40:
+            return "medium"
+        return "low"
+
+    def _build_generation_metadata(
+        self,
+        *,
+        topic_mode: str,
+        viability_score: int,
+        viability_label: str,
+        llm_topic_mode: str,
+        llm_viability_score: int,
+        heuristic_viability_score: int,
+        source_type: str,
+    ) -> Dict[str, Any]:
+        return {
+            "generator_version": "hot_news_topic_mode_split_v1",
+            "source_type": source_type,
+            "topic_mode": topic_mode,
+            "keyword_viability_score": viability_score,
+            "keyword_viability_label": viability_label,
+            "llm_topic_mode": llm_topic_mode,
+            "llm_keyword_viability_score": llm_viability_score,
+            "heuristic_keyword_viability_score": heuristic_viability_score,
+        }
+
+    def _enrich_synthesized_topic(self, topic: Dict[str, Any], source_type: str = "news") -> Dict[str, Any]:
+        title = self._normalize_topic_title_plain_language(str(topic.get("title") or ""))
+        rationale = str(topic.get("rationale") or "").strip()
+        related_terms = topic.get("related_terms") or []
+        if not isinstance(related_terms, list):
+            related_terms = []
+        related_terms = [str(term).strip() for term in related_terms if str(term).strip()]
+
+        llm_topic_mode = self._coerce_topic_mode(topic.get("topic_mode"), title, rationale, related_terms)
+        llm_viability_score = self._coerce_viability_score(
+            topic.get("keyword_viability_score"),
+            llm_topic_mode,
+            title,
+            related_terms,
+        )
+        heuristic_viability_score = self._heuristic_keyword_viability_score(
+            title=title,
+            rationale=rationale,
+            related_terms=related_terms,
+            intent_bucket=str(topic.get("intent_bucket") or "informational_decision"),
+        )
+        viability_score = int(round((llm_viability_score * 0.65) + (heuristic_viability_score * 0.35)))
+        topic_mode = self._finalize_topic_mode(
+            llm_mode=llm_topic_mode,
+            viability_score=viability_score,
+            title=title,
+            rationale=rationale,
+        )
+        viability_label = self._coerce_viability_label(topic.get("keyword_viability_label"), viability_score)
+        generation_reasoning = str(topic.get("topic_generation_reasoning") or "").strip()
+        if not generation_reasoning:
+            generation_reasoning = (
+                f"This trend topic is classified as {topic_mode} with {viability_label} keyword potential "
+                f"based on how concrete, search-shaped, and commercially actionable it is."
+            )
+
+        return {
+            **topic,
+            "title": title,
+            "topic_mode": topic_mode,
+            "keyword_viability_score": viability_score,
+            "keyword_viability_label": viability_label,
+            "topic_generation_reasoning": generation_reasoning,
+            "topic_generation_metadata": self._build_generation_metadata(
+                topic_mode=topic_mode,
+                viability_score=viability_score,
+                viability_label=viability_label,
+                llm_topic_mode=llm_topic_mode,
+                llm_viability_score=llm_viability_score,
+                heuristic_viability_score=heuristic_viability_score,
+                source_type=source_type,
+            ),
+        }
     
     # ... (helper methods) ...
 
@@ -466,7 +641,7 @@ class TrendEngine:
             category_instruction = "Favor topics that are tightly aligned with the site's core niche and categories when the data supports them."
 
         prompt = f"""
-Act as a content director and niche editor for the following website.
+Act as a content director, niche editor, and topic-routing strategist for the following website.
 
 SITE NICHE:
 Description: {site_description}
@@ -475,9 +650,13 @@ Core Focus Topics: {', '.join(focus_topics)}
 {selected_category_line}
 {chr(10).join(selected_category_description_lines)}
 
-We are in the FIRST stage of a research workflow. We need BROAD TREND THEMES (seed topics),
-not SEO-optimized blog post titles. These seed topics will be expanded later into specific
-article ideas and low-competition keywords.
+We are in the FIRST stage of a research workflow. We need BROAD TREND THEMES that can enter one of
+three downstream paths:
+- keyword_first
+- editorial_first
+- hybrid
+
+These topics will later become article ideas, companion software ideas, or keyword research lanes.
 
 CONTEXT:
 We have already published articles on the following topics (avoid suggesting near-duplicates):
@@ -505,12 +684,36 @@ Instructions:
    - Explicitly relevant to the selected category/sub-category descriptions.
    - If unsure, discard and replace with a safer in-scope topic.
 5. Do NOT output article headlines; do NOT output "how to ..." titles unless the theme truly demands it.
-6. Synthesize 8–12 seed topics. Each seed topic should be a short 2–6 word theme label.
-7. Each seed topic must be broad enough to generate many long-tail keywords later.
+6. Synthesize 8–12 topics. Each topic title should be a short 2–6 word theme label.
+7. Each topic must be broad enough to support multiple later articles, but concrete enough to route intelligently.
 8. Use plain language. Avoid consultant-speak/corporate wording in titles (e.g., avoid "framework", "operating model", "optimization" unless absolutely necessary).
 9. Include brief rationale and cite which sources contributed (News / Pinterest / Reddit / Quora / LinkedIn / Search).
 10. If the signals are weak, stay on-niche and propose evergreen-but-timely themes that match the niche anyway.
-11. Respond in strictly valid JSON with this structure:
+11. For each topic, assign:
+   - topic_mode:
+     - keyword_first: strong chance of measurable keyword demand
+     - editorial_first: valuable editorial topic even if keyword demand is weak
+     - hybrid: could work in either path
+   - keyword_viability_score: 0-100
+   - keyword_viability_label:
+     - high for 70-100
+     - medium for 40-69
+     - low for 0-39
+   - topic_generation_reasoning: 1-2 short sentences about why this topic belongs in that mode and what makes it strong or weak for keyword research
+12. Favor concrete user search lanes when the signals suggest them, but these examples are not limits:
+   - pricing
+   - comparisons
+   - software/tools/platforms
+   - buying decisions
+   - maintenance
+   - lifecycle
+   - support
+   - upgradeability
+   - risk
+   - engineering
+   - materials
+   - reliability
+13. Respond in strictly valid JSON with this structure:
 {{
   "topics": [
     {{
@@ -518,6 +721,10 @@ Instructions:
       "rationale": "1-2 sentences tying it to the niche and why now",
       "source_signals": ["News", "Reddit"],
       "related_terms": ["optional", "2-5 short terms"],
+      "topic_mode": "keyword_first|editorial_first|hybrid",
+      "keyword_viability_score": 0,
+      "keyword_viability_label": "high|medium|low",
+      "topic_generation_reasoning": "Short mode and viability explanation",
       "intent_bucket": "informational_decision|commercial_evaluation|decision_financial|solution_enablement",
       "decision_focus": "One sentence describing the user decision this theme supports",
       "angle_question": "A concrete question to answer in decomposition",
@@ -581,10 +788,16 @@ Instructions:
             if not any(isinstance(t, dict) and str(t.get("title") or "").strip() for t in topics):
                 raise ValueError("LLM synthesis topics missing required 'title' fields")
 
+            enriched_topics: List[Dict[str, Any]] = []
             for topic in topics:
                 if not isinstance(topic, dict):
                     continue
-                topic["title"] = self._normalize_topic_title_plain_language(str(topic.get("title") or ""))
+                enriched_topics.append(self._enrich_synthesized_topic(topic, source_type="news"))
+
+            if not enriched_topics:
+                raise ValueError("LLM synthesis produced no valid enrichable topics")
+
+            parsed["topics"] = enriched_topics
 
             return parsed
             
