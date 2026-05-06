@@ -77,6 +77,26 @@ const normalizeSiteUrl = (value?: string): string => {
     return withProtocol.replace(/\/+$/, '');
 };
 
+const normalizeHost = (value?: string): string => {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//i, '')
+        .replace(/\/+$/, '');
+};
+
+const WORDPRESS_API_HOST_OVERRIDES: Record<string, string> = {
+    'giniloh.com': 'cms.giniloh.com',
+};
+
+const getWordPressApiBaseUrl = (site: WordPressSite): string => {
+    const host = normalizeHost(site.domain);
+    const overrideHost = WORDPRESS_API_HOST_OVERRIDES[host];
+    const siteLevelOverride = normalizeHost((site as any).site_url_override);
+
+    return normalizeSiteUrl(siteLevelOverride || overrideHost || site.domain);
+};
+
 const buildCanonicalUrl = (site: WordPressSite, slug: string, explicitCanonical?: string): string => {
     const supplied = String(explicitCanonical || '').trim();
     if (supplied) return supplied;
@@ -171,7 +191,8 @@ export const fetchWordPressCategories = async (
     site: WordPressSite
 ): Promise<WordPressCategory[]> => {
     try {
-        const categoriesUrl = `https://${site.domain}/wp-json/wp/v2/categories`;
+        const apiBaseUrl = getWordPressApiBaseUrl(site);
+        const categoriesUrl = `${apiBaseUrl}/wp-json/wp/v2/categories`;
         const credentials = btoa(`${site.wpUserName}:${site.wordpress_key}`);
 
         const response = await fetch(categoriesUrl, {
@@ -226,6 +247,7 @@ export const uploadFeaturedImage = async (
 
         const imageBlob = await imageResponse.blob();
         const credentials = btoa(`${site.wpUserName}:${site.wordpress_key}`);
+        const apiBaseUrl = getWordPressApiBaseUrl(site);
 
         // Upload to WordPress media library
         const formData = new FormData();
@@ -234,7 +256,7 @@ export const uploadFeaturedImage = async (
         if (metadata.title) formData.append('title', metadata.title);
         if (metadata.caption) formData.append('caption', metadata.caption);
 
-        const uploadResponse = await fetch(`https://${site.domain}/wp-json/wp/v2/media`, {
+        const uploadResponse = await fetch(`${apiBaseUrl}/wp-json/wp/v2/media`, {
             method: 'POST',
             headers: {
                 'Authorization': `Basic ${credentials}`
@@ -245,6 +267,7 @@ export const uploadFeaturedImage = async (
         if (!uploadResponse.ok) {
             console.warn('Failed to upload featured image to WordPress', {
                 siteDomain: site.domain,
+                apiBaseUrl,
                 status: uploadResponse.status,
                 statusText: uploadResponse.statusText,
             });
@@ -260,6 +283,7 @@ export const uploadFeaturedImage = async (
         console.error('Error uploading featured image:', {
             imageUrl,
             siteDomain: site.domain,
+            apiBaseUrl: getWordPressApiBaseUrl(site),
             error,
         });
         return {
@@ -602,6 +626,7 @@ export const publishToWordPress = async (
     try {
         const credentials = btoa(`${site.wpUserName}:${site.wordpress_key}`);
         const publishWarnings: string[] = [];
+        const apiBaseUrl = getWordPressApiBaseUrl(site);
 
         // Upload featured image if provided
         let featuredMediaId: number | null = null;
@@ -658,7 +683,7 @@ export const publishToWordPress = async (
         }
 
         // Publish to WordPress
-        const response = await fetch(`https://${site.domain}/wp-json/wp/v2/posts`, {
+        const response = await fetch(`${apiBaseUrl}/wp-json/wp/v2/posts`, {
             method: 'POST',
             headers: {
                 'Authorization': `Basic ${credentials}`,
