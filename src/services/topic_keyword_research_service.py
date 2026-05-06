@@ -775,6 +775,7 @@ class TopicKeywordResearchService:
                 "seed_keywords": manual_seed_keywords[:20],
                 "deterministic_seeds": self._build_deterministic_seed_keywords(topic_context),
                 "llm_seeds": [],
+                "topic_components": [],
                 "seed_sources": {seed: "manual_override" for seed in manual_seed_keywords[:20]},
                 "llm_parse_strategy": None,
                 "llm_raw_output": None,
@@ -783,13 +784,15 @@ class TopicKeywordResearchService:
                 "llm_rejected_candidates": [],
             }
         deterministic_seeds = self._build_deterministic_seed_keywords(topic_context)
-        llm_result = await self._generate_llm_seed_keywords(topic_context, deterministic_seeds)
+        topic_components = await self._decompose_topic_into_search_components(topic_context, deterministic_seeds)
+        llm_result = await self._generate_llm_seed_keywords(topic_context, deterministic_seeds, topic_components)
         llm_seeds = llm_result.get("accepted_seeds") or []
         seed_package = {
             "generation_mode": "llm_only_v2",
             "seed_keywords": llm_seeds,
             "deterministic_seeds": deterministic_seeds,
             "llm_seeds": llm_seeds,
+            "topic_components": topic_components,
             "seed_sources": {seed: "llm" for seed in llm_seeds},
             "llm_parse_strategy": llm_result.get("parse_strategy"),
             "llm_raw_output": llm_result.get("raw_output"),
@@ -1160,6 +1163,7 @@ class TopicKeywordResearchService:
         self,
         topic_context: Dict[str, Any],
         deterministic_seeds: List[str],
+        topic_components: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         topic = topic_context.get("topic") or {}
         project = topic_context.get("project") or {}
@@ -1177,6 +1181,7 @@ class TopicKeywordResearchService:
         primary_name = str(primary_category.get("name") or "").strip()
         secondary_name = str(secondary_category.get("name") or "").strip()
         hint_text = ", ".join(deterministic_seeds[:10])
+        component_text = self._serialize_topic_components(topic_components or [])
 
         prompt = f"""
 Role: You are a veteran SEO researcher translating strategy language into real Google searches.
@@ -1192,11 +1197,14 @@ Intent Bucket: {intent_bucket}
 Target Audience: {audience}
 Project / Domain Context: {domain}
 Existing Seed Hints: {hint_text}
+Topic Components:
+{component_text}
 
 Goal:
 - Automatically infer 4-6 search lanes a real person would explore around this topic.
 - Translate abstract topic wording into practical search language.
 - Produce seed phrases that a real person would type, not internal strategy labels.
+- If the topic is abstract, first ground it in concrete subcomponents, need-buckets, or use-cases before proposing lanes.
 
 Critical Priority Rule:
 - Topic title, decision focus, and angle question are the source of truth.
@@ -1205,6 +1213,7 @@ Critical Priority Rule:
 - Preserve the concrete subject of the topic, not just the abstract decision frame.
 - If the topic is about a specific consumer object or comparison (for example EV vs hybrid ownership), seeds must keep that object/domain explicit instead of collapsing into a generic finance or business phrase.
 - Honor the target audience. If the audience is consumer-facing, avoid drifting into enterprise, procurement, supply chain, or industrial search language unless the topic clearly asks for it.
+- When topic components are provided, stay anchored to those components while keeping the website/category context in mind.
 
 Lane Design Rules:
 - Favor concrete user search lanes grounded in the topic.
@@ -1212,6 +1221,7 @@ Lane Design Rules:
 - Do not limit yourself to those examples if the topic clearly suggests stronger lanes such as engineering, thermal management, materials, firmware, batteries, modularity, or environmental control.
 - Do not drift into adjacent business categories unless the topic clearly asks for that.
 - Each lane should represent a distinct user search path.
+- For abstract topics, cover multiple concrete components instead of repeating one abstract phrase.
 
 Seed Rules:
 - Each seed must be 2-5 words.
@@ -1273,7 +1283,7 @@ Requirements:
             if len(seeds) < 6:
                 salvage_candidates = self._salvage_seed_candidates_from_hints(
                     llm_candidates=parsed,
-                    deterministic_hints=deterministic_seeds,
+                    deterministic_hints=deterministic_seeds + self._component_hint_keywords(topic_components or []),
                     existing_seeds=seeds,
                 )
                 parse_strategy = f"{parse_strategy}+salvage" if salvage_candidates else parse_strategy
@@ -1312,6 +1322,160 @@ Requirements:
                 "accepted_seed_count": 0,
                 "rejected_candidates": [],
             }
+
+    async def _decompose_topic_into_search_components(
+        self,
+        topic_context: Dict[str, Any],
+        deterministic_seeds: List[str],
+    ) -> List[Dict[str, Any]]:
+        topic = topic_context.get("topic") or {}
+        project = topic_context.get("project") or {}
+        primary_category = topic_context.get("primary_category") or {}
+        secondary_category = topic_context.get("secondary_category") or {}
+
+        topic_title = str(topic.get("title") or "").strip()
+        topic_description = str(topic.get("description") or "").strip()
+        category_path = topic_context.get("category_path") or ""
+        decision_focus = str(topic.get("decision_focus") or "").strip()
+        angle_question = str(topic.get("angle_question") or "").strip()
+        audience = str(topic.get("target_audience") or project.get("targetaudiencedescription") or "").strip()
+        domain = str(project.get("domain") or project.get("app_name") or "").strip()
+        primary_name = str(primary_category.get("name") or "").strip()
+        secondary_name = str(secondary_category.get("name") or "").strip()
+        hint_text = ", ".join(deterministic_seeds[:10])
+
+        prompt = f"""
+Role: You are a content strategist and SEO researcher.
+
+Topic Title: {topic_title}
+Topic Description: {topic_description}
+Category Path: {category_path}
+Primary Category: {primary_name}
+Secondary Category: {secondary_name}
+Decision Focus: {decision_focus}
+Angle Question: {angle_question}
+Target Audience: {audience}
+Project / Domain Context: {domain}
+Existing Seed Hints: {hint_text}
+
+Goal:
+- Break this topic into 3 to 5 concrete search components.
+- Each component should represent a distinct part of the topic a real person would search about.
+- Stay tightly aligned to the website/category context and target audience.
+- For abstract topics, convert the abstraction into concrete need-buckets, use-cases, or decision-buckets.
+
+Rules:
+- Components must stay inside the actual topic, not drift into adjacent industries.
+- Use plain-English component names.
+- Query spaces should be short, search-like hints that describe what people might search within that component.
+- Prioritize components that can produce useful seed keywords.
+
+Output contract:
+Return ONLY plain text with these delimiters:
+COMPONENT:: short component name
+WHY:: one short reason
+QUERYSPACE:: short search-like hint
+QUERYSPACE:: short search-like hint
+ENDCOMPONENT
+"""
+        try:
+            response = await asyncio.wait_for(
+                llm_service.generate_text(
+                    prompt=prompt,
+                    max_tokens=350,
+                    temperature=0.2,
+                    task_role=LLM_ROLE_RESEARCH,
+                ),
+                timeout=20.0,
+            )
+            return self._extract_topic_components(response.content or "")
+        except Exception as exc:
+            logger.warning(
+                "LLM topic component decomposition failed topic=%r err=%s",
+                topic_title,
+                exc,
+            )
+            return []
+
+    def _extract_topic_components(self, content: str) -> List[Dict[str, Any]]:
+        if not content:
+            return []
+        components: List[Dict[str, Any]] = []
+        current: Dict[str, Any] = {}
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            upper = line.upper()
+            if upper.startswith("COMPONENT::"):
+                if current.get("name"):
+                    components.append(current)
+                current = {
+                    "name": line.split("::", 1)[1].strip(),
+                    "why": "",
+                    "query_spaces": [],
+                }
+            elif upper.startswith("WHY::"):
+                if current:
+                    current["why"] = line.split("::", 1)[1].strip()
+            elif upper.startswith("QUERYSPACE::"):
+                if current:
+                    value = self._clean_seed_phrase(line.split("::", 1)[1].strip())
+                    if value:
+                        current.setdefault("query_spaces", []).append(value)
+            elif upper.startswith("ENDCOMPONENT"):
+                if current.get("name"):
+                    components.append(current)
+                current = {}
+
+        if current.get("name"):
+            components.append(current)
+
+        cleaned: List[Dict[str, Any]] = []
+        seen = set()
+        for component in components:
+            name = str(component.get("name") or "").strip()
+            if not name:
+                continue
+            key = name.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append({
+                "name": name,
+                "why": str(component.get("why") or "").strip(),
+                "query_spaces": self._merge_strings(component.get("query_spaces"), []),
+            })
+            if len(cleaned) >= 5:
+                break
+        return cleaned
+
+    def _serialize_topic_components(self, components: List[Dict[str, Any]]) -> str:
+        if not components:
+            return "None"
+        lines: List[str] = []
+        for component in components[:5]:
+            name = str(component.get("name") or "").strip()
+            why = str(component.get("why") or "").strip()
+            query_spaces = ", ".join((component.get("query_spaces") or [])[:4])
+            if not name:
+                continue
+            lines.append(f"- {name}: {why or 'Concrete search component'}")
+            if query_spaces:
+                lines.append(f"  Query spaces: {query_spaces}")
+        return "\n".join(lines) if lines else "None"
+
+    def _component_hint_keywords(self, components: List[Dict[str, Any]]) -> List[str]:
+        hints: List[str] = []
+        for component in components[:5]:
+            name = self._clean_seed_phrase(component.get("name") or "")
+            if name:
+                hints.append(name)
+            for query_space in (component.get("query_spaces") or [])[:4]:
+                cleaned = self._clean_seed_phrase(query_space)
+                if cleaned:
+                    hints.append(cleaned)
+        return self._merge_strings(hints, [])
 
     def _extract_seed_candidates(self, content: str) -> List[str]:
         if not content:
