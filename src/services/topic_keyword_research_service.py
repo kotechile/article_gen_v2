@@ -984,17 +984,23 @@ class TopicKeywordResearchService:
             if stop_term in keyword:
                 return True, f"blocked_term:{stop_term}"
 
-        anchor_terms = self._topic_anchor_terms(topic_context, topic_components=topic_components)
-        anchor_overlap = self._anchor_overlap_count(canonical, anchor_terms)
-        if anchor_terms and anchor_overlap <= 0:
+        core_anchor_terms = self._core_topic_anchor_terms(topic_context)
+        expanded_anchor_terms = self._topic_anchor_terms(topic_context, topic_components=topic_components)
+        anchor_overlap = self._anchor_overlap_count(canonical, core_anchor_terms)
+        if core_anchor_terms and anchor_overlap <= 0:
             return True, "missing_topic_anchor"
-        anchor_coverage = self._anchor_coverage_ratio(canonical, anchor_terms)
+        anchor_coverage = self._anchor_coverage_ratio(canonical, core_anchor_terms)
         keyword_token_count = max(1, len(self._token_set(canonical)))
-        if anchor_terms and (
+        if core_anchor_terms and (
             anchor_coverage < 0.34
             or (anchor_overlap <= 1 and keyword_token_count >= 4)
         ):
             return True, "weak_topic_anchor"
+        if (
+            expanded_anchor_terms
+            and self._anchor_overlap_count(canonical, expanded_anchor_terms) <= 0
+        ):
+            return True, "missing_expanded_topic_anchor"
 
         if (
             self._audience_mode(topic_context) == "consumer"
@@ -1064,16 +1070,32 @@ class TopicKeywordResearchService:
         if not topic_tokens or not keyword_tokens:
             return 0.0
         overlap = len(topic_tokens & keyword_tokens)
-        anchor_terms = self._topic_anchor_terms(topic_context, topic_components=topic_components)
-        anchor_overlap = self._anchor_overlap_count(keyword, anchor_terms)
-        anchor_coverage = self._anchor_coverage_ratio(keyword, anchor_terms)
-        if anchor_terms and anchor_overlap <= 0:
+        core_anchor_terms = self._core_topic_anchor_terms(topic_context)
+        expanded_anchor_terms = self._topic_anchor_terms(topic_context, topic_components=topic_components)
+        anchor_overlap = self._anchor_overlap_count(keyword, core_anchor_terms)
+        anchor_coverage = self._anchor_coverage_ratio(keyword, core_anchor_terms)
+        expanded_overlap = self._anchor_overlap_count(keyword, expanded_anchor_terms)
+        expanded_coverage = self._anchor_coverage_ratio(keyword, expanded_anchor_terms)
+        if core_anchor_terms and anchor_overlap <= 0:
             return 5.0
         if overlap <= 0:
             return 20.0
         anchor_bonus = 18.0 if anchor_overlap > 0 else 0.0
         coverage_bonus = min(18.0, anchor_coverage * 20.0)
-        return round(min(100.0, 24.0 + (overlap / max(1, len(keyword_tokens))) * 58.0 + anchor_bonus + coverage_bonus), 2)
+        expanded_bonus = 8.0 if expanded_overlap > anchor_overlap else 0.0
+        expanded_coverage_bonus = min(8.0, max(0.0, expanded_coverage - anchor_coverage) * 16.0)
+        return round(
+            min(
+                100.0,
+                24.0
+                + (overlap / max(1, len(keyword_tokens))) * 58.0
+                + anchor_bonus
+                + coverage_bonus
+                + expanded_bonus
+                + expanded_coverage_bonus,
+            ),
+            2,
+        )
 
     def _infer_intent_label(self, keyword: str) -> str:
         normalized = str(keyword or "").lower()
@@ -1427,7 +1449,8 @@ Requirements:
                 ),
                 timeout=20.0,
             )
-            return self._extract_topic_components(response.content or "")
+            raw_components = self._extract_topic_components(response.content or "")
+            return self._filter_topic_components(raw_components, topic_context)
         except Exception as exc:
             logger.warning(
                 "LLM topic component decomposition failed topic=%r err=%s",
@@ -1580,6 +1603,58 @@ Requirements:
                     hints.append(cleaned)
         return self._merge_strings(hints, [])
 
+    def _filter_topic_components(
+        self,
+        components: List[Dict[str, Any]],
+        topic_context: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        if not components:
+            return []
+
+        core_anchors = self._core_topic_anchor_terms(topic_context)
+        if not core_anchors:
+            return components[:5]
+
+        filtered: List[Dict[str, Any]] = []
+        seen_names = set()
+
+        for component in components:
+            name = str(component.get("name") or "").strip()
+            if not name:
+                continue
+
+            clean_name = self._clean_seed_phrase(name) or self._normalize_keyword_key(name)
+            if not clean_name:
+                continue
+
+            query_spaces = []
+            for query_space in component.get("query_spaces") or []:
+                cleaned = self._clean_seed_phrase(query_space) or self._normalize_keyword_key(query_space)
+                if not cleaned:
+                    continue
+                if self._anchor_overlap_count(cleaned, core_anchors) <= 0:
+                    continue
+                query_spaces.append(cleaned)
+
+            name_overlap = self._anchor_overlap_count(clean_name, core_anchors)
+            query_overlap = any(self._anchor_overlap_count(query, core_anchors) > 0 for query in query_spaces)
+            if name_overlap <= 0 and not query_overlap:
+                continue
+
+            key = clean_name.lower()
+            if key in seen_names:
+                continue
+            seen_names.add(key)
+            filtered.append({
+                "name": clean_name,
+                "why": str(component.get("why") or "").strip(),
+                "query_spaces": self._merge_strings(query_spaces, []),
+            })
+            if len(filtered) >= 5:
+                break
+
+        return filtered
+
     def _extract_seed_candidates(self, content: str) -> List[str]:
         if not content:
             return []
@@ -1730,10 +1805,9 @@ Requirements:
         midpoint = len(tokens) // 2
         return tokens[:midpoint] == tokens[midpoint:]
 
-    def _topic_anchor_terms(
+    def _core_topic_anchor_terms(
         self,
         topic_context: Dict[str, Any],
-        topic_components: Optional[List[Dict[str, Any]]] = None,
     ) -> set[str]:
         topic = topic_context.get("topic") or {}
         raw_parts: List[str] = [
@@ -1742,9 +1816,6 @@ Requirements:
             str(topic.get("angle_question") or ""),
         ]
         raw_parts.extend([str(term).strip() for term in (topic.get("related_terms") or []) if str(term).strip()])
-        for component in topic_components or []:
-            raw_parts.append(str(component.get("name") or ""))
-            raw_parts.extend([str(term).strip() for term in (component.get("query_spaces") or []) if str(term).strip()])
         raw_text = " ".join(raw_parts)
         base_tokens = [
             token for token in self._meaningful_tokens(raw_text)
@@ -1754,6 +1825,22 @@ Requirements:
         for token in base_tokens:
             anchors.add(token)
             anchors.update(self.TOKEN_ALIAS_MAP.get(token, set()))
+        return anchors
+
+    def _topic_anchor_terms(
+        self,
+        topic_context: Dict[str, Any],
+        topic_components: Optional[List[Dict[str, Any]]] = None,
+    ) -> set[str]:
+        anchors = set(self._core_topic_anchor_terms(topic_context))
+        for component in topic_components or []:
+            component_parts = [str(component.get("name") or "")]
+            component_parts.extend([str(term).strip() for term in (component.get("query_spaces") or []) if str(term).strip()])
+            for token in self._meaningful_tokens(" ".join(component_parts)):
+                if token in self.GENERIC_TOPIC_TERMS:
+                    continue
+                anchors.add(token)
+                anchors.update(self.TOKEN_ALIAS_MAP.get(token, set()))
         return anchors
 
     def _anchor_overlap_count(self, keyword: str, anchor_terms: set[str]) -> int:
