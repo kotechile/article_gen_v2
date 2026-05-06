@@ -28,12 +28,13 @@ class ContentIdeasService {
         const raw = value.trim();
         if (!raw) return [];
 
-        // Heuristic: remove surrounding brackets if it looks like a stringified array fragment
+        // Heuristic: remove surrounding brackets/quotes, including malformed fragments like ["keyword
         let cleaned = raw;
         while ((cleaned.startsWith('[') && cleaned.endsWith(']')) || (cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
             cleaned = cleaned.slice(1, -1).trim();
             if (!cleaned) break;
         }
+        cleaned = cleaned.replace(/^[\[\]"']+/, '').replace(/[\[\]"']+$/, '').trim();
         if (!cleaned) return [];
 
         try {
@@ -48,8 +49,11 @@ class ContentIdeasService {
             // Continue with manual parsing
         }
 
-        const parts = cleaned.split(',').map((part) => part.trim().replace(/^["']|["']$/g, '').trim()).filter(Boolean);
-        return parts.length > 1 ? parts : [cleaned.replace(/^["']|["']$/g, '').trim()];
+        const parts = cleaned
+            .split(',')
+            .map((part) => part.trim().replace(/^[\[\]"']+|[\[\]"']+$/g, '').trim())
+            .filter(Boolean);
+        return parts.length > 1 ? parts : [cleaned.replace(/^[\[\]"']+|[\[\]"']+$/g, '').trim()];
     }
 
     private normalizeKeywordSelection(primaryKeyword: string, secondaryKeywords: string[]) {
@@ -476,6 +480,8 @@ class ContentIdeasService {
             keyword_difficulty: number;
             cpc: number;
             opportunity: number;
+            intent_label?: string | null;
+            competition_level?: string | null;
         }>;
     }> {
         try {

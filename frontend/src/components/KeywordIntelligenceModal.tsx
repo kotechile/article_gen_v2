@@ -189,12 +189,13 @@ function extractKeywordValues(value: unknown, depth = 0): string[] {
     const raw = value.trim();
     if (!raw) return [];
 
-    // Heuristic: remove surrounding brackets if it looks like a stringified array fragment
+    // Heuristic: remove surrounding brackets/quotes, including malformed fragments like ["keyword
     let cleaned = raw;
     while ((cleaned.startsWith('[') && cleaned.endsWith(']')) || (cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
         cleaned = cleaned.slice(1, -1).trim();
         if (!cleaned) break;
     }
+    cleaned = cleaned.replace(/^[\[\]"']+/, "").replace(/[\[\]"']+$/, "").trim();
     if (!cleaned) return [];
 
     try {
@@ -209,8 +210,11 @@ function extractKeywordValues(value: unknown, depth = 0): string[] {
         // Continue with manual parsing
     }
 
-    const parts = cleaned.split(",").map((part) => part.trim().replace(/^["']|["']$/g, "").trim()).filter(Boolean);
-    return parts.length > 1 ? parts : [cleaned.replace(/^["']|["']$/g, "").trim()];
+    const parts = cleaned
+        .split(",")
+        .map((part) => part.trim().replace(/^[\[\]"']+|[\[\]"']+$/g, "").trim())
+        .filter(Boolean);
+    return parts.length > 1 ? parts : [cleaned.replace(/^[\[\]"']+|[\[\]"']+$/g, "").trim()];
 }
 
 function normalizeKeywordKey(input: string): string {
@@ -1177,7 +1181,7 @@ export function KeywordIntelligenceModal({
         setExpanderAdded(0);
         try {
             const existingKeywords = (parsed?.rows ?? []).map((r) => r.keyword);
-            const result = await contentIdeasService.fetchRelatedKeywords(
+            let result = await contentIdeasService.fetchRelatedKeywords(
                 seed,
                 existingKeywords,
                 20,
@@ -1185,6 +1189,17 @@ export function KeywordIntelligenceModal({
                     ? { minSearchVolume: 100, maxKeywordDifficulty: 35 }
                     : undefined,
             );
+            if ((!result.success || result.keywords.length === 0) && expanderQualifiedOnly) {
+                result = await contentIdeasService.fetchRelatedKeywords(
+                    seed,
+                    existingKeywords,
+                    20,
+                    undefined,
+                );
+                if (result.success && result.keywords.length > 0) {
+                    setExpanderError("No keywords met the strict filter, so showing the best available related keywords instead.");
+                }
+            }
             if (!result.success || result.keywords.length === 0) {
                 setExpanderError("No new keywords found. Try a different seed.");
                 return;
@@ -1198,10 +1213,10 @@ export function KeywordIntelligenceModal({
                     depth: 2, // mark as custom-expanded
                     search_volume: k.search_volume ?? null,
                     competition: null,
-                    competition_level: null,
+                    competition_level: (k as any).competition_level ?? null,
                     cpc: k.cpc ?? null,
                     keyword_difficulty: k.keyword_difficulty ?? null,
-                    main_intent: null,
+                    main_intent: (k as any).intent_label ?? null,
                     foreign_intents: null,
                     monthly_searches: [],
                     search_volume_trend: null,
