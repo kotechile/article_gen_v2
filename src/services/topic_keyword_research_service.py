@@ -151,6 +151,7 @@ class TopicKeywordResearchService:
                 topic_context=topic_context,
                 filters=filters,
                 score_config=score_config,
+                topic_components=(seed_package or {}).get("topic_components") or [],
             )
             clusters = self._cluster_candidates(
                 candidates=enriched_rows,
@@ -513,6 +514,7 @@ class TopicKeywordResearchService:
         topic_context: Dict[str, Any],
         filters: Dict[str, Any],
         score_config: Dict[str, Any],
+        topic_components: Optional[List[Dict[str, Any]]] = None,
     ) -> List[Dict[str, Any]]:
         merged: Dict[str, Dict[str, Any]] = {}
         for row in candidates or []:
@@ -577,7 +579,11 @@ class TopicKeywordResearchService:
                 int(self._competition_index_from_values(kd_row.get("competition"), kd_row.get("competition_level")) or 0),
             ) or None
             row["intent_label"] = self._infer_intent_label(row.get("keyword") or canonical)
-            row["topical_fit_score"] = self._topical_fit_score(canonical, topic_context)
+            row["topical_fit_score"] = self._topical_fit_score(
+                canonical,
+                topic_context,
+                topic_components=topic_components,
+            )
             row["trend_json"] = {
                 "validation_mode": "not_fetched_yet",
                 "trend_score": 50,
@@ -587,6 +593,7 @@ class TopicKeywordResearchService:
                 row=row,
                 filters=filters,
                 topic_context=topic_context,
+                topic_components=topic_components,
             )
             row["is_filtered_out"] = is_filtered_out
             row["filter_reason"] = filter_reason
@@ -950,6 +957,7 @@ class TopicKeywordResearchService:
         row: Dict[str, Any],
         filters: Dict[str, Any],
         topic_context: Dict[str, Any],
+        topic_components: Optional[List[Dict[str, Any]]] = None,
     ) -> tuple[bool, Optional[str]]:
         keyword = (row.get("keyword") or "").lower().strip()
         canonical = row.get("canonical_keyword") or ""
@@ -964,7 +972,7 @@ class TopicKeywordResearchService:
             if stop_term in keyword:
                 return True, f"blocked_term:{stop_term}"
 
-        anchor_terms = self._topic_anchor_terms(topic_context)
+        anchor_terms = self._topic_anchor_terms(topic_context, topic_components=topic_components)
         anchor_overlap = self._anchor_overlap_count(canonical, anchor_terms)
         if anchor_terms and anchor_overlap <= 0:
             return True, "missing_topic_anchor"
@@ -1017,7 +1025,12 @@ class TopicKeywordResearchService:
         )
         return round(max(0.0, min(100.0, score)), 2)
 
-    def _topical_fit_score(self, keyword: str, topic_context: Dict[str, Any]) -> float:
+    def _topical_fit_score(
+        self,
+        keyword: str,
+        topic_context: Dict[str, Any],
+        topic_components: Optional[List[Dict[str, Any]]] = None,
+    ) -> float:
         topic = topic_context.get("topic") or {}
         topic_tokens = self._token_set(
             " ".join([
@@ -1032,7 +1045,7 @@ class TopicKeywordResearchService:
         if not topic_tokens or not keyword_tokens:
             return 0.0
         overlap = len(topic_tokens & keyword_tokens)
-        anchor_terms = self._topic_anchor_terms(topic_context)
+        anchor_terms = self._topic_anchor_terms(topic_context, topic_components=topic_components)
         anchor_overlap = self._anchor_overlap_count(keyword, anchor_terms)
         if anchor_terms and anchor_overlap <= 0:
             return 5.0
@@ -1627,7 +1640,11 @@ ENDCOMPONENT
         midpoint = len(tokens) // 2
         return tokens[:midpoint] == tokens[midpoint:]
 
-    def _topic_anchor_terms(self, topic_context: Dict[str, Any]) -> set[str]:
+    def _topic_anchor_terms(
+        self,
+        topic_context: Dict[str, Any],
+        topic_components: Optional[List[Dict[str, Any]]] = None,
+    ) -> set[str]:
         topic = topic_context.get("topic") or {}
         raw_parts: List[str] = [
             str(topic.get("title") or ""),
@@ -1635,6 +1652,9 @@ ENDCOMPONENT
             str(topic.get("angle_question") or ""),
         ]
         raw_parts.extend([str(term).strip() for term in (topic.get("related_terms") or []) if str(term).strip()])
+        for component in topic_components or []:
+            raw_parts.append(str(component.get("name") or ""))
+            raw_parts.extend([str(term).strip() for term in (component.get("query_spaces") or []) if str(term).strip()])
         raw_text = " ".join(raw_parts)
         base_tokens = [
             token for token in self._meaningful_tokens(raw_text)
