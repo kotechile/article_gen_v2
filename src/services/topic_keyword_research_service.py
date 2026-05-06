@@ -976,6 +976,13 @@ class TopicKeywordResearchService:
         anchor_overlap = self._anchor_overlap_count(canonical, anchor_terms)
         if anchor_terms and anchor_overlap <= 0:
             return True, "missing_topic_anchor"
+        anchor_coverage = self._anchor_coverage_ratio(canonical, anchor_terms)
+        keyword_token_count = max(1, len(self._token_set(canonical)))
+        if anchor_terms and (
+            anchor_coverage < 0.34
+            or (anchor_overlap <= 1 and keyword_token_count >= 4)
+        ):
+            return True, "weak_topic_anchor"
 
         if (
             self._audience_mode(topic_context) == "consumer"
@@ -1047,12 +1054,14 @@ class TopicKeywordResearchService:
         overlap = len(topic_tokens & keyword_tokens)
         anchor_terms = self._topic_anchor_terms(topic_context, topic_components=topic_components)
         anchor_overlap = self._anchor_overlap_count(keyword, anchor_terms)
+        anchor_coverage = self._anchor_coverage_ratio(keyword, anchor_terms)
         if anchor_terms and anchor_overlap <= 0:
             return 5.0
         if overlap <= 0:
             return 20.0
         anchor_bonus = 18.0 if anchor_overlap > 0 else 0.0
-        return round(min(100.0, 24.0 + (overlap / max(1, len(keyword_tokens))) * 58.0 + anchor_bonus), 2)
+        coverage_bonus = min(18.0, anchor_coverage * 20.0)
+        return round(min(100.0, 24.0 + (overlap / max(1, len(keyword_tokens))) * 58.0 + anchor_bonus + coverage_bonus), 2)
 
     def _infer_intent_label(self, keyword: str) -> str:
         normalized = str(keyword or "").lower()
@@ -1671,6 +1680,14 @@ ENDCOMPONENT
             return 0
         keyword_tokens = set(self._meaningful_tokens(keyword))
         return len(keyword_tokens & anchor_terms)
+
+    def _anchor_coverage_ratio(self, keyword: str, anchor_terms: set[str]) -> float:
+        if not anchor_terms:
+            return 0.0
+        keyword_tokens = set(self._meaningful_tokens(keyword))
+        if not keyword_tokens:
+            return 0.0
+        return len(keyword_tokens & anchor_terms) / max(1, len(keyword_tokens))
 
     def _audience_mode(self, topic_context: Dict[str, Any]) -> str:
         topic = topic_context.get("topic") or {}
