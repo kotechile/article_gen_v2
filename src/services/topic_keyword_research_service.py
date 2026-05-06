@@ -783,6 +783,7 @@ class TopicKeywordResearchService:
                 "deterministic_seeds": self._build_deterministic_seed_keywords(topic_context),
                 "llm_seeds": [],
                 "topic_components": [],
+                "component_query_seeds": [],
                 "seed_sources": {seed: "manual_override" for seed in manual_seed_keywords[:20]},
                 "llm_parse_strategy": None,
                 "llm_raw_output": None,
@@ -792,22 +793,33 @@ class TopicKeywordResearchService:
             }
         deterministic_seeds = self._build_deterministic_seed_keywords(topic_context)
         topic_components = await self._decompose_topic_into_search_components(topic_context, deterministic_seeds)
+        component_query_seeds = self._component_query_seed_candidates(topic_components)
         llm_result = await self._generate_llm_seed_keywords(topic_context, deterministic_seeds, topic_components)
         llm_seeds = llm_result.get("accepted_seeds") or []
+        final_seeds = self._diversify_seed_pool(
+            topic_components=topic_components,
+            llm_seeds=llm_seeds,
+            component_query_seeds=component_query_seeds,
+            deterministic_seeds=deterministic_seeds,
+        )
         seed_package = {
-            "generation_mode": "llm_only_v2",
-            "seed_keywords": llm_seeds,
+            "generation_mode": "llm_subtopics_v1",
+            "seed_keywords": final_seeds,
             "deterministic_seeds": deterministic_seeds,
             "llm_seeds": llm_seeds,
             "topic_components": topic_components,
-            "seed_sources": {seed: "llm" for seed in llm_seeds},
+            "component_query_seeds": component_query_seeds,
+            "seed_sources": {
+                **{seed: "component_query" for seed in component_query_seeds},
+                **{seed: "llm" for seed in llm_seeds},
+            },
             "llm_parse_strategy": llm_result.get("parse_strategy"),
             "llm_raw_output": llm_result.get("raw_output"),
             "llm_raw_seed_count": llm_result.get("raw_seed_count"),
             "llm_accepted_seed_count": llm_result.get("accepted_seed_count"),
             "llm_rejected_candidates": llm_result.get("rejected_candidates") or [],
         }
-        if not llm_seeds:
+        if not final_seeds:
             raise ValueError(
                 "Topic keyword research could not generate usable LLM seed keywords for this topic. "
                 "Please revise the topic context or provide manual seeds."
@@ -1381,16 +1393,17 @@ Project / Domain Context: {domain}
 Existing Seed Hints: {hint_text}
 
 Goal:
-- Break this topic into 3 to 5 concrete search components.
-- Each component should represent a distinct part of the topic a real person would search about.
+- Break this topic into 4 to 8 concrete search subtopics/components.
+- Each subtopic should represent a distinct part of the topic a real person would search about.
 - Stay tightly aligned to the website/category context and target audience.
 - For abstract topics, convert the abstraction into concrete need-buckets, use-cases, or decision-buckets.
 
 Rules:
-- Components must stay inside the actual topic, not drift into adjacent industries.
-- Use plain-English component names.
-- Query spaces should be short, search-like hints that describe what people might search within that component.
-- Prioritize components that can produce useful seed keywords.
+- Subtopics must stay inside the actual topic, not drift into adjacent industries.
+- Use plain-English subtopic names.
+- Query spaces should be specific search queries or short search phrases that describe what people might search within that subtopic.
+- Prioritize subtopics that can produce useful seed keywords.
+- Avoid vague philosophical or poetic framings if the topic can be broken into practical user questions.
 
 Output contract:
 Return ONLY plain text with these delimiters:
@@ -1399,6 +1412,10 @@ WHY:: one short reason
 QUERYSPACE:: short search-like hint
 QUERYSPACE:: short search-like hint
 ENDCOMPONENT
+
+Requirements:
+- 4 to 8 components
+- 6 to 10 QUERYSPACE lines per component
 """
         try:
             response = await asyncio.wait_for(
@@ -1486,6 +1503,70 @@ ENDCOMPONENT
             if query_spaces:
                 lines.append(f"  Query spaces: {query_spaces}")
         return "\n".join(lines) if lines else "None"
+
+    def _component_query_seed_candidates(self, components: List[Dict[str, Any]]) -> List[str]:
+        candidates: List[str] = []
+        seen = set()
+        for component in components[:8]:
+            component_name = self._clean_seed_phrase(component.get("name") or "")
+            if component_name and component_name.lower() not in seen and self._looks_like_useful_seed(component_name):
+                seen.add(component_name.lower())
+                candidates.append(component_name)
+            for query_space in (component.get("query_spaces") or [])[:10]:
+                cleaned = self._clean_seed_phrase(query_space)
+                if not cleaned or cleaned.lower() in seen:
+                    continue
+                if not self._looks_like_useful_seed(cleaned):
+                    continue
+                seen.add(cleaned.lower())
+                candidates.append(cleaned)
+        return candidates[:40]
+
+    def _diversify_seed_pool(
+        self,
+        topic_components: List[Dict[str, Any]],
+        llm_seeds: List[str],
+        component_query_seeds: List[str],
+        deterministic_seeds: List[str],
+    ) -> List[str]:
+        ordered: List[str] = []
+        seen = set()
+
+        # First take a couple of seeds per component to force diversity.
+        for component in topic_components[:8]:
+            per_component: List[str] = []
+            component_name = self._clean_seed_phrase(component.get("name") or "")
+            if component_name and self._looks_like_useful_seed(component_name):
+                per_component.append(component_name)
+            for query_space in (component.get("query_spaces") or [])[:10]:
+                cleaned = self._clean_seed_phrase(query_space)
+                if cleaned and self._looks_like_useful_seed(cleaned):
+                    per_component.append(cleaned)
+            added = 0
+            for candidate in per_component:
+                key = candidate.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                ordered.append(candidate)
+                added += 1
+                if added >= 2:
+                    break
+
+        for pool in (llm_seeds, component_query_seeds, deterministic_seeds):
+            for candidate in pool:
+                cleaned = self._clean_seed_phrase(candidate)
+                if not cleaned:
+                    continue
+                key = cleaned.lower()
+                if key in seen:
+                    continue
+                if not self._looks_like_useful_seed(cleaned):
+                    continue
+                seen.add(key)
+                ordered.append(cleaned)
+
+        return ordered[:24]
 
     def _component_hint_keywords(self, components: List[Dict[str, Any]]) -> List[str]:
         hints: List[str] = []
