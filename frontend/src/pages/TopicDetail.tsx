@@ -38,6 +38,7 @@ export function TopicDetail() {
     const [storedIdeas, setStoredIdeas] = React.useState<ContentIdea[]>([])
     const [keywordResearchRun, setKeywordResearchRun] = React.useState<TopicKeywordResearchRun | null>(null)
     const [keywordCandidates, setKeywordCandidates] = React.useState<TopicKeywordCandidate[]>([])
+    const [allKeywordCandidates, setAllKeywordCandidates] = React.useState<TopicKeywordCandidate[]>([])
     const [keywordClusters, setKeywordClusters] = React.useState<TopicKeywordCluster[]>([])
     const [keywordResearchLoading, setKeywordResearchLoading] = React.useState(false)
     const [runningKeywordResearch, setRunningKeywordResearch] = React.useState(false)
@@ -86,11 +87,13 @@ export function TopicDetail() {
             setKeywordResearchRun(latestRun)
 
             const [keywordsResponse, clustersResponse] = await Promise.all([
-                topicKeywordResearchService.listKeywords(topicId, latestRun.id, false),
+                topicKeywordResearchService.listKeywords(topicId, latestRun.id, true),
                 topicKeywordResearchService.listClusters(topicId, latestRun.id),
             ])
 
-            setKeywordCandidates(keywordsResponse.items || [])
+            const allKeywords = keywordsResponse.items || []
+            setAllKeywordCandidates(allKeywords)
+            setKeywordCandidates(allKeywords.filter((row) => !row.is_filtered_out))
             setKeywordClusters(clustersResponse.items || [])
             setSelectedClusterIds(new Set((clustersResponse.items || []).slice(0, 1).map((cluster) => cluster.id)))
             setKeywordResearchError(null)
@@ -99,6 +102,7 @@ export function TopicDetail() {
             if (status === 404) {
                 setKeywordResearchRun(null)
                 setKeywordCandidates([])
+                setAllKeywordCandidates([])
                 setKeywordClusters([])
                 setSelectedClusterIds(new Set())
                 setKeywordResearchError(null)
@@ -320,12 +324,13 @@ export function TopicDetail() {
         return {
             seedCount: Number(summary.seed_count || keywordResearchRun?.seed_keywords_json?.length || 0),
             candidateCount: Number(summary.active_candidate_count || keywordCandidates.length || 0),
+            totalCandidateCount: Number(summary.candidate_count || allKeywordCandidates.length || keywordCandidates.length || 0),
             clusterCount: Number(summary.cluster_count || keywordClusters.length || 0),
             generatedAt: summary.generated_at || keywordResearchRun?.updated_at || null,
             topKeywords: Array.isArray(summary.top_keywords) ? summary.top_keywords : [],
             topClusters: keywordClusters.slice(0, 4),
         }
-    }, [keywordResearchRun, keywordCandidates.length, keywordClusters])
+    }, [allKeywordCandidates.length, keywordResearchRun, keywordCandidates.length, keywordClusters])
 
     const isTopicGeneratedIdea = React.useCallback((idea: ContentIdea) => {
         const metadata = (idea.idea_metadata || {}) as any
@@ -799,9 +804,10 @@ export function TopicDetail() {
 
                 <TopicKeywordResearchPanel
                     topicId={id || ''}
-                    keywordResearchRun={keywordResearchRun}
-                    keywordCandidates={keywordCandidates}
-                    keywordClusters={keywordClusters}
+                        keywordResearchRun={keywordResearchRun}
+                        keywordCandidates={keywordCandidates}
+                        allKeywordCandidates={allKeywordCandidates}
+                        keywordClusters={keywordClusters}
                     keywordResearchLoading={keywordResearchLoading}
                     runningKeywordResearch={runningKeywordResearch}
                     keywordResearchError={keywordResearchError}

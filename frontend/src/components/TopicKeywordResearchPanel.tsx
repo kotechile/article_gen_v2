@@ -1,3 +1,4 @@
+import * as React from "react"
 import { AlertCircle, BarChart3, FolderTree, RefreshCw, Search, Sparkles } from "lucide-react"
 import { motion } from "framer-motion"
 
@@ -12,6 +13,7 @@ import type {
 interface TopicKeywordResearchSummary {
     seedCount: number
     candidateCount: number
+    totalCandidateCount?: number
     clusterCount: number
     generatedAt: string | null
 }
@@ -21,6 +23,7 @@ interface TopicKeywordResearchPanelProps {
     topicMode: 'keyword_first' | 'editorial_first' | 'hybrid'
     keywordResearchRun: TopicKeywordResearchRun | null
     keywordCandidates: TopicKeywordCandidate[]
+    allKeywordCandidates: TopicKeywordCandidate[]
     keywordClusters: TopicKeywordCluster[]
     keywordResearchLoading: boolean
     runningKeywordResearch: boolean
@@ -44,6 +47,7 @@ export function TopicKeywordResearchPanel({
     topicMode,
     keywordResearchRun,
     keywordCandidates,
+    allKeywordCandidates,
     keywordClusters,
     keywordResearchLoading,
     runningKeywordResearch,
@@ -61,6 +65,10 @@ export function TopicKeywordResearchPanel({
     onToggleClusterSelection,
     formatDateTime,
 }: TopicKeywordResearchPanelProps) {
+    const [showAllKeywords, setShowAllKeywords] = React.useState(false)
+    const topKeywordRows = keywordCandidates.slice(0, 8)
+    const visibleAllKeywords = showAllKeywords ? allKeywordCandidates : allKeywordCandidates.slice(0, 20)
+
     return (
         <div className="max-w-7xl mx-auto mb-8">
             <div className="bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-6">
@@ -183,7 +191,12 @@ export function TopicKeywordResearchPanel({
                                     <BarChart3 className="h-4 w-4 text-muted-foreground" />
                                 </div>
                                 <div className="text-2xl font-bold text-foreground">{keywordResearchSummary.candidateCount.toLocaleString()}</div>
-                                <div className="text-xs text-muted-foreground mt-1">Active keywords after filtering</div>
+                                <div className="text-xs text-muted-foreground mt-1">
+                                    Active keywords after filtering
+                                    {keywordResearchSummary.totalCandidateCount && keywordResearchSummary.totalCandidateCount > keywordResearchSummary.candidateCount
+                                        ? ` · ${keywordResearchSummary.totalCandidateCount} found total`
+                                        : ''}
+                                </div>
                             </motion.div>
 
                             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-muted/20 border border-border rounded-xl p-5">
@@ -214,14 +227,27 @@ export function TopicKeywordResearchPanel({
                                             Use strong existing keywords as manual seeds for your next run when the current topic drifts.
                                         </p>
                                     </div>
-                                    {keywordCandidates.length > 0 && (
-                                        <span className="text-xs text-muted-foreground">
-                                            Showing {Math.min(keywordCandidates.length, 8)} of {keywordCandidates.length}
-                                        </span>
-                                    )}
+                                    <div className="flex items-center gap-2">
+                                        {allKeywordCandidates.length > 0 && (
+                                            <span className="text-xs text-muted-foreground">
+                                                Showing {Math.min(topKeywordRows.length, 8)} of {allKeywordCandidates.length}
+                                            </span>
+                                        )}
+                                        {allKeywordCandidates.length > 8 && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setShowAllKeywords((current) => !current)}
+                                                className="h-7 border-border px-2 text-[11px] hover:bg-muted"
+                                            >
+                                                {showAllKeywords ? 'Hide Full List' : `View All ${allKeywordCandidates.length}`}
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="space-y-3">
-                                    {keywordCandidates.slice(0, 8).map((row) => (
+                                    {topKeywordRows.map((row) => (
                                         <div key={row.id} className="rounded-lg border border-border/70 bg-background/40 p-3">
                                             <div className="flex items-start justify-between gap-3">
                                                 <div>
@@ -256,6 +282,78 @@ export function TopicKeywordResearchPanel({
                                         <p className="text-sm text-muted-foreground">No keyword candidates saved yet.</p>
                                     )}
                                 </div>
+
+                                {allKeywordCandidates.length > 0 && (
+                                    <div className="mt-5 rounded-lg border border-border/70 bg-background/30 p-3">
+                                        <div className="mb-3 flex items-center justify-between gap-3">
+                                            <div>
+                                                <h4 className="text-sm font-medium text-foreground">All Discovered Keywords</h4>
+                                                <p className="mt-1 text-xs text-muted-foreground">
+                                                    Review every keyword returned by the run, including filtered keywords and their filter reasons.
+                                                </p>
+                                            </div>
+                                            <span className="text-xs text-muted-foreground">
+                                                Showing {visibleAllKeywords.length} of {allKeywordCandidates.length}
+                                            </span>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {visibleAllKeywords.map((row) => {
+                                                const isFiltered = Boolean(row.is_filtered_out)
+                                                return (
+                                                    <div key={`all-${row.id}`} className="rounded-lg border border-border/60 bg-background/40 p-3">
+                                                        <div className="flex items-start justify-between gap-3">
+                                                            <div>
+                                                                <div className="text-sm font-medium text-foreground">{row.keyword}</div>
+                                                                <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                                                                    <span>Intent: {row.intent_label || 'unknown'}</span>
+                                                                    <span>{(row.search_volume || 0).toLocaleString()} volume</span>
+                                                                    {row.keyword_difficulty != null && <span>KD {Math.round(Number(row.keyword_difficulty || 0))}</span>}
+                                                                    {row.cpc != null && <span>${Number(row.cpc || 0).toFixed(2)} CPC</span>}
+                                                                </div>
+                                                                {isFiltered && row.filter_reason && (
+                                                                    <div className="mt-2 text-[11px] text-amber-300">
+                                                                        Filtered out: {String(row.filter_reason).replace(/_/g, ' ')}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex flex-col items-end gap-2">
+                                                                <span className={`rounded-full border px-2 py-1 text-[11px] ${
+                                                                    isFiltered
+                                                                        ? 'border-amber-500/20 bg-amber-500/10 text-amber-300'
+                                                                        : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+                                                                }`}>
+                                                                    {isFiltered ? 'Filtered' : 'Active'}
+                                                                </span>
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() => onAddManualSeed(row.keyword)}
+                                                                    className="h-7 border-border px-2 text-[11px] hover:bg-muted"
+                                                                >
+                                                                    Use as Seed
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                        {!showAllKeywords && allKeywordCandidates.length > 20 && (
+                                            <div className="mt-3 flex justify-center">
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => setShowAllKeywords(true)}
+                                                    className="border-border hover:bg-muted"
+                                                >
+                                                    View Remaining {allKeywordCandidates.length - 20} Keywords
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
 
                             <div className="rounded-xl border border-border bg-muted/20 p-5">
