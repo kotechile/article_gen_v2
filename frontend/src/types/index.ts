@@ -84,6 +84,7 @@ export interface Project {
     brand_neutral_color?: string;
     branding_updated_at?: string;
     seo_plugin?: 'unknown' | 'yoast' | 'rankmath' | 'custom' | 'none';
+    cms_url?: string;
     site_url_override?: string;
     social_default_image_url?: string;
     categories?: string;
@@ -109,6 +110,7 @@ export interface WordPressDetail {
     brand_neutral_color?: string;
     branding_updated_at?: string;
     seo_plugin?: 'unknown' | 'yoast' | 'rankmath' | 'custom' | 'none';
+    cms_url?: string;
     site_url_override?: string;
     social_default_image_url?: string;
     last_trend_report?: any;

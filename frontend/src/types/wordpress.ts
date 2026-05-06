@@ -17,6 +17,7 @@ export interface WordPressSite {
     brand_secondary_color?: string;
     brand_neutral_color?: string;
     seo_plugin?: WordPressSeoPlugin;
+    cms_url?: string;
     site_url_override?: string;
     social_default_image_url?: string;
 }

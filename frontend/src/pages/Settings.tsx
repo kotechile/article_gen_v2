@@ -401,6 +401,7 @@ export const Settings: React.FC = () => {
                     wpUserName: payload.wpUserName || null,
                     wordpress_key: payload.wordpress_key || null,
                     seo_plugin: payload.seo_plugin || 'unknown',
+                    cms_url: formData.cms_url?.trim() || null,
                     site_url_override: payload.site_url_override,
                     social_default_image_url: payload.social_default_image_url,
                     brand_primary_color: payload.brand_primary_color,
@@ -1007,6 +1008,18 @@ export const Settings: React.FC = () => {
                                                     <option value="custom">Custom theme/plugin</option>
                                                     <option value="none">No SEO plugin</option>
                                                 </select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-semibold">CMS / WordPress API Base URL</Label>
+                                                <Input
+                                                    placeholder="https://cms.example.com"
+                                                    value={formData.cms_url || ''}
+                                                    onChange={e => setFormData({ ...formData, cms_url: e.target.value })}
+                                                    className="h-10 rounded-lg"
+                                                />
+                                                <p className="text-xs text-muted-foreground">
+                                                    Used for WordPress REST API calls like categories, media uploads, and post publishing.
+                                                </p>
                                             </div>
                                             <div className="space-y-2">
                                                 <Label className="text-xs font-semibold">Canonical Base URL Override</Label>

@@ -92,9 +92,10 @@ const WORDPRESS_API_HOST_OVERRIDES: Record<string, string> = {
 const getWordPressApiBaseUrl = (site: WordPressSite): string => {
     const host = normalizeHost(site.domain);
     const overrideHost = WORDPRESS_API_HOST_OVERRIDES[host];
+    const cmsHost = normalizeHost((site as any).cms_url);
     const siteLevelOverride = normalizeHost((site as any).site_url_override);
 
-    return normalizeSiteUrl(siteLevelOverride || overrideHost || site.domain);
+    return normalizeSiteUrl(cmsHost || siteLevelOverride || overrideHost || site.domain);
 };
 
 const buildCanonicalUrl = (site: WordPressSite, slug: string, explicitCanonical?: string): string => {
