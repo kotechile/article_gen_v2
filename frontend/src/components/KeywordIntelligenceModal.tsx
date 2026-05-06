@@ -1000,16 +1000,77 @@ export function KeywordIntelligenceModal({
             setExpandedChart(null);
             setSaved(false);
             setSaveError(null);
+            setLastAutoSavedPrimary(canonicalPrimary);
+            setLastAutoSavedSecondary(canonicalSecondary);
         }
     }, [idea.id, isOpen, baseParsedKeywordLookup]);
 
+    const persistKeywordSelection = React.useCallback(async (
+        primary: string | null,
+        secondary: string[],
+        options?: { showSavedState?: boolean }
+    ): Promise<boolean> => {
+        if (!primary || !user) return false;
+
+        const normalizedPrimaryKey = normalizeKeywordKey(primary);
+        const normalizedPrimary = parsedKeywordLookup.get(normalizedPrimaryKey) ?? primary;
+        const normalizedSecondary = Array.from(
+            new Set(
+                secondary
+                    .map((kw) => parsedKeywordLookup.get(normalizeKeywordKey(kw)) ?? kw)
+                    .filter(Boolean)
+            )
+        ).filter((kw) => kw !== normalizedPrimary);
+
+        setSaving(true);
+        setSaveError(null);
+        try {
+            const primaryRow = parsed?.rows.find((r) => r.keyword === normalizedPrimary);
+            const metrics = {
+                volume: primaryRow?.search_volume ?? null,
+                difficulty: primaryRow?.keyword_difficulty ?? null,
+                cpc: primaryRow?.cpc ?? null,
+            };
+
+            const ok = onSave
+                ? await onSave(normalizedPrimary, normalizedSecondary, metrics, parsed)
+                : await contentIdeasService.updateKeywordSelection(
+                    idea.id,
+                    user.id,
+                    normalizedPrimary,
+                    normalizedSecondary,
+                    metrics,
+                    parsed
+                );
+
+            if (ok) {
+                setLastAutoSavedPrimary(normalizedPrimary);
+                setLastAutoSavedSecondary(normalizedSecondary);
+                if (options?.showSavedState !== false) {
+                    setSaved(true);
+                    setTimeout(() => setSaved(false), 2000);
+                }
+                onSaved?.(normalizedPrimary, normalizedSecondary, metrics, parsed);
+                return true;
+            }
+
+            setSaveError("Save failed. Please try again.");
+            return false;
+        } catch (err) {
+            console.error("[KeywordIntelligenceModal] Save failed:", err);
+            setSaveError("Unexpected error saving selections.");
+            return false;
+        } finally {
+            setSaving(false);
+        }
+    }, [user, parsed, parsedKeywordLookup, onSave, onSaved, idea.id]);
+
     const handleSelectPrimary = (keyword: string) => {
+        const nextSecondary = secondaryKeywords.filter((k) => k !== keyword);
         setPrimaryKeyword(keyword);
-        // Remove from secondary if it was there
-        setSecondaryKeywords((prev) => prev.filter((k) => k !== keyword));
+        setSecondaryKeywords(nextSecondary);
         setSaved(false);
-        // Trigger auto-save
-        triggerAutoSave(keyword, secondaryKeywords.filter(k => k !== keyword));
+        triggerAutoSave(keyword, nextSecondary);
     };
 
     const handleToggleSecondary = (keyword: string) => {
@@ -1019,7 +1080,13 @@ export function KeywordIntelligenceModal({
             : [...secondaryKeywords, keyword];
         setSecondaryKeywords(newSecondary);
         setSaved(false);
-        // Trigger auto-save with updated secondary
+        triggerAutoSave(primaryKeyword, newSecondary);
+    };
+
+    const handleRemoveSecondary = (keyword: string) => {
+        const newSecondary = secondaryKeywords.filter((k) => k !== keyword);
+        setSecondaryKeywords(newSecondary);
+        setSaved(false);
         triggerAutoSave(primaryKeyword, newSecondary);
     };
 
@@ -1039,58 +1106,40 @@ export function KeywordIntelligenceModal({
                 JSON.stringify(secondary.sort()) === JSON.stringify([...lastAutoSavedSecondary].sort())) {
                 return;
             }
-
-            setSaving(true);
-            setSaveError(null);
-            try {
-                const normalizedPrimaryKey = normalizeKeywordKey(primary);
-                const normalizedPrimary = parsedKeywordLookup.get(normalizedPrimaryKey) ?? primary;
-                const normalizedSecondary = Array.from(
-                    new Set(
-                        secondary
-                            .map((kw) => parsedKeywordLookup.get(normalizeKeywordKey(kw)) ?? kw)
-                            .filter(Boolean)
-                    )
-                ).filter((kw) => kw !== normalizedPrimary);
-
-                // Find metrics for the primary keyword
-                const primaryRow = parsed?.rows.find((r) => r.keyword === normalizedPrimary);
-                const metrics = {
-                    volume: primaryRow?.search_volume ?? null,
-                    difficulty: primaryRow?.keyword_difficulty ?? null,
-                    cpc: primaryRow?.cpc ?? null,
-                };
-
-                console.log("[KeywordIntelligenceModal] Auto-saving keyword selection...", {
-                    primary: normalizedPrimary,
-                    secondaryCount: normalizedSecondary.length,
-                });
-
-                const ok = onSave
-                    ? await onSave(normalizedPrimary, normalizedSecondary, metrics, parsed)
-                    : await contentIdeasService.updateKeywordSelection(
-                        idea.id,
-                        user.id,
-                        normalizedPrimary,
-                        normalizedSecondary,
-                        metrics,
-                        parsed
-                    );
-
-                if (ok) {
-                    setLastAutoSavedPrimary(normalizedPrimary);
-                    setLastAutoSavedSecondary(normalizedSecondary);
-                    setSaved(true);
-                    onSaved?.(normalizedPrimary, normalizedSecondary, metrics, parsed);
-                    setTimeout(() => setSaved(false), 2000);
-                }
-            } catch (err) {
-                console.error("[KeywordIntelligenceModal] Auto-save failed:", err);
-            } finally {
-                setSaving(false);
-            }
+            console.log("[KeywordIntelligenceModal] Auto-saving keyword selection...", {
+                primary,
+                secondaryCount: secondary.length,
+            });
+            await persistKeywordSelection(primary, secondary);
         }, 1500);
-    }, [user, parsed, parsedKeywordLookup, onSave, onSaved, idea.id, lastAutoSavedPrimary, lastAutoSavedSecondary]);
+    }, [persistKeywordSelection, lastAutoSavedPrimary, lastAutoSavedSecondary]);
+
+    const handleClose = React.useCallback(async () => {
+        if (autoSaveTimeoutRef.current) {
+            clearTimeout(autoSaveTimeoutRef.current);
+            autoSaveTimeoutRef.current = null;
+        }
+
+        const sortedCurrentSecondary = [...secondaryKeywords].sort();
+        const sortedSavedSecondary = [...lastAutoSavedSecondary].sort();
+        const hasUnsavedChanges =
+            primaryKeyword !== lastAutoSavedPrimary ||
+            JSON.stringify(sortedCurrentSecondary) !== JSON.stringify(sortedSavedSecondary);
+
+        if (hasUnsavedChanges && primaryKeyword && !saving) {
+            await persistKeywordSelection(primaryKeyword, secondaryKeywords, { showSavedState: false });
+        }
+
+        onClose();
+    }, [
+        lastAutoSavedPrimary,
+        lastAutoSavedSecondary,
+        onClose,
+        persistKeywordSelection,
+        primaryKeyword,
+        saving,
+        secondaryKeywords,
+    ]);
 
     const handleToggleChart = (keyword: string) => {
         setExpandedChart((prev) => (prev === keyword ? null : keyword));
@@ -1110,68 +1159,13 @@ export function KeywordIntelligenceModal({
 
     const handleSave = async () => {
         if (!primaryKeyword || !user) return;
-        setSaving(true);
-        setSaveError(null);
-        try {
-            const normalizedPrimaryKey = normalizeKeywordKey(primaryKeyword);
-            const normalizedPrimary = parsedKeywordLookup.get(normalizedPrimaryKey) ?? String(primaryKeyword || "").trim();
-            const normalizedSecondary = Array.from(
-                new Set(
-                    secondaryKeywords
-                        .map((kw) => {
-                            const normalized = normalizeKeywordKey(kw);
-                            // If it's in the table, use the table's exact casing.
-                            // If NOT in the table, keep it as is (this preserves manual/legacy keys).
-                            return parsedKeywordLookup.get(normalized) ?? kw;
-                        })
-                        .filter(Boolean)
-                )
-            ).filter((kw) => kw !== normalizedPrimary);
-            if (!normalizedPrimary) {
-                setSaveError("Please choose a primary keyword before saving.");
-                return;
-            }
-
-            // Find metrics for the primary keyword (including expanded rows)
-            const primaryRow = parsed?.rows.find((r) => r.keyword === normalizedPrimary);
-            const metrics = {
-                volume: primaryRow?.search_volume ?? null,
-                difficulty: primaryRow?.keyword_difficulty ?? null,
-                cpc: primaryRow?.cpc ?? null,
-            };
-
-            console.log("[KeywordIntelligenceModal] Initiating save...", {
-                ideaId: idea.id,
-                primaryKeyword: normalizedPrimary,
-                secondaryCount: normalizedSecondary.length,
-                totalRows: parsed?.rows.length
-            });
-
-            // Use custom save handler if provided (e.g. Titles table context),
-            // otherwise fall back to the default content_ideas persistence.
-            const ok = onSave
-                ? await onSave(normalizedPrimary, normalizedSecondary, metrics, parsed)
-                : await contentIdeasService.updateKeywordSelection(
-                    idea.id,
-                    user.id,
-                    normalizedPrimary,
-                    normalizedSecondary,
-                    metrics,
-                    parsed
-                );
-
-            if (ok) {
-                setSaved(true);
-                onSaved?.(normalizedPrimary, normalizedSecondary, metrics, parsed);
-                setTimeout(() => setSaved(false), 2500);
-            } else {
-                setSaveError("Save failed. Please try again.");
-            }
-        } catch (err) {
-            setSaveError("Unexpected error saving selections.");
-        } finally {
-            setSaving(false);
-        }
+        console.log("[KeywordIntelligenceModal] Initiating save...", {
+            ideaId: idea.id,
+            primaryKeyword,
+            secondaryCount: secondaryKeywords.length,
+            totalRows: parsed?.rows.length
+        });
+        await persistKeywordSelection(primaryKeyword, secondaryKeywords);
     };
 
     /** Fetch related keywords for a custom seed and merge into the table */
@@ -1295,7 +1289,7 @@ export function KeywordIntelligenceModal({
         <div
             className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-3"
             onClick={(e) => {
-                if (e.target === e.currentTarget) onClose();
+                if (e.target === e.currentTarget) void handleClose();
             }}
         >
             <motion.div
@@ -1334,7 +1328,7 @@ export function KeywordIntelligenceModal({
                             Expand Keywords
                         </button>
                         <button
-                            onClick={onClose}
+                            onClick={() => void handleClose()}
                             className="text-slate-500 hover:text-white transition-colors p-1 -mr-1 rounded-lg hover:bg-white/5"
                         >
                             <X className="w-5 h-5" />
@@ -1435,7 +1429,7 @@ export function KeywordIntelligenceModal({
                             </p>
                         </div>
                         <button
-                            onClick={onClose}
+                            onClick={() => void handleClose()}
                             className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-white/10 text-slate-300 hover:text-white hover:border-white/20 text-sm transition-colors"
                         >
                             <RefreshCw className="w-3.5 h-3.5" />
@@ -1566,10 +1560,7 @@ export function KeywordIntelligenceModal({
                             saved={saved}
                             onSave={handleSave}
                             autoSaveActive={Boolean(primaryKeyword)}
-                            onRemoveSecondary={(kw) => {
-                                setSecondaryKeywords((prev) => prev.filter((k) => k !== kw));
-                                setSaved(false);
-                            }}
+                            onRemoveSecondary={handleRemoveSecondary}
                         />
                     </>
                 )}

@@ -52,6 +52,9 @@ const describeFeaturedImageUploadFailure = (status: number): string => {
 
 const describeFeaturedImageException = (error: unknown): string => {
     const message = error instanceof Error ? error.message : '';
+    if (/load failed/i.test(message)) {
+        return 'The browser could not load the featured image or complete the upload request. This is often a browser/network interruption or a blocked cross-site request.';
+    }
     if (/failed to fetch/i.test(message)) {
         return 'The featured image could not be reached from the browser. The image URL may be blocked, expired, or unavailable.';
     }
@@ -210,10 +213,14 @@ export const uploadFeaturedImage = async (
         // Fetch the image as a blob
         const imageResponse = await fetch(imageUrl);
         if (!imageResponse.ok) {
-            console.warn('Failed to fetch featured image');
+            console.warn('Failed to fetch featured image', {
+                imageUrl,
+                status: imageResponse.status,
+                statusText: imageResponse.statusText,
+            });
             return {
                 mediaId: null,
-                error: describeFeaturedImageFetchFailure(imageResponse.status)
+                error: `Source image fetch failed. ${describeFeaturedImageFetchFailure(imageResponse.status)}`
             };
         }
 
@@ -236,17 +243,25 @@ export const uploadFeaturedImage = async (
         });
 
         if (!uploadResponse.ok) {
-            console.warn('Failed to upload featured image to WordPress');
+            console.warn('Failed to upload featured image to WordPress', {
+                siteDomain: site.domain,
+                status: uploadResponse.status,
+                statusText: uploadResponse.statusText,
+            });
             return {
                 mediaId: null,
-                error: describeFeaturedImageUploadFailure(uploadResponse.status)
+                error: `WordPress media upload failed. ${describeFeaturedImageUploadFailure(uploadResponse.status)}`
             };
         }
 
         const mediaData: WordPressMediaResponse = await uploadResponse.json();
         return { mediaId: mediaData.id };
     } catch (error) {
-        console.error('Error uploading featured image:', error);
+        console.error('Error uploading featured image:', {
+            imageUrl,
+            siteDomain: site.domain,
+            error,
+        });
         return {
             mediaId: null,
             error: describeFeaturedImageException(error)

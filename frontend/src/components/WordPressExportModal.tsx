@@ -194,11 +194,14 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                     postStatus,
                     scheduledDate: scheduledDateTime,
                     categoryIds: selectedCategoryIds,
-                    featuredImageUrl: articleData.featuredImageUrl || articleData.featuredimageurl,
+                    featuredImageUrl:
+                        articleData.featuredImageUrl ||
+                        articleData.featuredImageURL ||
+                        articleData.featuredimageurl,
                     featuredImageMetadata: {
-                        alt: articleData.MediaAltText || articleData.mediaalttext,
-                        title: articleData.mediaTitle || articleData.mediatitle,
-                        caption: articleData.mediaCaption || articleData.mediacaption
+                        alt: articleData.mediaAltText || articleData.MediaAltText || articleData.mediaalttext,
+                        title: articleData.mediaTitle || articleData.MediaTitle || articleData.mediatitle,
+                        caption: articleData.mediaCaption || articleData.MediaCaption || articleData.mediacaption
                     }
                 },
                 {
@@ -522,7 +525,7 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                                 )}
                                 {report.score >= 40 && report.score < 60 && (
                                     <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
-                                        ⚠ Score below recommended threshold ({report.score}/100). Add ≥3 secondary keywords to improve Generative Engine Optimization (GEO) citation-readiness.
+                                        ⚠ Score below recommended threshold ({report.score}/100). One secondary keyword is enough for generation, but this GEO export check expects 3+ secondary keywords or research mode for stronger AI citation-readiness.
                                     </p>
                                 )}
                             </div>

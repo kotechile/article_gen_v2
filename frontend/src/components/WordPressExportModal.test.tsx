@@ -3,13 +3,15 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { WordPressExportModal } from './WordPressExportModal';
 
 vi.mock('../utils/seoUtils', () => ({
-    computeSEOQualityScore: () => ({
+    computeSEOQualityScore: vi.fn(() => ({
         canPublish: true,
         score: 100,
         grade: 'A',
         checks: [{ label: 'Ready', passed: true }],
-    }),
+    })),
 }));
+
+import { computeSEOQualityScore } from '../utils/seoUtils';
 
 vi.mock('../services/wordpressService', () => ({
     fetchWordPressSites: vi.fn(),
@@ -35,6 +37,7 @@ const publishToWordPressMock = vi.mocked(publishToWordPress);
 const saveWordPressSettingsMock = vi.mocked(saveWordPressSettings);
 const loadWordPressSettingsMock = vi.mocked(loadWordPressSettings);
 const resolveLinkedWordPressCategoryIdsMock = vi.mocked(resolveLinkedWordPressCategoryIds);
+const computeSEOQualityScoreMock = vi.mocked(computeSEOQualityScore);
 
 const baseProps = {
     articleData: {
@@ -54,6 +57,12 @@ const mountModal = () => render(<WordPressExportModal {...baseProps} />);
 describe('WordPressExportModal loopback banner', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        computeSEOQualityScoreMock.mockReturnValue({
+            canPublish: true,
+            score: 100,
+            grade: 'A',
+            checks: [{ label: 'Ready', passed: true }],
+        } as any);
         fetchWordPressSitesMock.mockResolvedValue([
             {
                 id: 1,
@@ -189,6 +198,69 @@ describe('WordPressExportModal loopback banner', () => {
                 }),
                 expect.objectContaining({
                     categoryIds: [20, 10],
+                }),
+                expect.anything()
+            )
+        );
+    });
+
+    it('explains the difference between generation readiness and GEO export readiness', async () => {
+        computeSEOQualityScoreMock.mockReturnValue({
+            canPublish: true,
+            score: 55,
+            grade: 'D',
+            checks: [{ label: 'GEO Readiness', passed: false }],
+        } as any);
+
+        mountModal();
+
+        await screen.findByText(/one secondary keyword is enough for generation/i);
+        expect(
+            screen.getByText(/this GEO export check expects 3\+ secondary keywords or research mode/i)
+        ).toBeInTheDocument();
+    });
+
+    it('passes the legacy featuredImageURL field through to the publish service', async () => {
+        publishToWordPressMock.mockResolvedValue({
+            link: 'https://example.com/post',
+            loopback_summary: {
+                success: true,
+                attemptedFields: ['status'],
+                savedFields: ['status'],
+                removedFields: [],
+            },
+        } as any);
+
+        render(
+            <WordPressExportModal
+                {...baseProps}
+                articleData={{
+                    ...baseProps.articleData,
+                    featuredImageURL: 'https://cdn.example.com/featured.jpg',
+                    mediaAltText: 'Alt copy',
+                    mediaTitle: 'Title copy',
+                    mediaCaption: 'Caption copy',
+                }}
+            />
+        );
+
+        await waitFor(() =>
+            expect(screen.getByRole('button', { name: /publish to wordpress/i })).toBeEnabled()
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: /publish to wordpress/i }));
+
+        await waitFor(() =>
+            expect(publishToWordPressMock).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.anything(),
+                expect.objectContaining({
+                    featuredImageUrl: 'https://cdn.example.com/featured.jpg',
+                    featuredImageMetadata: expect.objectContaining({
+                        alt: 'Alt copy',
+                        title: 'Title copy',
+                        caption: 'Caption copy',
+                    }),
                 }),
                 expect.anything()
             )
