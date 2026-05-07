@@ -142,6 +142,20 @@ def test_inject_fontawesome_icon_styles_only_adds_helper_once():
     assert second.count("Codex infographic icon hardening") == 1
 
 
+def test_inject_fontawesome_icon_styles_removes_template_fontawesome_imports():
+    css = """
+    @import url('https://pro.fontawesome.com/releases/v6.0.0-beta1/css/all.css');
+    @import url("https://fonts.googleapis.com/css2?family=Oswald:wght@500&display=swap");
+    .icon { font-size: 2rem; }
+    """
+
+    updated = inject_fontawesome_icon_styles(css)
+
+    assert "pro.fontawesome.com" not in updated
+    assert "fonts.googleapis.com" in updated
+    assert "Codex infographic icon hardening" in updated
+
+
 def test_build_fontawesome_icon_markup_uses_helper_classes():
     markup = build_fontawesome_icon_markup("fa-brands fa-github")
 

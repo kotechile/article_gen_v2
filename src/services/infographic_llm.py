@@ -348,6 +348,12 @@ def build_fontawesome_icon_markup(icon_class_string: str) -> str:
 
 
 def inject_fontawesome_icon_styles(css_content: str) -> str:
+    sanitized_css = re.sub(
+        r"@import\s+url\((['\"]?)([^)\"']*font-?awesome[^)\"']*)\1\)\s*;?",
+        "",
+        css_content,
+        flags=re.IGNORECASE,
+    )
     helper_css = """
 /* Codex infographic icon hardening */
 .cg-fa-icon {
@@ -377,9 +383,9 @@ def inject_fontawesome_icon_styles(css_content: str) -> str:
     font-weight: 400 !important;
 }
 """
-    if "Codex infographic icon hardening" in css_content:
-        return css_content
-    return f"{css_content.rstrip()}\n\n{helper_css}".strip()
+    if "Codex infographic icon hardening" in sanitized_css:
+        return sanitized_css.strip()
+    return f"{sanitized_css.rstrip()}\n\n{helper_css}".strip()
 
 
 def apply_icon_markup_to_html(
