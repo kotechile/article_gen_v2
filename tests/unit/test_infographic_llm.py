@@ -112,6 +112,26 @@ def test_apply_icon_markup_to_html_replaces_class_and_text_placeholders():
     assert any(entry["field"] == "icon2" and entry["text_replacements"] == 1 for entry in audit)
 
 
+def test_apply_icon_markup_to_html_rewrites_legacy_fontawesome_class_tokens():
+    html = """
+    <div class="icon">
+        <i class="fa-light fa-+icon1+"></i>
+    </div>
+    """
+
+    updated_html, audit = apply_icon_markup_to_html(
+        html,
+        {
+            "icon1": "fa-solid fa-chart-column",
+        },
+    )
+
+    assert 'class="cg-fa-icon cg-fa-icon--solid fa-solid fa-chart-column"' in updated_html
+    assert "fa-light" not in updated_html
+    assert "fa-fa-solid" not in updated_html
+    assert any(entry["field"] == "icon1" and entry["attribute_replacements"] == 1 for entry in audit)
+
+
 def test_inject_fontawesome_icon_styles_only_adds_helper_once():
     css = ".infographic-template { width: 100px; }"
 

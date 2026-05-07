@@ -23,6 +23,29 @@ STYLE_PREFIX_ALIASES = {
 
 ALLOWED_STYLE_PREFIXES = {"fa-solid", "fa-regular", "fa-brands"}
 
+LEGACY_FONT_AWESOME_STYLE_TOKENS = {
+    "fa",
+    "fas",
+    "far",
+    "fab",
+    "fal",
+    "fat",
+    "fad",
+    "fass",
+    "fasr",
+    "fasl",
+    "fast",
+    "fa-solid",
+    "fa-regular",
+    "fa-brands",
+    "fa-light",
+    "fa-thin",
+    "fa-duotone",
+    "fa-sharp",
+    "fa-sharp-duotone",
+    "fa-sharp fa-solid",
+}
+
 ALLOWED_SOLID_ICON_TOKENS = {
     "fa-arrow-trend-up",
     "fa-balance-scale",
@@ -379,7 +402,17 @@ def apply_icon_markup_to_html(
         )
 
         def _replace_attr(match: re.Match[str]) -> str:
-            value = match.group("value").replace(placeholder, helper_classes)
+            original_tokens = [token for token in match.group("value").split() if token]
+            filtered_tokens: list[str] = []
+
+            for token in original_tokens:
+                if placeholder in token:
+                    continue
+                if token in LEGACY_FONT_AWESOME_STYLE_TOKENS:
+                    continue
+                filtered_tokens.append(token)
+
+            value = " ".join([*filtered_tokens, *helper_classes.split()])
             value = re.sub(r"\s+", " ", value).strip()
             return f'{match.group("attr")}{value}{match.group("quote")}'
 
