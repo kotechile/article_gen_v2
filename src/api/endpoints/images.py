@@ -25,8 +25,11 @@ from supabase_client import get_supabase_client, get_api_key, resolve_llm_provid
 from ...core.models.errors import ErrorResponse, ValidationErrorResponse
 from ...services.llm.providers import get_provider_class
 from ...services.infographic_llm import (
+    apply_icon_markup_to_html,
     append_infographic_llm_log,
+    inject_fontawesome_icon_styles,
     normalize_infographic_payload_icons,
+    write_infographic_render_debug_artifacts,
 )
 
 logger = logging.getLogger(__name__)
@@ -1104,9 +1107,18 @@ def generate_infographic():
                  if not model_name or model_name == 'None':
                      model_name = 'gemini-1.5-flash'
 
+        request_debug_stamp = datetime.utcnow().strftime('%Y%m%dT%H%M%S_%f')
         llm_log_path = current_app.config.get(
             'INFOGRAPHIC_LLM_LOG_FILE',
             os.path.join('logs', 'infographic_llm_responses.jsonl')
+        )
+        render_log_path = current_app.config.get(
+            'INFOGRAPHIC_RENDER_LOG_FILE',
+            os.path.join('logs', 'infographic_render_payloads.jsonl')
+        )
+        render_debug_dir = current_app.config.get(
+            'INFOGRAPHIC_RENDER_DEBUG_DIR',
+            os.path.join('logs', 'infographic_render_debug')
         )
         llm_log_context = {
             "template_id": template_id,
@@ -1115,6 +1127,7 @@ def generate_infographic():
             "provider": provider_name,
             "model": model_name,
             "story_text": story_text,
+            "request_debug_stamp": request_debug_stamp,
         }
 
         # 2. Call LLM
@@ -1187,6 +1200,7 @@ def generate_infographic():
                 
                 # 3. Flatten JSON & Replace Placeholders
                 replacements = {}
+                icon_replacements = {}
                 
                 # Top level keys
                 for k, v in generated_data.items():
@@ -1199,11 +1213,22 @@ def generate_infographic():
                         if isinstance(item, dict):
                             for k, v in item.items():
                                 replacements[k] = str(v)
+                                if k.startswith('icon'):
+                                    icon_replacements[k] = str(v)
                                 
                 # Perform Replacement in HTML
                 for key, val in replacements.items():
                      html_content = html_content.replace(f"+{key}+", val)
                      html_content = html_content.replace(f"+{key.lower()}+", val)
+
+                if icon_replacements:
+                    html_content, icon_render_audit = apply_icon_markup_to_html(
+                        html_content,
+                        icon_replacements,
+                    )
+                else:
+                    icon_render_audit = []
+                css_content = inject_fontawesome_icon_styles(css_content)
                 
             except Exception as e:
                 append_infographic_llm_log(
@@ -1221,8 +1246,31 @@ def generate_infographic():
                 # We could potentially continue with non-replaced template if that makes sense,
                 # but usually infographic without data is useless.
                 # For now, let's proceed and see if the render service handles it.
+                icon_render_audit = []
         
         # --- End LLM Content Generation ---
+
+        render_debug_files = write_infographic_render_debug_artifacts(
+            render_debug_dir,
+            template_id=template_id,
+            request_timestamp=request_debug_stamp,
+            html_content=html_content,
+            css_content=css_content,
+        )
+        append_infographic_llm_log(
+            render_log_path,
+            {
+                "template_id": template_id,
+                "template_label": lbl,
+                "user_id": user_id,
+                "request_debug_stamp": request_debug_stamp,
+                "html_path": render_debug_files["html_path"],
+                "css_path": render_debug_files["css_path"],
+                "icon_render_audit": icon_render_audit,
+                "html_excerpt": html_content[:4000],
+                "css_excerpt": css_content[:4000],
+            }
+        )
 
         # Build clip parameters only if explicitly defined
         clip_data = {

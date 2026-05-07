@@ -1,7 +1,9 @@
 import copy
 import json
 import os
+import re
 from datetime import datetime, timezone
+from html import escape
 from typing import Any
 
 SAFE_FALLBACK_ICONS = (
@@ -306,6 +308,103 @@ def normalize_infographic_payload_icons(generated_data: dict[str, Any]) -> tuple
     return normalized_payload, icon_audit
 
 
+def _helper_classes_for_icon(icon_class_string: str) -> str:
+    tokens = [token for token in str(icon_class_string or "").split() if token]
+    helper_tokens = ["cg-fa-icon"]
+    if "fa-brands" in tokens:
+        helper_tokens.append("cg-fa-icon--brands")
+    elif "fa-regular" in tokens:
+        helper_tokens.append("cg-fa-icon--regular")
+    else:
+        helper_tokens.append("cg-fa-icon--solid")
+    return " ".join([*helper_tokens, *tokens])
+
+
+def build_fontawesome_icon_markup(icon_class_string: str) -> str:
+    return f'<i class="{escape(_helper_classes_for_icon(icon_class_string), quote=True)}" aria-hidden="true"></i>'
+
+
+def inject_fontawesome_icon_styles(css_content: str) -> str:
+    helper_css = """
+/* Codex infographic icon hardening */
+.cg-fa-icon {
+    display: inline-block;
+    line-height: 1;
+    font-style: normal;
+    text-rendering: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.cg-fa-icon.cg-fa-icon--solid,
+.cg-fa-icon.cg-fa-icon--regular {
+    font-family: "Font Awesome 6 Free" !important;
+}
+
+.cg-fa-icon.cg-fa-icon--solid {
+    font-weight: 900 !important;
+}
+
+.cg-fa-icon.cg-fa-icon--regular {
+    font-weight: 400 !important;
+}
+
+.cg-fa-icon.cg-fa-icon--brands {
+    font-family: "Font Awesome 6 Brands" !important;
+    font-weight: 400 !important;
+}
+"""
+    if "Codex infographic icon hardening" in css_content:
+        return css_content
+    return f"{css_content.rstrip()}\n\n{helper_css}".strip()
+
+
+def apply_icon_markup_to_html(
+    html_content: str,
+    replacements: dict[str, str],
+) -> tuple[str, list[dict[str, Any]]]:
+    updated_html = html_content
+    render_audit: list[dict[str, Any]] = []
+
+    for key, icon_class_string in replacements.items():
+        placeholder = f"+{key}+"
+        helper_classes = _helper_classes_for_icon(icon_class_string)
+        helper_markup = build_fontawesome_icon_markup(icon_class_string)
+
+        placeholder_pattern = re.escape(placeholder)
+
+        attr_pattern = re.compile(
+            rf'(?P<attr>\bclass\s*=\s*["\'])(?P<value>[^"\']*{placeholder_pattern}[^"\']*)(?P<quote>["\'])',
+            re.IGNORECASE,
+        )
+
+        def _replace_attr(match: re.Match[str]) -> str:
+            value = match.group("value").replace(placeholder, helper_classes)
+            value = re.sub(r"\s+", " ", value).strip()
+            return f'{match.group("attr")}{value}{match.group("quote")}'
+
+        updated_html, attr_count = attr_pattern.subn(_replace_attr, updated_html)
+
+        text_pattern = re.compile(rf'>\s*{placeholder_pattern}\s*<')
+        updated_html, text_count = text_pattern.subn(f'>{helper_markup}<', updated_html)
+
+        plain_count = updated_html.count(placeholder)
+        if plain_count:
+            updated_html = updated_html.replace(placeholder, icon_class_string)
+
+        render_audit.append(
+            {
+                "field": key,
+                "icon_class": icon_class_string,
+                "attribute_replacements": attr_count,
+                "text_replacements": text_count,
+                "plain_replacements": plain_count,
+            }
+        )
+
+    return updated_html, render_audit
+
+
 def append_infographic_llm_log(log_path: str, payload: dict[str, Any]) -> None:
     if not log_path:
         return
@@ -322,3 +421,29 @@ def append_infographic_llm_log(log_path: str, payload: dict[str, Any]) -> None:
     with open(log_path, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(entry, ensure_ascii=False))
         handle.write("\n")
+
+
+def write_infographic_render_debug_artifacts(
+    output_dir: str,
+    *,
+    template_id: Any,
+    request_timestamp: str,
+    html_content: str,
+    css_content: str,
+) -> dict[str, str]:
+    os.makedirs(output_dir, exist_ok=True)
+    safe_stamp = re.sub(r"[^0-9A-Za-z_-]+", "_", request_timestamp)
+    base_name = f"template_{template_id}_{safe_stamp}"
+    html_path = os.path.join(output_dir, f"{base_name}.html")
+    css_path = os.path.join(output_dir, f"{base_name}.css")
+
+    with open(html_path, "w", encoding="utf-8") as html_handle:
+        html_handle.write(html_content)
+
+    with open(css_path, "w", encoding="utf-8") as css_handle:
+        css_handle.write(css_content)
+
+    return {
+        "html_path": html_path,
+        "css_path": css_path,
+    }

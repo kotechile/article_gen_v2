@@ -9,9 +9,13 @@ if str(REPO_ROOT) not in sys.path:
 
 
 from src.services.infographic_llm import (
+    apply_icon_markup_to_html,
     append_infographic_llm_log,
+    build_fontawesome_icon_markup,
+    inject_fontawesome_icon_styles,
     normalize_infographic_icon,
     normalize_infographic_payload_icons,
+    write_infographic_render_debug_artifacts,
 )
 
 
@@ -83,3 +87,56 @@ def test_append_infographic_llm_log_writes_jsonl(tmp_path):
     assert payload["status"] == "success"
     assert payload["raw_response"] == '{"title":"Sample"}'
     assert "timestamp" in payload
+
+
+def test_apply_icon_markup_to_html_replaces_class_and_text_placeholders():
+    html = """
+    <div class="material-icons +icon1+"></div>
+    <span>+icon2+</span>
+    <p data-icon="+icon3+">+icon3+</p>
+    """
+
+    updated_html, audit = apply_icon_markup_to_html(
+        html,
+        {
+            "icon1": "fa-solid fa-chart-column",
+            "icon2": "fa-solid fa-robot",
+            "icon3": "fa-solid fa-bolt",
+        },
+    )
+
+    assert "cg-fa-icon cg-fa-icon--solid fa-solid fa-chart-column" in updated_html
+    assert '<span><i class="cg-fa-icon cg-fa-icon--solid fa-solid fa-robot" aria-hidden="true"></i></span>' in updated_html
+    assert 'data-icon="fa-solid fa-bolt"' in updated_html
+    assert any(entry["field"] == "icon1" and entry["attribute_replacements"] == 1 for entry in audit)
+    assert any(entry["field"] == "icon2" and entry["text_replacements"] == 1 for entry in audit)
+
+
+def test_inject_fontawesome_icon_styles_only_adds_helper_once():
+    css = ".infographic-template { width: 100px; }"
+
+    first = inject_fontawesome_icon_styles(css)
+    second = inject_fontawesome_icon_styles(first)
+
+    assert "Codex infographic icon hardening" in first
+    assert second.count("Codex infographic icon hardening") == 1
+
+
+def test_build_fontawesome_icon_markup_uses_helper_classes():
+    markup = build_fontawesome_icon_markup("fa-brands fa-github")
+
+    assert 'class="cg-fa-icon cg-fa-icon--brands fa-brands fa-github"' in markup
+    assert 'aria-hidden="true"' in markup
+
+
+def test_write_infographic_render_debug_artifacts_writes_html_and_css(tmp_path):
+    paths = write_infographic_render_debug_artifacts(
+        str(tmp_path),
+        template_id=39,
+        request_timestamp="20260507T174000_123456",
+        html_content="<div>hello</div>",
+        css_content=".foo { color: red; }",
+    )
+
+    assert Path(paths["html_path"]).read_text(encoding="utf-8") == "<div>hello</div>"
+    assert Path(paths["css_path"]).read_text(encoding="utf-8") == ".foo { color: red; }"
