@@ -1212,9 +1212,10 @@ def generate_infographic():
                     for item in generated_data['items']:
                         if isinstance(item, dict):
                             for k, v in item.items():
-                                replacements[k] = str(v)
                                 if k.startswith('icon'):
                                     icon_replacements[k] = str(v)
+                                    continue
+                                replacements[k] = str(v)
                                 
                 # Perform Replacement in HTML
                 for key, val in replacements.items():
