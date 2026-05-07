@@ -1,0 +1,324 @@
+import copy
+import json
+import os
+from datetime import datetime, timezone
+from typing import Any
+
+SAFE_FALLBACK_ICONS = (
+    "fa-solid fa-circle-info",
+    "fa-solid fa-lightbulb",
+    "fa-solid fa-chart-column",
+    "fa-solid fa-gears",
+    "fa-solid fa-bolt",
+    "fa-solid fa-star",
+)
+
+STYLE_PREFIX_ALIASES = {
+    "fas": "fa-solid",
+    "far": "fa-regular",
+    "fab": "fa-brands",
+}
+
+ALLOWED_STYLE_PREFIXES = {"fa-solid", "fa-regular", "fa-brands"}
+
+ALLOWED_SOLID_ICON_TOKENS = {
+    "fa-arrow-trend-up",
+    "fa-balance-scale",
+    "fa-bell",
+    "fa-bolt",
+    "fa-book",
+    "fa-bookmark",
+    "fa-brain",
+    "fa-briefcase",
+    "fa-bug",
+    "fa-building-columns",
+    "fa-bullseye",
+    "fa-calendar",
+    "fa-camera",
+    "fa-car",
+    "fa-cart-shopping",
+    "fa-chart-column",
+    "fa-chart-line",
+    "fa-chart-pie",
+    "fa-check",
+    "fa-circle-check",
+    "fa-circle-info",
+    "fa-clock",
+    "fa-cloud",
+    "fa-code",
+    "fa-coins",
+    "fa-comment",
+    "fa-comments",
+    "fa-compass",
+    "fa-database",
+    "fa-droplet",
+    "fa-envelope",
+    "fa-fire",
+    "fa-flag",
+    "fa-flask",
+    "fa-gavel",
+    "fa-gears",
+    "fa-gift",
+    "fa-globe",
+    "fa-graduation-cap",
+    "fa-handshake",
+    "fa-heart",
+    "fa-house",
+    "fa-house-laptop",
+    "fa-key",
+    "fa-landmark",
+    "fa-laptop",
+    "fa-layer-group",
+    "fa-leaf",
+    "fa-lightbulb",
+    "fa-list-check",
+    "fa-lock",
+    "fa-magnifying-glass",
+    "fa-medal",
+    "fa-message",
+    "fa-mobile-screen",
+    "fa-money-bill",
+    "fa-money-bill-wave",
+    "fa-money-bill-trend-up",
+    "fa-moon",
+    "fa-pen",
+    "fa-pencil",
+    "fa-phone",
+    "fa-piggy-bank",
+    "fa-plane",
+    "fa-receipt",
+    "fa-robot",
+    "fa-rocket",
+    "fa-sack-dollar",
+    "fa-scale-balanced",
+    "fa-seedling",
+    "fa-server",
+    "fa-shield-halved",
+    "fa-ship",
+    "fa-shop",
+    "fa-star",
+    "fa-sun",
+    "fa-terminal",
+    "fa-train",
+    "fa-tree",
+    "fa-triangle-exclamation",
+    "fa-truck",
+    "fa-user",
+    "fa-users",
+    "fa-wallet",
+    "fa-wand-magic-sparkles",
+    "fa-wifi",
+    "fa-wrench",
+}
+
+ALLOWED_REGULAR_ICON_TOKENS = {
+    "fa-bell",
+    "fa-bookmark",
+    "fa-calendar",
+    "fa-circle-check",
+    "fa-circle-info",
+    "fa-clock",
+    "fa-comment",
+    "fa-envelope",
+    "fa-heart",
+    "fa-lightbulb",
+    "fa-message",
+    "fa-star",
+}
+
+ALLOWED_BRAND_ICON_TOKENS = {
+    "fa-amazon",
+    "fa-apple",
+    "fa-discord",
+    "fa-facebook",
+    "fa-github",
+    "fa-google",
+    "fa-instagram",
+    "fa-linkedin",
+    "fa-microsoft",
+    "fa-pinterest",
+    "fa-reddit",
+    "fa-slack",
+    "fa-spotify",
+    "fa-tiktok",
+    "fa-whatsapp",
+    "fa-x-twitter",
+    "fa-youtube",
+}
+
+ICON_KEYWORD_FALLBACKS = (
+    (
+        {
+            "automation",
+            "automatic",
+            "bot",
+            "configure",
+            "gear",
+            "process",
+            "setup",
+            "system",
+            "workflow",
+        },
+        "fa-solid fa-gears",
+    ),
+    (
+        {
+            "analytics",
+            "budget",
+            "cash",
+            "chart",
+            "cost",
+            "data",
+            "expense",
+            "finance",
+            "growth",
+            "metric",
+            "money",
+            "rate",
+            "save",
+            "savings",
+            "spending",
+            "trend",
+        },
+        "fa-solid fa-chart-column",
+    ),
+    (
+        {
+            "alert",
+            "energy",
+            "fast",
+            "instant",
+            "power",
+            "risk",
+            "speed",
+            "urgent",
+            "volatility",
+            "warning",
+        },
+        "fa-solid fa-bolt",
+    ),
+    (
+        {
+            "guide",
+            "help",
+            "idea",
+            "insight",
+            "learn",
+            "lesson",
+            "tip",
+        },
+        "fa-solid fa-lightbulb",
+    ),
+)
+
+
+def _allowed_tokens_for_style(style_prefix: str) -> set[str]:
+    if style_prefix == "fa-regular":
+        return ALLOWED_REGULAR_ICON_TOKENS
+    if style_prefix == "fa-brands":
+        return ALLOWED_BRAND_ICON_TOKENS
+    return ALLOWED_SOLID_ICON_TOKENS
+
+
+def choose_icon_fallback(item_text: str = "", description_text: str = "", index: int = 0) -> str:
+    haystack = f"{item_text} {description_text}".lower()
+    for keywords, fallback in ICON_KEYWORD_FALLBACKS:
+        if any(keyword in haystack for keyword in keywords):
+            return fallback
+    return SAFE_FALLBACK_ICONS[index % len(SAFE_FALLBACK_ICONS)]
+
+
+def normalize_infographic_icon(
+    raw_value: Any,
+    *,
+    item_text: str = "",
+    description_text: str = "",
+    index: int = 0,
+) -> tuple[str, dict[str, Any]]:
+    raw_text = str(raw_value or "").strip()
+    tokens = [token.strip() for token in raw_text.replace(",", " ").split() if token.strip()]
+
+    style_prefix = ""
+    icon_token = ""
+
+    for token in tokens:
+        normalized = STYLE_PREFIX_ALIASES.get(token, token)
+        if normalized in ALLOWED_STYLE_PREFIXES and not style_prefix:
+            style_prefix = normalized
+            continue
+        if normalized.startswith("fa-") and normalized not in ALLOWED_STYLE_PREFIXES and not icon_token:
+            icon_token = normalized
+
+    if not style_prefix and icon_token:
+        style_prefix = "fa-brands" if icon_token in ALLOWED_BRAND_ICON_TOKENS else "fa-solid"
+
+    allowed_tokens = _allowed_tokens_for_style(style_prefix) if style_prefix else set()
+    if style_prefix and icon_token and icon_token in allowed_tokens:
+        return f"{style_prefix} {icon_token}", {
+            "raw": raw_text,
+            "normalized": f"{style_prefix} {icon_token}",
+            "status": "accepted",
+        }
+
+    fallback = choose_icon_fallback(item_text=item_text, description_text=description_text, index=index)
+    return fallback, {
+        "raw": raw_text,
+        "normalized": fallback,
+        "status": "fallback",
+        "reason": "invalid_or_unknown_icon_class",
+    }
+
+
+def normalize_infographic_payload_icons(generated_data: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    normalized_payload = copy.deepcopy(generated_data)
+    icon_audit: list[dict[str, Any]] = []
+
+    items = normalized_payload.get("items")
+    if not isinstance(items, list):
+        return normalized_payload, icon_audit
+
+    for item_index, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+
+        item_number = item_index + 1
+        icon_key = f"icon{item_number}"
+        item_key = f"item{item_number}"
+        description_key = f"description{item_number}"
+        if icon_key not in item:
+            continue
+
+        normalized_icon, audit = normalize_infographic_icon(
+            item.get(icon_key),
+            item_text=str(item.get(item_key) or ""),
+            description_text=str(item.get(description_key) or ""),
+            index=item_index,
+        )
+        item[icon_key] = normalized_icon
+        icon_audit.append(
+            {
+                "field": icon_key,
+                "item_index": item_index,
+                **audit,
+            }
+        )
+
+    return normalized_payload, icon_audit
+
+
+def append_infographic_llm_log(log_path: str, payload: dict[str, Any]) -> None:
+    if not log_path:
+        return
+
+    log_dir = os.path.dirname(log_path)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **payload,
+    }
+
+    with open(log_path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False))
+        handle.write("\n")

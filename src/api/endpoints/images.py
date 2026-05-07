@@ -24,6 +24,10 @@ from werkzeug.utils import secure_filename
 from supabase_client import get_supabase_client, get_api_key, resolve_llm_provider
 from ...core.models.errors import ErrorResponse, ValidationErrorResponse
 from ...services.llm.providers import get_provider_class
+from ...services.infographic_llm import (
+    append_infographic_llm_log,
+    normalize_infographic_payload_icons,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1100,6 +1104,19 @@ def generate_infographic():
                  if not model_name or model_name == 'None':
                      model_name = 'gemini-1.5-flash'
 
+        llm_log_path = current_app.config.get(
+            'INFOGRAPHIC_LLM_LOG_FILE',
+            os.path.join('logs', 'infographic_llm_responses.jsonl')
+        )
+        llm_log_context = {
+            "template_id": template_id,
+            "template_label": lbl,
+            "user_id": user_id,
+            "provider": provider_name,
+            "model": model_name,
+            "story_text": story_text,
+        }
+
         # 2. Call LLM
         if not api_key_val:
              logger.error("Final check: No API key found for default LLM (DB or Env)")
@@ -1140,7 +1157,8 @@ def generate_infographic():
                 
                 # Execute Async Call
                 response = asyncio.run(llm_client.generate(config))
-                generated_json_str = response.content
+                raw_generated_json_str = response.content or ""
+                generated_json_str = raw_generated_json_str
                 
                 # Clean JSON
                 if "```json" in generated_json_str:
@@ -1149,7 +1167,23 @@ def generate_infographic():
                      generated_json_str = generated_json_str.split("```")[1].split("```")[0].strip()
                      
                 generated_data = json.loads(generated_json_str)
+                generated_data, icon_audit = normalize_infographic_payload_icons(generated_data)
                 logger.info(f"LLM Generated Data: {generated_data}")
+                if icon_audit:
+                    logger.info("Infographic icon normalization audit: %s", icon_audit)
+                append_infographic_llm_log(
+                    llm_log_path,
+                    {
+                        **llm_log_context,
+                        "status": "success",
+                        "template_prompt": template_prompt,
+                        "full_prompt": full_prompt,
+                        "raw_response": raw_generated_json_str,
+                        "cleaned_response": generated_json_str,
+                        "normalized_payload": generated_data,
+                        "icon_audit": icon_audit,
+                    }
+                )
                 
                 # 3. Flatten JSON & Replace Placeholders
                 replacements = {}
@@ -1172,6 +1206,17 @@ def generate_infographic():
                      html_content = html_content.replace(f"+{key.lower()}+", val)
                 
             except Exception as e:
+                append_infographic_llm_log(
+                    llm_log_path,
+                    {
+                        **llm_log_context,
+                        "status": "error",
+                        "template_prompt": template.data.get('prompt') or "Generate a JSON for this infographic.",
+                        "error": str(e),
+                        "raw_response": locals().get("raw_generated_json_str"),
+                        "cleaned_response": locals().get("generated_json_str"),
+                    }
+                )
                 logger.error(f"LLM Generation failed: {e}", exc_info=True)
                 # We could potentially continue with non-replaced template if that makes sense,
                 # but usually infographic without data is useless.

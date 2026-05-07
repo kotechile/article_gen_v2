@@ -97,7 +97,12 @@ class ScreenCaptureService:
         full_html = f"""
         <html>
         <head>
-            <link href="https://pro.fontawesome.com/releases/v6.0.0-beta1/css/all.css" rel="stylesheet">
+            <link
+                href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+                rel="stylesheet"
+                crossorigin="anonymous"
+                referrerpolicy="no-referrer"
+            >
             <link href="https://fonts.googleapis.com/css2?family=Material+Icons" rel="stylesheet">
         </head>
         <style>
@@ -124,8 +129,21 @@ class ScreenCaptureService:
                 # Set content
                 page.set_content(full_html, wait_until='networkidle', timeout=60000)
 
-                # Wait for both <img> tags and CSS background images.
+                # Wait for webfonts, <img> tags, and CSS background images before capture.
                 page.evaluate("""async () => {
+                    if (document.fonts && document.fonts.ready) {
+                        try {
+                            await Promise.allSettled([
+                                document.fonts.ready,
+                                document.fonts.load('900 24px "Font Awesome 6 Free"'),
+                                document.fonts.load('400 24px "Font Awesome 6 Free"'),
+                                document.fonts.load('400 24px "Font Awesome 6 Brands"'),
+                            ]);
+                        } catch (_) {
+                            // Continue even if font preloading fails; capture should still proceed.
+                        }
+                    }
+
                     const images = document.querySelectorAll('img');
                     const imagePromises = Array.from(images).map(img => new Promise(resolve => {
                         if (img.complete) resolve();
