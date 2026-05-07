@@ -365,20 +365,32 @@ def inject_fontawesome_icon_styles(css_content: str) -> str:
     -moz-osx-font-smoothing: grayscale;
 }
 
+.cg-fa-icon::before {
+    display: inline-block;
+    text-rendering: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
 .cg-fa-icon.cg-fa-icon--solid,
-.cg-fa-icon.cg-fa-icon--regular {
+.cg-fa-icon.cg-fa-icon--regular,
+.cg-fa-icon.cg-fa-icon--solid::before,
+.cg-fa-icon.cg-fa-icon--regular::before {
     font-family: "Font Awesome 6 Free" !important;
 }
 
-.cg-fa-icon.cg-fa-icon--solid {
+.cg-fa-icon.cg-fa-icon--solid,
+.cg-fa-icon.cg-fa-icon--solid::before {
     font-weight: 900 !important;
 }
 
-.cg-fa-icon.cg-fa-icon--regular {
+.cg-fa-icon.cg-fa-icon--regular,
+.cg-fa-icon.cg-fa-icon--regular::before {
     font-weight: 400 !important;
 }
 
-.cg-fa-icon.cg-fa-icon--brands {
+.cg-fa-icon.cg-fa-icon--brands,
+.cg-fa-icon.cg-fa-icon--brands::before {
     font-family: "Font Awesome 6 Brands" !important;
     font-weight: 400 !important;
 }

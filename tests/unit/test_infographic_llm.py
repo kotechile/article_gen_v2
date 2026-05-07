@@ -157,6 +157,8 @@ def test_inject_fontawesome_icon_styles_only_adds_helper_once():
 
     assert "Codex infographic icon hardening" in first
     assert second.count("Codex infographic icon hardening") == 1
+    assert ".cg-fa-icon::before" in first
+    assert 'font-family: "Font Awesome 6 Free" !important;' in first
 
 
 def test_inject_fontawesome_icon_styles_removes_template_fontawesome_imports():
