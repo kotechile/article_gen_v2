@@ -332,15 +332,15 @@ def normalize_infographic_payload_icons(generated_data: dict[str, Any]) -> tuple
 
 
 def _helper_classes_for_icon(icon_class_string: str) -> str:
-    tokens = [token for token in str(icon_class_string or "").split() if token]
     helper_tokens = ["cg-fa-icon"]
+    tokens = [token for token in str(icon_class_string or "").split() if token]
     if "fa-brands" in tokens:
         helper_tokens.append("cg-fa-icon--brands")
     elif "fa-regular" in tokens:
         helper_tokens.append("cg-fa-icon--regular")
     else:
         helper_tokens.append("cg-fa-icon--solid")
-    return " ".join([*helper_tokens, *tokens])
+    return " ".join(helper_tokens)
 
 
 def _filter_preserved_icon_classes(class_tokens: list[str], placeholder: str) -> list[str]:

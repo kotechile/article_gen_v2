@@ -105,8 +105,8 @@ def test_apply_icon_markup_to_html_replaces_class_and_text_placeholders():
         },
     )
 
-    assert "cg-fa-icon cg-fa-icon--solid fa-solid fa-chart-column" in updated_html
-    assert '<span><span class="cg-fa-icon cg-fa-icon--solid fa-solid fa-robot" aria-hidden="true"><svg' in updated_html
+    assert 'class="material-icons cg-fa-icon cg-fa-icon--solid"' in updated_html
+    assert '<span><span class="cg-fa-icon cg-fa-icon--solid" aria-hidden="true"><svg' in updated_html
     assert 'data-icon="fa-solid fa-bolt"' in updated_html
     assert any(entry["field"] == "icon1" and entry["legacy_tag_replacements"] == 1 for entry in audit)
     assert any(entry["field"] == "icon2" and entry["text_replacements"] == 1 for entry in audit)
@@ -126,10 +126,10 @@ def test_apply_icon_markup_to_html_rewrites_legacy_fontawesome_class_tokens():
         },
     )
 
-    assert 'class="cg-fa-icon cg-fa-icon--solid fa-solid fa-chart-column"' in updated_html
+    assert 'class="cg-fa-icon cg-fa-icon--solid"' in updated_html
     assert "<svg" in updated_html
     assert "fa-light" not in updated_html
-    assert "fa-fa-solid" not in updated_html
+    assert "fa-solid" not in updated_html
     assert any(entry["field"] == "icon1" and entry["legacy_tag_replacements"] == 1 for entry in audit)
 
 
@@ -145,7 +145,7 @@ def test_apply_icon_markup_to_html_replaces_legacy_fontawesome_tag_directly():
         },
     )
 
-    assert '<div class="icon"><span class="cg-fa-icon cg-fa-icon--solid fa-solid fa-bolt" aria-hidden="true"><svg' in updated_html
+    assert '<div class="icon"><span class="cg-fa-icon cg-fa-icon--solid" aria-hidden="true"><svg' in updated_html
     assert "fa-light" not in updated_html
     assert any(entry["field"] == "icon2" and entry["legacy_tag_replacements"] == 1 for entry in audit)
 
@@ -180,7 +180,7 @@ def test_inject_fontawesome_icon_styles_removes_template_fontawesome_imports():
 def test_build_fontawesome_icon_markup_uses_helper_classes():
     markup = build_fontawesome_icon_markup("fa-brands fa-github")
 
-    assert 'class="cg-fa-icon cg-fa-icon--brands fa-brands fa-github"' in markup
+    assert 'class="cg-fa-icon cg-fa-icon--brands"' in markup
     assert "<svg" in markup
     assert 'aria-hidden="true"' in markup
 
