@@ -129,7 +129,24 @@ def test_apply_icon_markup_to_html_rewrites_legacy_fontawesome_class_tokens():
     assert 'class="cg-fa-icon cg-fa-icon--solid fa-solid fa-chart-column"' in updated_html
     assert "fa-light" not in updated_html
     assert "fa-fa-solid" not in updated_html
-    assert any(entry["field"] == "icon1" and entry["attribute_replacements"] == 1 for entry in audit)
+    assert any(entry["field"] == "icon1" and entry["legacy_tag_replacements"] == 1 for entry in audit)
+
+
+def test_apply_icon_markup_to_html_replaces_legacy_fontawesome_tag_directly():
+    html = """
+    <div class="icon"><i class="fa-light fa-+icon2+"></i></div>
+    """
+
+    updated_html, audit = apply_icon_markup_to_html(
+        html,
+        {
+            "icon2": "fa-solid fa-bolt",
+        },
+    )
+
+    assert '<div class="icon"><i class="cg-fa-icon cg-fa-icon--solid fa-solid fa-bolt" aria-hidden="true"></i></div>' in updated_html
+    assert "fa-light" not in updated_html
+    assert any(entry["field"] == "icon2" and entry["legacy_tag_replacements"] == 1 for entry in audit)
 
 
 def test_inject_fontawesome_icon_styles_only_adds_helper_once():

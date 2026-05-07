@@ -402,6 +402,16 @@ def apply_icon_markup_to_html(
 
         placeholder_pattern = re.escape(placeholder)
 
+        # Replace legacy Font Awesome placeholders like:
+        # <i class="fa-light fa-+icon1+"></i>
+        # This avoids relying on token surgery when the template was authored
+        # with a style prefix plus a bare icon-name placeholder.
+        legacy_icon_tag_pattern = re.compile(
+            rf"<i\b[^>]*\bclass\s*=\s*([\"'])[^\"']*fa-{placeholder_pattern}[^\"']*\1[^>]*>\s*</i>",
+            re.IGNORECASE,
+        )
+        updated_html, legacy_tag_count = legacy_icon_tag_pattern.subn(helper_markup, updated_html)
+
         attr_pattern = re.compile(
             rf'(?P<attr>\bclass\s*=\s*["\'])(?P<value>[^"\']*{placeholder_pattern}[^"\']*)(?P<quote>["\'])',
             re.IGNORECASE,
@@ -435,6 +445,7 @@ def apply_icon_markup_to_html(
             {
                 "field": key,
                 "icon_class": icon_class_string,
+                "legacy_tag_replacements": legacy_tag_count,
                 "attribute_replacements": attr_count,
                 "text_replacements": text_count,
                 "plain_replacements": plain_count,
