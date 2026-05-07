@@ -106,9 +106,9 @@ def test_apply_icon_markup_to_html_replaces_class_and_text_placeholders():
     )
 
     assert "cg-fa-icon cg-fa-icon--solid fa-solid fa-chart-column" in updated_html
-    assert '<span><i class="cg-fa-icon cg-fa-icon--solid fa-solid fa-robot" aria-hidden="true"></i></span>' in updated_html
+    assert '<span><span class="cg-fa-icon cg-fa-icon--solid fa-solid fa-robot" aria-hidden="true"><svg' in updated_html
     assert 'data-icon="fa-solid fa-bolt"' in updated_html
-    assert any(entry["field"] == "icon1" and entry["attribute_replacements"] == 1 for entry in audit)
+    assert any(entry["field"] == "icon1" and entry["legacy_tag_replacements"] == 1 for entry in audit)
     assert any(entry["field"] == "icon2" and entry["text_replacements"] == 1 for entry in audit)
 
 
@@ -127,6 +127,7 @@ def test_apply_icon_markup_to_html_rewrites_legacy_fontawesome_class_tokens():
     )
 
     assert 'class="cg-fa-icon cg-fa-icon--solid fa-solid fa-chart-column"' in updated_html
+    assert "<svg" in updated_html
     assert "fa-light" not in updated_html
     assert "fa-fa-solid" not in updated_html
     assert any(entry["field"] == "icon1" and entry["legacy_tag_replacements"] == 1 for entry in audit)
@@ -144,7 +145,7 @@ def test_apply_icon_markup_to_html_replaces_legacy_fontawesome_tag_directly():
         },
     )
 
-    assert '<div class="icon"><i class="cg-fa-icon cg-fa-icon--solid fa-solid fa-bolt" aria-hidden="true"></i></div>' in updated_html
+    assert '<div class="icon"><span class="cg-fa-icon cg-fa-icon--solid fa-solid fa-bolt" aria-hidden="true"><svg' in updated_html
     assert "fa-light" not in updated_html
     assert any(entry["field"] == "icon2" and entry["legacy_tag_replacements"] == 1 for entry in audit)
 
@@ -158,6 +159,7 @@ def test_inject_fontawesome_icon_styles_only_adds_helper_once():
     assert "Codex infographic icon hardening" in first
     assert second.count("Codex infographic icon hardening") == 1
     assert ".cg-fa-icon::before" in first
+    assert ".cg-fa-icon svg" in first
     assert 'font-family: "Font Awesome 6 Free" !important;' in first
 
 
@@ -179,6 +181,7 @@ def test_build_fontawesome_icon_markup_uses_helper_classes():
     markup = build_fontawesome_icon_markup("fa-brands fa-github")
 
     assert 'class="cg-fa-icon cg-fa-icon--brands fa-brands fa-github"' in markup
+    assert "<svg" in markup
     assert 'aria-hidden="true"' in markup
 
 

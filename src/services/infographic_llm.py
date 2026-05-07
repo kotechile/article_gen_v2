@@ -4,7 +4,7 @@ import os
 import re
 from datetime import datetime, timezone
 from html import escape
-from typing import Any
+from typing import Any, Optional
 
 SAFE_FALLBACK_ICONS = (
     "fa-solid fa-circle-info",
@@ -343,8 +343,95 @@ def _helper_classes_for_icon(icon_class_string: str) -> str:
     return " ".join([*helper_tokens, *tokens])
 
 
-def build_fontawesome_icon_markup(icon_class_string: str) -> str:
-    return f'<i class="{escape(_helper_classes_for_icon(icon_class_string), quote=True)}" aria-hidden="true"></i>'
+def _filter_preserved_icon_classes(class_tokens: list[str], placeholder: str) -> list[str]:
+    preserved: list[str] = []
+    for token in class_tokens:
+        if placeholder in token:
+            continue
+        if token in LEGACY_FONT_AWESOME_STYLE_TOKENS:
+            continue
+        if token.startswith("fa-"):
+            continue
+        preserved.append(token)
+    return preserved
+
+
+def _icon_svg_inner(icon_class_string: str) -> str:
+    token_set = set(str(icon_class_string or "").split())
+
+    if "fa-chart-column" in token_set:
+        return (
+            '<rect x="10" y="30" width="10" height="22" rx="2" fill="currentColor"/>'
+            '<rect x="27" y="20" width="10" height="32" rx="2" fill="currentColor"/>'
+            '<rect x="44" y="12" width="10" height="40" rx="2" fill="currentColor"/>'
+        )
+    if "fa-chart-line" in token_set:
+        return (
+            '<polyline points="10,42 24,30 34,34 52,18" '
+            'fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>'
+            '<circle cx="10" cy="42" r="3" fill="currentColor"/>'
+            '<circle cx="24" cy="30" r="3" fill="currentColor"/>'
+            '<circle cx="34" cy="34" r="3" fill="currentColor"/>'
+            '<circle cx="52" cy="18" r="3" fill="currentColor"/>'
+        )
+    if "fa-shield-halved" in token_set:
+        return (
+            '<path d="M32 8 50 14v14c0 13-8 23-18 28C22 51 14 41 14 28V14z" '
+            'fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>'
+            '<path d="M32 12v40c8-4 14-12 14-24V17z" fill="currentColor" opacity="0.9"/>'
+        )
+    if "fa-gears" in token_set:
+        return (
+            '<circle cx="26" cy="38" r="9" fill="none" stroke="currentColor" stroke-width="5"/>'
+            '<circle cx="42" cy="24" r="7" fill="none" stroke="currentColor" stroke-width="5"/>'
+            '<path d="M26 22v6M26 48v6M10 38h6M36 38h6M15 27l4 4M33 45l4 4M15 49l4-4M33 31l4-4" '
+            'stroke="currentColor" stroke-width="4" stroke-linecap="round"/>'
+            '<path d="M42 11v4M42 33v4M29 24h4M51 24h4M33 15l3 3M48 30l3 3M33 33l3-3M48 18l3-3" '
+            'stroke="currentColor" stroke-width="3" stroke-linecap="round"/>'
+        )
+    if "fa-bolt" in token_set:
+        return '<path d="M36 8 18 34h11l-3 22 20-28H35z" fill="currentColor"/>'
+    if "fa-lightbulb" in token_set:
+        return (
+            '<path d="M32 10c-10 0-18 8-18 18 0 7 4 12 9 16 2 1 3 3 3 5h12c0-2 1-4 3-5 5-4 9-9 9-16 0-10-8-18-18-18Z" '
+            'fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>'
+            '<path d="M25 52h14M26 58h12" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>'
+        )
+    if "fa-star" in token_set:
+        return '<path d="m32 9 7 14 15 2-11 10 3 15-14-8-14 8 3-15-11-10 15-2z" fill="currentColor"/>'
+    if "fa-robot" in token_set:
+        return (
+            '<rect x="16" y="18" width="32" height="24" rx="6" fill="none" stroke="currentColor" stroke-width="4"/>'
+            '<circle cx="26" cy="30" r="3" fill="currentColor"/>'
+            '<circle cx="38" cy="30" r="3" fill="currentColor"/>'
+            '<path d="M24 40h16M32 12v6M22 18l-4-4M42 18l4-4M20 42v8M44 42v8" '
+            'stroke="currentColor" stroke-width="4" stroke-linecap="round"/>'
+        )
+    if "fa-lock" in token_set:
+        return (
+            '<rect x="18" y="28" width="28" height="24" rx="4" fill="none" stroke="currentColor" stroke-width="4"/>'
+            '<path d="M24 28v-6c0-5 3-10 8-10s8 5 8 10v6" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>'
+        )
+
+    return (
+        '<circle cx="32" cy="32" r="22" fill="none" stroke="currentColor" stroke-width="4"/>'
+        '<path d="M32 24v16" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>'
+        '<circle cx="32" cy="18" r="3" fill="currentColor"/>'
+    )
+
+
+def build_fontawesome_icon_markup(icon_class_string: str, extra_classes: Optional[list[str]] = None) -> str:
+    class_tokens = []
+    if extra_classes:
+        class_tokens.extend(extra_classes)
+    class_tokens.extend(_helper_classes_for_icon(icon_class_string).split())
+    class_attr = escape(" ".join(dict.fromkeys(class_tokens)), quote=True)
+    svg_inner = _icon_svg_inner(icon_class_string)
+    return (
+        f'<span class="{class_attr}" aria-hidden="true">'
+        f'<svg viewBox="0 0 64 64" focusable="false" aria-hidden="true">{svg_inner}</svg>'
+        f"</span>"
+    )
 
 
 def inject_fontawesome_icon_styles(css_content: str) -> str:
@@ -370,6 +457,13 @@ def inject_fontawesome_icon_styles(css_content: str) -> str:
     text-rendering: auto;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+}
+
+.cg-fa-icon svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
 }
 
 .cg-fa-icon.cg-fa-icon--solid,
@@ -414,15 +508,17 @@ def apply_icon_markup_to_html(
 
         placeholder_pattern = re.escape(placeholder)
 
-        # Replace legacy Font Awesome placeholders like:
-        # <i class="fa-light fa-+icon1+"></i>
-        # This avoids relying on token surgery when the template was authored
-        # with a style prefix plus a bare icon-name placeholder.
-        legacy_icon_tag_pattern = re.compile(
-            rf"<i\b[^>]*\bclass\s*=\s*([\"'])[^\"']*fa-{placeholder_pattern}[^\"']*\1[^>]*>\s*</i>",
-            re.IGNORECASE,
+        class_tag_pattern = re.compile(
+            rf"<(?P<tag>[a-z0-9]+)\b(?P<before>[^>]*?)\bclass\s*=\s*(?P<quote>[\"'])(?P<class>[^\"']*{placeholder_pattern}[^\"']*)(?P=quote)(?P<after>[^>]*)>(?P<inner>.*?)</(?P=tag)>",
+            re.IGNORECASE | re.DOTALL,
         )
-        updated_html, legacy_tag_count = legacy_icon_tag_pattern.subn(helper_markup, updated_html)
+
+        def _replace_class_tag(match: re.Match[str]) -> str:
+            class_tokens = [token for token in match.group("class").split() if token]
+            preserved = _filter_preserved_icon_classes(class_tokens, placeholder)
+            return build_fontawesome_icon_markup(icon_class_string, extra_classes=preserved)
+
+        updated_html, legacy_tag_count = class_tag_pattern.subn(_replace_class_tag, updated_html)
 
         attr_pattern = re.compile(
             rf'(?P<attr>\bclass\s*=\s*["\'])(?P<value>[^"\']*{placeholder_pattern}[^"\']*)(?P<quote>["\'])',
@@ -431,14 +527,7 @@ def apply_icon_markup_to_html(
 
         def _replace_attr(match: re.Match[str]) -> str:
             original_tokens = [token for token in match.group("value").split() if token]
-            filtered_tokens: list[str] = []
-
-            for token in original_tokens:
-                if placeholder in token:
-                    continue
-                if token in LEGACY_FONT_AWESOME_STYLE_TOKENS:
-                    continue
-                filtered_tokens.append(token)
+            filtered_tokens = _filter_preserved_icon_classes(original_tokens, placeholder)
 
             value = " ".join([*filtered_tokens, *helper_classes.split()])
             value = re.sub(r"\s+", " ", value).strip()
