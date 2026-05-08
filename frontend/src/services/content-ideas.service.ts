@@ -292,6 +292,7 @@ class ContentIdeasService {
         success: boolean;
         publishedCount: number;
         publishedToTitlesCount: number;
+        publishedToSoftwareCount: number;
         requestedCount: number;
         message?: string;
     }> {
@@ -309,6 +310,7 @@ class ContentIdeasService {
                 success: Boolean(result?.success),
                 publishedCount: Number(result?.published_count || 0),
                 publishedToTitlesCount: Number(result?.published_to_titles_count || 0),
+                publishedToSoftwareCount: Number(result?.published_to_software_count || 0),
                 requestedCount: Number(result?.requested_count || ideaIds.length),
                 message: result?.message,
             };
@@ -320,6 +322,7 @@ class ContentIdeasService {
                 success: false,
                 publishedCount: 0,
                 publishedToTitlesCount: 0,
+                publishedToSoftwareCount: 0,
                 requestedCount: ideaIds.length,
                 message: 'Request failed',
             };

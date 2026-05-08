@@ -754,10 +754,10 @@ export function IdeaBurstModal({ isOpen, onClose, subtopic, topicId, topicTitle,
 
         setSavingSoftware(true);
         try {
-            // Mark software ideas as saved (different status)
+            // Persist selected software ideas to the durable released-software table.
             const ideaIds = Array.from(selectedSoftwareIdeas);
             const result = await contentIdeasService.publishContentIdeas(ideaIds, user.id);
-            if (!result.success || result.publishedCount <= 0) {
+            if (!result.success || result.publishedToSoftwareCount <= 0) {
                 setError("Save did not persist software ideas. Please refresh and try again.");
                 return;
             }

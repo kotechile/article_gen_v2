@@ -1,5 +1,5 @@
 import * as React from "react"
-import { BarChart2, LibraryBig, RefreshCw, Sparkles, X } from "lucide-react"
+import { BarChart2, ChevronDown, ChevronUp, LibraryBig, RefreshCw, Sparkles, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import type { ContentIdea } from "@/types/idea-burst"
@@ -33,6 +33,14 @@ interface GeneratedIdeasPanelProps {
     openPreviousGeneratedIdea: () => void
     openNextGeneratedIdea: () => void
     onIdeaUpdated: (idea: ContentIdea) => void
+    rebuildRunCount?: number
+    rebuildLatestRunLabel?: string | null
+    rebuildLatestRoute?: string | null
+    rebuildLatestRouteLabel?: string | null
+    onOpenRebuild?: (() => void) | null
+    suppressedLegacyIdeaCount?: number
+    showingSuppressedLegacyIdeas?: boolean
+    onToggleSuppressedLegacyIdeas?: (() => void) | null
 }
 
 const formatMetricValue = (value?: number | null, decimals = 0) => {
@@ -97,8 +105,25 @@ export function GeneratedIdeasPanel({
     openPreviousGeneratedIdea,
     openNextGeneratedIdea,
     onIdeaUpdated,
+    rebuildRunCount = 0,
+    rebuildLatestRunLabel = null,
+    rebuildLatestRoute = null,
+    rebuildLatestRouteLabel = null,
+    onOpenRebuild = null,
+    suppressedLegacyIdeaCount = 0,
+    showingSuppressedLegacyIdeas = false,
+    onToggleSuppressedLegacyIdeas = null,
 }: GeneratedIdeasPanelProps) {
     const [showKeywordModal, setShowKeywordModal] = React.useState(false)
+    const hasReadyRebuildRoute =
+        rebuildLatestRoute === 'article_ready' ||
+        rebuildLatestRoute === 'software_ready' ||
+        rebuildLatestRoute === 'article_plus_software'
+    const [showLegacyIdeas, setShowLegacyIdeas] = React.useState(!hasReadyRebuildRoute)
+
+    React.useEffect(() => {
+        setShowLegacyIdeas(!hasReadyRebuildRoute)
+    }, [hasReadyRebuildRoute])
 
     return (
         <>
@@ -108,14 +133,16 @@ export function GeneratedIdeasPanel({
                         <div>
                             <h2 className="text-xl font-semibold text-foreground">Generated Ideas For This Topic</h2>
                             <p className="text-sm text-muted-foreground mt-1">
-                                Review the ideas created by the topic generation workflow and publish the strongest ones into Content Studio.
+                                {hasReadyRebuildRoute
+                                    ? 'Review these legacy topic-generated ideas alongside the rebuild-ready route before publishing.'
+                                    : 'Review the ideas created by the topic generation workflow and publish the strongest ones into Content Studio.'}
                             </p>
                         </div>
                         {generatedClusterIdeas.length > 0 && (
                             <Button
                                 onClick={handlePublishGeneratedIdeas}
                                 disabled={publishingGeneratedIdeas || selectedGeneratedIdeaIds.size === 0 || !canPublish}
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                                className={hasReadyRebuildRoute ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}
                             >
                                 {publishingGeneratedIdeas ? (
                                     <>
@@ -125,14 +152,112 @@ export function GeneratedIdeasPanel({
                                 ) : (
                                     <>
                                         <LibraryBig className="mr-2 h-4 w-4" />
-                                        Publish {selectedGeneratedIdeaIds.size} Idea{selectedGeneratedIdeaIds.size === 1 ? '' : 's'}
+                                        {hasReadyRebuildRoute ? 'Publish Legacy ' : 'Publish '}
+                                        {selectedGeneratedIdeaIds.size} Idea{selectedGeneratedIdeaIds.size === 1 ? '' : 's'}
                                     </>
                                 )}
                             </Button>
                         )}
                     </div>
 
-                    {generatedClusterIdeas.length === 0 ? (
+                    {rebuildRunCount > 0 && (
+                        <div className="mb-5 rounded-xl border border-primary/20 bg-primary/10 p-4">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                    <div className="text-sm font-semibold text-foreground">Rebuild Readiness Signal</div>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                        {rebuildRunCount} rebuild run{rebuildRunCount === 1 ? '' : 's'} exist for this topic scope.
+                                        {rebuildLatestRunLabel ? ` Latest run: ${rebuildLatestRunLabel}.` : ''}
+                                        {rebuildLatestRouteLabel ? ` Strongest route: ${rebuildLatestRouteLabel}.` : ''}
+                                    </p>
+                                    {hasReadyRebuildRoute && (
+                                        <p className="mt-2 text-xs text-primary">
+                                            Treat rebuild as the validated recommendation for this scope. Use the legacy ideas below as a comparison set, not the default source of truth.
+                                        </p>
+                                    )}
+                                </div>
+                                {onOpenRebuild && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={onOpenRebuild}
+                                        className="border-primary/30 bg-background/40 hover:bg-background/60"
+                                    >
+                                        <Sparkles className="mr-2 h-3 w-3" />
+                                        Review In Rebuild
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {hasReadyRebuildRoute && (
+                        <div className="mb-5 rounded-xl border border-border bg-background/30 p-4">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                    <div className="text-sm font-semibold text-foreground">Legacy Idea Review Hidden By Default</div>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                        Rebuild already marked this scope ready, so these topic-generated ideas are collapsed unless you want to compare them against the validated rebuild path.
+                                    </p>
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setShowLegacyIdeas((current) => !current)}
+                                    className="border-border hover:bg-muted"
+                                >
+                                    {showLegacyIdeas ? (
+                                        <>
+                                            <ChevronUp className="mr-2 h-3 w-3" />
+                                            Hide Legacy Ideas
+                                        </>
+                                    ) : (
+                                        <>
+                                            <ChevronDown className="mr-2 h-3 w-3" />
+                                            Show Legacy Ideas
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+
+                    {suppressedLegacyIdeaCount > 0 && (
+                        <div className="mb-5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                    <div className="text-sm font-semibold text-foreground">Legacy Duplicates Suppressed</div>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                        {suppressedLegacyIdeaCount} legacy idea{suppressedLegacyIdeaCount === 1 ? '' : 's'} match rebuild outcomes that are already persisted or released, so they are hidden by default.
+                                    </p>
+                                </div>
+                                {onToggleSuppressedLegacyIdeas && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={onToggleSuppressedLegacyIdeas}
+                                        className="border-border hover:bg-muted"
+                                    >
+                                        {showingSuppressedLegacyIdeas ? 'Hide Suppressed Legacy Ideas' : 'Show Suppressed Legacy Ideas'}
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {hasReadyRebuildRoute && showLegacyIdeas && generatedClusterIdeas.length > 0 && (
+                        <div className="mb-5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+                            <div className="text-sm font-semibold text-foreground">Legacy Publish Path</div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                Publishing from this section sends topic-generated ideas into the normal pipeline, but rebuild remains the preferred validated path for this scope.
+                            </p>
+                        </div>
+                    )}
+
+                    {showLegacyIdeas && (generatedClusterIdeas.length === 0 ? (
                         <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center">
                             <Sparkles className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
                             <h3 className="text-base font-semibold text-foreground mb-2">No generated ideas yet</h3>
@@ -308,7 +433,7 @@ export function GeneratedIdeasPanel({
                                 </div>
                             )}
                         </div>
-                    )}
+                    ))}
                 </div>
             </div>
 
@@ -533,9 +658,13 @@ export function GeneratedIdeasPanel({
                                             type="button"
                                             onClick={() => handlePublishSingleGeneratedIdea(activeGeneratedIdea.id)}
                                             disabled={publishingGeneratedIdeas}
-                                            className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                                            className={hasReadyRebuildRoute ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}
                                         >
-                                            {publishingGeneratedIdeas ? 'Publishing...' : 'Publish This Idea'}
+                                            {publishingGeneratedIdeas
+                                                ? 'Publishing...'
+                                                : hasReadyRebuildRoute
+                                                ? 'Publish Legacy Idea'
+                                                : 'Publish This Idea'}
                                         </Button>
                                     )}
                                     <Button

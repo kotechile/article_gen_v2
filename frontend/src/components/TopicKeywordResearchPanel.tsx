@@ -1,5 +1,5 @@
 import * as React from "react"
-import { AlertCircle, BarChart3, FolderTree, RefreshCw, Search, Sparkles } from "lucide-react"
+import { AlertCircle, BarChart3, ChevronDown, ChevronUp, FolderTree, RefreshCw, Search, Sparkles } from "lucide-react"
 import { motion } from "framer-motion"
 
 import { Button } from "@/components/ui/button"
@@ -33,6 +33,11 @@ interface TopicKeywordResearchPanelProps {
     canGenerateIdeas: boolean
     manualSeedInput: string
     keywordResearchSummary: TopicKeywordResearchSummary
+    rebuildRunCount?: number
+    latestRebuildRunLabel?: string | null
+    latestRebuildRoute?: string | null
+    latestRebuildRouteLabel?: string | null
+    onOpenRebuild?: (() => void) | null
     onRefreshKeywordResearch: () => void
     onRunKeywordResearch: () => void
     onManualSeedInputChange: (value: string) => void
@@ -57,6 +62,11 @@ export function TopicKeywordResearchPanel({
     canGenerateIdeas,
     manualSeedInput,
     keywordResearchSummary,
+    rebuildRunCount = 0,
+    latestRebuildRunLabel = null,
+    latestRebuildRoute = null,
+    latestRebuildRouteLabel = null,
+    onOpenRebuild = null,
     onRefreshKeywordResearch,
     onRunKeywordResearch,
     onManualSeedInputChange,
@@ -68,6 +78,15 @@ export function TopicKeywordResearchPanel({
     const [showAllKeywords, setShowAllKeywords] = React.useState(false)
     const topKeywordRows = keywordCandidates.slice(0, 8)
     const visibleAllKeywords = showAllKeywords ? allKeywordCandidates : allKeywordCandidates.slice(0, 20)
+    const hasReadyRebuildRoute =
+        latestRebuildRoute === 'article_ready' ||
+        latestRebuildRoute === 'software_ready' ||
+        latestRebuildRoute === 'article_plus_software'
+    const [showLegacyKeywordFlow, setShowLegacyKeywordFlow] = React.useState(!hasReadyRebuildRoute)
+
+    React.useEffect(() => {
+        setShowLegacyKeywordFlow(!hasReadyRebuildRoute)
+    }, [hasReadyRebuildRoute])
 
     return (
         <div className="max-w-7xl mx-auto mb-8">
@@ -76,7 +95,9 @@ export function TopicKeywordResearchPanel({
                     <div>
                         <h2 className="text-xl font-semibold text-foreground">Topic Keyword Research</h2>
                         <p className="text-sm text-muted-foreground mt-1">
-                            {topicMode === 'editorial_first'
+                            {hasReadyRebuildRoute
+                                ? 'A rebuild run already marked this scope as ready, so this legacy topic-keyword flow is best used for comparison, recovery, or extra seed exploration.'
+                                : topicMode === 'editorial_first'
                                 ? 'This topic is editorial-first, so keyword research is optional. Use it when you want search evidence or manual seed exploration.'
                                 : 'This topic-level pipeline turns ranked keywords into intent clusters, then turns the strongest clusters into article ideas and companion software opportunities.'}
                         </p>
@@ -107,7 +128,8 @@ export function TopicKeywordResearchPanel({
                             onClick={onRunKeywordResearch}
                             disabled={runningKeywordResearch || !topicId}
                             size="sm"
-                            className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                            variant={hasReadyRebuildRoute ? 'outline' : 'default'}
+                            className={hasReadyRebuildRoute ? 'border-border hover:bg-muted' : 'bg-primary hover:bg-primary/90 text-primary-foreground'}
                         >
                             {runningKeywordResearch ? (
                                 <>
@@ -117,7 +139,7 @@ export function TopicKeywordResearchPanel({
                             ) : (
                                 <>
                                     <Search className="mr-2 h-4 w-4" />
-                                    Run Keyword Research
+                                    {hasReadyRebuildRoute ? 'Run Legacy Keyword Research' : 'Run Keyword Research'}
                                 </>
                             )}
                         </Button>
@@ -133,42 +155,118 @@ export function TopicKeywordResearchPanel({
                     </div>
                 )}
 
-                <div className="mb-5 rounded-xl border border-border bg-muted/20 p-4">
-                    <div className="text-sm font-medium text-foreground">Optional Manual Seeds</div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                        Leave this empty for fully automated seed generation. Add comma-separated or line-separated seeds when you want to rescue a hard topic, steer the run more directly, or rerun from an already discovered keyword below.
-                    </p>
-                    <textarea
-                        value={manualSeedInput}
-                        onChange={(event) => onManualSeedInputChange(event.target.value)}
-                        placeholder="example: market spending by state, regional price sensitivity, consumer spending shifts"
-                        className="mt-3 min-h-[84px] w-full rounded-lg border border-border bg-background/70 px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring"
-                    />
-                </div>
+                {rebuildRunCount > 0 && (
+                    <div className="mb-5 rounded-xl border border-primary/20 bg-primary/10 p-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div>
+                                <div className="text-sm font-semibold text-foreground">Research Rebuild Available</div>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                    This topic’s category scope already has {rebuildRunCount} rebuild run{rebuildRunCount === 1 ? '' : 's'}.
+                                    {latestRebuildRunLabel ? ` Latest run: ${latestRebuildRunLabel}.` : ''}
+                                    {latestRebuildRouteLabel ? ` Strongest route: ${latestRebuildRouteLabel}.` : ''}
+                                </p>
+                                {hasReadyRebuildRoute && (
+                                    <p className="mt-2 text-xs text-primary">
+                                        Rebuild has already produced a ready route for this scope, so prefer that path before spending more time in the legacy keyword pipeline.
+                                    </p>
+                                )}
+                            </div>
+                            {onOpenRebuild && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={onOpenRebuild}
+                                    className="border-primary/30 bg-background/40 hover:bg-background/60"
+                                >
+                                    <Sparkles className="mr-2 h-3 w-3" />
+                                    Open Rebuild Run
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                )}
 
-                {!keywordResearchRun && !keywordResearchLoading ? (
-                    <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center">
-                        <Search className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
-                        <h3 className="text-base font-semibold text-foreground mb-2">No topic keyword research run yet</h3>
-                        <p className="text-sm text-muted-foreground max-w-2xl mx-auto">
-                            Run the new keyword pipeline to discover candidate keywords, cluster them by intent, and prepare the next generation flow for article and software ideas.
-                        </p>
+                {hasReadyRebuildRoute && (
+                    <div className="mb-5 rounded-xl border border-border bg-background/30 p-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div>
+                                <div className="text-sm font-semibold text-foreground">Legacy Keyword Flow Hidden By Default</div>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                    Rebuild is already ready for this scope, so the legacy keyword flow is collapsed unless you want to compare results or rescue edge-case seeds.
+                                </p>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setShowLegacyKeywordFlow((current) => !current)}
+                                className="border-border hover:bg-muted"
+                            >
+                                {showLegacyKeywordFlow ? (
+                                    <>
+                                        <ChevronUp className="mr-2 h-3 w-3" />
+                                        Hide Legacy Flow
+                                    </>
+                                ) : (
+                                    <>
+                                        <ChevronDown className="mr-2 h-3 w-3" />
+                                        Show Legacy Flow
+                                    </>
+                                )}
+                            </Button>
+                        </div>
                     </div>
-                ) : keywordResearchLoading ? (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {[1, 2, 3].map((item) => (
-                            <Skeleton key={`keyword-research-skeleton-${item}`} className="h-28 w-full rounded-xl" />
-                        ))}
-                    </div>
-                ) : (
-                    <div className="space-y-6">
+                )}
+
+                {showLegacyKeywordFlow && (
+                    <>
+                        <div className="mb-5 rounded-xl border border-border bg-muted/20 p-4">
+                            <div className="text-sm font-medium text-foreground">Optional Manual Seeds</div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                Leave this empty for fully automated seed generation. Add comma-separated or line-separated seeds when you want to rescue a hard topic, steer the run more directly, or rerun from an already discovered keyword below.
+                            </p>
+                            <textarea
+                                value={manualSeedInput}
+                                onChange={(event) => onManualSeedInputChange(event.target.value)}
+                                placeholder="example: market spending by state, regional price sensitivity, consumer spending shifts"
+                                className="mt-3 min-h-[84px] w-full rounded-lg border border-border bg-background/70 px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring"
+                            />
+                        </div>
+
+                        {!keywordResearchRun && !keywordResearchLoading ? (
+                            <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center">
+                                <Search className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+                                <h3 className="text-base font-semibold text-foreground mb-2">No topic keyword research run yet</h3>
+                                <p className="text-sm text-muted-foreground max-w-2xl mx-auto">
+                                    Run the new keyword pipeline to discover candidate keywords, cluster them by intent, and prepare the next generation flow for article and software ideas.
+                                </p>
+                            </div>
+                        ) : keywordResearchLoading ? (
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {[1, 2, 3].map((item) => (
+                                    <Skeleton key={`keyword-research-skeleton-${item}`} className="h-28 w-full rounded-xl" />
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="space-y-6">
                         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
                             <div className="text-sm font-semibold text-foreground">Recommended workflow</div>
                             <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                                <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">1. Refresh or rerun keyword research</span>
-                                <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">2. Select the strongest clusters</span>
-                                <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">3. Generate article ideas plus companion software ideas when tool potential is strong</span>
-                                <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">4. Publish the best ideas to Content Studio</span>
+                                {hasReadyRebuildRoute ? (
+                                    <>
+                                        <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">1. Review the rebuild-ready route first</span>
+                                        <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">2. Use legacy keyword research only if you need comparison or extra seed expansion</span>
+                                        <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">3. Publish or refine the best idea with rebuild evidence in mind</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">1. Refresh or rerun keyword research</span>
+                                        <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">2. Select the strongest clusters</span>
+                                        <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">3. Generate article ideas plus companion software ideas when tool potential is strong</span>
+                                        <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">4. Publish the best ideas to Content Studio</span>
+                                    </>
+                                )}
                             </div>
                             <p className="mt-3 text-xs text-muted-foreground">
                                 Each selected cluster is treated like a distinct user intent. The generator creates one focused article angle per cluster and may also create a companion software concept when that same cluster suggests calculator, planner, comparison, workflow, or app potential.
@@ -460,7 +558,9 @@ export function TopicKeywordResearchPanel({
                                 </div>
                             </div>
                         </div>
-                    </div>
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </div>
