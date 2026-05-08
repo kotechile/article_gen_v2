@@ -1,26 +1,27 @@
 import * as React from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Search, Trash2, Wrench, Star } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useAuth } from '@/context/auth-context'
 import { supabase } from '@/lib/supabase'
-import { Button } from '@/components/ui/button'
 import { contentIdeasService } from '@/services/content-ideas.service'
 
 type SoftwareIdea = {
     id: string
+    source_idea_id: string | null
     title: string
     description: string | null
     status: string | null
     published: boolean | null
-    created_at: string
+    released_at: string
     topic_id: string | null
     topic_rating?: number | null
+    build_complexity?: string | null
+    product_type?: string | null
+    category_path?: string | null
 }
 
 export function SoftwareIdeas() {
     const { user } = useAuth()
-    const navigate = useNavigate()
     const [ideas, setIdeas] = React.useState<SoftwareIdea[]>([])
     const [search, setSearch] = React.useState('')
     const [loading, setLoading] = React.useState(true)
@@ -30,23 +31,26 @@ export function SoftwareIdeas() {
         try {
             setLoading(true)
             const { data, error } = await supabase
-                .from('content_ideas')
+                .from('released_software_ideas')
                 .select('*')
                 .eq('user_id', user.id)
-                .eq('content_type', 'software')
-                .order('created_at', { ascending: false })
+                .order('released_at', { ascending: false })
 
             if (error) throw error
             console.info('[SoftwareIdeas] data loaded', { count: (data || []).length })
             const normalized = ((data || []) as any[]).map((row) => ({
                 id: row.id,
+                source_idea_id: row.source_idea_id ?? null,
                 title: row.title,
                 description: row.description ?? null,
                 status: row.status ?? null,
                 published: row.published ?? null,
-                created_at: row.created_at,
+                released_at: row.released_at ?? row.created_at,
                 topic_id: row.topic_id ?? null,
                 topic_rating: row.topic_rating ?? 0,
+                build_complexity: row.build_complexity ?? null,
+                product_type: row.product_type ?? null,
+                category_path: row.idea_metadata?.category_context?.category_path ?? null,
             })) as SoftwareIdea[]
             setIdeas(normalized)
         } catch (err) {
@@ -61,13 +65,26 @@ export function SoftwareIdeas() {
     }, [loadIdeas])
 
     const filtered = React.useMemo(
-        () => ideas.filter((idea) => idea.title.toLowerCase().includes(search.toLowerCase())),
+        () => {
+            const term = search.trim().toLowerCase()
+            if (!term) return ideas
+            return ideas.filter((idea) =>
+                [
+                    idea.title,
+                    idea.description,
+                    idea.product_type,
+                    idea.category_path,
+                ]
+                    .filter(Boolean)
+                    .some((value) => String(value).toLowerCase().includes(term))
+            )
+        },
         [ideas, search]
     )
 
     const handleDelete = async (id: string) => {
         if (!confirm('Delete this software idea?')) return
-        const { error } = await supabase.from('content_ideas').delete().eq('id', id)
+        const { error } = await supabase.from('released_software_ideas').delete().eq('id', id)
         if (error) {
             console.error('Failed to delete software idea:', error)
             return
@@ -121,7 +138,7 @@ export function SoftwareIdeas() {
                 ) : (
                     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                         {filtered.map((idea) => {
-                            const status = idea.published || idea.status?.toLowerCase() === 'published' ? 'Published' : 'Saved'
+                            const status = idea.published || idea.status?.toLowerCase() === 'published' ? 'Released' : 'Saved'
                             return (
                                 <div key={idea.id} className="rounded-xl border border-border bg-muted/30 p-5">
                                     <div className="mb-3 flex items-start justify-between gap-3">
@@ -137,6 +154,24 @@ export function SoftwareIdeas() {
                                     {idea.description && (
                                         <p className="mb-4 line-clamp-3 text-sm text-muted-foreground">{idea.description}</p>
                                     )}
+
+                                    <div className="mb-4 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                        {idea.product_type && (
+                                            <span className="rounded-full border border-border bg-background/60 px-2 py-1">
+                                                {idea.product_type}
+                                            </span>
+                                        )}
+                                        {idea.build_complexity && (
+                                            <span className="rounded-full border border-border bg-background/60 px-2 py-1">
+                                                {idea.build_complexity} build
+                                            </span>
+                                        )}
+                                        {idea.category_path && (
+                                            <span className="rounded-full border border-border bg-background/60 px-2 py-1">
+                                                {idea.category_path}
+                                            </span>
+                                        )}
+                                    </div>
 
                                     <div className="mb-4 flex items-center gap-1">
                                         {[1, 2, 3, 4, 5].map((value) => {
@@ -156,16 +191,8 @@ export function SoftwareIdeas() {
                                     </div>
 
                                     <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                        <span>{new Date(idea.created_at).toLocaleDateString()}</span>
+                                        <span>{new Date(idea.released_at).toLocaleDateString()}</span>
                                         <div className="flex items-center gap-2">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-8 border-border"
-                                                onClick={() => navigate(`/content-studio?id=${idea.id}`)}
-                                            >
-                                                Open
-                                            </Button>
                                             <button
                                                 type="button"
                                                 onClick={() => handleDelete(idea.id)}

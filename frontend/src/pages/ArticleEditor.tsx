@@ -28,6 +28,7 @@ import type { ImageMetadata } from '../types/image';
 import { rankCitationDomains } from '../lib/citationAuthority';
 import { InfographicBlock } from '../components/editor/InfographicBlock';
 import { materializeInfographicHtml, normalizeInfographicHtmlForEditor, beautifyTablesHtml } from '../lib/infographicSvg';
+import { ensureIntroKeyTakeaways } from '../lib/geoFormatting';
 
 
 const HeadingIdExtension = Extension.create({
@@ -227,6 +228,29 @@ const EditorStyles = `
     font-style: italic;
     color: hsl(var(--muted-foreground));
   }
+  .ProseMirror .geo-key-takeaways {
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    border-radius: 1rem;
+    padding: 1.25rem 1.5rem;
+    margin: 0 0 1.75rem 0;
+    color: #111827;
+  }
+  .ProseMirror .geo-key-takeaways h2,
+  .ProseMirror .geo-key-takeaways h3 {
+    margin-top: 0;
+    margin-bottom: 0.75rem;
+    color: #111827;
+  }
+  .ProseMirror .geo-key-takeaways ul,
+  .ProseMirror .geo-key-takeaways ol,
+  .ProseMirror .geo-key-takeaways p:last-child {
+    margin-bottom: 0;
+  }
+  .ProseMirror .geo-key-takeaways p,
+  .ProseMirror .geo-key-takeaways li {
+    color: #1f2937;
+  }
 
   /* Citation Styles */
   .citation-link.hidden-citation {
@@ -350,9 +374,13 @@ export const ArticleEditor: React.FC = () => {
 
     const materializeEditorHtml = React.useCallback((html: string) => {
         let processed = materializeInfographicHtml(html);
+        processed = ensureIntroKeyTakeaways(processed, articleData);
         return beautifyTablesHtml(processed);
-    }, []);
-    const normalizeEditorHtml = React.useCallback((html: string) => normalizeInfographicHtmlForEditor(html), []);
+    }, [articleData]);
+    const normalizeEditorHtml = React.useCallback(
+        (html: string) => ensureIntroKeyTakeaways(normalizeInfographicHtmlForEditor(html), articleData),
+        [articleData],
+    );
 
     const extensions = React.useMemo(() => [
         StarterKit.configure({
@@ -737,7 +765,7 @@ export const ArticleEditor: React.FC = () => {
                         content = normalizeCitations(content, parsedCitations, restoredSelected, d.include_in_text_citations ?? d.includeInTextCitations ?? true);
                     }
                     const cleanedContent = normalizeResidualMarkdownHeadings(content);
-                    editor.commands.setContent(normalizeEditorHtml(cleanedContent));
+                    editor.commands.setContent(ensureIntroKeyTakeaways(normalizeEditorHtml(cleanedContent), d));
                 }
 
                 // Store article data for WordPress export

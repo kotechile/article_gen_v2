@@ -1204,13 +1204,30 @@ export function KeywordIntelligenceModal({
                 setExpanderError("No new keywords found. Try a different seed.");
                 return;
             }
+            const normalizedSeedKeyword = String(result.seed_keyword || seed).trim();
+            const returnedKeywords = Array.isArray(result.keywords) ? [...result.keywords] : [];
+            const hasSeedInResults = returnedKeywords.some(
+                (row) => normalizeKeywordKey(String(row?.keyword || "")) === normalizeKeywordKey(normalizedSeedKeyword)
+            );
+            if (!hasSeedInResults && normalizedSeedKeyword) {
+                returnedKeywords.unshift({
+                    keyword: normalizedSeedKeyword,
+                    search_volume: null as any,
+                    keyword_difficulty: null as any,
+                    cpc: null as any,
+                    opportunity: 0,
+                    intent_label: null,
+                    competition_level: null,
+                });
+            }
+
             // Build DFSKeywordRow objects from the ranked keyword-lab response
-            const newRows: DFSKeywordRow[] = result.keywords
-                .filter((k) => !existingKeywords.includes(k.keyword))
+            const newRows: DFSKeywordRow[] = returnedKeywords
+                .filter((k) => !existingKeywords.some((existing) => normalizeKeywordKey(existing) === normalizeKeywordKey(k.keyword)))
                 .map((k) => ({
                     keyword: k.keyword,
-                    type: "related" as const,
-                    depth: 2, // mark as custom-expanded
+                    type: normalizeKeywordKey(k.keyword) === normalizeKeywordKey(normalizedSeedKeyword) ? "seed" as const : "related" as const,
+                    depth: normalizeKeywordKey(k.keyword) === normalizeKeywordKey(normalizedSeedKeyword) ? 0 : 2, // mark as custom-expanded
                     search_volume: k.search_volume ?? null,
                     competition: null,
                     competition_level: (k as any).competition_level ?? null,
@@ -1239,11 +1256,15 @@ export function KeywordIntelligenceModal({
                     items_count: Number(parsed.items_count || 0) + newRows.length,
                 }
                 : {
-                    seed_keyword: result.seed_keyword || seed,
+                    seed_keyword: normalizedSeedKeyword || seed,
                     total_count: newRows.length,
                     items_count: newRows.length,
                     rows: newRows,
                 };
+
+            if (nextParsed.seed_keyword !== normalizedSeedKeyword && normalizedSeedKeyword) {
+                nextParsed.seed_keyword = normalizedSeedKeyword;
+            }
 
             setParsed(nextParsed);
             setIsDataLoading(false);

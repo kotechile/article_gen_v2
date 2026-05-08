@@ -83,3 +83,25 @@
     @apply bg-background text-foreground antialiased transition-colors duration-200;
   }
 }
+
+@layer components {
+  .geo-key-takeaways {
+    @apply rounded-2xl border border-gray-200 bg-gray-100 px-6 py-5 text-gray-900;
+  }
+
+  .geo-key-takeaways h2,
+  .geo-key-takeaways h3 {
+    @apply mt-0 mb-3 text-gray-900;
+  }
+
+  .geo-key-takeaways ul,
+  .geo-key-takeaways ol,
+  .geo-key-takeaways p:last-child {
+    @apply mb-0;
+  }
+
+  .geo-key-takeaways p,
+  .geo-key-takeaways li {
+    @apply text-gray-800;
+  }
+}

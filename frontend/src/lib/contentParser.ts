@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { ensureIntroKeyTakeaways } from './geoFormatting';
 
 // ----------  citation helpers ----------
 
@@ -255,6 +256,29 @@ export const assembleArticleHtml = async (options: AssembleOptions) => {
             .preview-content li { margin-bottom: 0.5rem !important; }
             .preview-content img { margin-top: 2rem !important; margin-bottom: 2rem !important; border-radius: 0.5rem; }
             .preview-content a { color: #4F46E5 !important; text-decoration: underline; }
+            .preview-content .geo-key-takeaways {
+                background: #f3f4f6 !important;
+                border: 1px solid #e5e7eb !important;
+                border-radius: 1rem !important;
+                padding: 1.25rem 1.5rem !important;
+                margin: 0 0 2rem 0 !important;
+                color: #111827 !important;
+            }
+            .preview-content .geo-key-takeaways h2,
+            .preview-content .geo-key-takeaways h3 {
+                margin-top: 0 !important;
+                margin-bottom: 0.75rem !important;
+                color: #111827 !important;
+            }
+            .preview-content .geo-key-takeaways ul,
+            .preview-content .geo-key-takeaways ol,
+            .preview-content .geo-key-takeaways p:last-child {
+                margin-bottom: 0 !important;
+            }
+            .preview-content .geo-key-takeaways p,
+            .preview-content .geo-key-takeaways li {
+                color: #1f2937 !important;
+            }
 
             /* Dark Mode Overrides */
             :is(.dark .preview-content) h1 { color: #F9FAFB !important; } /* gray-50 */
@@ -371,7 +395,10 @@ export const assembleArticleHtml = async (options: AssembleOptions) => {
         finalHtml = postBody;
     } else {
         // For Preview: Full structured page
-        finalHtml = titleHtml + metadataHtml + postBody;
+        finalHtml = ensureIntroKeyTakeaways(
+            titleHtml + metadataHtml + postBody,
+            { thesis: options.thesis, hook: options.hook },
+        );
 
         // NOW wrap everything in the styled container
         finalHtml = `<div class="preview-content">${finalHtml}</div>`;

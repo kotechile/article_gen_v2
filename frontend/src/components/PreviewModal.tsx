@@ -32,7 +32,12 @@ export const PreviewModal: React.FC<PreviewModalProps> = ({ isOpen, onClose, htm
                 <div className="flex-1 overflow-y-auto p-8 bg-gray-50/50 dark:bg-gray-900/50">
                     <div
                         className="prose prose-indigo dark:prose-invert max-w-none mx-auto bg-white dark:bg-gray-800 p-8 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 
-                        prose-p:my-6 prose-headings:my-6 prose-li:my-2 prose-img:my-8 prose-h2:mt-10 prose-h2:mb-6"
+                        prose-p:my-6 prose-headings:my-6 prose-li:my-2 prose-img:my-8 prose-h2:mt-10 prose-h2:mb-6
+                        [&_.geo-key-takeaways]:rounded-2xl [&_.geo-key-takeaways]:border [&_.geo-key-takeaways]:border-gray-200
+                        [&_.geo-key-takeaways]:bg-gray-100 [&_.geo-key-takeaways]:px-6 [&_.geo-key-takeaways]:py-5
+                        [&_.geo-key-takeaways]:text-gray-900 [&_.geo-key-takeaways_h2]:mt-0 [&_.geo-key-takeaways_h2]:mb-3
+                        [&_.geo-key-takeaways_h2]:text-gray-900 [&_.geo-key-takeaways_p]:text-gray-800
+                        [&_.geo-key-takeaways_li]:text-gray-800 [&_.geo-key-takeaways_ul]:mb-0"
                         dangerouslySetInnerHTML={{ __html: htmlContent }}
                     />
                 </div>

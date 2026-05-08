@@ -1723,6 +1723,122 @@ def _resolve_publish_context_from_idea(supabase_admin, idea: dict, user_id: str)
     return resolved
 
 
+def _build_released_software_payload(idea: dict, user_id: str, released_at: str) -> dict:
+    """Project a software content idea into the durable released_software_ideas table."""
+    idea_metadata = _coerce_json_field(idea.get("idea_metadata"), {})
+    keyword_metrics = _coerce_json_field(idea.get("keyword_metrics"), {})
+    primary_keywords = _coerce_json_field(
+        idea.get("primary_keywords") or idea.get("keywords"),
+        [],
+    )
+    secondary_keywords = _coerce_json_field(idea.get("secondary_keywords"), [])
+    key_inputs = _coerce_json_field(idea_metadata.get("key_inputs") or idea.get("key_inputs"), [])
+    ranking_breakdown = _coerce_json_field(idea.get("ranking_breakdown"), {})
+
+    return {
+        "user_id": user_id,
+        "source_idea_id": idea.get("id"),
+        "topic_id": idea.get("topic_id"),
+        "title": idea.get("title") or "Untitled Software Idea",
+        "description": _ensure_short_description(
+            raw_description=idea.get("description"),
+            title=idea.get("title") or "",
+            keywords=primary_keywords,
+            subtopic=idea.get("subtopic") or "",
+        ),
+        "status": "saved",
+        "released_at": released_at,
+        "published": True,
+        "content_type": "software",
+        "subtopic": idea.get("subtopic"),
+        "category": idea.get("category"),
+        "domain": idea.get("domain"),
+        "keywords": primary_keywords,
+        "primary_keywords": primary_keywords,
+        "secondary_keywords": secondary_keywords,
+        "search_phrase": idea.get("search_phrase"),
+        "total_search_volume": idea.get("total_search_volume"),
+        "average_difficulty": idea.get("average_difficulty"),
+        "average_cpc": idea.get("average_cpc"),
+        "affiliate_offer_count": idea.get("affiliate_offer_count"),
+        "topic_rating": idea.get("topic_rating") or 0,
+        "viability_score": idea.get("viability_score"),
+        "trend_score": idea.get("trend_score"),
+        "monetization_score": idea.get("monetization_score"),
+        "seo_ease_score": idea.get("seo_ease_score"),
+        "opportunity_score": idea.get("opportunity_score"),
+        "product_type": idea.get("product_type") or idea_metadata.get("product_type"),
+        "user_job_to_be_done": idea.get("user_job_to_be_done") or idea_metadata.get("user_job_to_be_done"),
+        "key_inputs": key_inputs,
+        "output_result": idea.get("output_result") or idea_metadata.get("output_result"),
+        "build_complexity": idea.get("build_complexity") or idea_metadata.get("build_complexity"),
+        "distribution_angle": idea.get("distribution_angle") or idea_metadata.get("distribution_angle"),
+        "target_intent": idea.get("target_intent") or idea_metadata.get("target_intent"),
+        "content_outline": _coerce_json_field(idea.get("content_outline"), []),
+        "ranking_breakdown": ranking_breakdown,
+        "keyword_metrics": keyword_metrics,
+        "idea_metadata": idea_metadata,
+        "raw_dataforseo_output": idea.get("raw_dataforseo_output"),
+        "raw_supabase_output": idea.get("raw_supabase_output"),
+        "updated_at": released_at,
+    }
+
+
+def _upsert_released_software_idea(supabase, idea: dict, user_id: str, released_at: str) -> tuple[bool, str | None]:
+    """
+    Persist a software idea into released_software_ideas without a topic FK so it
+    survives topic deletion. Returns (persisted, released_row_id).
+    """
+    payload = _build_released_software_payload(idea=idea, user_id=user_id, released_at=released_at)
+    source_idea_id = str(idea.get("id") or "").strip()
+
+    try:
+        existing = []
+        if source_idea_id:
+            existing = (
+                supabase
+                .table("released_software_ideas")
+                .select("id")
+                .eq("user_id", user_id)
+                .eq("source_idea_id", source_idea_id)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+
+        if existing:
+            released_id = existing[0].get("id")
+            update_payload = dict(payload)
+            update_payload.pop("user_id", None)
+            update_payload.pop("source_idea_id", None)
+            update_payload.pop("released_at", None)
+            response = (
+                supabase
+                .table("released_software_ideas")
+                .update(update_payload)
+                .eq("id", released_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
+            row = (response.data or [{}])[0]
+            return True, row.get("id") or released_id
+
+        insert_payload = dict(payload)
+        insert_payload["id"] = str(uuid4())
+        response = supabase.table("released_software_ideas").insert(insert_payload).execute()
+        row = (response.data or [{}])[0]
+        return True, row.get("id") or insert_payload["id"]
+    except Exception:
+        logger.warning(
+            "Could not persist released software idea source_idea_id=%s user_id=%s",
+            source_idea_id or None,
+            user_id,
+            exc_info=True,
+        )
+        return False, None
+
+
 @content_ideas_bp.route("/list", methods=["POST"])
 @require_api_key
 def list_content_ideas():
@@ -1867,6 +1983,7 @@ def publish_content_ideas():
         now = datetime.utcnow().isoformat()
         updated_count = 0
         published_to_titles_count = 0
+        published_to_software_count = 0
         for idea_id in idea_ids:
             # 1) Fetch idea row first (works across old/new schemas).
             idea_resp = (
@@ -1882,8 +1999,28 @@ def publish_content_ideas():
                 continue
             idea = idea_resp.data[0]
 
-            # 2) For blog ideas, publish into Titles table directly.
-            if (idea.get("content_type") or "").lower() != "software":
+            # 2) Persist released ideas into their durable destination table.
+            if (idea.get("content_type") or "").lower() == "software":
+                software_persisted, released_software_id = _upsert_released_software_idea(
+                    supabase=supabase,
+                    idea=idea,
+                    user_id=user_id,
+                    released_at=now,
+                )
+                if software_persisted:
+                    published_to_software_count += 1
+                    try:
+                        supabase.table("content_ideas").update({
+                            "titles_record_id": released_software_id,
+                            "updated_at": now,
+                        }).eq("id", idea_id).eq("user_id", user_id).execute()
+                    except Exception:
+                        logger.warning(
+                            "Could not stamp content_ideas.titles_record_id for released software idea_id=%s",
+                            idea_id,
+                            exc_info=True,
+                        )
+            else:
                 publish_context = _resolve_publish_context_from_idea(
                     supabase_admin,
                     idea,
@@ -2017,12 +2154,13 @@ def publish_content_ideas():
                 if result.data:
                     updated_count += 1
 
-        success = (updated_count > 0) or (published_to_titles_count > 0)
+        success = (updated_count > 0) or (published_to_titles_count > 0) or (published_to_software_count > 0)
         status_code = 200 if success else 400
         return jsonify({
             "success": success,
             "published_count": updated_count,
             "published_to_titles_count": published_to_titles_count,
+            "published_to_software_count": published_to_software_count,
             "requested_count": len(idea_ids),
             "message": None if success else "No ideas were published. Verify idea IDs and schema.",
         }), status_code

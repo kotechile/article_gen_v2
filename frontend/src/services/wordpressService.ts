@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { materializeInfographicHtml, beautifyTablesHtml } from '../lib/infographicSvg';
+import { ensureIntroKeyTakeaways } from '../lib/geoFormatting';
 import type {
     WordPressSite,
     WordPressCategory,
@@ -398,53 +399,6 @@ const stripHtml = (html: string): string => {
     return (temp.textContent || temp.innerText || '').trim();
 };
 
-const ensureAnswerFirstBlock = (html: string, articleData: any): string => {
-    if (!html.trim()) return html;
-    const hasAnswerFirst = /<h2[^>]*>\s*(short answer|quick answer)\s*<\/h2>/i.test(html);
-    if (hasAnswerFirst) return html;
-
-    const shortAnswer = String(articleData?.thesis || articleData?.excerpt || articleData?.hook || '').trim();
-    if (!shortAnswer) return html;
-
-    const answerHtml = `
-<section class="geo-answer-first" data-geo-injected="short-answer">
-  <h2>Short Answer</h2>
-  <p>In short: ${shortAnswer}</p>
-</section>
-`;
-    return `${answerHtml}\n${html}`;
-};
-
-const ensureKeyTakeawaysBlock = (html: string, articleData: any): string => {
-    if (!html.trim()) return html;
-    if (/<h[23][^>]*>\s*key takeaways\s*<\/h[23]>/i.test(html)) return html;
-
-    const candidates = [
-        articleData?.thesis,
-        articleData?.excerpt,
-        articleData?.hook,
-        articleData?.focus_keyword ? `This article is optimized around "${articleData.focus_keyword}".` : '',
-    ]
-        .map((item: unknown) => String(item || '').trim())
-        .filter(Boolean);
-
-    const deduped = Array.from(new Set(candidates)).slice(0, 4);
-    if (deduped.length === 0) return html;
-
-    const listItems = deduped.map((item) => `<li>${item}</li>`).join('\n');
-    const takeawaysHtml = `
-<section class="geo-key-takeaways" data-geo-injected="key-takeaways">
-  <h2>Key Takeaways</h2>
-  <ul>
-    ${listItems}
-  </ul>
-</section>
-`;
-
-    // Keep this near the top for scannability by AI engines.
-    return `${takeawaysHtml}\n${html}`;
-};
-
 const extractFaqEntries = (html: string): FaqEntry[] => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
@@ -520,11 +474,49 @@ const buildFaqJsonLdScript = (faqEntries: FaqEntry[]): string => {
     return `<script type="application/ld+json">${JSON.stringify(schema)}</script>`;
 };
 
+const inlineExportTakeawaysCard = (html: string): string => {
+    if (!html.trim()) return html;
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const takeaways = doc.querySelector('section.geo-key-takeaways');
+    if (!(takeaways instanceof HTMLElement)) return html;
+
+    takeaways.setAttribute(
+        'style',
+        'background:#f3f4f6;border:1px solid #e5e7eb;border-radius:16px;padding:20px 24px;margin:0 0 24px 0;color:#111827;',
+    );
+
+    const heading = takeaways.querySelector('h2, h3');
+    if (heading instanceof HTMLElement) {
+        heading.setAttribute('style', 'margin:0 0 12px 0;color:#111827;font-size:1.5rem;line-height:1.3;');
+    }
+
+    const list = takeaways.querySelector('ul, ol');
+    if (list instanceof HTMLElement) {
+        list.setAttribute('style', 'margin:0;padding-left:1.5rem;color:#1f2937;');
+    }
+
+    takeaways.querySelectorAll('li').forEach((item) => {
+        if (item instanceof HTMLElement) {
+            item.setAttribute('style', 'margin:0 0 8px 0;color:#1f2937;line-height:1.7;');
+        }
+    });
+
+    takeaways.querySelectorAll('p').forEach((item) => {
+        if (item instanceof HTMLElement) {
+            item.setAttribute('style', 'margin:0;color:#1f2937;line-height:1.7;');
+        }
+    });
+
+    return doc.body.innerHTML;
+};
+
 const injectGeoFormatting = (html: string, articleData: any): string => {
     if (!html.trim()) return html;
     let formatted = html;
-    formatted = ensureAnswerFirstBlock(formatted, articleData);
-    formatted = ensureKeyTakeawaysBlock(formatted, articleData);
+    formatted = ensureIntroKeyTakeaways(formatted, articleData);
+    formatted = inlineExportTakeawaysCard(formatted);
 
     const hasFaqJsonLd = /<script[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*"@type"\s*:\s*"FAQPage"[\s\S]*<\/script>/i.test(formatted);
     if (!hasFaqJsonLd) {
@@ -567,7 +559,7 @@ const formatArticleBody = (articleData: any): string => {
             content += `
                 <div style="display: flex; gap: 0.75em; align-items: flex-start;">
                     <span style="font-size: 1.25em;">💡</span>
-                    <p style="margin: 0; font-weight: 500; color: #1f2937;"><strong>Key Takeaway:</strong> ${articleData.thesis}</p>
+                    <p style="margin: 0; font-weight: 500; color: #1f2937;">${articleData.thesis}</p>
                 </div>`;
         }
 

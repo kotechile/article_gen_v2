@@ -113,6 +113,7 @@ class _FakeSupabase:
         self.tables = {
             "content_ideas": copy.deepcopy(rows),
             "Titles": [],
+            "released_software_ideas": [],
         }
 
     def table(self, table_name: str):
@@ -226,6 +227,57 @@ def test_publish_content_ideas_copies_wp_and_domain_fields_to_titles(monkeypatch
     assert titles[0]["wordpress_parent_category_id"] == 5
     assert titles[0]["category"] == "Backpacking gear buying guides"
     assert titles[0]["domain"] == "example.com"
+
+
+def test_publish_content_ideas_persists_software_ideas_separately(monkeypatch):
+    rows = [
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "user_id": "user-1",
+            "topic_id": "topic-1",
+            "title": "Backpacking Gear Budget Planner",
+            "description": "Calculator to estimate the real trip cost before buying gear.",
+            "content_type": "software",
+            "keywords": ["backpacking budget planner"],
+            "primary_keywords": ["backpacking budget planner"],
+            "secondary_keywords": ["gear budget calculator"],
+            "status": "draft",
+            "published": False,
+            "topic_rating": 4,
+            "idea_metadata": {
+                "category_context": {
+                    "category_path": "Outdoors / Backpacking",
+                },
+                "product_type": "calculator",
+                "user_job_to_be_done": "Estimate backpacking trip costs",
+            },
+            "build_complexity": "medium",
+        }
+    ]
+    client, fake = _build_client(monkeypatch, rows)
+
+    response = client.post(
+        "/api/content-ideas/publish",
+        headers=_headers(),
+        json={"user_id": "user-1", "idea_ids": ["11111111-1111-1111-1111-111111111111"]},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["published_to_titles_count"] == 0
+    assert payload["published_to_software_count"] == 1
+
+    released_rows = fake.tables["released_software_ideas"]
+    assert len(released_rows) == 1
+    assert released_rows[0]["source_idea_id"] == "11111111-1111-1111-1111-111111111111"
+    assert released_rows[0]["topic_id"] == "topic-1"
+    assert released_rows[0]["title"] == "Backpacking Gear Budget Planner"
+    assert released_rows[0]["build_complexity"] == "medium"
+
+    persisted = {row["id"]: row for row in fake.tables["content_ideas"]}
+    assert persisted["11111111-1111-1111-1111-111111111111"]["status"] == "published"
+    assert persisted["11111111-1111-1111-1111-111111111111"]["published"] is True
 
 
 def test_publish_content_ideas_falls_back_when_titles_columns_missing(monkeypatch):
