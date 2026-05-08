@@ -637,18 +637,26 @@ export function ResearchRebuild() {
                     )}
                 </div>
 
-                <div className="grid gap-10 lg:grid-cols-[400px,1fr] items-start">
+                <div className="grid gap-10 lg:grid-cols-[400px,1fr] items-start relative">
+                    {/* Background Tints */}
+                    <div className="absolute inset-y-0 left-0 w-[400px] bg-indigo-500/[0.02] rounded-[3rem] -ml-4 -my-4 pointer-events-none hidden lg:block" />
+                    <div className="absolute inset-y-0 left-[440px] right-0 bg-emerald-500/[0.01] rounded-[3rem] -mr-4 -my-4 pointer-events-none hidden lg:block" />
                     {/* LEFT PANEL: CONFIGURATION & DISCOVERY */}
                     <aside className="space-y-8 lg:sticky lg:top-32">
-                        {/* Phase 01 Header */}
-                        <div className="px-2 space-y-4">
+                        <div className="px-2 space-y-4 relative z-10">
                              <h2 className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.4em] flex items-center gap-3">
                                 <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-[10px]">01</span>
                                 Discovery Phase
                             </h2>
                             <div>
                                 <h3 className="text-xl font-black text-white tracking-tight mb-2">Capture User Intent</h3>
-                                <p className="text-slate-500 text-xs font-medium leading-relaxed">Define the niche and capture category-specific user jobs to fuel the research engine.</p>
+                                <p className="text-slate-500 text-xs font-medium leading-relaxed mb-6">Define the niche and capture category-specific user jobs to fuel the research engine.</p>
+                                
+                                <PhaseGuide 
+                                    title="Getting Started"
+                                    description="Define your niche below. Use 'Generate AI-Driven Jobs' to discover what users are looking for in this category."
+                                    color="indigo"
+                                />
                             </div>
                         </div>
 
@@ -820,7 +828,7 @@ export function ResearchRebuild() {
                     {/* RIGHT PANEL: ANALYSIS RESULTS */}
                     <div className="space-y-10">
                         {/* Phase 03 Header */}
-                        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4">
+                        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4 relative z-10">
                             <div className="max-w-xl space-y-4">
                                 <h2 className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.3em] flex items-center gap-3">
                                     <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10px]">03</span>
@@ -828,9 +836,15 @@ export function ResearchRebuild() {
                                 </h2>
                                 <div>
                                     <h3 className="text-3xl font-black text-white tracking-tight leading-tight">High-Achievability Outcomes</h3>
-                                    <p className="text-slate-500 text-[13px] font-medium mt-3 leading-relaxed">
+                                    <p className="text-slate-500 text-[13px] font-medium mt-3 leading-relaxed mb-6">
                                         Strategic opportunities derived from validated search data. Every outcome represents a winnable path identified by the engine.
                                     </p>
+                                    
+                                    <PhaseGuide 
+                                        title="Making Decisions"
+                                        description="Inspect opportunities to see SERP evidence. 'Promote' winning ideas to start creating content, or 'Release' software tools."
+                                        color="emerald"
+                                    />
                                 </div>
                             </div>
                             
@@ -1154,9 +1168,16 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                     : "bg-white/[0.02] border-white/5 hover:border-white/10 hover:bg-white/[0.03] hover:shadow-xl"
             )}
         >
+            {/* Decision Stamp Watermark */}
+            <div className="absolute right-10 top-1/2 -translate-y-1/2 opacity-[0.03] select-none pointer-events-none">
+                <span className="text-8xl font-black uppercase tracking-tighter italic">
+                    {route === 'software_ready' ? 'Software' : route === 'article_ready' ? 'Article' : 'Outcome'}
+                </span>
+            </div>
+
             {/* Status Accent Bar */}
             <div 
-                className="absolute left-0 top-0 bottom-0 w-1.5 transition-all duration-500" 
+                className="absolute left-0 top-0 bottom-0 w-1.5 transition-all duration-500 z-10" 
                 style={{ backgroundColor: config.accent, opacity: isExpanded ? 1 : 0.4 }} 
             />
 
@@ -1434,6 +1455,32 @@ function getSerpRows(validationRun: ResearchRebuildValidationRun): any[] {
 
 function getInternalLinkMetadata(link: ResearchRebuildInternalLinkCandidate): any {
     return link.match_metadata || {}
+}
+
+function PhaseGuide({ title, description, color = 'indigo' }: { title: string; description: string; color?: 'indigo' | 'emerald' | 'purple' }) {
+    const [isVisible, setIsVisible] = React.useState(true)
+    if (!isVisible) return null
+
+    const colors = {
+        indigo: 'bg-indigo-500/10 border-indigo-500/20 text-indigo-200 shadow-indigo-500/5',
+        emerald: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-200 shadow-emerald-500/5',
+        purple: 'bg-purple-500/10 border-purple-500/20 text-purple-200 shadow-purple-500/5',
+    }
+
+    return (
+        <div className={cn("p-5 rounded-2xl border flex items-start gap-4 mb-8 animate-in fade-in slide-in-from-left-4 duration-700", colors[color])}>
+            <div className="bg-white/10 p-2 rounded-xl mt-0.5">
+                <Info className="h-4 w-4" />
+            </div>
+            <div className="flex-1">
+                <h5 className="text-[11px] font-black uppercase tracking-widest mb-1">{title}</h5>
+                <p className="text-[12px] font-medium leading-relaxed opacity-80">{description}</p>
+            </div>
+            <button onClick={() => setIsVisible(false)} className="text-white/20 hover:text-white transition-colors">
+                <XCircle className="h-4 w-4" />
+            </button>
+        </div>
+    )
 }
 
 function formatWorkflowRunShortLabel(run: ResearchRebuildWorkflowRunSummary): string {
