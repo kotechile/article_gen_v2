@@ -106,16 +106,6 @@ export function ResearchRebuild() {
         [filteredWorkflowResults],
     )
 
-    const selectedWorkflowRun = React.useMemo(
-        () => workflowRuns.find((run) => run.workflow_run_id === workflowRunFilter) || null,
-        [workflowRunFilter, workflowRuns],
-    )
-
-    const latestWorkflowRun = React.useMemo(
-        () => workflowRuns[0] || null,
-        [workflowRuns],
-    )
-
     const currentViewUrl = React.useMemo(() => {
         const params = new URLSearchParams()
         if (activeProject?.id) {
@@ -138,11 +128,6 @@ export function ResearchRebuild() {
         }
         return `${window.location.origin}${path}`
     }, [activeProject?.id, primaryCategoryId, secondaryCategoryId, workflowRunFilter])
-
-    const visibleJobIds = React.useMemo(
-        () => filteredWorkflowResults.map((jobResult) => jobResult.job_id),
-        [filteredWorkflowResults],
-    )
 
     React.useEffect(() => {
         if (!user?.id || !activeProject?.id) return
@@ -225,7 +210,7 @@ export function ResearchRebuild() {
 
     React.useEffect(() => {
         setWorkflowPage(0)
-    }, [activeProject?.id, primaryCategoryId, secondaryCategoryId, jobStatusFilter, workflowRunFilter, routeFilter, candidateTypeFilter, outcomeTypeFilter, candidateSearch])
+    }, [activeProject?.id, primaryCategoryId, secondaryCategoryId, jobStatusFilter, workflowRunFilter, routeFilter, candidateSearch])
 
     React.useEffect(() => {
         if (workflowRunFilter === 'all') return
@@ -252,8 +237,6 @@ export function ResearchRebuild() {
                 job_status: jobStatusFilter !== 'all' ? jobStatusFilter : undefined,
                 workflow_run_id: nextWorkflowRunFilter !== 'all' ? nextWorkflowRunFilter : undefined,
                 route: routeFilter !== 'all' ? routeFilter : undefined,
-                candidate_type: candidateTypeFilter !== 'all' ? candidateTypeFilter : undefined,
-                outcome_type: outcomeTypeFilter !== 'all' ? outcomeTypeFilter : undefined,
                 search: candidateSearch.trim() || undefined,
                 limit: workflowPageSize,
                 offset: nextWorkflowPage * workflowPageSize,
@@ -270,7 +253,7 @@ export function ResearchRebuild() {
             setLoadingJobs(false)
             setLoadingWorkflowArtifacts(false)
         }
-    }, [activeProject?.id, primaryCategoryId, secondaryCategoryId, jobStatusFilter, workflowRunFilter, routeFilter, candidateTypeFilter, outcomeTypeFilter, candidateSearch, workflowPage, workflowPageSize])
+    }, [activeProject?.id, primaryCategoryId, secondaryCategoryId, jobStatusFilter, workflowRunFilter, routeFilter, candidateSearch, workflowPage, workflowPageSize])
 
     React.useEffect(() => {
         void refreshPageContext()
