@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Settings, TrendingUp, ChevronLeft, ChevronRight, LogOut, Home, BookOpen, Menu, Wrench, FlaskConical } from "lucide-react"
+import { Settings, ChevronLeft, ChevronRight, LogOut, BookOpen, Menu, Wrench, FlaskConical } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
