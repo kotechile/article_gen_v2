@@ -165,6 +165,8 @@ async def _build_persisted_workflow_snapshot(
         user_job_id = str(candidate.get("user_job_id") or "")
         if not candidate_id or not user_job_id or user_job_id not in allowed_job_ids:
             continue
+        if str(candidate.get("status") or "").strip().lower() == "rejected":
+            continue
         candidate_metadata = candidate.get("candidate_metadata") or {}
         candidate_workflow_run_id = ""
         if isinstance(candidate_metadata, dict):
@@ -260,6 +262,8 @@ async def _list_persisted_workflow_runs(
         candidate_id = str(candidate.get("id") or "")
         user_job_id = str(candidate.get("user_job_id") or "")
         if not candidate_id or user_job_id not in allowed_job_ids:
+            continue
+        if str(candidate.get("status") or "").strip().lower() == "rejected":
             continue
         metadata = candidate.get("candidate_metadata") or {}
         if not isinstance(metadata, dict):
