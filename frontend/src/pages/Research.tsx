@@ -2,13 +2,15 @@
 import * as React from "react"
 import { useAuth } from "@/context/auth-context"
 import { useProject } from "@/context/project-context"
+import { researchRebuildService } from "@/services/research-rebuild.service"
 import { researchTopicsService } from "@/services/research-topics.service"
 import type { ResearchTopic } from "@/types/research"
+import type { ResearchRebuildTopicScopeSummary, ResearchRebuildWorkflowRunSummary } from "@/types/research-rebuild"
 import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Search, Clock, Trash2, ArrowUpRight, Loader2, Archive, RotateCcw, ChevronDown, ChevronUp, Star } from "lucide-react"
+import { Search, Clock, Trash2, ArrowUpRight, Loader2, Archive, RotateCcw, ChevronDown, ChevronUp, Star, Sparkles } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
 
@@ -17,6 +19,12 @@ type ProjectCategory = {
     name: string
     level: number
     parent_category_id: string | null
+}
+
+type RebuildSummary = {
+    runCount: number
+    latestRun: ResearchRebuildWorkflowRunSummary | null
+    dominantRoute: string | null
 }
 
 export function Research() {
@@ -31,6 +39,7 @@ export function Research() {
     const [primaryCategoryFilter, setPrimaryCategoryFilter] = React.useState<string>("")
     const [secondaryCategoryFilter, setSecondaryCategoryFilter] = React.useState<string>("")
     const [projectCategories, setProjectCategories] = React.useState<ProjectCategory[]>([])
+    const [rebuildTopicSummaries, setRebuildTopicSummaries] = React.useState<ResearchRebuildTopicScopeSummary[]>([])
     const [topicPendingDelete, setTopicPendingDelete] = React.useState<ResearchTopic | null>(null)
     const [deleteLoading, setDeleteLoading] = React.useState(false)
     const [archivingTopicIds, setArchivingTopicIds] = React.useState<Set<string>>(new Set())
@@ -79,6 +88,40 @@ export function Research() {
         }
         void loadProjectCategories()
     }, [projectFilter, user?.id])
+
+    React.useEffect(() => {
+        const loadRebuildTopicSummaries = async () => {
+            const projectIds = projectFilter
+                ? [projectFilter]
+                : Array.from(
+                    new Set(
+                        (topics || [])
+                            .map((topic) => String(topic.project_id || ''))
+                            .filter(Boolean),
+                    ),
+                )
+
+            if (projectIds.length === 0) {
+                setRebuildTopicSummaries([])
+                return
+            }
+
+            try {
+                const response = await researchRebuildService.listTopicSummaries({
+                    project_id: projectFilter || undefined,
+                    project_ids: projectFilter ? undefined : projectIds,
+                    primary_category_id: primaryCategoryFilter || undefined,
+                    secondary_category_id: secondaryCategoryFilter || undefined,
+                    limit: 200,
+                })
+                setRebuildTopicSummaries(response.items || [])
+            } catch (err) {
+                console.error('Failed to load rebuild topic summaries for research list:', err)
+                setRebuildTopicSummaries([])
+            }
+        }
+        void loadRebuildTopicSummaries()
+    }, [primaryCategoryFilter, projectFilter, secondaryCategoryFilter, topics])
 
     React.useEffect(() => {
         setPrimaryCategoryFilter("")
@@ -272,6 +315,76 @@ export function Research() {
         return q ? `?${q}` : ''
     }, [projectFilter, primaryCategoryFilter, secondaryCategoryFilter])
 
+    const buildRebuildUrl = React.useCallback((topic?: ResearchTopic, workflowRunId?: string) => {
+        const params = new URLSearchParams()
+        const scopedProjectId = topic?.project_id || projectFilter || activeProject?.id || ''
+        const scopedPrimaryCategoryId = topic?.primary_category_id || primaryCategoryFilter || ''
+        const scopedSecondaryCategoryId = topic?.secondary_category_id || secondaryCategoryFilter || ''
+
+        if (scopedProjectId) params.set('project_id', scopedProjectId)
+        if (scopedPrimaryCategoryId) params.set('primary_category_id', scopedPrimaryCategoryId)
+        if (scopedSecondaryCategoryId) params.set('secondary_category_id', scopedSecondaryCategoryId)
+        if (workflowRunId) params.set('workflow_run_id', workflowRunId)
+
+        const query = params.toString()
+        return `/research-rebuild${query ? `?${query}` : ''}`
+    }, [activeProject?.id, primaryCategoryFilter, projectFilter, secondaryCategoryFilter])
+
+    const getTopicRebuildSummary = React.useCallback((topic: ResearchTopic): RebuildSummary | null => {
+        const topicProjectId = String(topic.project_id || '')
+        const topicPrimaryCategoryId = topic.primary_category_id || ''
+        const topicSecondaryCategoryId = topic.secondary_category_id || ''
+
+        if (!topicProjectId || !topicPrimaryCategoryId) {
+            return null
+        }
+
+        const primaryOnlySummary =
+            rebuildTopicSummaries.find(
+                (summary) =>
+                    summary.project_id === topicProjectId &&
+                    summary.primary_category_id === topicPrimaryCategoryId &&
+                    !summary.secondary_category_id,
+            ) || null
+        const secondarySummary = topicSecondaryCategoryId
+            ? rebuildTopicSummaries.find(
+                (summary) =>
+                    summary.project_id === topicProjectId &&
+                    summary.primary_category_id === topicPrimaryCategoryId &&
+                    summary.secondary_category_id === topicSecondaryCategoryId,
+            ) || null
+            : null
+
+        const matchingSummaries = [primaryOnlySummary, secondarySummary].filter(Boolean) as ResearchRebuildTopicScopeSummary[]
+        if (matchingSummaries.length === 0) {
+            return null
+        }
+
+        const routeCounts = matchingSummaries.reduce<Record<string, number>>((accumulator, summary) => {
+            for (const [route, count] of Object.entries(summary.route_counts || {})) {
+                accumulator[route] = (accumulator[route] || 0) + Number(count || 0)
+            }
+            return accumulator
+        }, {})
+
+        const dominantRoute = Object.entries(routeCounts)
+            .reduce<{ route: string | null; count: number }>(
+                (best, [route, count]) => (count > best.count ? { route, count } : best),
+                { route: null, count: 0 }
+            ).route
+
+        const latestRun = matchingSummaries
+            .map((summary) => summary.latest_run)
+            .filter(Boolean)
+            .sort((left, right) => String(right?.started_at || '').localeCompare(String(left?.started_at || '')))[0] || null
+
+        return {
+            runCount: matchingSummaries.reduce((sum, summary) => sum + Number(summary.run_count || 0), 0),
+            latestRun,
+            dominantRoute,
+        }
+    }, [rebuildTopicSummaries])
+
     return (
         <div className="min-h-screen bg-background relative overflow-hidden">
             {/* Radial gradient background */}
@@ -301,6 +414,28 @@ export function Research() {
                             New Research
                             <ArrowUpRight className="ml-2 h-4 w-4" />
                         </Button>
+                    </div>
+
+                    <div className="mt-5 rounded-2xl border border-border bg-muted/30 p-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div>
+                                <div className="flex items-center gap-2 text-foreground">
+                                    <Sparkles className="h-4 w-4 text-amber-400" />
+                                    <span className="text-sm font-semibold">Research Rebuild</span>
+                                </div>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                    Try the job-first workflow for article and software opportunity discovery with validation, routing, and run history.
+                                </p>
+                            </div>
+                            <Button
+                                variant="secondary"
+                                className="shrink-0"
+                                onClick={() => navigate(`/research-rebuild${filterQuery}`)}
+                            >
+                                Open Rebuild
+                                <ArrowUpRight className="ml-2 h-4 w-4" />
+                            </Button>
+                        </div>
                     </div>
 
                     <div className="mt-6 grid gap-3 md:grid-cols-4">
@@ -404,6 +539,10 @@ export function Research() {
                             {activeTopics.length > 0 ? (
                                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                                     {activeTopics.map((topic, index) => (
+                                        (() => {
+                                            const rebuildSummary = getTopicRebuildSummary(topic)
+
+                                            return (
                                         <motion.div
                                             key={topic.id}
                                             initial={{ opacity: 0, y: 20 }}
@@ -520,6 +659,18 @@ export function Research() {
                                                             variant="ghost"
                                                             size="icon"
                                                             className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                navigate(buildRebuildUrl(topic))
+                                                            }}
+                                                            aria-label={`Open ${topic.title} in Research Rebuild`}
+                                                        >
+                                                            <Sparkles className="h-4 w-4" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
                                                             onClick={(e) => handleToggleArchived(e, topic, true)}
                                                             disabled={archivingTopicIds.has(topic.id)}
                                                             aria-label={`Archive ${topic.title}`}
@@ -574,7 +725,7 @@ export function Research() {
                                                 {ratingTopicIds.has(topic.id) && <Loader2 className="ml-1 h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                                             </div>
 
-                                            {(topic.project_name || topic.primary_category_name || topic.secondary_category_name) && (
+                                                    {(topic.project_name || topic.primary_category_name || topic.secondary_category_name) && (
                                                 <div className="mt-4 flex flex-wrap gap-2">
                                                     {topic.project_name && (
                                                         <span className="rounded-full border border-border bg-muted/50 px-3 py-1 text-[11px] text-foreground">
@@ -586,9 +737,20 @@ export function Research() {
                                                             {[topic.primary_category_name, topic.secondary_category_name].filter(Boolean).join(' / ')}
                                                         </span>
                                                     )}
+                                                    {rebuildSummary && (
+                                                        <RebuildStatusBadge
+                                                            summary={rebuildSummary}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                navigate(buildRebuildUrl(topic, rebuildSummary.latestRun?.workflow_run_id))
+                                                            }}
+                                                        />
+                                                    )}
                                                 </div>
                                             )}
                                         </motion.div>
+                                            )
+                                        })()
                                     ))}
                                 </div>
                             ) : (
@@ -609,6 +771,7 @@ export function Research() {
                                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                                         {archivedTopics.map((topic, index) => {
                                             const expanded = expandedArchivedIds.has(topic.id)
+                                            const rebuildSummary = getTopicRebuildSummary(topic)
                                             return (
                                                 <motion.div
                                                     key={topic.id}
@@ -661,6 +824,19 @@ export function Research() {
                                                                 {topic.description || "No description provided."}
                                                             </p>
 
+                                                            {rebuildSummary && (
+                                                                <div className="mt-3 flex flex-wrap gap-2">
+                                                                    <RebuildStatusBadge
+                                                                        summary={rebuildSummary}
+                                                                        muted
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            navigate(buildRebuildUrl(topic, rebuildSummary.latestRun?.workflow_run_id))
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                            )}
+
                                                             <div className="mt-3 flex items-center gap-1">
                                                                 {[1, 2, 3, 4, 5].map((value) => {
                                                                     const isFilled = value <= Number(topic.topic_rating || 0)
@@ -685,14 +861,28 @@ export function Research() {
                                                     )}
 
                                                     <div className="mt-4 border-t border-border/80 pt-3">
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => toggleArchivedExpansion(e, topic.id)}
-                                                            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition hover:text-foreground"
-                                                        >
-                                                            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                                                            {expanded ? "Collapse" : "Expand"}
-                                                        </button>
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => toggleArchivedExpansion(e, topic.id)}
+                                                                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition hover:text-foreground"
+                                                            >
+                                                                {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                                                {expanded ? "Collapse" : "Expand"}
+                                                            </button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    navigate(buildRebuildUrl(topic))
+                                                                }}
+                                                            >
+                                                                <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                                                                Rebuild
+                                                            </Button>
+                                                        </div>
                                                     </div>
                                                 </motion.div>
                                             )
@@ -760,4 +950,39 @@ export function Research() {
             )}
         </div>
     )
+}
+
+function RebuildStatusBadge({
+    summary,
+    muted = false,
+    onClick,
+}: {
+    summary: RebuildSummary
+    muted?: boolean
+    onClick?: React.MouseEventHandler<HTMLButtonElement>
+}) {
+    const routeLabel = formatRouteLabel(summary.dominantRoute)
+    const toneClasses = muted
+        ? "border-amber-500/15 bg-amber-500/5 text-amber-200"
+        : "border-amber-500/20 bg-amber-500/10 text-amber-300"
+
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className={`rounded-full border px-3 py-1 text-[11px] transition hover:border-amber-400/40 hover:bg-amber-500/15 ${toneClasses}`}
+        >
+            Rebuild: {summary.runCount} run{summary.runCount === 1 ? '' : 's'}
+            {routeLabel ? ` · ${routeLabel}` : ''}
+        </button>
+    )
+}
+
+function formatRouteLabel(route: string | null | undefined) {
+    if (!route) return ''
+    return route
+        .split('_')
+        .filter(Boolean)
+        .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+        .join(' ')
 }

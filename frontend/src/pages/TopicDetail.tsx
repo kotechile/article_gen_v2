@@ -3,6 +3,7 @@ import * as React from "react"
 import { useParams, useNavigate, useLocation } from "react-router-dom"
 import { useAuth } from "@/context/auth-context"
 import { researchTopicsService } from "@/services/research-topics.service"
+import { researchRebuildService } from "@/services/research-rebuild.service"
 import { topicKeywordResearchService } from "@/services/topic-keyword-research.service"
 import { contentIdeasService } from "@/services/content-ideas.service"
 import type { ContentIdea } from "@/types/idea-burst"
@@ -12,13 +13,20 @@ import type {
     TopicKeywordCluster,
     TopicKeywordResearchRun,
 } from "@/types/research"
+import type { ResearchRebuildWorkflowRunSummary, ResearchRebuildWorkflowJobResult, ResearchRebuildTopicReviewItem } from "@/types/research-rebuild"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ArrowLeft, ListTree, LibraryBig, Search, Sparkles } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, ListTree, LibraryBig, Search, Sparkles } from "lucide-react"
 import { motion } from "framer-motion"
 import { GeneratedIdeasPanel } from "@/components/GeneratedIdeasPanel"
 import { TopicKeywordResearchPanel } from "@/components/TopicKeywordResearchPanel"
 import { toast } from "sonner"
+
+const normalizeIdeaTitle = (value?: string | null) =>
+    String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
 
 export function TopicDetail() {
     const { id } = useParams<{ id: string }>()
@@ -53,6 +61,19 @@ export function TopicDetail() {
     const [generatedIdeaTypeFilter, setGeneratedIdeaTypeFilter] = React.useState<'all' | 'blog' | 'software'>('all')
     const [generatedIdeaSort, setGeneratedIdeaSort] = React.useState<'score' | 'volume' | 'difficulty' | 'recent'>('score')
     const [latestGeneratedIdeas, setLatestGeneratedIdeas] = React.useState<ContentIdea[]>([])
+    const [rebuildRuns, setRebuildRuns] = React.useState<ResearchRebuildWorkflowRunSummary[]>([])
+    const [latestRebuildRun, setLatestRebuildRun] = React.useState<ResearchRebuildWorkflowRunSummary | null>(null)
+    const [latestRebuildRoute, setLatestRebuildRoute] = React.useState<string | null>(null)
+    const [loadingRebuildSummary, setLoadingRebuildSummary] = React.useState(false)
+    const [rebuildOutcomePreview, setRebuildOutcomePreview] = React.useState<ResearchRebuildWorkflowJobResult[]>([])
+    const [loadingRebuildOutcomes, setLoadingRebuildOutcomes] = React.useState(false)
+    const [persistingRebuildOutcomeIds, setPersistingRebuildOutcomeIds] = React.useState<Set<string>>(new Set())
+    const [releasingRebuildOutcomeIds, setReleasingRebuildOutcomeIds] = React.useState<Set<string>>(new Set())
+    const [showSuppressedLegacyIdeas, setShowSuppressedLegacyIdeas] = React.useState(false)
+    const [combinedReviewSourceFilter, setCombinedReviewSourceFilter] = React.useState<'all' | 'rebuild' | 'legacy'>('all')
+    const [combinedReviewItems, setCombinedReviewItems] = React.useState<ResearchRebuildTopicReviewItem[]>([])
+    const [loadingCombinedReview, setLoadingCombinedReview] = React.useState(false)
+    const [suppressedCombinedLegacyCount, setSuppressedCombinedLegacyCount] = React.useState(0)
 
     const mergeContentIdeas = React.useCallback((baseIdeas: ContentIdea[], incomingIdeas: ContentIdea[]) => {
         const merged = new Map<string, ContentIdea>()
@@ -139,6 +160,63 @@ export function TopicDetail() {
             loadData(id)
         }
     }, [authLoading, user, id])
+
+    const refreshTopicRebuildContext = React.useCallback(async () => {
+        if (!id || !topic?.project_id || !topic?.primary_category_id) {
+            setRebuildRuns([])
+            setLatestRebuildRun(null)
+            setLatestRebuildRoute(null)
+            setRebuildOutcomePreview([])
+            setCombinedReviewItems([])
+            setSuppressedCombinedLegacyCount(0)
+            return
+        }
+        try {
+            setLoadingRebuildSummary(true)
+            setLoadingRebuildOutcomes(true)
+            setLoadingCombinedReview(true)
+            const response = await researchRebuildService.getTopicContext({
+                topic_id: id,
+                project_id: topic.project_id,
+                primary_category_id: topic.primary_category_id || undefined,
+                secondary_category_id: topic.secondary_category_id || undefined,
+                review_source: combinedReviewSourceFilter,
+                include_suppressed_legacy: showSuppressedLegacyIdeas,
+                run_limit: 10,
+                preview_limit: 6,
+                review_limit: 8,
+            })
+            setRebuildRuns(response.runs || [])
+            setLatestRebuildRun(response.latest_run || (response.runs || [])[0] || null)
+            setLatestRebuildRoute(response.latest_route || null)
+            setRebuildOutcomePreview(response.latest_preview_items || [])
+            setCombinedReviewItems(response.review_items || [])
+            setSuppressedCombinedLegacyCount(Number(response.suppressed_legacy_count || 0))
+        } catch (err) {
+            console.error('Failed to load topic rebuild context:', err)
+            setRebuildRuns([])
+            setLatestRebuildRun(null)
+            setLatestRebuildRoute(null)
+            setRebuildOutcomePreview([])
+            setCombinedReviewItems([])
+            setSuppressedCombinedLegacyCount(0)
+        } finally {
+            setLoadingRebuildSummary(false)
+            setLoadingRebuildOutcomes(false)
+            setLoadingCombinedReview(false)
+        }
+    }, [
+        combinedReviewSourceFilter,
+        id,
+        showSuppressedLegacyIdeas,
+        topic?.primary_category_id,
+        topic?.project_id,
+        topic?.secondary_category_id,
+    ])
+
+    React.useEffect(() => {
+        void refreshTopicRebuildContext()
+    }, [refreshTopicRebuildContext])
 
     const loadData = async (topicId: string) => {
         try {
@@ -258,6 +336,7 @@ export function TopicDetail() {
             setStoredIdeas(mergedIdeas)
             setHasStoredIdeas(mergedIdeas.length > 0)
             setLatestGeneratedIdeas(responseIdeas)
+            await refreshTopicRebuildContext()
 
             toast.success(
                 `Generated ${result.generated_count || 0} ideas from ${clusterIds.length} cluster${clusterIds.length === 1 ? '' : 's'}.`,
@@ -302,6 +381,7 @@ export function TopicDetail() {
             setHasStoredIdeas(mergedIdeas.length > 0)
             setLatestGeneratedIdeas(responseIdeas)
             setError(null)
+            await refreshTopicRebuildContext()
 
             toast.success(
                 `Generated ${result.generated_count || 0} editorial idea${(result.generated_count || 0) === 1 ? '' : 's'}.`,
@@ -373,39 +453,6 @@ export function TopicDetail() {
         }
         return 'This hybrid topic did not produce enough viable keyword candidates, so you can fall back to direct editorial idea generation instead of stopping here.'
     }, [topicMode])
-
-    const visibleGeneratedClusterIdeas = React.useMemo(() => {
-        const filtered = generatedClusterIdeas.filter((idea) => {
-            const isPublished = Boolean(
-                idea.published ||
-                idea.published_to_titles ||
-                idea.titles_record_id ||
-                idea.status?.toLowerCase() === 'published'
-            )
-
-            if (isPublished) {
-                return false
-            }
-            if (generatedIdeaTypeFilter === 'all') {
-                return true
-            }
-            return idea.content_type === generatedIdeaTypeFilter
-        })
-
-        const sorted = [...filtered].sort((a, b) => {
-            if (generatedIdeaSort === 'volume') {
-                return Number(b.total_search_volume || 0) - Number(a.total_search_volume || 0)
-            }
-            if (generatedIdeaSort === 'difficulty') {
-                return Number(a.average_difficulty || 999) - Number(b.average_difficulty || 999)
-            }
-            if (generatedIdeaSort === 'recent') {
-                return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
-            }
-            return Number(b.opportunity_score || 0) - Number(a.opportunity_score || 0)
-        })
-        return sorted
-    }, [generatedClusterIdeas, generatedIdeaSort, generatedIdeaTypeFilter])
 
     const formatDateTime = React.useCallback((value?: string | null) => {
         if (!value) return 'Not available'
@@ -481,6 +528,80 @@ export function TopicDetail() {
         )
     }, [])
 
+    const flattenedRebuildOutcomes = React.useMemo(() => {
+        return rebuildOutcomePreview
+            .flatMap((jobResult) =>
+                jobResult.candidates.map((candidateResult) => ({
+                    job: jobResult.job,
+                    candidate: candidateResult.candidate,
+                    keywordPack: candidateResult.keyword_pack,
+                    routingDecision: candidateResult.routing_decision,
+                    generatedOutcome: candidateResult.generated_outcome,
+                })),
+            )
+            .slice(0, 6)
+    }, [rebuildOutcomePreview])
+
+    const suppressedLegacyIdeaTitleSet = React.useMemo(() => {
+        const titles = new Set<string>()
+        for (const row of flattenedRebuildOutcomes) {
+            const status = String(row.generatedOutcome.status || '').toLowerCase()
+            if (!['persisted', 'published'].includes(status)) {
+                continue
+            }
+            const outcomeMetadata = (row.generatedOutcome.outcome_metadata || {}) as Record<string, any>
+            const normalizedTitle = normalizeIdeaTitle(
+                String(outcomeMetadata.title || outcomeMetadata.name || row.candidate.candidate_text || ''),
+            )
+            if (normalizedTitle) {
+                titles.add(normalizedTitle)
+            }
+        }
+        return titles
+    }, [flattenedRebuildOutcomes])
+
+    const visibleGeneratedClusterIdeas = React.useMemo(() => {
+        const filtered = generatedClusterIdeas.filter((idea) => {
+            const isPublished = Boolean(
+                idea.published ||
+                idea.published_to_titles ||
+                idea.titles_record_id ||
+                idea.status?.toLowerCase() === 'published'
+            )
+
+            if (isPublished) {
+                return false
+            }
+            if (!showSuppressedLegacyIdeas && suppressedLegacyIdeaTitleSet.has(normalizeIdeaTitle(idea.title))) {
+                return false
+            }
+            if (generatedIdeaTypeFilter === 'all') {
+                return true
+            }
+            return idea.content_type === generatedIdeaTypeFilter
+        })
+
+        const sorted = [...filtered].sort((a, b) => {
+            if (generatedIdeaSort === 'volume') {
+                return Number(b.total_search_volume || 0) - Number(a.total_search_volume || 0)
+            }
+            if (generatedIdeaSort === 'difficulty') {
+                return Number(a.average_difficulty || 999) - Number(b.average_difficulty || 999)
+            }
+            if (generatedIdeaSort === 'recent') {
+                return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+            }
+            return Number(b.opportunity_score || 0) - Number(a.opportunity_score || 0)
+        })
+        return sorted
+    }, [generatedClusterIdeas, generatedIdeaSort, generatedIdeaTypeFilter, showSuppressedLegacyIdeas, suppressedLegacyIdeaTitleSet])
+
+    React.useEffect(() => {
+        if (suppressedLegacyIdeaTitleSet.size === 0 && showSuppressedLegacyIdeas) {
+            setShowSuppressedLegacyIdeas(false)
+        }
+    }, [showSuppressedLegacyIdeas, suppressedLegacyIdeaTitleSet.size])
+
     const activeGeneratedIdeaIndex = React.useMemo(() => {
         if (!activeGeneratedIdea?.id) {
             return -1
@@ -522,12 +643,18 @@ export function TopicDetail() {
 
         try {
             setPublishingGeneratedIdeas(true)
-            toast.loading('Publishing idea to Content Studio.', {
+            const targetIdea = visibleGeneratedClusterIdeas.find((idea) => idea.id === ideaId)
+            const loadingLabel =
+                targetIdea?.content_type === 'software'
+                    ? 'Saving software idea.'
+                    : 'Publishing idea to Content Studio.'
+            toast.loading(loadingLabel, {
                 id: 'publish-single-generated-idea',
             })
 
             const result = await contentIdeasService.publishContentIdeas([ideaId], user.id)
             const refreshedIdeas = await refreshStoredIdeasState(id)
+            await refreshTopicRebuildContext()
             setLatestGeneratedIdeas((current) =>
                 current.filter((idea) => {
                     if (idea.id !== ideaId) {
@@ -546,7 +673,11 @@ export function TopicDetail() {
             syncGeneratedIdeaReviewState(refreshedIdeas || [])
 
             if (result.success) {
-                toast.success('Published idea to Titles.', {
+                const successLabel =
+                    targetIdea?.content_type === 'software'
+                        ? 'Saved software idea to Released Software.'
+                        : 'Published idea to Titles.'
+                toast.success(successLabel, {
                     id: 'publish-single-generated-idea',
                 })
             } else {
@@ -562,7 +693,7 @@ export function TopicDetail() {
         } finally {
             setPublishingGeneratedIdeas(false)
         }
-    }, [id, refreshStoredIdeasState, syncGeneratedIdeaReviewState, user?.id])
+    }, [id, refreshStoredIdeasState, syncGeneratedIdeaReviewState, user?.id, visibleGeneratedClusterIdeas])
 
     const handlePublishGeneratedIdeas = React.useCallback(async () => {
         if (!user?.id || !id) return
@@ -574,12 +705,13 @@ export function TopicDetail() {
 
         try {
             setPublishingGeneratedIdeas(true)
-            toast.loading('Publishing selected ideas to Content Studio.', {
+            toast.loading('Publishing selected ideas.', {
                 id: 'publish-generated-ideas',
             })
 
             const result = await contentIdeasService.publishContentIdeas(ideaIds, user.id)
             const refreshedIdeas = await refreshStoredIdeasState(id)
+            await refreshTopicRebuildContext()
             setLatestGeneratedIdeas((current) =>
                 current.filter((idea) => {
                     if (!ideaIds.includes(idea.id)) {
@@ -598,10 +730,20 @@ export function TopicDetail() {
             syncGeneratedIdeaReviewState(refreshedIdeas || [])
 
             if (result.success) {
-                toast.success(
-                    `Published ${result.publishedToTitlesCount} idea${result.publishedToTitlesCount === 1 ? '' : 's'} to Titles.`,
-                    { id: 'publish-generated-ideas' }
-                )
+                const messageParts: string[] = []
+                if (result.publishedToTitlesCount > 0) {
+                    messageParts.push(
+                        `Published ${result.publishedToTitlesCount} article idea${result.publishedToTitlesCount === 1 ? '' : 's'} to Titles`
+                    )
+                }
+                if (result.publishedToSoftwareCount > 0) {
+                    messageParts.push(
+                        `saved ${result.publishedToSoftwareCount} software idea${result.publishedToSoftwareCount === 1 ? '' : 's'} to Released Software`
+                    )
+                }
+                toast.success(messageParts.join(' and ') + '.', {
+                    id: 'publish-generated-ideas',
+                })
                 setSelectedGeneratedIdeaIds(new Set())
             } else {
                 toast.error(result.message || 'Failed to publish generated ideas.', {
@@ -639,6 +781,79 @@ export function TopicDetail() {
             hasProgress: keywordCandidates.length > 0 || keywordClusters.length > 0 || generatedIdeas.length > 0,
         }
     }, [storedIdeas, keywordCandidates.length, keywordClusters.length])
+
+    const latestRebuildRouteLabel = React.useMemo(() => {
+        return latestRebuildRoute ? formatRouteLabel(latestRebuildRoute) : null
+    }, [latestRebuildRoute])
+
+    const rebuildUrl = React.useMemo(() => {
+        if (!topic?.project_id) {
+            return '/research-rebuild'
+        }
+        const params = new URLSearchParams()
+        params.set('project_id', topic.project_id)
+        if (topic.primary_category_id) {
+            params.set('primary_category_id', topic.primary_category_id)
+        }
+        if (topic.secondary_category_id) {
+            params.set('secondary_category_id', topic.secondary_category_id)
+        }
+        if (latestRebuildRun?.workflow_run_id) {
+            params.set('workflow_run_id', latestRebuildRun.workflow_run_id)
+        }
+        const query = params.toString()
+        return `/research-rebuild${query ? `?${query}` : ''}`
+    }, [latestRebuildRun?.workflow_run_id, topic?.primary_category_id, topic?.project_id, topic?.secondary_category_id])
+
+    const handlePersistRebuildOutcome = React.useCallback(async (outcomeId: string) => {
+        if (!topic?.project_id || !id) return
+        setPersistingRebuildOutcomeIds((current) => new Set(current).add(outcomeId))
+        try {
+            await researchRebuildService.persistOutcomeToContentIdea(outcomeId, {
+                project_id: topic.project_id,
+                category_context: {
+                    project_id: topic.project_id,
+                    primary_category_id: topic.primary_category_id || null,
+                    secondary_category_id: topic.secondary_category_id || null,
+                    primary_category_name: topic.primary_category_name || null,
+                    secondary_category_name: topic.secondary_category_name || null,
+                    category_path: [topic.primary_category_name, topic.secondary_category_name].filter(Boolean).join(' / ') || null,
+                },
+            })
+            await Promise.all([
+                refreshStoredIdeasState(id),
+                refreshTopicRebuildContext(),
+            ])
+            toast.success('Rebuild article outcome persisted to Content Ideas.')
+        } catch (err) {
+            console.error('Failed to persist rebuild outcome:', err)
+            toast.error('Failed to persist rebuild outcome.')
+        } finally {
+            setPersistingRebuildOutcomeIds((current) => {
+                const next = new Set(current)
+                next.delete(outcomeId)
+                return next
+            })
+        }
+    }, [id, refreshStoredIdeasState, refreshTopicRebuildContext, topic?.primary_category_id, topic?.primary_category_name, topic?.project_id, topic?.secondary_category_id, topic?.secondary_category_name])
+
+    const handleReleaseRebuildSoftwareOutcome = React.useCallback(async (outcomeId: string) => {
+        setReleasingRebuildOutcomeIds((current) => new Set(current).add(outcomeId))
+        try {
+            await researchRebuildService.releaseSoftwareOutcome(outcomeId)
+            await refreshTopicRebuildContext()
+            toast.success('Rebuild software outcome released to Released Software.')
+        } catch (err) {
+            console.error('Failed to release rebuild software outcome:', err)
+            toast.error('Failed to release rebuild software outcome.')
+        } finally {
+            setReleasingRebuildOutcomeIds((current) => {
+                const next = new Set(current)
+                next.delete(outcomeId)
+                return next
+            })
+        }
+    }, [refreshTopicRebuildContext])
 
     React.useEffect(() => {
         if (!id) return
@@ -802,6 +1017,281 @@ export function TopicDetail() {
                     </div>
                 </div>
 
+                <div className="max-w-7xl mx-auto mb-8">
+                    <div className="bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-6">
+                        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <div className="flex items-center gap-2 text-foreground">
+                                    <Sparkles className="h-4 w-4 text-amber-400" />
+                                    <h2 className="text-lg font-semibold">Research Rebuild</h2>
+                                    {loadingRebuildSummary && <Skeleton className="h-4 w-16 rounded-full" />}
+                                </div>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                    Review the job-first rebuild workflow for this topic’s category scope and jump into the latest validated run.
+                                </p>
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    <span className="rounded-full border border-border bg-muted/40 px-3 py-1 text-xs text-foreground">
+                                        {rebuildRuns.length} rebuild run{rebuildRuns.length === 1 ? '' : 's'}
+                                    </span>
+                                    {latestRebuildRun && (
+                                        <>
+                                            <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs text-amber-300">
+                                                Latest: {formatWorkflowRunShortLabel(latestRebuildRun)}
+                                            </span>
+                                            {Object.entries(latestRebuildRun.route_counts || {})
+                                                .sort((left, right) => right[1] - left[1])
+                                                .slice(0, 2)
+                                                .map(([route, count]) => (
+                                                    <span
+                                                        key={route}
+                                                        className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs text-primary"
+                                                    >
+                                                        {formatRouteLabel(route)}: {count}
+                                                    </span>
+                                                ))}
+                                        </>
+                                    )}
+                                    {!loadingRebuildSummary && rebuildRuns.length === 0 && (
+                                        <span className="rounded-full border border-border bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+                                            No rebuild runs yet
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                            <Button
+                                variant="secondary"
+                                className="shrink-0"
+                                onClick={() => navigate(rebuildUrl)}
+                            >
+                                Open Rebuild
+                                <ArrowUpRight className="ml-2 h-4 w-4" />
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+
+                {(loadingRebuildOutcomes || flattenedRebuildOutcomes.length > 0) && (
+                    <div className="max-w-7xl mx-auto mb-8">
+                        <div className="bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-6">
+                            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-foreground">Latest Rebuild Outcomes</h2>
+                                    <p className="mt-1 text-sm text-muted-foreground">
+                                        A quick preview of what the latest validated rebuild run produced for this topic scope.
+                                    </p>
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => navigate(rebuildUrl)}
+                                    className="shrink-0 border-border hover:bg-muted"
+                                >
+                                    Open Full Rebuild
+                                    <ArrowUpRight className="ml-2 h-4 w-4" />
+                                </Button>
+                            </div>
+
+                            {loadingRebuildOutcomes ? (
+                                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                                    {[1, 2, 3].map((item) => (
+                                        <Skeleton key={`rebuild-outcome-${item}`} className="h-36 w-full rounded-xl" />
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                                    {flattenedRebuildOutcomes.map((row, index) => {
+                                        const outcomeMetadata = (row.generatedOutcome.outcome_metadata || {}) as Record<string, any>
+                                        const outcomeTitle = String(
+                                            outcomeMetadata.title ||
+                                            outcomeMetadata.name ||
+                                            row.candidate.candidate_text ||
+                                            `Outcome ${index + 1}`,
+                                        )
+                                        const outcomeDescription = String(outcomeMetadata.description || outcomeMetadata.summary || row.job?.job_text || '')
+
+                                        return (
+                                            <div key={row.generatedOutcome.id} className="rounded-xl border border-border bg-background/40 p-4">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div>
+                                                        <div className="text-sm font-semibold text-foreground">{outcomeTitle}</div>
+                                                        <div className="mt-1 text-xs text-muted-foreground">
+                                                            {formatRouteLabel(row.routingDecision.route)} · {row.generatedOutcome.outcome_type} · {row.generatedOutcome.status}
+                                                        </div>
+                                                    </div>
+                                                    <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] text-primary">
+                                                        {row.generatedOutcome.outcome_type}
+                                                    </span>
+                                                </div>
+                                                {outcomeDescription && (
+                                                    <p className="mt-3 line-clamp-3 text-sm text-muted-foreground">
+                                                        {outcomeDescription}
+                                                    </p>
+                                                )}
+                                                <div className="mt-3 flex flex-wrap gap-2">
+                                                    {row.keywordPack.primary_keyword && (
+                                                        <span className="rounded-full border border-border bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground">
+                                                            {row.keywordPack.primary_keyword}
+                                                        </span>
+                                                    )}
+                                                    <span className="rounded-full border border-border bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground">
+                                                        {row.candidate.candidate_type.replace('_', ' ')}
+                                                    </span>
+                                                </div>
+                                                <div className="mt-4 flex flex-wrap gap-2">
+                                                    {row.generatedOutcome.outcome_type === 'software' ? (
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            onClick={() => handleReleaseRebuildSoftwareOutcome(row.generatedOutcome.id)}
+                                                            disabled={releasingRebuildOutcomeIds.has(row.generatedOutcome.id) || row.generatedOutcome.status === 'published'}
+                                                            className="border-border hover:bg-muted"
+                                                        >
+                                                            {releasingRebuildOutcomeIds.has(row.generatedOutcome.id) ? 'Releasing...' : row.generatedOutcome.status === 'published' ? 'Released' : 'Release Software'}
+                                                        </Button>
+                                                    ) : (
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            onClick={() => handlePersistRebuildOutcome(row.generatedOutcome.id)}
+                                                            disabled={persistingRebuildOutcomeIds.has(row.generatedOutcome.id) || row.generatedOutcome.status === 'persisted' || row.generatedOutcome.status === 'published'}
+                                                            className="border-border hover:bg-muted"
+                                                        >
+                                                            {persistingRebuildOutcomeIds.has(row.generatedOutcome.id)
+                                                                ? 'Persisting...'
+                                                                : row.generatedOutcome.status === 'persisted' || row.generatedOutcome.status === 'published'
+                                                                ? 'Persisted'
+                                                                : 'Persist To Ideas'}
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {(loadingCombinedReview || combinedReviewItems.length > 0 || suppressedCombinedLegacyCount > 0) && (
+                    <div className="max-w-7xl mx-auto mb-8">
+                        <div className="bg-muted/30 backdrop-blur-md border border-border rounded-2xl p-6">
+                            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-foreground">Combined Opportunity Review</h2>
+                                    <p className="mt-1 text-sm text-muted-foreground">
+                                        Compare validated rebuild outcomes with the remaining unsuppressed legacy ideas in one ranked queue.
+                                    </p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <select
+                                        value={combinedReviewSourceFilter}
+                                        onChange={(event) => setCombinedReviewSourceFilter(event.target.value as 'all' | 'rebuild' | 'legacy')}
+                                        className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs text-foreground outline-none transition focus:border-ring"
+                                    >
+                                        <option value="all">All Sources</option>
+                                        <option value="rebuild">Rebuild Only</option>
+                                        <option value="legacy">Legacy Only</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {suppressedCombinedLegacyCount > 0 && (
+                                <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                        <div>
+                                            <div className="text-sm font-semibold text-foreground">Suppressed Legacy Matches</div>
+                                            <p className="mt-1 text-xs text-muted-foreground">
+                                                {suppressedCombinedLegacyCount} legacy idea{suppressedCombinedLegacyCount === 1 ? '' : 's'} are hidden in the combined queue because equivalent rebuild outcomes are already persisted or released.
+                                            </p>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setShowSuppressedLegacyIdeas((current) => !current)}
+                                            className="border-border hover:bg-muted"
+                                        >
+                                            {showSuppressedLegacyIdeas ? 'Hide Suppressed Legacy Ideas' : 'Show Suppressed Legacy Ideas'}
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {loadingCombinedReview ? (
+                                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                                    {[1, 2, 3, 4].map((item) => (
+                                        <Skeleton key={`combined-review-${item}`} className="h-40 w-full rounded-xl" />
+                                    ))}
+                                </div>
+                            ) : combinedReviewItems.length === 0 ? (
+                                <div className="mt-4 rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
+                                    No items match this combined review filter.
+                                </div>
+                            ) : (
+                                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                                    {combinedReviewItems.map((item) => (
+                                        <button
+                                            key={item.id}
+                                            type="button"
+                                            onClick={() => {
+                                                if (item.source === 'rebuild') {
+                                                    navigate(rebuildUrl)
+                                                    return
+                                                }
+                                                const matchedIdea = visibleGeneratedClusterIdeas.find((idea) => idea.id === item.source_id)
+                                                if (matchedIdea) {
+                                                    openGeneratedIdeaDetail(matchedIdea)
+                                                }
+                                            }}
+                                            className="rounded-xl border border-border bg-background/40 p-4 text-left transition hover:border-ring/40"
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div>
+                                                    <div className="text-sm font-semibold text-foreground">{item.title}</div>
+                                                    <div className="mt-1 text-xs text-muted-foreground">
+                                                        {item.source === 'rebuild' ? 'Rebuild Outcome' : 'Legacy Idea'} · {item.type}
+                                                    </div>
+                                                </div>
+                                                <span className={`rounded-full border px-2 py-1 text-[11px] ${
+                                                    item.source === 'rebuild'
+                                                        ? 'border-primary/20 bg-primary/10 text-primary'
+                                                        : 'border-amber-500/20 bg-amber-500/10 text-amber-300'
+                                                }`}>
+                                                    {item.source}
+                                                </span>
+                                            </div>
+                                            {item.description && (
+                                                <p className="mt-3 line-clamp-3 text-sm text-muted-foreground">
+                                                    {item.description}
+                                                </p>
+                                            )}
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                {item.keyword && (
+                                                    <span className="rounded-full border border-border bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground">
+                                                        {item.keyword}
+                                                    </span>
+                                                )}
+                                                {item.route && (
+                                                    <span className="rounded-full border border-border bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground">
+                                                        {formatRouteLabel(item.route)}
+                                                    </span>
+                                                )}
+                                                <span className="rounded-full border border-border bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground">
+                                                    {item.status}
+                                                </span>
+                                            </div>
+                                            <div className="mt-3 text-[11px] text-muted-foreground">
+                                                {item.source === 'rebuild' ? 'Open rebuild view' : 'Open legacy idea detail'}
+                                                {item.score ? ` · Score ${Math.round(item.score)}` : ''}
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 <TopicKeywordResearchPanel
                     topicId={id || ''}
                         keywordResearchRun={keywordResearchRun}
@@ -817,6 +1307,11 @@ export function TopicDetail() {
                     topicMode={topicMode}
                     manualSeedInput={manualSeedInput}
                     keywordResearchSummary={keywordResearchSummary}
+                    rebuildRunCount={rebuildRuns.length}
+                    latestRebuildRunLabel={latestRebuildRun ? formatWorkflowRunShortLabel(latestRebuildRun) : null}
+                    latestRebuildRoute={latestRebuildRoute}
+                    latestRebuildRouteLabel={latestRebuildRouteLabel}
+                    onOpenRebuild={() => navigate(rebuildUrl)}
                     onRefreshKeywordResearch={() => loadKeywordResearch(id || '')}
                     onRunKeywordResearch={handleRunKeywordResearch}
                     onManualSeedInputChange={setManualSeedInput}
@@ -938,6 +1433,14 @@ export function TopicDetail() {
                     openPreviousGeneratedIdea={openPreviousGeneratedIdea}
                     openNextGeneratedIdea={openNextGeneratedIdea}
                     onIdeaUpdated={handleGeneratedIdeaUpdated}
+                    rebuildRunCount={rebuildRuns.length}
+                    rebuildLatestRunLabel={latestRebuildRun ? formatWorkflowRunShortLabel(latestRebuildRun) : null}
+                    rebuildLatestRoute={latestRebuildRoute}
+                    rebuildLatestRouteLabel={latestRebuildRouteLabel}
+                    onOpenRebuild={() => navigate(rebuildUrl)}
+                    suppressedLegacyIdeaCount={suppressedLegacyIdeaTitleSet.size}
+                    showingSuppressedLegacyIdeas={showSuppressedLegacyIdeas}
+                    onToggleSuppressedLegacyIdeas={() => setShowSuppressedLegacyIdeas((current) => !current)}
                 />
 
                 {/* Error Display */}
@@ -956,4 +1459,26 @@ export function TopicDetail() {
             </div>
         </div>
     )
+}
+
+function formatWorkflowRunShortLabel(run: ResearchRebuildWorkflowRunSummary) {
+    if (!run.started_at) {
+        return 'Recent run'
+    }
+    try {
+        return new Date(run.started_at).toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+        })
+    } catch {
+        return 'Recent run'
+    }
+}
+
+function formatRouteLabel(route: string) {
+    return route
+        .split('_')
+        .filter(Boolean)
+        .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+        .join(' ')
 }

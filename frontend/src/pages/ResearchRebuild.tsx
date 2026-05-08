@@ -393,7 +393,12 @@ export function ResearchRebuild() {
             setSuccess(successLabel)
         } catch (err) {
             console.error('Failed to run rebuild workflow:', err)
-            setError('Failed to run rebuild workflow.')
+            const message = err instanceof Error ? err.message.toLowerCase() : ''
+            if (message.includes('timeout')) {
+                setError('Rebuild workflow timed out in the browser before the server finished. Try again now that the request timeout has been extended.')
+            } else {
+                setError('Failed to run rebuild workflow.')
+            }
         } finally {
             setRunningWorkflow(false)
         }

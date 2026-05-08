@@ -347,7 +347,9 @@ class ResearchRebuildService {
         user_job_ids: string[]
         ttl_days?: number
     }): Promise<ResearchRebuildRunWorkflowResponse> {
-        return await apiClient.post(`${this.baseUrl}/workflow/run`, payload)
+        return await apiClient.post(`${this.baseUrl}/workflow/run`, payload, {
+            timeout: 300000,
+        })
     }
 
     async releaseSoftwareOutcome(outcomeId: string): Promise<{
