@@ -145,7 +145,7 @@ export function ResearchRebuild() {
         }
 
         const query = params.toString()
-        const path = `/research-rebuild${query ? `?${query}` : ''}`
+        const path = `/${query ? `?${query}` : ''}`
         if (typeof window === 'undefined') {
             return path
         }
@@ -225,7 +225,7 @@ export function ResearchRebuild() {
 
         navigate(
             {
-                pathname: '/research-rebuild',
+                pathname: '/',
                 search: nextQuery ? `?${nextQuery}` : '',
             },
             { replace: true },
