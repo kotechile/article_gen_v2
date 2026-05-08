@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { 
-    Loader2, Rocket, Wrench, CheckCircle2, Sparkles, BookOpen, ChevronDown, 
-    ChevronUp, XCircle, RefreshCw, Ban, Copy, ArrowUpRight, FileText, 
+    Loader2, Rocket, Wrench, CheckCircle2, Sparkles, ChevronDown, 
+    ChevronUp, XCircle, RefreshCw, Ban, Copy, FileText, 
     Gauge, Target, Layers, Globe, ExternalLink, Info, Filter, ArrowRight,
     ChevronLeft, ChevronRight
 } from 'lucide-react'
@@ -47,8 +47,6 @@ export function ResearchRebuild() {
     const [jobStatusFilter, setJobStatusFilter] = React.useState('all')
     const [workflowRuns, setWorkflowRuns] = React.useState<ResearchRebuildWorkflowRunSummary[]>([])
     const [routeFilter, setRouteFilter] = React.useState('all')
-    const [candidateTypeFilter, setCandidateTypeFilter] = React.useState('all')
-    const [outcomeTypeFilter, setOutcomeTypeFilter] = React.useState('all')
     const [candidateSearch, setCandidateSearch] = React.useState('')
     const [manualJobText, setManualJobText] = React.useState('')
     const [loadingJobs, setLoadingJobs] = React.useState(false)
@@ -108,17 +106,6 @@ export function ResearchRebuild() {
         [filteredWorkflowResults],
     )
 
-    const routeCounts = React.useMemo(() => {
-        const counts = new Map<string, number>()
-        for (const jobResult of filteredWorkflowResults) {
-            for (const candidateResult of jobResult.candidates) {
-                const route = candidateResult.routing_decision.route
-                counts.set(route, (counts.get(route) || 0) + 1)
-            }
-        }
-        return counts
-    }, [filteredWorkflowResults])
-
     const selectedWorkflowRun = React.useMemo(
         () => workflowRuns.find((run) => run.workflow_run_id === workflowRunFilter) || null,
         [workflowRunFilter, workflowRuns],
@@ -128,12 +115,6 @@ export function ResearchRebuild() {
         () => workflowRuns[0] || null,
         [workflowRuns],
     )
-
-    const comparisonWorkflowRun = React.useMemo(() => {
-        if (!selectedWorkflowRun || !latestWorkflowRun) return null
-        if (selectedWorkflowRun.workflow_run_id === latestWorkflowRun.workflow_run_id) return null
-        return latestWorkflowRun
-    }, [latestWorkflowRun, selectedWorkflowRun])
 
     const currentViewUrl = React.useMemo(() => {
         const params = new URLSearchParams()
@@ -418,13 +399,6 @@ export function ResearchRebuild() {
         await executeWorkflow(
             approvedJobs.map((job) => job.id),
             `Workflow ran for ${approvedJobs.length} approved job${approvedJobs.length === 1 ? '' : 's'}.`,
-        )
-    }
-
-    const handleRerunVisibleJobs = async () => {
-        await executeWorkflow(
-            visibleJobIds,
-            `Workflow re-ran for ${visibleJobIds.length} visible job${visibleJobIds.length === 1 ? '' : 's'}.`,
         )
     }
 
@@ -1486,11 +1460,6 @@ function PhaseGuide({ title, description, color = 'indigo' }: { title: string; d
 function formatWorkflowRunShortLabel(run: ResearchRebuildWorkflowRunSummary): string {
     const date = run.started_at ? new Date(run.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '??'
     return `${date} • ${run.candidate_count} Targets`
-}
-
-function formatWorkflowRunLabel(run: ResearchRebuildWorkflowRunSummary): string {
-    const date = run.started_at ? new Date(run.started_at).toLocaleString() : '??'
-    return `${date} — ${run.candidate_count} candidates in ${run.job_count} jobs`
 }
 
 
