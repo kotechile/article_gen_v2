@@ -12,6 +12,7 @@ import { ContentStudio } from './pages/ContentStudio';
 import { KnowledgeGaps } from './pages/KnowledgeGaps';
 import { ArticleEditor } from './pages/ArticleEditor';
 import { Research } from './pages/Research';
+import { ResearchRebuild } from './pages/ResearchRebuild';
 import { TopicDetail } from './pages/TopicDetail';
 import { Settings } from './pages/Settings';
 import { SoftwareIdeas } from './pages/SoftwareIdeas';
@@ -26,13 +27,14 @@ function App() {
 
           <Route element={<ProtectedRoute />}>
             <Route element={<ProjectProvider><MainLayout /></ProjectProvider>}>
-              <Route path="/" element={<Landing />} />
+              <Route path="/" element={<ResearchRebuild />} />
               <Route path="/my-articles" element={<MyArticles />} />
               <Route path="/software-ideas" element={<SoftwareIdeas />} />
               <Route path="/knowledge-gaps" element={<KnowledgeGaps />} />
               <Route path="/content-studio" element={<ContentStudio />} />
               <Route path="/article-editor/:id" element={<ArticleEditor />} />
-              <Route path="/research" element={<Research />} />
+              <Route path="/legacy-research" element={<Research />} />
+              <Route path="/legacy-new-research" element={<Landing />} />
               <Route path="/research/:id" element={<TopicDetail />} />
               <Route path="/history" element={<div>History (Coming Soon)</div>} />
               <Route path="/settings" element={<Settings />} />
