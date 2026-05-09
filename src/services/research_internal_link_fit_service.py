@@ -1,9 +1,8 @@
-"""
-Internal-link fit service for the research rebuild.
-"""
+"""Internal-link fit service for the research rebuild."""
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, Optional
 from uuid import UUID
 
@@ -15,6 +14,47 @@ class ResearchInternalLinkFitService(ResearchRebuildBaseService):
     """Attach parent/child/hub candidates before idea handoff."""
 
     table_name = "research_internal_link_candidates"
+    _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+    _STOPWORDS = {
+        "about",
+        "after",
+        "against",
+        "between",
+        "build",
+        "choosing",
+        "compare",
+        "decision",
+        "determine",
+        "evaluate",
+        "guide",
+        "into",
+        "just",
+        "make",
+        "making",
+        "over",
+        "stack",
+        "than",
+        "that",
+        "their",
+        "these",
+        "this",
+        "those",
+        "through",
+        "using",
+        "when",
+        "which",
+        "why",
+        "with",
+        "your",
+    }
+
+    @classmethod
+    def _tokenize(cls, value: str) -> set[str]:
+        return {
+            token
+            for token in cls._TOKEN_PATTERN.findall((value or "").lower())
+            if len(token) > 3 and token not in cls._STOPWORDS
+        }
 
     async def compute_internal_link_fit(
         self,
@@ -41,32 +81,52 @@ class ResearchInternalLinkFitService(ResearchRebuildBaseService):
             order_by={"created_at": "desc"},
             limit=100,
         )
-        query_tokens = {
-            tok for tok in str(candidate.get("candidate_text") or "").lower().split()
-            if len(tok) > 3
-        }
+        keyword_seed = " ".join(
+            [
+                str(candidate.get("candidate_text") or ""),
+                str(metadata.get("primary_keyword") or ""),
+                str(metadata.get("candidate_title") or ""),
+            ]
+        )
+        query_tokens = self._tokenize(keyword_seed)
+        if not query_tokens:
+            return {"items": []}
+
         results = []
+        seen_titles: set[str] = set()
         for row in rows:
             title = str(row.get("title") or "")
-            title_tokens = {tok for tok in title.lower().split() if len(tok) > 3}
-            overlap = len(query_tokens & title_tokens)
-            if overlap <= 0:
+            normalized_title = title.strip().lower()
+            if not normalized_title or normalized_title in seen_titles:
                 continue
-            score = min(1.0, overlap / max(1, len(query_tokens)))
+
+            title_tokens = self._tokenize(title)
+            overlap_tokens = query_tokens & title_tokens
+            overlap = len(overlap_tokens)
+            if overlap < 2:
+                continue
+
+            score = min(1.0, overlap / max(1, min(len(query_tokens), len(title_tokens))))
+            if score < 0.18:
+                continue
+
+            seen_titles.add(normalized_title)
             results.append(
                 {
                     "project_id": str(project_id) if project_id else None,
                     "validation_run_id": (validation_result or {}).get("id"),
                     "wordpress_imported_post_id": row.get("id"),
-                    "link_role": "parent_candidate" if score >= 0.6 else "sibling_candidate",
+                    "link_role": "parent_candidate" if score >= 0.45 else "sibling_candidate",
                     "match_score": round(score, 4),
-                    "match_reason_codes": ["title_token_overlap"],
+                    "match_reason_codes": ["title_token_overlap_filtered"],
                     "match_metadata": {
                         "matched_title": title,
                         "matched_link": row.get("link"),
+                        "overlap_tokens": sorted(overlap_tokens),
                     },
                 }
             )
+        results.sort(key=lambda item: item.get("match_score") or 0, reverse=True)
         return {"items": results[:10]}
 
     async def save_internal_link_candidate(

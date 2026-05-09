@@ -1482,7 +1482,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                                 "text-[11px] font-black uppercase tracking-widest",
                                 achievability > 0.6 ? "text-emerald-400" : achievability > 0.3 ? "text-amber-400" : "text-red-400"
                             )}>
-                                {achievability > 0.6 ? 'High Probability' : achievability > 0.3 ? 'Moderate Effort' : 'High Risk'}
+                                {achievability > 0.6 ? 'High Probability' : achievability > 0.3 ? 'Moderate Effort' : 'Low Win Probability'}
                             </span>
                         </div>
                         <div className="h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5 shadow-inner">
@@ -1552,10 +1552,10 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
 
                         {/* Internal Hooks & Analysis Details */}
                         <div className="space-y-12">
-                            {/* Infrastructure Section */}
+                            {/* Existing content matches */}
                             <div className="space-y-8">
                                 <h5 className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-500 flex items-center gap-3">
-                                    <Layers className="h-4 w-4 text-emerald-500" /> Infrastructure Hooks
+                                    <Layers className="h-4 w-4 text-emerald-500" /> Existing Content Matches
                                 </h5>
                                 <div className="space-y-4">
                                     {(internal_link_candidates || []).length > 0 ? (
@@ -1583,7 +1583,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                                             <div className="bg-white/5 p-4 rounded-full mb-4">
                                                 <Layers className="h-8 w-8 text-slate-800" />
                                             </div>
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-700 text-center px-10">No existing content matches detected for linking.</p>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-700 text-center px-10">No strong existing-content matches were detected for internal linking.</p>
                                         </div>
                                     )}
                                 </div>
