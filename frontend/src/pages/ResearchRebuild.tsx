@@ -49,6 +49,8 @@ export function ResearchRebuild() {
     const [routeFilter, setRouteFilter] = React.useState('all')
     const [candidateSearch, setCandidateSearch] = React.useState('')
     const [manualJobText, setManualJobText] = React.useState('')
+    const [focusArea, setFocusArea] = React.useState('')
+    const [avoidGuidance, setAvoidGuidance] = React.useState('')
     const [loadingJobs, setLoadingJobs] = React.useState(false)
     const [loadingWorkflowArtifacts, setLoadingWorkflowArtifacts] = React.useState(false)
     const [generatingJobs, setGeneratingJobs] = React.useState(false)
@@ -278,6 +280,8 @@ export function ResearchRebuild() {
                 primary_category_description: primaryCategory?.description || undefined,
                 secondary_category_name: secondaryCategory?.name,
                 secondary_category_description: secondaryCategory?.description || undefined,
+                focus_area: focusArea.trim() || undefined,
+                avoid_guidance: avoidGuidance.trim() || undefined,
                 count: 12,
             })
             setSuccess(`Generated ${response.count} jobs.`)
@@ -639,6 +643,34 @@ export function ResearchRebuild() {
                                         onChange={setSecondaryCategoryId}
                                         options={[{ value: '', label: 'Select Sub-category' }, ...secondaryCategories.map(c => ({ value: c.id, label: c.name }))]} 
                                     />
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                            Focus Area For This Batch
+                                        </label>
+                                        <textarea
+                                            value={focusArea}
+                                            onChange={(e) => setFocusArea(e.target.value)}
+                                            placeholder="Example: privacy-first PKM workflows, second-brain tools for structured thinking, AI research efficiency for solo founders"
+                                            className="min-h-[88px] w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 outline-none transition focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/20"
+                                        />
+                                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                                            Use this to tell the generator which slice of the category you want to explore. It guides the batch without creating a job directly.
+                                        </p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                            Avoid In This Batch
+                                        </label>
+                                        <Input
+                                            value={avoidGuidance}
+                                            onChange={(e) => setAvoidGuidance(e.target.value)}
+                                            placeholder="Example: generic productivity advice, enterprise use cases, broad AI news"
+                                            className="bg-white/[0.03] border-white/10 rounded-xl text-xs h-12 focus:ring-indigo-500/30"
+                                        />
+                                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                                            Optional steering to suppress patterns you do not want repeated in the generated jobs.
+                                        </p>
+                                    </div>
                                 </div>
 
                                 <div className="pt-2 flex flex-col gap-4">

@@ -30,6 +30,8 @@ class GenerateResearchJobsRequestSchema(BaseModel):
     count: int = Field(30, ge=1, le=50)
     website_description: Optional[str] = None
     target_audience: Optional[str] = None
+    focus_area: Optional[str] = Field(None, max_length=500)
+    avoid_guidance: Optional[str] = Field(None, max_length=500)
 
 
 class RejectResearchItemRequestSchema(BaseModel):

@@ -228,6 +228,8 @@ class ResearchRebuildService {
         secondary_category_name?: string
         secondary_category_description?: string
         target_audience?: string
+        focus_area?: string
+        avoid_guidance?: string
         trend_titles?: string[]
     }): Promise<ResearchRebuildListResponse<ResearchRebuildJob>> {
         return await apiClient.post(`${this.baseUrl}/jobs/generate`, payload)

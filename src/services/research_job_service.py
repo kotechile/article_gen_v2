@@ -55,6 +55,9 @@ Rules:
 - Avoid duplicates and near-duplicates.
 - Avoid jobs already rejected for being off-brand, too broad, or technically impossible.
 - Keep each job_text short and practical.
+- If a focus area is provided, make at least 80% of jobs clearly centered on that focus.
+- If avoid guidance is provided, actively steer away from those patterns or themes.
+- Prefer literal, searchable phrasing over essay-like or poetic titles.
 
 Website context:
 - Project name: {context.get("project_name") or ""}
@@ -64,6 +67,8 @@ Website context:
 - Secondary category: {context.get("secondary_category_name") or ""}
 - Secondary category description: {context.get("secondary_category_description") or ""}
 - Target audience: {context.get("target_audience") or ""}
+- Focus area to prioritize: {context.get("focus_area") or ""}
+- Avoid guidance from user: {context.get("avoid_guidance") or ""}
 - Trend titles: {", ".join(context.get("trend_titles") or [])}
 
 Rejected patterns to avoid:

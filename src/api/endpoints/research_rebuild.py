@@ -853,6 +853,8 @@ def generate_research_jobs():
         "secondary_category_name": data.get("secondary_category_name"),
         "secondary_category_description": data.get("secondary_category_description"),
         "target_audience": data.get("target_audience"),
+        "focus_area": data.get("focus_area"),
+        "avoid_guidance": data.get("avoid_guidance"),
         "trend_titles": data.get("trend_titles") or [],
     }
     try:
