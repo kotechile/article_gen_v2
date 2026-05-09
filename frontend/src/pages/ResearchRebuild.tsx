@@ -742,12 +742,32 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         onChange={(val) => { setPrimaryCategoryId(val); setSecondaryCategoryId(''); }}
                                         options={[{ value: '', label: 'Select Primary Category' }, ...primaryCategories.map(c => ({ value: c.id, label: c.name }))]} 
                                     />
+                                    {primaryCategory?.description && (
+                                        <div className="rounded-2xl border border-indigo-500/10 bg-indigo-500/[0.04] px-4 py-3">
+                                            <div className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-300/80">
+                                                Category Description
+                                            </div>
+                                            <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                                                {primaryCategory.description}
+                                            </p>
+                                        </div>
+                                    )}
                                     <SelectField 
                                         label="Target Sub-Category" 
                                         value={secondaryCategoryId} 
                                         onChange={setSecondaryCategoryId}
                                         options={[{ value: '', label: 'Select Sub-category' }, ...secondaryCategories.map(c => ({ value: c.id, label: c.name }))]} 
                                     />
+                                    {secondaryCategory?.description && (
+                                        <div className="rounded-2xl border border-emerald-500/10 bg-emerald-500/[0.04] px-4 py-3">
+                                            <div className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-300/80">
+                                                Sub-Category Description
+                                            </div>
+                                            <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                                                {secondaryCategory.description}
+                                            </p>
+                                        </div>
+                                    )}
                                     <div className="space-y-2">
                                         <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
                                             Focus Area For This Batch
@@ -858,6 +878,38 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                         : "bg-white/[0.02] border-white/5 hover:border-white/10"
                                                 )}
                                             >
+                                                <div className="mb-3 flex items-center justify-between gap-3">
+                                                    <div className="flex items-center gap-2">
+                                                        {job.status === 'approved' ? (
+                                                            <>
+                                                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30">
+                                                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                                                </span>
+                                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-300/90">
+                                                                    Approved
+                                                                </span>
+                                                            </>
+                                                        ) : job.status === 'draft' ? (
+                                                            <>
+                                                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/5 text-slate-500 ring-1 ring-white/10">
+                                                                    <Info className="h-3.5 w-3.5" />
+                                                                </span>
+                                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
+                                                                    Needs Review
+                                                                </span>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-500/10 text-red-400 ring-1 ring-red-500/20">
+                                                                    <Ban className="h-3.5 w-3.5" />
+                                                                </span>
+                                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-red-300/80">
+                                                                    Rejected
+                                                                </span>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
                                                 <div className="flex items-start justify-between gap-4">
                                                     <p className={cn("text-[13px] leading-relaxed font-medium transition-colors", job.status === 'approved' ? "text-slate-200" : "text-slate-400")}>
                                                         {job.job_text}
