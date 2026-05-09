@@ -31,11 +31,19 @@ type ProjectCategory = {
     parent_category_id: string | null
 }
 
-export function ResearchRebuild() {
+type ResearchRebuildMode = 'jobs' | 'opportunities'
+
+type ResearchRebuildProps = {
+    mode?: ResearchRebuildMode
+}
+
+export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const { user } = useAuth()
     const { activeProject, projects, setActiveProject } = useProject()
     const navigate = useNavigate()
     const [searchParams] = useSearchParams()
+    const isJobsPage = mode === 'jobs'
+    const isOpportunitiesPage = mode === 'opportunities'
     const [jobs, setJobs] = React.useState<ResearchRebuildJob[]>([])
     const [workflowResults, setWorkflowResults] = React.useState<ResearchRebuildWorkflowJobResult[]>([])
     const [projectCategories, setProjectCategories] = React.useState<ProjectCategory[]>([])
@@ -108,7 +116,7 @@ export function ResearchRebuild() {
         [filteredWorkflowResults],
     )
 
-    const currentViewUrl = React.useMemo(() => {
+    const buildScopedPath = React.useCallback((targetMode: ResearchRebuildMode, runId?: string | null) => {
         const params = new URLSearchParams()
         if (activeProject?.id) {
             params.set('project_id', activeProject.id)
@@ -119,17 +127,39 @@ export function ResearchRebuild() {
         if (secondaryCategoryId) {
             params.set('secondary_category_id', secondaryCategoryId)
         }
-        if (workflowRunFilter !== 'all') {
-            params.set('workflow_run_id', workflowRunFilter)
+        const effectiveRunId = runId ?? (workflowRunFilter !== 'all' ? workflowRunFilter : '')
+        if (effectiveRunId) {
+            params.set('workflow_run_id', effectiveRunId)
         }
-
         const query = params.toString()
-        const path = `/${query ? `?${query}` : ''}`
+        return `/research-rebuild/${targetMode}${query ? `?${query}` : ''}`
+    }, [activeProject?.id, primaryCategoryId, secondaryCategoryId, workflowRunFilter])
+
+    const currentViewUrl = React.useMemo(() => {
+        const path = buildScopedPath(mode)
         if (typeof window === 'undefined') {
             return path
         }
         return `${window.location.origin}${path}`
-    }, [activeProject?.id, primaryCategoryId, secondaryCategoryId, workflowRunFilter])
+    }, [buildScopedPath, mode])
+
+    const focusStorageKey = React.useMemo(
+        () =>
+            [
+                'research-rebuild-brief',
+                activeProject?.id || incomingProjectId || 'no-project',
+                primaryCategoryId || incomingPrimaryCategoryId || 'no-primary',
+                secondaryCategoryId || incomingSecondaryCategoryId || 'no-secondary',
+            ].join(':'),
+        [
+            activeProject?.id,
+            incomingPrimaryCategoryId,
+            incomingProjectId,
+            incomingSecondaryCategoryId,
+            primaryCategoryId,
+            secondaryCategoryId,
+        ],
+    )
 
     React.useEffect(() => {
         if (!user?.id || !activeProject?.id) return
@@ -177,6 +207,35 @@ export function ResearchRebuild() {
     }, [incomingPrimaryCategoryId, incomingSecondaryCategoryId, incomingWorkflowRunId])
 
     React.useEffect(() => {
+        if (typeof window === 'undefined') return
+        const raw = window.sessionStorage.getItem(focusStorageKey)
+        if (!raw) {
+            setFocusArea('')
+            setAvoidGuidance('')
+            return
+        }
+        try {
+            const parsed = JSON.parse(raw) as { focusArea?: string; avoidGuidance?: string }
+            setFocusArea(parsed.focusArea || '')
+            setAvoidGuidance(parsed.avoidGuidance || '')
+        } catch {
+            setFocusArea('')
+            setAvoidGuidance('')
+        }
+    }, [focusStorageKey])
+
+    React.useEffect(() => {
+        if (typeof window === 'undefined') return
+        window.sessionStorage.setItem(
+            focusStorageKey,
+            JSON.stringify({
+                focusArea,
+                avoidGuidance,
+            }),
+        )
+    }, [avoidGuidance, focusArea, focusStorageKey])
+
+    React.useEffect(() => {
         const params = new URLSearchParams()
         if (activeProject?.id) {
             params.set('project_id', activeProject.id)
@@ -203,12 +262,12 @@ export function ResearchRebuild() {
 
         navigate(
             {
-                pathname: '/',
+                pathname: mode === 'jobs' ? '/research-rebuild/jobs' : '/research-rebuild/opportunities',
                 search: params.toString() ? `?${params.toString()}` : '',
             },
             { replace: true },
         )
-    }, [activeProject?.id, navigate, primaryCategoryId, searchParams, secondaryCategoryId, workflowRunFilter])
+    }, [activeProject?.id, mode, navigate, primaryCategoryId, searchParams, secondaryCategoryId, workflowRunFilter])
 
     React.useEffect(() => {
         setWorkflowPage(0)
@@ -263,6 +322,9 @@ export function ResearchRebuild() {
 
     const primaryCategory = primaryCategories.find((category) => category.id === primaryCategoryId)
     const secondaryCategory = secondaryCategories.find((category) => category.id === secondaryCategoryId)
+    const latestWorkflowRunId = workflowRuns[0]?.workflow_run_id || ''
+    const jobsPagePath = buildScopedPath('jobs')
+    const opportunitiesPagePath = buildScopedPath('opportunities', latestWorkflowRunId || undefined)
 
     const handleGenerateJobs = async () => {
         if (!activeProject?.id) return
@@ -539,23 +601,49 @@ export function ResearchRebuild() {
                         </div>
                         <div>
                             <h1 className="text-xl font-black tracking-tight text-white flex items-center gap-2">
-                                Research <span className="text-indigo-400">Studio</span>
+                                Research <span className="text-indigo-400">{isJobsPage ? 'Setup' : 'Results'}</span>
                                 <Badge variant="outline" className="text-[10px] bg-indigo-500/10 border-indigo-500/20 text-indigo-400 font-black uppercase">v2.0</Badge>
                             </h1>
-                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.25em]">End-to-End Content Logic</p>
+                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.25em]">
+                                {isJobsPage ? 'Step 1 of 2 · Job Discovery' : 'Step 2 of 2 · Opportunity Validation'}
+                            </p>
                         </div>
                     </div>
                     
                     {/* Visual Flow Indicator */}
                     <div className="hidden xl:flex items-center gap-8 absolute left-1/2 -translate-x-1/2">
-                        <FlowStep number="1" label="Discover" active={jobs.length > 0} icon={<Layers className="h-3.5 w-3.5" />} />
+                        <FlowStep number="1" label="Discover" active={isJobsPage || jobs.length > 0} icon={<Layers className="h-3.5 w-3.5" />} />
                         <div className="w-8 h-px bg-white/10" />
-                        <FlowStep number="2" label="Validate" active={workflowResults.length > 0} icon={<Target className="h-3.5 w-3.5" />} />
+                        <FlowStep number="2" label="Validate" active={isOpportunitiesPage || workflowResults.length > 0} icon={<Target className="h-3.5 w-3.5" />} />
                         <div className="w-8 h-px bg-white/10" />
                         <FlowStep number="3" label="Promote" active={workflowResults.some(r => r.candidates.some(c => c.generated_outcome.status === 'persisted'))} icon={<Rocket className="h-3.5 w-3.5" />} />
                     </div>
 
                     <div className="flex items-center gap-4">
+                        <div className="hidden lg:flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                            <button
+                                type="button"
+                                onClick={() => navigate(jobsPagePath)}
+                                className={cn(
+                                    "rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] transition-all",
+                                    isJobsPage ? "bg-white text-black" : "text-slate-400 hover:text-white",
+                                )}
+                            >
+                                1. Jobs
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => navigate(opportunitiesPagePath)}
+                                disabled={approvedJobs.length === 0}
+                                className={cn(
+                                    "rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] transition-all",
+                                    isOpportunitiesPage ? "bg-indigo-500 text-white" : "text-slate-400 hover:text-white",
+                                    approvedJobs.length === 0 && "cursor-not-allowed opacity-40 hover:text-slate-400",
+                                )}
+                            >
+                                2. Opportunities
+                            </button>
+                        </div>
                         <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-xl border border-white/10">
                             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Live Engine</span>
@@ -607,21 +695,29 @@ export function ResearchRebuild() {
                         <div className="px-2 space-y-4 relative z-10">
                              <h2 className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.4em] flex items-center gap-3">
                                 <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-[10px]">01</span>
-                                Discovery Phase
+                                {isJobsPage ? 'Discovery Phase' : 'Research Context'}
                             </h2>
                             <div>
-                                <h3 className="text-xl font-black text-white tracking-tight mb-2">Capture User Intent</h3>
-                                <p className="text-slate-500 text-xs font-medium leading-relaxed mb-6">Define the niche and capture category-specific user jobs to fuel the research engine.</p>
+                                <h3 className="text-xl font-black text-white tracking-tight mb-2">
+                                    {isJobsPage ? 'Capture User Intent' : 'Keep Context Visible'}
+                                </h3>
+                                <p className="text-slate-500 text-xs font-medium leading-relaxed mb-6">
+                                    {isJobsPage
+                                        ? 'Define the niche and capture category-specific user jobs to fuel the research engine.'
+                                        : 'Review the approved jobs and scope while you validate opportunities on the second step.'}
+                                </p>
                                 
                                 <PhaseGuide 
-                                    title="Getting Started"
-                                    description="Define your niche below. Use 'Generate AI-Driven Jobs' to discover what users are looking for in this category."
+                                    title={isJobsPage ? 'Getting Started' : 'Step Reminder'}
+                                    description={isJobsPage
+                                        ? "Define your niche below. Use 'Generate AI-Driven Jobs' to discover what users are looking for in this category."
+                                        : "This page is for validation and decision-making. Go back to Jobs if you need to reshape the batch before running validation again."}
                                     color="indigo"
                                 />
                             </div>
                         </div>
 
-                        <section className="bg-[#0d0d0f] border border-white/5 rounded-[2.5rem] shadow-2xl overflow-hidden">
+                        <section className={cn("bg-[#0d0d0f] border border-white/5 rounded-[2.5rem] shadow-2xl overflow-hidden", isOpportunitiesPage && "hidden")}>
                             <div className="p-8 border-b border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent">
                                 <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-3">
                                     <Globe className="h-4 w-4 text-indigo-400" />
@@ -786,6 +882,53 @@ export function ResearchRebuild() {
                             </div>
                         </section>
 
+                        {isOpportunitiesPage && (
+                            <section className="bg-[#0d0d0f] border border-white/5 rounded-[2.5rem] shadow-2xl overflow-hidden">
+                                <div className="p-8 border-b border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent">
+                                    <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-3">
+                                        <Globe className="h-4 w-4 text-indigo-400" />
+                                        Validation Context
+                                    </h3>
+                                </div>
+                                <div className="p-8 space-y-6">
+                                    <div className="grid gap-4 md:grid-cols-2">
+                                        <ContextStat label="Primary Category" value={primaryCategory?.name || 'Not selected'} />
+                                        <ContextStat label="Sub-Category" value={secondaryCategory?.name || 'Not selected'} />
+                                    </div>
+                                    <ContextBlock label="Focus Area" value={focusArea || 'No focus area supplied for this batch.'} />
+                                    <ContextBlock label="Avoid Guidance" value={avoidGuidance || 'No avoid guidance supplied for this batch.'} />
+                                    <div className="grid gap-4 md:grid-cols-2">
+                                        <ContextStat label="Approved Jobs" value={String(approvedJobs.length)} />
+                                        <ContextStat label="Workflow Runs" value={String(workflowRuns.length)} />
+                                    </div>
+                                    <div className="rounded-2xl border border-white/5 bg-black/30 p-5">
+                                        <div className="mb-3 flex items-center justify-between">
+                                            <span className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">Approved Job Set</span>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="border-white/10 bg-white/[0.03] hover:bg-white/[0.08]"
+                                                onClick={() => navigate(jobsPagePath)}
+                                            >
+                                                Back To Jobs
+                                            </Button>
+                                        </div>
+                                        <div className="space-y-3">
+                                            {approvedJobs.length === 0 ? (
+                                                <p className="text-sm text-slate-500">No approved jobs yet. Go back to Jobs and approve the ones worth validating.</p>
+                                            ) : (
+                                                approvedJobs.slice(0, 6).map((job) => (
+                                                    <div key={job.id} className="rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3 text-sm text-slate-300">
+                                                        {job.job_text}
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+                        )}
+
                         {/* Phase 02 Launcher */}
                         <div className="relative group">
                             <div className="absolute -inset-0.5 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-[2.5rem] blur opacity-20 group-hover:opacity-40 transition-opacity" />
@@ -793,9 +936,17 @@ export function ResearchRebuild() {
                                 <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:scale-125 group-hover:opacity-10 transition-all duration-700 pointer-events-none">
                                     <Rocket className="h-32 w-32 text-white" />
                                 </div>
-                                <h3 className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.4em] mb-4">Phase 02: Validate</h3>
-                                <h4 className="text-white font-black text-xl mb-3 tracking-tight leading-tight">Opportunity <br />Verification Engine</h4>
-                                <p className="text-slate-400 text-[13px] mb-10 leading-relaxed font-medium">Analyze <span className="text-white font-bold">{approvedJobs.length} approved candidates</span> against real-time SERP weakness and keyword feasibility.</p>
+                                <h3 className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.4em] mb-4">
+                                    {isJobsPage ? 'Phase 02: Validate' : 'Step Actions'}
+                                </h3>
+                                <h4 className="text-white font-black text-xl mb-3 tracking-tight leading-tight">
+                                    {isJobsPage ? <>Opportunity <br />Verification Engine</> : <>Run Or Refresh <br />Validation</>}
+                                </h4>
+                                <p className="text-slate-400 text-[13px] mb-10 leading-relaxed font-medium">
+                                    {isJobsPage
+                                        ? <>Analyze <span className="text-white font-bold">{approvedJobs.length} approved candidates</span> against real-time SERP weakness and keyword feasibility.</>
+                                        : <>Use the approved jobs on the left to run or rerun validation, then inspect the strongest opportunities on this page.</>}
+                                </p>
                                 
                                 <Button 
                                     className={cn(
@@ -804,17 +955,87 @@ export function ResearchRebuild() {
                                             ? "bg-indigo-500 text-white hover:bg-indigo-400 shadow-[0_0_25px_rgba(99,102,241,0.4)] border-indigo-400/50" 
                                             : "bg-white/5 text-slate-500 border-white/5 cursor-not-allowed"
                                     )}
-                                    onClick={handleRunWorkflow}
-                                    disabled={runningWorkflow || approvedJobs.length === 0 || !activeProject?.id}
+                                    onClick={isJobsPage ? () => navigate(opportunitiesPagePath) : handleRunWorkflow}
+                                    disabled={(isOpportunitiesPage && runningWorkflow) || approvedJobs.length === 0 || !activeProject?.id}
                                 >
-                                    {runningWorkflow ? <Loader2 className="mr-3 h-5 w-5 animate-spin" /> : <Rocket className={cn("mr-3 h-5 w-5 fill-current", approvedJobs.length > 0 ? "animate-bounce" : "")} />}
-                                    {approvedJobs.length > 0 ? `Validate ${approvedJobs.length} Candidates` : 'Select Candidates First'}
+                                    {isOpportunitiesPage && runningWorkflow
+                                        ? <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                                        : <Rocket className={cn("mr-3 h-5 w-5 fill-current", approvedJobs.length > 0 ? "animate-bounce" : "")} />}
+                                    {approvedJobs.length > 0
+                                        ? (isJobsPage ? `Continue With ${approvedJobs.length} Approved Jobs` : `Validate ${approvedJobs.length} Candidates`)
+                                        : 'Select Candidates First'}
                                 </Button>
                             </div>
                         </div>
                     </aside>
 
                     {/* RIGHT PANEL: ANALYSIS RESULTS */}
+                    {isJobsPage ? (
+                        <div className="space-y-10">
+                            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4 relative z-10">
+                                <div className="max-w-2xl space-y-4">
+                                    <h2 className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.3em] flex items-center gap-3">
+                                        <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10px]">02</span>
+                                        Validation Preview
+                                    </h2>
+                                    <div>
+                                        <h3 className="text-3xl font-black text-white tracking-tight leading-tight">Approve Jobs Before You Score Anything</h3>
+                                        <p className="text-slate-500 text-[13px] font-medium mt-3 leading-relaxed mb-6">
+                                            This step is only about shaping the batch. Approve the jobs that are concrete, category-aligned, and worth validating. Reject broad or boring ideas before they create noisy outcomes.
+                                        </p>
+                                        <PhaseGuide
+                                            title="What Good Jobs Look Like"
+                                            description="Prefer literal, searchable jobs like comparisons, calculators, decision prompts, workflow evaluations, and recurring questions. Use Focus Area to explore a different slice without changing category."
+                                            color="emerald"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <div className="px-4 py-2 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-2.5">
+                                        <Layers className="h-4 w-4 text-slate-500" />
+                                        <span className="text-xs font-black text-slate-300 uppercase tracking-tighter">{approvedJobs.length} Approved</span>
+                                    </div>
+                                    <div className="px-4 py-2 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-2.5">
+                                        <Target className="h-4 w-4 text-slate-500" />
+                                        <span className="text-xs font-black text-slate-300 uppercase tracking-tighter">{jobs.length} Total Jobs</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <section className="bg-[#0d0d0f] border border-white/5 rounded-[3rem] p-8 shadow-2xl relative overflow-hidden">
+                                <div className="absolute top-0 right-0 h-[420px] w-[420px] rounded-full bg-indigo-500/5 blur-[120px] pointer-events-none" />
+                                <div className="relative z-10 grid gap-6 lg:grid-cols-[1.2fr,0.8fr]">
+                                    <div className="rounded-[2rem] border border-white/5 bg-white/[0.02] p-6">
+                                        <h4 className="text-sm font-black uppercase tracking-[0.25em] text-slate-400">Current Batch Strategy</h4>
+                                        <div className="mt-5 space-y-4">
+                                            <ContextBlock label="Focus Area" value={focusArea || 'No focus area supplied. Add one if you want a narrower or more novel batch.'} />
+                                            <ContextBlock label="Avoid Guidance" value={avoidGuidance || 'No avoid guidance supplied. Use this to suppress generic or repeated patterns.'} />
+                                        </div>
+                                    </div>
+                                    <div className="rounded-[2rem] border border-white/5 bg-white/[0.02] p-6">
+                                        <h4 className="text-sm font-black uppercase tracking-[0.25em] text-slate-400">Before You Continue</h4>
+                                        <div className="mt-5 space-y-3 text-sm text-slate-400">
+                                            <p>1. Reject anything too broad, essay-like, or off-angle.</p>
+                                            <p>2. Approve only the jobs you would genuinely want to explore.</p>
+                                            <p>3. If the batch feels repetitive, change Focus Area or Avoid and generate again.</p>
+                                        </div>
+                                        <Button
+                                            className={cn(
+                                                "mt-6 w-full h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px]",
+                                                approvedJobs.length > 0
+                                                    ? "bg-indigo-500 text-white hover:bg-indigo-400"
+                                                    : "bg-white/5 text-slate-500 cursor-not-allowed",
+                                            )}
+                                            onClick={() => navigate(opportunitiesPagePath)}
+                                            disabled={approvedJobs.length === 0}
+                                        >
+                                            Continue To Opportunity Validation
+                                        </Button>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    ) : (
                     <div className="space-y-10">
                         {/* Phase 03 Header */}
                         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4 relative z-10">
@@ -1015,6 +1236,7 @@ export function ResearchRebuild() {
                             )}
                         </section>
                     </div>
+                    )}
                 </div>
             </main>
         </div>
@@ -1432,6 +1654,24 @@ function ScoreMini({ label, value, color = 'indigo' }: { label: string; value?: 
     )
 }
 
+function ContextStat({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="rounded-2xl border border-white/5 bg-black/30 p-4">
+            <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">{label}</div>
+            <div className="mt-2 text-sm font-semibold text-slate-200">{value}</div>
+        </div>
+    )
+}
+
+function ContextBlock({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="rounded-2xl border border-white/5 bg-black/30 p-4">
+            <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">{label}</div>
+            <p className="mt-2 text-sm leading-relaxed text-slate-300">{value}</p>
+        </div>
+    )
+}
+
 function getValidationMetric(validationRun: ResearchRebuildValidationRun, key: string): any {
     const metadata = validationRun.validation_metadata as Record<string, any>
     return metadata?.[key]
@@ -1477,5 +1717,12 @@ function formatWorkflowRunShortLabel(run: ResearchRebuildWorkflowRunSummary): st
     return `${date} • ${run.candidate_count} Targets`
 }
 
+export function ResearchRebuildJobsPage() {
+    return <ResearchRebuild mode="jobs" />
+}
+
+export function ResearchRebuildOpportunitiesPage() {
+    return <ResearchRebuild mode="opportunities" />
+}
 
 export default ResearchRebuild

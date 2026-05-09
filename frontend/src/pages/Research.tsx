@@ -327,7 +327,8 @@ export function Research() {
         if (workflowRunId) params.set('workflow_run_id', workflowRunId)
 
         const query = params.toString()
-        return `/research-rebuild${query ? `?${query}` : ''}`
+        const basePath = workflowRunId ? '/research-rebuild/opportunities' : '/research-rebuild/jobs'
+        return `${basePath}${query ? `?${query}` : ''}`
     }, [activeProject?.id, primaryCategoryFilter, projectFilter, secondaryCategoryFilter])
 
     const getTopicRebuildSummary = React.useCallback((topic: ResearchTopic): RebuildSummary | null => {
@@ -430,7 +431,7 @@ export function Research() {
                             <Button
                                 variant="secondary"
                                 className="shrink-0"
-                                onClick={() => navigate(`/research-rebuild${filterQuery}`)}
+                                onClick={() => navigate(`/research-rebuild/jobs${filterQuery}`)}
                             >
                                 Open Rebuild
                                 <ArrowUpRight className="ml-2 h-4 w-4" />

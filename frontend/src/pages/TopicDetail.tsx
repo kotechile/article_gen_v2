@@ -788,7 +788,7 @@ export function TopicDetail() {
 
     const rebuildUrl = React.useMemo(() => {
         if (!topic?.project_id) {
-            return '/research-rebuild'
+            return '/research-rebuild/jobs'
         }
         const params = new URLSearchParams()
         params.set('project_id', topic.project_id)
@@ -802,7 +802,8 @@ export function TopicDetail() {
             params.set('workflow_run_id', latestRebuildRun.workflow_run_id)
         }
         const query = params.toString()
-        return `/research-rebuild${query ? `?${query}` : ''}`
+        const basePath = latestRebuildRun?.workflow_run_id ? '/research-rebuild/opportunities' : '/research-rebuild/jobs'
+        return `${basePath}${query ? `?${query}` : ''}`
     }, [latestRebuildRun?.workflow_run_id, topic?.primary_category_id, topic?.project_id, topic?.secondary_category_id])
 
     const handlePersistRebuildOutcome = React.useCallback(async (outcomeId: string) => {

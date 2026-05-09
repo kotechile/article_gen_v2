@@ -37,7 +37,7 @@ export function Sidebar({ className }: SidebarProps) {
     const toggleCollapsed = () => setIsCollapsed((current) => !current)
 
     const getSubtitle = (): string => {
-        if (pathname === "/") return "RESEARCH"
+        if (pathname === "/" || pathname?.startsWith("/research-rebuild")) return "RESEARCH"
         if (pathname === "/my-articles") return "MY ARTICLES"
         if (pathname === "/software-ideas") return "SOFTWARE IDEAS"
         if (pathname === "/settings") return "SETTINGS"
@@ -93,7 +93,7 @@ export function Sidebar({ className }: SidebarProps) {
                                 icon={<FlaskConical className="h-5 w-5" />}
                                 label="Research"
                                 isCollapsed={isCollapsed}
-                                active={pathname === "/"}
+                                active={pathname === "/" || pathname?.startsWith("/research-rebuild")}
                             />
                             <NavItem
                                 href="/my-articles"
