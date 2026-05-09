@@ -686,12 +686,21 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                     )}
                 </div>
 
-                <div className="grid gap-10 lg:grid-cols-[400px,1fr] items-start relative">
+                <div
+                    className={cn(
+                        "grid gap-10 items-start relative",
+                        isJobsPage ? "mx-auto max-w-5xl lg:grid-cols-1" : "lg:grid-cols-[400px,1fr]",
+                    )}
+                >
                     {/* Background Tints */}
-                    <div className="absolute inset-y-0 left-0 w-[400px] bg-indigo-500/[0.02] rounded-[3rem] -ml-4 -my-4 pointer-events-none hidden lg:block" />
-                    <div className="absolute inset-y-0 left-[440px] right-0 bg-emerald-500/[0.01] rounded-[3rem] -mr-4 -my-4 pointer-events-none hidden lg:block" />
+                    {!isJobsPage && (
+                        <>
+                            <div className="absolute inset-y-0 left-0 w-[400px] bg-indigo-500/[0.02] rounded-[3rem] -ml-4 -my-4 pointer-events-none hidden lg:block" />
+                            <div className="absolute inset-y-0 left-[440px] right-0 bg-emerald-500/[0.01] rounded-[3rem] -mr-4 -my-4 pointer-events-none hidden lg:block" />
+                        </>
+                    )}
                     {/* LEFT PANEL: CONFIGURATION & DISCOVERY */}
-                    <aside className="space-y-8 lg:sticky lg:top-32">
+                    <aside className={cn("space-y-8", isJobsPage ? "mx-auto w-full max-w-4xl" : "lg:sticky lg:top-32")}>
                         <div className="px-2 space-y-4 relative z-10">
                              <h2 className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.4em] flex items-center gap-3">
                                 <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-[10px]">01</span>
@@ -970,72 +979,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                     </aside>
 
                     {/* RIGHT PANEL: ANALYSIS RESULTS */}
-                    {isJobsPage ? (
-                        <div className="space-y-10">
-                            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4 relative z-10">
-                                <div className="max-w-2xl space-y-4">
-                                    <h2 className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.3em] flex items-center gap-3">
-                                        <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10px]">02</span>
-                                        Validation Preview
-                                    </h2>
-                                    <div>
-                                        <h3 className="text-3xl font-black text-white tracking-tight leading-tight">Approve Jobs Before You Score Anything</h3>
-                                        <p className="text-slate-500 text-[13px] font-medium mt-3 leading-relaxed mb-6">
-                                            This step is only about shaping the batch. Approve the jobs that are concrete, category-aligned, and worth validating. Reject broad or boring ideas before they create noisy outcomes.
-                                        </p>
-                                        <PhaseGuide
-                                            title="What Good Jobs Look Like"
-                                            description="Prefer literal, searchable jobs like comparisons, calculators, decision prompts, workflow evaluations, and recurring questions. Use Focus Area to explore a different slice without changing category."
-                                            color="emerald"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <div className="px-4 py-2 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-2.5">
-                                        <Layers className="h-4 w-4 text-slate-500" />
-                                        <span className="text-xs font-black text-slate-300 uppercase tracking-tighter">{approvedJobs.length} Approved</span>
-                                    </div>
-                                    <div className="px-4 py-2 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-2.5">
-                                        <Target className="h-4 w-4 text-slate-500" />
-                                        <span className="text-xs font-black text-slate-300 uppercase tracking-tighter">{jobs.length} Total Jobs</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <section className="bg-[#0d0d0f] border border-white/5 rounded-[3rem] p-8 shadow-2xl relative overflow-hidden">
-                                <div className="absolute top-0 right-0 h-[420px] w-[420px] rounded-full bg-indigo-500/5 blur-[120px] pointer-events-none" />
-                                <div className="relative z-10 grid gap-6 lg:grid-cols-[1.2fr,0.8fr]">
-                                    <div className="rounded-[2rem] border border-white/5 bg-white/[0.02] p-6">
-                                        <h4 className="text-sm font-black uppercase tracking-[0.25em] text-slate-400">Current Batch Strategy</h4>
-                                        <div className="mt-5 space-y-4">
-                                            <ContextBlock label="Focus Area" value={focusArea || 'No focus area supplied. Add one if you want a narrower or more novel batch.'} />
-                                            <ContextBlock label="Avoid Guidance" value={avoidGuidance || 'No avoid guidance supplied. Use this to suppress generic or repeated patterns.'} />
-                                        </div>
-                                    </div>
-                                    <div className="rounded-[2rem] border border-white/5 bg-white/[0.02] p-6">
-                                        <h4 className="text-sm font-black uppercase tracking-[0.25em] text-slate-400">Before You Continue</h4>
-                                        <div className="mt-5 space-y-3 text-sm text-slate-400">
-                                            <p>1. Reject anything too broad, essay-like, or off-angle.</p>
-                                            <p>2. Approve only the jobs you would genuinely want to explore.</p>
-                                            <p>3. If the batch feels repetitive, change Focus Area or Avoid and generate again.</p>
-                                        </div>
-                                        <Button
-                                            className={cn(
-                                                "mt-6 w-full h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px]",
-                                                approvedJobs.length > 0
-                                                    ? "bg-indigo-500 text-white hover:bg-indigo-400"
-                                                    : "bg-white/5 text-slate-500 cursor-not-allowed",
-                                            )}
-                                            onClick={() => navigate(opportunitiesPagePath)}
-                                            disabled={approvedJobs.length === 0}
-                                        >
-                                            Continue To Opportunity Validation
-                                        </Button>
-                                    </div>
-                                </div>
-                            </section>
-                        </div>
-                    ) : (
+                    {isJobsPage ? null : (
                     <div className="space-y-10">
                         {/* Phase 03 Header */}
                         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4 relative z-10">
