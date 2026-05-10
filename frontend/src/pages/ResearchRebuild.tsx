@@ -37,6 +37,8 @@ type ResearchRebuildProps = {
     mode?: ResearchRebuildMode
 }
 
+const WORKFLOW_BATCH_SIZE = 4
+
 export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const { user } = useAuth()
     const { activeProject, projects, setActiveProject } = useProject()
@@ -417,25 +419,47 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
         }
     }
 
+    const chunkJobIds = React.useCallback((jobIds: string[]) => {
+        if (jobIds.length <= WORKFLOW_BATCH_SIZE) return [jobIds]
+        const batches: string[][] = []
+        for (let index = 0; index < jobIds.length; index += WORKFLOW_BATCH_SIZE) {
+            batches.push(jobIds.slice(index, index + WORKFLOW_BATCH_SIZE))
+        }
+        return batches
+    }, [])
+
     const executeWorkflow = async (jobIds: string[], successLabel: string) => {
         if (!activeProject?.id || jobIds.length === 0) return
         try {
             setRunningWorkflow(true)
             setError(null)
             setSuccess(null)
-            const response = await researchRebuildService.runWorkflow({
-                project_id: activeProject.id,
-                user_job_ids: jobIds,
-            })
+            const batches = chunkJobIds(jobIds)
+            let lastWorkflowRunId = workflowRunFilter
+            for (const batch of batches) {
+                const response = await researchRebuildService.runWorkflow({
+                    project_id: activeProject.id,
+                    user_job_ids: batch,
+                })
+                if (response.workflow_run_id) {
+                    lastWorkflowRunId = response.workflow_run_id
+                }
+            }
             setWorkflowPage(0)
-            if (response.workflow_run_id) {
-                setWorkflowRunFilter(response.workflow_run_id)
+            if (batches.length === 1 && lastWorkflowRunId && lastWorkflowRunId !== 'all') {
+                setWorkflowRunFilter(lastWorkflowRunId)
+            } else if (batches.length > 1) {
+                setWorkflowRunFilter('all')
             }
             await refreshPageContext({
-                workflowRunId: response.workflow_run_id || workflowRunFilter,
+                workflowRunId: batches.length === 1 ? lastWorkflowRunId || workflowRunFilter : 'all',
                 workflowPage: 0,
             })
-            setSuccess(successLabel)
+            if (batches.length > 1) {
+                setSuccess(`${successLabel} Processed in ${batches.length} smaller batches to avoid request timeouts.`)
+            } else {
+                setSuccess(successLabel)
+            }
         } catch (err) {
             console.error('Failed to run rebuild workflow:', err)
             const message = err instanceof Error ? err.message.toLowerCase() : ''
