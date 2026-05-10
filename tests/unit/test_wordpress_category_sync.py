@@ -95,6 +95,41 @@ class _FakeSupabase:
         return _TableQuery(self, table_name)
 
 
+class _ParentChildFakeSupabase(_FakeSupabase):
+    def __init__(self):
+        super().__init__()
+        self.tables["project_categories"] = [
+            {
+                "id": "parent-1",
+                "project_id": "project-1",
+                "user_id": "user-1",
+                "name": "Decision Engineering",
+                "description": "Parent description",
+                "slug": "decision-engineering",
+                "level": 1,
+                "parent_category_id": None,
+                "sort_order": 1,
+                "wordpress_category_id": "",
+                "wordpress_parent_category_id": None,
+                "wordpress_site_domain": "example.com",
+            },
+            {
+                "id": "child-1",
+                "project_id": "project-1",
+                "user_id": "user-1",
+                "name": "Capital Allocation",
+                "description": "Child description",
+                "slug": "capital-allocation",
+                "level": 2,
+                "parent_category_id": "parent-1",
+                "sort_order": 2,
+                "wordpress_category_id": "",
+                "wordpress_parent_category_id": None,
+                "wordpress_site_domain": "example.com",
+            },
+        ]
+
+
 class _FakeWordPressClient:
     created_calls = []
     updated_calls = []
@@ -322,3 +357,185 @@ def test_sync_project_categories_treats_blank_wordpress_ids_as_unmapped(monkeypa
 
     persisted = fake_supabase.tables["project_categories"][0]
     assert persisted["wordpress_category_id"] == 202
+
+
+class _CreateParentChildWordPressClient(_FakeWordPressClient):
+    next_id = 300
+
+    def get_categories_detailed(self, per_page: int = 100):
+        return []
+
+    def create_category(self, *args, **kwargs):
+        self.__class__.created_calls.append((args, kwargs))
+        self.__class__.next_id += 1
+        return {
+            "id": self.__class__.next_id,
+            "name": kwargs.get("name"),
+            "slug": kwargs.get("slug"),
+            "parent": kwargs.get("parent", 0),
+            "description": kwargs.get("description"),
+        }
+
+
+def test_sync_project_categories_creates_child_with_new_parent_wordpress_id(monkeypatch):
+    from src.api import wordpress as wordpress_module
+
+    fake_supabase = _ParentChildFakeSupabase()
+    _CreateParentChildWordPressClient.created_calls = []
+    _CreateParentChildWordPressClient.updated_calls = []
+    _CreateParentChildWordPressClient.next_id = 300
+
+    monkeypatch.setattr(wordpress_module, "get_supabase_client", lambda: fake_supabase)
+    monkeypatch.setattr(wordpress_module, "WordPressClient", _CreateParentChildWordPressClient)
+    monkeypatch.setattr(
+        wordpress_module,
+        "_generate_category_descriptions",
+        lambda domain, project_name, categories: {
+            str(category["id"]): category.get("description") or ""
+            for category in categories
+        },
+    )
+
+    app = create_app("testing")
+    app.config["TESTING"] = True
+    app.config["API_KEYS"] = []
+    client = app.test_client()
+
+    response = client.post(
+        "/api/wordpress/sync-project-categories",
+        headers=_headers(),
+        json={"user_id": "user-1", "project_id": "project-1"},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["created"] == 2
+    assert payload["updated"] == 0
+    assert payload["errors_count"] == 0
+
+    assert _CreateParentChildWordPressClient.created_calls == [
+        (
+            (),
+            {
+                "name": "Decision Engineering",
+                "slug": "decision-engineering",
+                "parent": 0,
+                "description": "Parent description",
+            },
+        ),
+        (
+            (),
+            {
+                "name": "Capital Allocation",
+                "slug": "capital-allocation",
+                "parent": 301,
+                "description": "Child description",
+            },
+        ),
+    ]
+
+    persisted_by_id = {row["id"]: row for row in fake_supabase.tables["project_categories"]}
+    assert persisted_by_id["parent-1"]["wordpress_category_id"] == 301
+    assert persisted_by_id["parent-1"]["wordpress_parent_category_id"] is None
+    assert persisted_by_id["child-1"]["wordpress_category_id"] == 302
+    assert persisted_by_id["child-1"]["wordpress_parent_category_id"] == 301
+
+
+class _UpdateParentChildWordPressClient(_FakeWordPressClient):
+    def get_categories_detailed(self, per_page: int = 100):
+        return [
+            {
+                "id": 103,
+                "name": "Decision Engineering",
+                "slug": "decision-engineering",
+                "parent": 0,
+                "count": 0,
+                "description": "Parent description",
+            },
+            {
+                "id": 107,
+                "name": "Capital Allocation",
+                "slug": "capital-allocation",
+                "parent": 999,
+                "count": 0,
+                "description": "Old child description",
+            },
+        ]
+
+    def get_category(self, category_id: int):
+        if category_id == 103:
+            return {
+                "id": 103,
+                "name": "Decision Engineering",
+                "slug": "decision-engineering",
+                "parent": 0,
+                "description": "Parent description",
+            }
+        if category_id == 107:
+            return {
+                "id": 107,
+                "name": "Capital Allocation",
+                "slug": "capital-allocation",
+                "parent": 999,
+                "description": "Old child description",
+            }
+        raise AssertionError(f"Unexpected category lookup: {category_id}")
+
+
+def test_sync_project_categories_updates_existing_child_parent_relationship(monkeypatch):
+    from src.api import wordpress as wordpress_module
+
+    fake_supabase = _ParentChildFakeSupabase()
+    fake_supabase.tables["project_categories"][0]["wordpress_category_id"] = 103
+    fake_supabase.tables["project_categories"][1]["wordpress_category_id"] = 107
+
+    _UpdateParentChildWordPressClient.created_calls = []
+    _UpdateParentChildWordPressClient.updated_calls = []
+
+    monkeypatch.setattr(wordpress_module, "get_supabase_client", lambda: fake_supabase)
+    monkeypatch.setattr(wordpress_module, "WordPressClient", _UpdateParentChildWordPressClient)
+    monkeypatch.setattr(
+        wordpress_module,
+        "_generate_category_descriptions",
+        lambda domain, project_name, categories: {
+            str(category["id"]): category.get("description") or ""
+            for category in categories
+        },
+    )
+
+    app = create_app("testing")
+    app.config["TESTING"] = True
+    app.config["API_KEYS"] = []
+    client = app.test_client()
+
+    response = client.post(
+        "/api/wordpress/sync-project-categories",
+        headers=_headers(),
+        json={"user_id": "user-1", "project_id": "project-1"},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["created"] == 0
+    assert payload["updated"] == 1
+    assert payload["errors_count"] == 0
+
+    assert _UpdateParentChildWordPressClient.created_calls == []
+    assert _UpdateParentChildWordPressClient.updated_calls == [
+        (
+            107,
+            {
+                "name": "Capital Allocation",
+                "slug": "capital-allocation",
+                "parent": 103,
+                "description": "Child description",
+            },
+        )
+    ]
+
+    persisted_by_id = {row["id"]: row for row in fake_supabase.tables["project_categories"]}
+    assert persisted_by_id["parent-1"]["wordpress_category_id"] == 103
+    assert persisted_by_id["child-1"]["wordpress_category_id"] == 107
+    assert persisted_by_id["child-1"]["wordpress_parent_category_id"] == 103
