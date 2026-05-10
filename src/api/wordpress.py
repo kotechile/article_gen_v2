@@ -470,20 +470,19 @@ def sync_project_categories_to_wordpress():
                     except requests.exceptions.HTTPError as e:
                         status = e.response.status_code if e.response is not None else None
                         if status == 404:
-                            raise Exception(
-                                f"Stored WordPress category id {mapped_wp_id} was not found on WordPress. "
-                                "Refusing to create a replacement category automatically."
-                            )
-                        raise
-                    by_id[mapped_wp_id] = existing
-                    existing_slug = (existing.get("slug") or "").strip().lower()
-                    existing_name = (existing.get("name") or "").strip().lower()
-                    existing_parent = int(existing.get("parent") or 0)
-                    if existing_slug:
-                        by_slug_parent[(existing_slug, existing_parent)] = existing
-                        by_slug_global[existing_slug] = existing
-                    if existing_name:
-                        by_name_parent[(existing_name, existing_parent)] = existing
+                            existing = None
+                        else:
+                            raise
+                    if existing is not None:
+                        by_id[mapped_wp_id] = existing
+                        existing_slug = (existing.get("slug") or "").strip().lower()
+                        existing_name = (existing.get("name") or "").strip().lower()
+                        existing_parent = int(existing.get("parent") or 0)
+                        if existing_slug:
+                            by_slug_parent[(existing_slug, existing_parent)] = existing
+                            by_slug_global[existing_slug] = existing
+                        if existing_name:
+                            by_name_parent[(existing_name, existing_parent)] = existing
             else:
                 existing = (
                     by_slug_parent.get((slug, parent_wp_id))

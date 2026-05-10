@@ -1,6 +1,7 @@
 import copy
 import os
 import sys
+import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -200,5 +201,82 @@ def test_sync_project_categories_updates_existing_wordpress_category_by_stored_i
 
     persisted = fake_supabase.tables["project_categories"][0]
     assert persisted["wordpress_category_id"] == 101
+    assert persisted["wordpress_parent_category_id"] is None
+    assert persisted["wordpress_site_domain"] == "example.com"
+
+
+class _MissingMappedWordPressClient(_FakeWordPressClient):
+    def get_categories_detailed(self, per_page: int = 100):
+        return []
+
+    def get_category(self, category_id: int):
+        response = requests.Response()
+        response.status_code = 404
+        response._content = b'{"code":"rest_term_invalid","message":"Term not found."}'
+        error = requests.exceptions.HTTPError("404 Client Error: Not Found for url", response=response)
+        raise error
+
+    def create_category(self, *args, **kwargs):
+        self.__class__.created_calls.append((args, kwargs))
+        return {
+            "id": 202,
+            "name": kwargs.get("name"),
+            "slug": kwargs.get("slug"),
+            "parent": kwargs.get("parent", 0),
+            "description": kwargs.get("description"),
+        }
+
+
+def test_sync_project_categories_recreates_missing_mapped_wordpress_category_and_persists_new_id(monkeypatch):
+    from src.api import wordpress as wordpress_module
+
+    fake_supabase = _FakeSupabase()
+    _MissingMappedWordPressClient.created_calls = []
+    _MissingMappedWordPressClient.updated_calls = []
+
+    monkeypatch.setattr(wordpress_module, "get_supabase_client", lambda: fake_supabase)
+    monkeypatch.setattr(wordpress_module, "WordPressClient", _MissingMappedWordPressClient)
+    monkeypatch.setattr(
+        wordpress_module,
+        "_generate_category_descriptions",
+        lambda domain, project_name, categories: {
+            str(category["id"]): category.get("description") or ""
+            for category in categories
+        },
+    )
+
+    app = create_app("testing")
+    app.config["TESTING"] = True
+    app.config["API_KEYS"] = []
+    client = app.test_client()
+
+    response = client.post(
+        "/api/wordpress/sync-project-categories",
+        headers=_headers(),
+        json={"user_id": "user-1", "project_id": "project-1"},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["created"] == 1
+    assert payload["updated"] == 0
+    assert payload["errors_count"] == 0
+
+    assert _MissingMappedWordPressClient.updated_calls == []
+    assert _MissingMappedWordPressClient.created_calls == [
+        (
+            (),
+            {
+                "name": "Decision Engineering",
+                "slug": "decision-engineering",
+                "parent": 0,
+                "description": "Updated local description",
+            },
+        )
+    ]
+
+    persisted = fake_supabase.tables["project_categories"][0]
+    assert persisted["wordpress_category_id"] == 202
     assert persisted["wordpress_parent_category_id"] is None
     assert persisted["wordpress_site_domain"] == "example.com"
