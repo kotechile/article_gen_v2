@@ -55,6 +55,7 @@ ALLOWED_KEYWORD_PACK_STATUSES = {"draft", "ready", "cluster_too_thin", "needs_mo
 ALLOWED_LINK_ROLES = {"parent_candidate", "child_candidate", "sibling_candidate", "hub_candidate"}
 ALLOWED_OUTCOME_TYPES = {"article", "software", "editorial"}
 ALLOWED_OUTCOME_STATUSES = {"draft", "generated", "persisted", "published", "archived"}
+PROMOTABLE_ROUTES = {"article_ready", "software_ready", "article_plus_software", "editorial_only"}
 
 
 def _normalize_review_title(value: str | None) -> str:
@@ -127,6 +128,7 @@ async def _build_persisted_workflow_snapshot(
         secondary_category_id=secondary_category_id,
         status=job_status,
         include_archived=True,
+        active_only=False,
     )
     allowed_job_ids = {str(job.get("id")) for job in jobs}
 
@@ -249,6 +251,7 @@ async def _list_persisted_workflow_runs(
         secondary_category_id=secondary_category_id,
         status=job_status,
         include_archived=True,
+        active_only=False,
     )
     allowed_job_ids = {str(job.get("id")) for job in jobs}
     jobs_by_id = {str(job.get("id")): job for job in jobs}
@@ -696,6 +699,7 @@ async def _build_page_context(
         primary_category_id=primary_category_id,
         secondary_category_id=secondary_category_id,
         status=job_status,
+        active_only=True,
     )
     workflow_context = await _build_workflow_context(
         user_id=user_id,
@@ -783,6 +787,7 @@ def list_research_jobs():
                 primary_category_id=UUID(request.args["primary_category_id"]) if request.args.get("primary_category_id") else None,
                 secondary_category_id=UUID(request.args["secondary_category_id"]) if request.args.get("secondary_category_id") else None,
                 status=request.args.get("status"),
+                active_only=(request.args.get("active_only", "true").lower() != "false"),
             )
         )
         return jsonify({"items": items, "count": len(items)}), 200
@@ -2527,6 +2532,29 @@ def run_research_rebuild_workflow():
                         "generated_outcome": outcome_row,
                     }
                 )
+            route_values = [
+                str((candidate_result.get("routing_decision") or {}).get("route") or "").strip()
+                for candidate_result in job_result["candidates"]
+            ]
+            has_promotable_route = any(route_value in PROMOTABLE_ROUTES for route_value in route_values)
+            if not has_promotable_route:
+                job_metadata = dict(job.get("generation_metadata") or {})
+                job_metadata["last_workflow_run_id"] = workflow_run_id
+                job_metadata["last_workflow_run_started_at"] = workflow_run_started_at
+                job_metadata["last_route_outcomes"] = route_values
+                updated_job = asyncio.run(
+                    job_service.update_record(
+                        record_id=_parse_uuid(str(user_job_id), "user_job_id"),
+                        user_id=UUID(user_id),
+                        data={
+                            "status": "validated_no_opportunity",
+                            "generation_metadata": job_metadata,
+                        },
+                    )
+                )
+                if updated_job:
+                    job = updated_job
+                    job_result["job"] = updated_job
             results.append(job_result)
 
         return jsonify(

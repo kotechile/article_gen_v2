@@ -173,6 +173,7 @@ Rejected patterns to avoid:
         status: Optional[str] = None,
         include_archived: bool = False,
         batch_id: Optional[str] = None,
+        active_only: bool = True,
     ) -> List[Dict[str, Any]]:
         """List jobs for a project/category scope."""
         filters: Dict[str, Any] = {"project_id": str(project_id)}
@@ -189,6 +190,12 @@ Rejected patterns to avoid:
         )
         if not include_archived:
             records = [record for record in records if str(record.get("status") or "").strip().lower() != "archived"]
+        if active_only and not status:
+            records = [
+                record
+                for record in records
+                if str(record.get("status") or "").strip().lower() in {"draft", "approved"}
+            ]
         if batch_id:
             records = [
                 record
