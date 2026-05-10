@@ -327,35 +327,39 @@ def sync_project_categories_to_wordpress():
         if not domain or not username or not app_password:
             return jsonify({'error': 'WordPress credentials are incomplete for this project'}), 400
 
-        try:
-            categories_resp = (
-                supabase
-                .table("project_categories")
-                .select("id, name, description, slug, level, parent_category_id, sort_order")
-                .eq("project_id", project_id)
-                .eq("user_id", user_id)
-                .order("level", desc=False)
-                .order("sort_order", desc=False)
-                .order("name", desc=False)
-                .execute()
-            )
-            local_categories = categories_resp.data or []
-        except Exception:
-            # Backward compatibility if description column is not migrated yet.
-            categories_resp = (
-                supabase
-                .table("project_categories")
-                .select("id, name, slug, level, parent_category_id, sort_order")
-                .eq("project_id", project_id)
-                .eq("user_id", user_id)
-                .order("level", desc=False)
-                .order("sort_order", desc=False)
-                .order("name", desc=False)
-                .execute()
-            )
-            local_categories = categories_resp.data or []
-            for row in local_categories:
-                row["description"] = None
+        local_categories = None
+        category_select_attempts = [
+            "id, name, description, slug, level, parent_category_id, sort_order, wordpress_category_id, wordpress_parent_category_id, wordpress_site_domain",
+            "id, name, slug, level, parent_category_id, sort_order, wordpress_category_id, wordpress_parent_category_id, wordpress_site_domain",
+            "id, name, description, slug, level, parent_category_id, sort_order",
+            "id, name, slug, level, parent_category_id, sort_order",
+        ]
+        for select_fields in category_select_attempts:
+            try:
+                categories_resp = (
+                    supabase
+                    .table("project_categories")
+                    .select(select_fields)
+                    .eq("project_id", project_id)
+                    .eq("user_id", user_id)
+                    .order("level", desc=False)
+                    .order("sort_order", desc=False)
+                    .order("name", desc=False)
+                    .execute()
+                )
+                local_categories = categories_resp.data or []
+                break
+            except Exception:
+                continue
+
+        if local_categories is None:
+            raise Exception("Failed to load project categories for synchronization")
+
+        for row in local_categories:
+            row.setdefault("description", None)
+            row.setdefault("wordpress_category_id", None)
+            row.setdefault("wordpress_parent_category_id", None)
+            row.setdefault("wordpress_site_domain", None)
         if not local_categories:
             return jsonify({
                 "success": True,
@@ -448,14 +452,44 @@ def sync_project_categories_to_wordpress():
             wp_name = _shorten_wp_title(app_name, max_chars=60)
             slug = (local_cat.get("slug") or "").strip().lower() or _slugify(app_name)
             description = (category_descriptions.get(local_id) or "").strip()
+            mapped_wp_id = local_cat.get("wordpress_category_id")
             if not app_name:
                 return None
 
-            existing = (
-                by_slug_parent.get((slug, parent_wp_id))
-                or by_name_parent.get((wp_name.lower(), parent_wp_id))
-                or by_slug_global.get(slug)
-            )
+            existing = None
+            if mapped_wp_id is not None:
+                try:
+                    mapped_wp_id = int(mapped_wp_id)
+                except (TypeError, ValueError):
+                    raise Exception(f"Invalid stored wordpress_category_id: {mapped_wp_id}")
+
+                existing = by_id.get(mapped_wp_id)
+                if existing is None:
+                    try:
+                        existing = client.get_category(mapped_wp_id)
+                    except requests.exceptions.HTTPError as e:
+                        status = e.response.status_code if e.response is not None else None
+                        if status == 404:
+                            raise Exception(
+                                f"Stored WordPress category id {mapped_wp_id} was not found on WordPress. "
+                                "Refusing to create a replacement category automatically."
+                            )
+                        raise
+                    by_id[mapped_wp_id] = existing
+                    existing_slug = (existing.get("slug") or "").strip().lower()
+                    existing_name = (existing.get("name") or "").strip().lower()
+                    existing_parent = int(existing.get("parent") or 0)
+                    if existing_slug:
+                        by_slug_parent[(existing_slug, existing_parent)] = existing
+                        by_slug_global[existing_slug] = existing
+                    if existing_name:
+                        by_name_parent[(existing_name, existing_parent)] = existing
+            else:
+                existing = (
+                    by_slug_parent.get((slug, parent_wp_id))
+                    or by_name_parent.get((wp_name.lower(), parent_wp_id))
+                    or by_slug_global.get(slug)
+                )
             if existing:
                 cat_id = int(existing.get("id"))
                 needs_update = (
