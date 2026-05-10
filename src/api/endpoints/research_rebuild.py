@@ -126,6 +126,7 @@ async def _build_persisted_workflow_snapshot(
         primary_category_id=primary_category_id,
         secondary_category_id=secondary_category_id,
         status=job_status,
+        include_archived=True,
     )
     allowed_job_ids = {str(job.get("id")) for job in jobs}
 
@@ -247,6 +248,7 @@ async def _list_persisted_workflow_runs(
         primary_category_id=primary_category_id,
         secondary_category_id=secondary_category_id,
         status=job_status,
+        include_archived=True,
     )
     allowed_job_ids = {str(job.get("id")) for job in jobs}
     jobs_by_id = {str(job.get("id")): job for job in jobs}
@@ -868,6 +870,31 @@ def generate_research_jobs():
                 negative_context=negative_context,
             )
         )
+        archive_existing_in_scope = bool(data.get("archive_existing_in_scope", True))
+        batch_id = str(uuid4())
+        archived_count = 0
+        if archive_existing_in_scope:
+            archived_count = asyncio.run(
+                job_service.archive_active_jobs_in_scope(
+                    user_id=UUID(user_id),
+                    project_id=_parse_uuid(project_id, "project_id"),
+                    primary_category_id=_parse_uuid(data["primary_category_id"], "primary_category_id") if data.get("primary_category_id") else None,
+                    secondary_category_id=_parse_uuid(data["secondary_category_id"], "secondary_category_id") if data.get("secondary_category_id") else None,
+                )
+            )
+        generated_with_batch = []
+        for item in generated:
+            payload = dict(item)
+            generation_metadata = dict(payload.get("generation_metadata") or {})
+            generation_metadata.update(
+                {
+                    "batch_id": batch_id,
+                    "focus_area": data.get("focus_area"),
+                    "avoid_guidance": data.get("avoid_guidance"),
+                }
+            )
+            payload["generation_metadata"] = generation_metadata
+            generated_with_batch.append(payload)
         saved = asyncio.run(
             job_service.save_jobs(
                 user_id=UUID(user_id),
@@ -875,10 +902,10 @@ def generate_research_jobs():
                 primary_category_id=_parse_uuid(data["primary_category_id"], "primary_category_id") if data.get("primary_category_id") else None,
                 secondary_category_id=_parse_uuid(data["secondary_category_id"], "secondary_category_id") if data.get("secondary_category_id") else None,
                 website_context_snapshot=website_context,
-                jobs=generated,
+                jobs=generated_with_batch,
             )
         )
-        return jsonify({"items": saved, "count": len(saved)}), 201
+        return jsonify({"items": saved, "count": len(saved), "batch_id": batch_id, "archived_count": archived_count}), 201
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:

@@ -32,6 +32,7 @@ class GenerateResearchJobsRequestSchema(BaseModel):
     target_audience: Optional[str] = None
     focus_area: Optional[str] = Field(None, max_length=500)
     avoid_guidance: Optional[str] = Field(None, max_length=500)
+    archive_existing_in_scope: bool = True
 
 
 class RejectResearchItemRequestSchema(BaseModel):

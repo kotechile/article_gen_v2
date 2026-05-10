@@ -1,6 +1,7 @@
 import { apiClient } from '@/api-client'
 import type {
     ResearchRebuildCandidate,
+    ResearchRebuildGenerateJobsResponse,
     ResearchRebuildGeneratedOutcome,
     ResearchRebuildInternalLinkCandidate,
     ResearchRebuildJob,
@@ -231,7 +232,8 @@ class ResearchRebuildService {
         focus_area?: string
         avoid_guidance?: string
         trend_titles?: string[]
-    }): Promise<ResearchRebuildListResponse<ResearchRebuildJob>> {
+        archive_existing_in_scope?: boolean
+    }): Promise<ResearchRebuildGenerateJobsResponse> {
         return await apiClient.post(`${this.baseUrl}/jobs/generate`, payload)
     }
 

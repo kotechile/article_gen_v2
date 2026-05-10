@@ -54,6 +54,7 @@ Rules:
 - Favor concrete tasks, comparisons, decisions, workflows, calculators, templates, checklists, and recurring questions.
 - Avoid duplicates and near-duplicates.
 - Avoid jobs already rejected for being off-brand, too broad, or technically impossible.
+- Avoid overlap with previously generated jobs unless the focus area clearly creates a narrower or materially different angle.
 - Keep each job_text short and practical.
 - If a focus area is provided, make at least 80% of jobs clearly centered on that focus.
 - If avoid guidance is provided, actively steer away from those patterns or themes.
@@ -170,6 +171,8 @@ Rejected patterns to avoid:
         primary_category_id: Optional[UUID] = None,
         secondary_category_id: Optional[UUID] = None,
         status: Optional[str] = None,
+        include_archived: bool = False,
+        batch_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """List jobs for a project/category scope."""
         filters: Dict[str, Any] = {"project_id": str(project_id)}
@@ -179,11 +182,20 @@ Rejected patterns to avoid:
             filters["secondary_category_id"] = str(secondary_category_id)
         if status:
             filters["status"] = status
-        return await self.list_records(
+        records = await self.list_records(
             user_id=user_id,
             filters=filters,
             order_by={"created_at": "desc"},
         )
+        if not include_archived:
+            records = [record for record in records if str(record.get("status") or "").strip().lower() != "archived"]
+        if batch_id:
+            records = [
+                record
+                for record in records
+                if str((record.get("generation_metadata") or {}).get("batch_id") or "") == batch_id
+            ]
+        return records
 
     async def approve_job(self, *, job_id: UUID, user_id: UUID) -> Optional[Dict[str, Any]]:
         """Move a job into the approved state."""
@@ -220,6 +232,12 @@ Rejected patterns to avoid:
             order_by={"updated_at": "desc"},
             limit=50,
         )
+        existing_jobs = await self.list_records(
+            user_id=user_id,
+            filters={"project_id": str(project_id)},
+            order_by={"updated_at": "desc"},
+            limit=75,
+        )
         return {
             "recent_rejected_jobs": [
                 {
@@ -228,5 +246,48 @@ Rejected patterns to avoid:
                     "rejection_reason_free_text": item.get("rejection_reason_free_text"),
                 }
                 for item in rejected_jobs
-            ]
+            ],
+            "recent_existing_jobs": [
+                {
+                    "job_text": item.get("job_text"),
+                    "status": item.get("status"),
+                    "job_type_hint": item.get("job_type_hint"),
+                }
+                for item in existing_jobs
+                if str(item.get("status") or "").strip().lower() != "rejected"
+            ],
         }
+
+    async def archive_active_jobs_in_scope(
+        self,
+        *,
+        user_id: UUID,
+        project_id: UUID,
+        primary_category_id: Optional[UUID] = None,
+        secondary_category_id: Optional[UUID] = None,
+    ) -> int:
+        """Archive non-rejected jobs in the current scope to start a clean batch."""
+        existing_jobs = await self.list_jobs(
+            user_id=user_id,
+            project_id=project_id,
+            primary_category_id=primary_category_id,
+            secondary_category_id=secondary_category_id,
+            include_archived=False,
+        )
+        active_jobs = [
+            job for job in existing_jobs
+            if str(job.get("status") or "").strip().lower() in {"draft", "approved"}
+        ]
+        if not active_jobs:
+            return 0
+
+        updates = [
+            {
+                "id": str(job.get("id")),
+                "status": "archived",
+            }
+            for job in active_jobs
+            if job.get("id")
+        ]
+        await self.supabase_service.bulk_update(self.table_name, updates, user_id)
+        return len(updates)

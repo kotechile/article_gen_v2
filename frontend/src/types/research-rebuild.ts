@@ -178,3 +178,8 @@ export type ResearchRebuildPageContextResponse = {
     jobs: ResearchRebuildListResponse<ResearchRebuildJob>
     workflow: ResearchRebuildWorkflowContextResponse
 }
+
+export type ResearchRebuildGenerateJobsResponse = ResearchRebuildListResponse<ResearchRebuildJob> & {
+    batch_id?: string
+    archived_count?: number
+}

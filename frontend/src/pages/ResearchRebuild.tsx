@@ -59,6 +59,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const [manualJobText, setManualJobText] = React.useState('')
     const [focusArea, setFocusArea] = React.useState('')
     const [avoidGuidance, setAvoidGuidance] = React.useState('')
+    const [startFreshBatch, setStartFreshBatch] = React.useState(true)
     const [loadingJobs, setLoadingJobs] = React.useState(false)
     const [loadingWorkflowArtifacts, setLoadingWorkflowArtifacts] = React.useState(false)
     const [generatingJobs, setGeneratingJobs] = React.useState(false)
@@ -345,8 +346,12 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                 focus_area: focusArea.trim() || undefined,
                 avoid_guidance: avoidGuidance.trim() || undefined,
                 count: 12,
+                archive_existing_in_scope: startFreshBatch,
             })
-            setSuccess(`Generated ${response.count} jobs.`)
+            const archivedPrefix = (response.archived_count || 0) > 0
+                ? `Archived ${response.archived_count} earlier active job${response.archived_count === 1 ? '' : 's'} and `
+                : ''
+            setSuccess(`${archivedPrefix}generated ${response.count} fresh job${response.count === 1 ? '' : 's'}.`)
             await refreshPageContext()
         } catch (err) {
             console.error('Failed to generate jobs:', err)
@@ -796,6 +801,30 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                             Optional steering to suppress patterns you do not want repeated in the generated jobs.
                                         </p>
                                     </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setStartFreshBatch((current) => !current)}
+                                        className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-left transition hover:bg-white/[0.05]"
+                                    >
+                                        <span className={cn(
+                                            "mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-all",
+                                            startFreshBatch
+                                                ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-400"
+                                                : "border-white/10 bg-white/[0.03] text-slate-500",
+                                        )}>
+                                            {startFreshBatch ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
+                                        </span>
+                                        <div className="space-y-1">
+                                            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-300">
+                                                Start Fresh Batch
+                                            </p>
+                                            <p className="text-[11px] leading-relaxed text-slate-500">
+                                                {startFreshBatch
+                                                    ? "Archive the current draft and approved jobs in this category scope before generating a cleaner batch."
+                                                    : "Keep the current active jobs visible and add the next generation on top of them."}
+                                            </p>
+                                        </div>
+                                    </button>
                                 </div>
 
                                 <div className="pt-2 flex flex-col gap-4">
