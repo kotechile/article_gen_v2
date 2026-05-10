@@ -457,6 +457,19 @@ def sync_project_categories_to_wordpress():
                 return None
 
             existing = None
+            mapped_wp_id_str = str(mapped_wp_id or "").strip()
+            if mapped_wp_id_str:
+                try:
+                    mapped_wp_id = int(mapped_wp_id_str)
+                except (TypeError, ValueError):
+                    raise Exception(f"Invalid stored wordpress_category_id: {mapped_wp_id}")
+
+                if mapped_wp_id <= 0:
+                    mapped_wp_id = None
+
+            else:
+                mapped_wp_id = None
+
             if mapped_wp_id is not None:
                 try:
                     mapped_wp_id = int(mapped_wp_id)
@@ -483,7 +496,7 @@ def sync_project_categories_to_wordpress():
                             by_slug_global[existing_slug] = existing
                         if existing_name:
                             by_name_parent[(existing_name, existing_parent)] = existing
-            else:
+            if mapped_wp_id is None:
                 existing = (
                     by_slug_parent.get((slug, parent_wp_id))
                     or by_name_parent.get((wp_name.lower(), parent_wp_id))

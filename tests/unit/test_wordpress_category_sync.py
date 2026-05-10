@@ -280,3 +280,45 @@ def test_sync_project_categories_recreates_missing_mapped_wordpress_category_and
     assert persisted["wordpress_category_id"] == 202
     assert persisted["wordpress_parent_category_id"] is None
     assert persisted["wordpress_site_domain"] == "example.com"
+
+
+def test_sync_project_categories_treats_blank_wordpress_ids_as_unmapped(monkeypatch):
+    from src.api import wordpress as wordpress_module
+
+    fake_supabase = _FakeSupabase()
+    fake_supabase.tables["project_categories"][0]["wordpress_category_id"] = ""
+
+    _MissingMappedWordPressClient.created_calls = []
+    _MissingMappedWordPressClient.updated_calls = []
+
+    monkeypatch.setattr(wordpress_module, "get_supabase_client", lambda: fake_supabase)
+    monkeypatch.setattr(wordpress_module, "WordPressClient", _MissingMappedWordPressClient)
+    monkeypatch.setattr(
+        wordpress_module,
+        "_generate_category_descriptions",
+        lambda domain, project_name, categories: {
+            str(category["id"]): category.get("description") or ""
+            for category in categories
+        },
+    )
+
+    app = create_app("testing")
+    app.config["TESTING"] = True
+    app.config["API_KEYS"] = []
+    client = app.test_client()
+
+    response = client.post(
+        "/api/wordpress/sync-project-categories",
+        headers=_headers(),
+        json={"user_id": "user-1", "project_id": "project-1"},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["created"] == 1
+    assert payload["updated"] == 0
+    assert payload["errors_count"] == 0
+
+    persisted = fake_supabase.tables["project_categories"][0]
+    assert persisted["wordpress_category_id"] == 202
