@@ -4,6 +4,7 @@ Job discovery service for the research rebuild.
 
 from __future__ import annotations
 
+from datetime import datetime
 import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -34,8 +35,12 @@ class ResearchJobService(ResearchRebuildBaseService):
         Returns compact job records that can be persisted directly.
         """
         negative_notes = negative_context or {}
+        current_date = datetime.now().strftime("%B %-d, %Y")
+        current_year = datetime.now().year
         prompt = f"""
 You are generating high-signal user jobs for a content and software discovery workflow.
+
+Today's date is {current_date}. The current year is {current_year}.
 
 Return valid JSON with this shape:
 {{
@@ -59,6 +64,8 @@ Rules:
 - If a focus area is provided, make at least 80% of jobs clearly centered on that focus.
 - If avoid guidance is provided, actively steer away from those patterns or themes.
 - Prefer literal, searchable phrasing over essay-like or poetic titles.
+- Use the current date and year as ground truth. Do not refer to 2025 or any earlier year unless the job is explicitly historical.
+- If a year is needed in job_text, prefer {current_year}.
 
 Website context:
 - Project name: {context.get("project_name") or ""}
