@@ -453,14 +453,15 @@ export const MyArticles: React.FC = () => {
                     _secondary_category_name: topicMeta?.secondary_category_id ? (categoryNameById.get(String(topicMeta.secondary_category_id)) || null) : null,
                 }
             })
-            const publishedIdeas = ideaRows.filter((idea) => {
-                const isPublished = Boolean(idea.published || idea.published_to_titles || idea.status?.toLowerCase() === 'published')
+            const libraryIdeas = ideaRows.filter((idea) => {
+                const status = String(idea.status || '').toLowerCase()
                 const hasTitleMirror = Boolean(idea.titles_record_id && titleIdSet.has(idea.titles_record_id))
                 const alreadyLinked = titleBySourceIdeaId.has(idea.id)
-                return isPublished && !hasTitleMirror && !alreadyLinked
+                const isArchived = status === 'archived'
+                return !isArchived && !hasTitleMirror && !alreadyLinked
             })
 
-            const mappedIdeas: LibraryArticle[] = publishedIdeas.map((idea) => ({
+            const mappedIdeas: LibraryArticle[] = libraryIdeas.map((idea) => ({
                 ...(idea.topic_id ? (() => {
                     const topicMeta = topicById.get(String(idea.topic_id))
                     return {
@@ -503,7 +504,7 @@ export const MyArticles: React.FC = () => {
 
             console.info('[ContentLibrary] data loaded', {
                 titles: enrichedTitleRows.length,
-                publishedIdeasOnly: mappedIdeas.length,
+                contentIdeasVisible: mappedIdeas.length,
                 combined: combined.length,
             })
             setArticles(combined)
