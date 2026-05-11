@@ -62,7 +62,12 @@ Rules:
 - Include an SEO article candidate when there is clear search intent.
 - Include an editorial candidate only when the job is strategically useful but not obviously search-first.
 - candidate_text must be specific and publishable/buildable.
-- source_keywords_json must contain 3-5 short literal search phrases.
+- source_keywords_json must contain 4-6 short literal search phrases.
+- source_keywords_json phrases must look like real Google queries, not article titles.
+- Each source keyword should usually be 2-5 words, occasionally 6 if absolutely necessary.
+- Prefer practical head terms like "calculator", "cost", "vs", "tool", "checklist", "template", "comparison".
+- Do not include poetic phrasing, colons, long sentence fragments, or branded headline language in source_keywords_json.
+- If candidate_text is long or title-like, source_keywords_json must translate it into shorter, more searchable query variants.
 
 Website context:
 - Website description: {website_context.get("website_description") or ""}

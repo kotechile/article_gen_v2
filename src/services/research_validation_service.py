@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import math
+import re
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -24,6 +25,177 @@ class ResearchValidationService(ResearchRebuildBaseService):
     def __init__(self, supabase_service: Optional[SupabaseService] = None):
         super().__init__(supabase_service=supabase_service)
 
+    def _sanitize_seed_text(self, text: Any) -> str:
+        if not isinstance(text, str):
+            return ""
+        cleaned = text.strip()
+        if not cleaned:
+            return ""
+        cleaned = re.sub(r"[*`_#•]+", " ", cleaned)
+        cleaned = re.sub(r"[^a-zA-Z0-9&'/%\-\s]", " ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+        return cleaned
+
+    def _compact_seed_keyword(self, text: str) -> str:
+        cleaned = self._sanitize_seed_text(text)
+        if not cleaned:
+            return ""
+        words = [w for w in cleaned.split() if w]
+        if len(words) <= 5:
+            return cleaned
+
+        leading_noise = {
+            "how", "what", "why", "when", "where", "should", "can", "is", "are",
+            "the", "a", "an", "to", "for", "in", "on", "of", "with"
+        }
+        removable_words = {
+            "the", "a", "an", "to", "for", "in", "on", "of", "with", "and", "or", "by"
+        }
+
+        trimmed = list(words)
+        while trimmed and trimmed[0].lower() in leading_noise:
+            trimmed.pop(0)
+        if not trimmed:
+            trimmed = list(words)
+
+        lowered = [w.lower() for w in trimmed]
+        if "vs" in lowered or "versus" in lowered:
+            idx = lowered.index("vs") if "vs" in lowered else lowered.index("versus")
+            left = [w for w in trimmed[:idx] if w.lower() not in removable_words]
+            right = [w for w in trimmed[idx + 1:] if w.lower() not in removable_words]
+            compact_parts: List[str] = []
+            compact_parts.extend(left[-2:])
+            compact_parts.append("vs")
+            compact_parts.extend(right[:2])
+            compact = " ".join(compact_parts).strip()
+            if compact and len(compact.split()) >= 2:
+                return compact
+
+        core = [w for w in trimmed if w.lower() not in removable_words]
+        if len(core) <= 5:
+            return " ".join(core) if core else " ".join(trimmed[:5])
+
+        compact_parts = core[:3] + [core[-1]]
+        deduped_parts: List[str] = []
+        seen = set()
+        for part in compact_parts:
+            key = part.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped_parts.append(part)
+        compact = " ".join(deduped_parts[:5]).strip()
+        if compact and len(compact.split()) >= 2:
+            return compact
+        return " ".join(core[:5]) if core else " ".join(trimmed[:5])
+
+    def _head_seed_keyword(self, text: str) -> str:
+        cleaned = self._sanitize_seed_text(text)
+        if not cleaned:
+            return ""
+        stopwords = {
+            "the", "a", "an", "and", "or", "to", "for", "of", "with", "without", "in",
+            "on", "at", "vs", "versus", "how", "what", "when", "where", "best"
+        }
+        words = [w for w in cleaned.split() if len(w) > 2 and w.lower() not in stopwords]
+        if not words:
+            return ""
+        return " ".join(words[:3])
+
+    def _is_search_like_seed(self, text: str) -> bool:
+        cleaned = self._sanitize_seed_text(text)
+        if not cleaned:
+            return False
+        if ":" in text:
+            return False
+        word_count = len(cleaned.split())
+        return 2 <= word_count <= 6
+
+    def _build_seed_keyword_pack(
+        self,
+        *,
+        candidate: Dict[str, Any],
+        website_context: Dict[str, Any],
+    ) -> List[str]:
+        """Create short search-realistic seeds from candidate text plus any existing source keywords."""
+        candidate_text = str(candidate.get("candidate_text") or "").strip()
+        category_hints = [
+            str(website_context.get("primary_category_name") or "").strip(),
+            str(website_context.get("secondary_category_name") or "").strip(),
+        ]
+        normalized_seeds: List[str] = []
+        seen = set()
+
+        def add_seed(raw: Any):
+            cleaned = self._sanitize_seed_text(raw)
+            if not cleaned:
+                return
+            compact = self._compact_seed_keyword(cleaned)
+            for variant in (cleaned, compact, self._head_seed_keyword(cleaned)):
+                seed = self._sanitize_seed_text(variant)
+                if not seed or not self._is_search_like_seed(seed):
+                    continue
+                key = seed.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                normalized_seeds.append(seed)
+
+        for raw in candidate.get("source_keywords_json") or []:
+            add_seed(raw)
+
+        add_seed(candidate_text)
+
+        lowered_text = candidate_text.lower()
+        pattern_suffixes: List[str] = []
+        if any(token in lowered_text for token in ["calculator", "cost", "roi", "savings", "mortgage", "budget"]):
+            pattern_suffixes.extend(["calculator", "cost"])
+        if any(token in lowered_text for token in ["compare", "vs", "versus", "choose", "decision"]):
+            pattern_suffixes.extend(["comparison", "vs"])
+        if any(token in lowered_text for token in ["tool", "workflow", "agent", "assistant"]):
+            pattern_suffixes.extend(["tool", "workflow"])
+
+        head = self._head_seed_keyword(candidate_text)
+        if head:
+            for suffix in pattern_suffixes[:3]:
+                add_seed(f"{head} {suffix}")
+
+        for hint in category_hints:
+            hint_head = self._head_seed_keyword(hint)
+            if hint_head and head and hint_head.lower() not in head.lower():
+                add_seed(f"{head} {hint_head}")
+
+        return normalized_seeds[:8]
+
+    def _choose_primary_search_seed(
+        self,
+        *,
+        candidate_query: str,
+        seed_keywords: List[str],
+        metrics_map: Dict[str, Dict[str, Any]],
+    ) -> str:
+        """Prefer a short measurable seed over a long title-like phrase when querying SERP/metrics."""
+        def score(keyword: str) -> tuple[float, float, float, float]:
+            row = metrics_map.get(keyword.lower(), {})
+            volume = float(row.get("search_volume") or 0)
+            cpc = float(row.get("cpc") or 0)
+            kd = float(row.get("keyword_difficulty") or 0)
+            brevity_bonus = max(0.0, 6.0 - len(keyword.split()))
+            return (volume, cpc, -kd, brevity_bonus)
+
+        ranked = sorted(seed_keywords, key=score, reverse=True)
+        best = ranked[0] if ranked else ""
+        if best and score(best) > (0.0, 0.0, 0.0, 0.0):
+            return best
+
+        compact_query = self._compact_seed_keyword(candidate_query)
+        if self._is_search_like_seed(compact_query):
+            return compact_query
+        head_query = self._head_seed_keyword(candidate_query)
+        if self._is_search_like_seed(head_query):
+            return head_query
+        return candidate_query
+
     async def validate_candidate(
         self,
         *,
@@ -41,35 +213,39 @@ class ResearchValidationService(ResearchRebuildBaseService):
         if not query:
             raise ValueError("candidate_text is required for validation")
 
-        source_keywords = []
-        for raw in candidate.get("source_keywords_json") or []:
-            cleaned = str(raw or "").strip()
-            if cleaned and cleaned.lower() not in {s.lower() for s in source_keywords}:
-                source_keywords.append(cleaned)
-        metric_keywords = [query] + source_keywords[:4]
+        seed_keywords = self._build_seed_keyword_pack(candidate=candidate, website_context=website_context)
+        if query and query.lower() not in {s.lower() for s in seed_keywords} and self._is_search_like_seed(query):
+            seed_keywords.append(query)
+        metric_keywords = seed_keywords[:8] or [query]
 
         metrics_rows = await dataforseo_api.get_bulk_metrics_standard(metric_keywords)
         kd_rows = await dataforseo_api.get_keyword_difficulty(metric_keywords[:20])
-        serp_rows = await dataforseo_api.get_serp_standard(query, depth=10)
 
         metrics_map = {str(row.get("keyword") or "").strip().lower(): row for row in metrics_rows or []}
         kd_map = {str(row.get("keyword") or "").strip().lower(): row for row in kd_rows or []}
+        primary_seed = self._choose_primary_search_seed(
+            candidate_query=query,
+            seed_keywords=metric_keywords,
+            metrics_map=metrics_map,
+        )
+        serp_query = primary_seed or query
+        serp_rows = await dataforseo_api.get_serp_standard(serp_query, depth=10)
 
-        primary_metrics = metrics_map.get(query.lower(), {})
-        primary_kd = kd_map.get(query.lower(), {})
+        primary_metrics = metrics_map.get(primary_seed.lower(), {}) if primary_seed else {}
+        primary_kd = kd_map.get(primary_seed.lower(), {}) if primary_seed else {}
         search_volume = int(primary_metrics.get("search_volume") or primary_kd.get("search_volume") or 0)
         cpc = float(primary_metrics.get("cpc") or primary_kd.get("cpc") or 0.0)
         kd = float(primary_metrics.get("keyword_difficulty") or primary_kd.get("keyword_difficulty") or 0.0)
 
         serp_weakness_score = self._compute_serp_weakness_score(serp_rows)
-        intent_match_score = self._compute_intent_match_score(candidate_type, query, serp_rows)
-        software_pattern_score = self._compute_software_pattern_score(query)
+        intent_match_score = self._compute_intent_match_score(candidate_type, serp_query, serp_rows)
+        software_pattern_score = self._compute_software_pattern_score(serp_query)
         feasibility_score = self._compute_feasibility_score(candidate)
         monetization_fit_score = min(1.0, cpc / 8.0) if cpc > 0 else 0.0
         volume_score = math.log1p(max(0, search_volume)) / math.log1p(5000) if search_volume > 0 else 0.0
         kd_ease_score = max(0.0, min(1.0, 1.0 - (kd / 100.0)))
-        niche_drift_score = self._compute_niche_drift_score(query, website_context)
-        serp_gap_score = self._compute_serp_gap_score(query, serp_rows, software_pattern_score)
+        niche_drift_score = self._compute_niche_drift_score(serp_query, website_context)
+        serp_gap_score = self._compute_serp_gap_score(serp_query, serp_rows, software_pattern_score)
 
         if candidate_type == "software":
             achievability_score = (
@@ -128,13 +304,16 @@ class ResearchValidationService(ResearchRebuildBaseService):
                 niche_drift_score=niche_drift_score,
             ),
             "validation_metadata": {
-                "query": query,
+                "query": serp_query,
+                "original_candidate_query": query,
+                "primary_search_seed": primary_seed,
+                "seed_keywords_used": metric_keywords,
                 "search_volume": search_volume,
                 "cpc": cpc,
                 "keyword_difficulty": kd,
                 "raw_serp_count": len(serp_rows or []),
                 "serp_rows": serp_rows or [],
-                "source_keywords": source_keywords,
+                "source_keywords": seed_keywords,
                 "metrics_rows": metrics_rows or [],
                 "kd_rows": kd_rows or [],
             },

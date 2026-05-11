@@ -22,18 +22,20 @@ class ResearchKeywordPackService(ResearchRebuildBaseService):
         validation_result: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Build the primary + secondary keyword pack for a candidate."""
+        validation_metadata = validation_result.get("validation_metadata") or {}
         primary_keyword = str(
-            (validation_result.get("validation_metadata") or {}).get("query")
+            validation_metadata.get("primary_search_seed")
+            or validation_metadata.get("query")
             or candidate.get("candidate_text")
             or ""
         ).strip()
         secondary_candidates = []
-        for raw in candidate.get("source_keywords_json") or []:
+        for raw in validation_metadata.get("seed_keywords_used") or candidate.get("source_keywords_json") or []:
             cleaned = str(raw or "").strip()
             if cleaned and cleaned.lower() != primary_keyword.lower() and cleaned not in secondary_candidates:
                 secondary_candidates.append(cleaned)
 
-        metrics_rows = (validation_result.get("validation_metadata") or {}).get("metrics_rows") or []
+        metrics_rows = validation_metadata.get("metrics_rows") or []
         keyword_metrics_json = {}
         for row in metrics_rows:
             if not isinstance(row, dict):
@@ -47,17 +49,18 @@ class ResearchKeywordPackService(ResearchRebuildBaseService):
                 "keyword_difficulty": row.get("keyword_difficulty"),
             }
 
+        measurable_primary = int((keyword_metrics_json.get(primary_keyword) or {}).get("search_volume") or 0) > 0
         measurable_count = sum(
             1 for value in secondary_candidates
-            if (keyword_metrics_json.get(value) or {}).get("search_volume")
+            if int((keyword_metrics_json.get(value) or {}).get("search_volume") or 0) > 0
         )
         status = "ready" if primary_keyword and len(secondary_candidates) >= 3 and measurable_count >= 3 else "cluster_too_thin"
         return {
             "primary_keyword": primary_keyword,
             "secondary_keywords_json": secondary_candidates[:8],
             "keyword_metrics_json": keyword_metrics_json,
-            "keyword_pack_status": status,
-            "keyword_pack_reason_codes": [] if status == "ready" else ["cluster_too_thin"],
+            "keyword_pack_status": status if measurable_primary else "cluster_too_thin",
+            "keyword_pack_reason_codes": [] if status == "ready" and measurable_primary else ["cluster_too_thin"],
         }
 
     async def save_keyword_pack(
