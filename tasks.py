@@ -563,6 +563,41 @@ def _normalize_geo_text(value: Any, max_length: int = 220) -> str:
     return clipped.rstrip(" -:;,.") + "…"
 
 
+def _is_complete_geo_support_point(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if "…" in text or "..." in text:
+        return False
+    if len(text) < 30:
+        return False
+    lowered = text.lower()
+    if " is a practical topic shaped by " in lowered:
+        return False
+    if " so the best answer depends on your goals, constraints, and timing" in lowered:
+        return False
+    return True
+
+
+def _select_geo_support_points(support_points: List[str], limit: int = 3) -> List[str]:
+    selected: List[str] = []
+    seen = set()
+
+    for point in support_points or []:
+        text = re.sub(r"\s+", " ", str(point or "")).strip(" -:;,.")
+        if not _is_complete_geo_support_point(text):
+            continue
+        dedupe_key = re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+        if not dedupe_key or dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        selected.append(text)
+        if len(selected) >= limit:
+            break
+
+    return selected
+
+
 def _strip_editorial_directives(value: Any) -> str:
     text = str(value or "")
     if not text.strip():
@@ -681,7 +716,8 @@ def _collect_geo_support_points(
 
 
 def _build_geo_definition_paragraph(topic_phrase: str, support_points: List[str]) -> str:
-    lead_point = support_points[0] if support_points else ""
+    complete_points = _select_geo_support_points(support_points, limit=1)
+    lead_point = complete_points[0] if complete_points else ""
     if lead_point:
         body = (
             f"{topic_phrase} is a practical topic shaped by {lead_point.rstrip('.')}, "
@@ -696,26 +732,13 @@ def _build_geo_definition_paragraph(topic_phrase: str, support_points: List[str]
 
 
 def _build_geo_takeaways_block(topic_phrase: str, support_points: List[str]) -> str:
-    first_point = support_points[0] if len(support_points) > 0 else ""
-    second_point = support_points[1] if len(support_points) > 1 else ""
-    bullet_points = support_points[2:5] if len(support_points) > 2 else support_points[:3]
+    bullet_points = _select_geo_support_points(support_points, limit=3)
     if not bullet_points:
         bullet_points = [
             f"Focus on the core decision factors that change the outcome for {topic_phrase.lower()}.",
             "Match the recommendation to your timeline, budget, and risk tolerance.",
             "Revisit the decision when your inputs, constraints, or goals change.",
         ]
-
-    first_sentence = (
-        f"Key takeaway: {first_point.rstrip('.')} because that is one of the main drivers behind a strong {topic_phrase.lower()} decision."
-        if first_point
-        else f"Key takeaway: start with the core decision factors behind {topic_phrase.lower()}, because the right answer depends on your goals and constraints."
-    )
-    second_sentence = (
-        f"Key takeaway: {second_point.rstrip('.')} and adapt that guidance to your budget, timing, and tolerance for trade-offs."
-        if second_point
-        else "Key takeaway: the strongest recommendation is usually the one you can apply consistently, because execution matters as much as theory."
-    )
 
     bullet_html = "".join(
         f"<li>{html.escape(point.rstrip('.'))}</li>"
@@ -724,25 +747,24 @@ def _build_geo_takeaways_block(topic_phrase: str, support_points: List[str]) -> 
     )
     return (
         "<h2>Key Takeaways</h2>\n\n"
-        f"<p>{html.escape(first_sentence)}</p>\n\n"
-        f"<p>{html.escape(second_sentence)}</p>\n\n"
         f"<ul>{bullet_html}</ul>\n\n"
     )
 
 
 def _build_geo_faq_block(topic_phrase: str, support_points: List[str]) -> str:
+    complete_points = _select_geo_support_points(support_points, limit=3)
     topic_lower = topic_phrase.lower()
     answer_one = (
-        f"Start with {support_points[0].rstrip('.')}. That usually gives you the clearest frame for evaluating {topic_lower} in your own situation."
-        if support_points
+        f"Start with {complete_points[0].rstrip('.')}. That usually gives you the clearest frame for evaluating {topic_lower} in your own situation."
+        if complete_points
         else f"Start with the main constraints, goals, and trade-offs around {topic_lower}. Those factors usually determine which recommendation fits best."
     )
-    comparison_point = support_points[1].rstrip('.') if len(support_points) > 1 else "the article's main framework"
+    comparison_point = complete_points[1].rstrip('.') if len(complete_points) > 1 else "the article's main framework"
     answer_two = (
         f"Use {comparison_point} as your comparison point, then adjust for your timeline, resources, and tolerance for risk."
     )
     answer_three = (
-        f"Revisit your plan when the assumptions behind {support_points[2].rstrip('.') if len(support_points) > 2 else topic_lower} change, or when your goals, budget, timing, or external conditions shift."
+        f"Revisit your plan when the assumptions behind {complete_points[2].rstrip('.') if len(complete_points) > 2 else topic_lower} change, or when your goals, budget, timing, or external conditions shift."
     )
     return (
         "<h2>FAQ</h2>\n\n"
@@ -4032,6 +4054,7 @@ def _build_refinement_user_message(
     original_content: str,
     target_word_count: Optional[int] = None,
     current_word_count: Optional[int] = None,
+    section_title: str = "",
 ) -> str:
     """Build user message for refinement with proper tone handling."""
     tone_upper = tone.upper()
@@ -4059,9 +4082,22 @@ def _build_refinement_user_message(
             f"{current_wc_text}"
         )
 
+    section_guidance = ""
+    if "key takeaway" in (section_title or "").strip().lower():
+        section_guidance = """
+
+KEY TAKEAWAYS SECTION RULES:
+- Make this section feel crisp, fluid, and non-repetitive.
+- Keep it to 3-5 bullet points only.
+- Each bullet must communicate a distinct takeaway, not a reworded version of another bullet.
+- Prefer one sentence per bullet and keep each bullet concise.
+- Remove repeated framing, repeated qualifiers, and repeated mentions of the same core phrase unless necessary for clarity.
+- Do not add intro or outro paragraphs around the bullet list.
+- Preserve the existing H2 + list structure when present."""
+
     return f"""IMPORTANT: The tone for this article is {tone_upper}.
 
-Refine this section to match the {tone} tone perfectly. {tone_guidance}{length_guidance}
+Refine this section to match the {tone} tone perfectly. {tone_guidance}{length_guidance}{section_guidance}
 
 Return ONLY the refined HTML content - no explanations, no meta-commentary, no "Here's the refined content" text. Start directly with the HTML.
 
@@ -4151,6 +4187,10 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
             int(research_data.get('refinement_stage_timeout_seconds') or REFINEMENT_STAGE_TIMEOUT_SECONDS),
         )
 
+        def _is_key_takeaways_section(title: str) -> bool:
+            lowered = (title or "").strip().lower()
+            return "key takeaway" in lowered or lowered == "takeaways"
+
         def _run_refinement_pass(pass_name: str, system_content: str, input_html: str) -> Optional[str]:
             if time.time() > refinement_stage_deadline:
                 logger.warning(
@@ -4169,6 +4209,7 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
                             input_html,
                             target_word_count=target_word_count,
                             current_word_count=current_word_count,
+                            section_title=section_title,
                         ),
                     },
                 ]
@@ -4329,6 +4370,7 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
             # 2) humanization pass (targeted only when weak)
             # 3) final cleanup/tone consistency pass
             refined_content = original_content
+            takeaways_section = _is_key_takeaways_section(section_title)
 
             factual_prompt = f"""You are a factual integrity editor.
 Maintain original meaning and factual claims while improving precision and clarity.
@@ -4337,6 +4379,7 @@ Rules:
 - Remove overstatements that are not supported.
 - Preserve all HTML structure and any citation markers.
 - Keep wording concise and concrete.
+- {"For Key Takeaways sections, keep only distinct bullets and remove overlapping points." if takeaways_section else "Keep section structure intact."}
 - Return only cleaned HTML."""
             factual_result = _run_refinement_pass("factual_integrity", factual_prompt, refined_content)
             if factual_result:
@@ -4355,6 +4398,7 @@ Rules:
 - Prefer concrete language over abstract filler.
 - Reduce hedging and repetitive transitions.
 - Remove banned/generic phrases.
+- {"For Key Takeaways sections, tighten repeated ideas into 3-5 distinct bullets and remove redundant setup language." if takeaways_section else "Keep the current section structure unless a cleaner equivalent is clearly better."}
 - Keep the same facts and HTML structure.
 - Keep tone as {tone}.
 - Return only revised HTML."""
@@ -4388,6 +4432,7 @@ Rules:
             - Make sure complex concepts are explained simply (especially for friendly tone)
             - Ensure the language matches the {tone} tone perfectly
             - Keep the content engaging and natural
+            - {"If this is a Key Takeaways section, make it more fluid and concise by using 3-5 short, distinct bullets with minimal overlap." if takeaways_section else "Avoid unnecessary repetition and keep each section focused."}
             - Maintain the original meaning and factual accuracy
             - Maintain HTML structure exactly as provided
             {citation_instructions}

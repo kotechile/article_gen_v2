@@ -12,6 +12,8 @@ const TAKEAWAY_META_PATTERNS = [
     /geo focus area detected/i,
     /primary keyword:/i,
     /secondary keywords/i,
+    /\bis a practical topic shaped by\b/i,
+    /\bso the best answer depends on your goals, constraints, and timing\b/i,
 ];
 
 const normalizeTakeawayText = (value: string): string => {
@@ -26,7 +28,8 @@ const isUsefulTakeaway = (value: string): boolean => {
     if (!value) return false;
     if (value.length < 40) return false;
     if (TAKEAWAY_META_PATTERNS.some((pattern) => pattern.test(value))) return false;
-    if (/\.\.\.\s*because/i.test(value)) return false;
+    if (/(?:\.\.\.|…)\s*(?:because|and adapt)/i.test(value)) return false;
+    if (/(?:\.\.\.|…)\s*$/.test(value)) return false;
     return true;
 };
 
