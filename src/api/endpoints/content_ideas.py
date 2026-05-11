@@ -141,6 +141,204 @@ def _coerce_json_field(value, default):
     return default
 
 
+def _normalize_keyword_list(value) -> list[str]:
+    """Normalize keyword fields that may arrive as arrays, JSON strings, or comma-separated text."""
+    normalized: list[str] = []
+    seen: set[str] = set()
+
+    def _ingest(raw):
+        if raw is None:
+            return
+        if isinstance(raw, (list, tuple, set)):
+            for item in raw:
+                _ingest(item)
+            return
+        if isinstance(raw, dict):
+            keyword = raw.get("keyword") or raw.get("term")
+            if keyword is not None:
+                _ingest(keyword)
+            return
+        if isinstance(raw, str):
+            parsed = _coerce_json_field(raw, [])
+            if isinstance(parsed, list):
+                cleaned_raw = raw.strip()
+                if parsed != [cleaned_raw]:
+                    _ingest(parsed)
+                    return
+            text = raw.strip()
+        else:
+            text = str(raw).strip()
+        if not text:
+            return
+        for part in re.split(r"[\n,]+", text):
+            candidate = str(part or "").strip()
+            if not candidate:
+                continue
+            key = candidate.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(candidate)
+
+    _ingest(value)
+    return normalized
+
+
+def _selected_keyword_metrics_to_map(payload) -> dict[str, dict]:
+    """Convert selected_keyword_metrics_json payload into the shared metrics-map shape."""
+    parsed = _coerce_json_field(payload, {})
+    if not isinstance(parsed, dict):
+        return {}
+
+    metric_map: dict[str, dict] = {}
+
+    def _add_row(row):
+        if not isinstance(row, dict):
+            return
+        keyword = str(row.get("keyword") or "").strip()
+        if not keyword:
+            return
+        metric_map[keyword] = {
+            "search_volume": _coerce_numeric(row.get("search_volume"), int, None),
+            "keyword_difficulty": _coerce_numeric(row.get("keyword_difficulty"), float, None),
+            "cpc": _coerce_numeric(row.get("cpc"), float, None),
+        }
+
+    _add_row(parsed.get("primary"))
+    for row in parsed.get("secondary") or []:
+        _add_row(row)
+    return metric_map
+
+
+def _keyword_metrics_map_has_values(metrics_map) -> bool:
+    parsed = _coerce_json_field(metrics_map, {})
+    if not isinstance(parsed, dict):
+        return False
+    for row in parsed.values():
+        if not isinstance(row, dict):
+            continue
+        if row.get("search_volume") is not None:
+            return True
+        if row.get("keyword_difficulty") is not None:
+            return True
+        if row.get("cpc") is not None:
+            return True
+    return False
+
+
+def _build_titles_keyword_payload_from_idea(
+    idea: dict,
+    *,
+    now_iso: str,
+    selection_reason: str,
+    strategy_version: str,
+    selection_source: str,
+) -> dict:
+    """Build a Keyword Intelligence-compatible Titles payload from a content idea."""
+    primary_candidates = _normalize_keyword_list(
+        idea.get("primary_keywords") or idea.get("primary_keyword") or idea.get("keywords")
+    )
+    secondary_candidates = _normalize_keyword_list(
+        idea.get("secondary_keywords") or idea.get("secondary_keywords_json")
+    )
+    candidate_terms = _normalize_keyword_list(idea.get("keyword_candidates_json"))
+
+    if not primary_candidates and candidate_terms:
+        primary_candidates = candidate_terms[:1]
+    if not secondary_candidates and len(primary_candidates) > 1:
+        secondary_candidates = primary_candidates[1:]
+        primary_candidates = primary_candidates[:1]
+
+    exact_keyword_metrics = _coerce_json_field(idea.get("keyword_metrics"), {})
+    if not isinstance(exact_keyword_metrics, dict):
+        exact_keyword_metrics = {}
+
+    seo_offer_enrichment = {}
+    idea_metadata = _coerce_json_field(idea.get("idea_metadata"), {})
+    if isinstance(idea_metadata, dict):
+        seo_offer_enrichment = _coerce_json_field(idea_metadata.get("seo_offer_enrichment"), {})
+        if not isinstance(seo_offer_enrichment, dict):
+            seo_offer_enrichment = {}
+
+    metadata_keyword_metrics = _coerce_json_field(seo_offer_enrichment.get("keyword_metrics"), {})
+    if not isinstance(metadata_keyword_metrics, dict):
+        metadata_keyword_metrics = {}
+    selected_keyword_metrics = _selected_keyword_metrics_to_map(idea.get("selected_keyword_metrics_json"))
+
+    combined_metrics = dict(metadata_keyword_metrics)
+    combined_metrics.update(selected_keyword_metrics)
+    combined_metrics.update(exact_keyword_metrics)
+
+    initial_primary_keyword = primary_candidates[0] if primary_candidates else ""
+    normalized_metrics = {
+        _normalize_keyword_term(keyword): value
+        for keyword, value in combined_metrics.items()
+        if isinstance(value, dict)
+    }
+
+    def _metric_row(keyword: str) -> dict:
+        return normalized_metrics.get(_normalize_keyword_term(keyword), {}) if keyword else {}
+
+    def _metric_strength(keyword: str) -> tuple[float, float, float]:
+        row = _metric_row(keyword)
+        volume = float(row.get("search_volume") or 0)
+        cpc = float(row.get("cpc") or 0)
+        kd = float(row.get("keyword_difficulty") or 0)
+        return (volume, cpc, kd)
+
+    primary_keyword = initial_primary_keyword
+    alternative_keywords = _normalize_keyword_list([*secondary_candidates, *candidate_terms])
+    primary_has_signal = any(value is not None for value in _metric_row(primary_keyword).values()) if primary_keyword else False
+    if alternative_keywords and not primary_has_signal:
+        best_keyword = max(alternative_keywords, key=_metric_strength, default="")
+        if best_keyword and _metric_strength(best_keyword) > (0.0, 0.0, 0.0):
+            primary_keyword = best_keyword
+
+    secondary_keywords = []
+    for keyword in [initial_primary_keyword, *secondary_candidates, *candidate_terms]:
+        cleaned = str(keyword or "").strip()
+        if not cleaned or cleaned.lower() == primary_keyword.lower():
+            continue
+        if cleaned not in secondary_keywords:
+            secondary_keywords.append(cleaned)
+
+    all_keywords = [primary_keyword] if primary_keyword else []
+    for keyword in secondary_keywords:
+        if keyword not in all_keywords:
+            all_keywords.append(keyword)
+
+    has_exact_metrics = _keyword_metrics_map_has_values(combined_metrics)
+    selected_keyword_metrics_json = _build_keyword_metrics_payload(
+        primary_keyword=primary_keyword,
+        secondary_keywords=secondary_keywords,
+        metrics_map=combined_metrics,
+        source="dataforseo_exact" if has_exact_metrics else "llm_fallback",
+        target_intent=idea.get("target_intent") or "informational",
+    )
+    primary_metric = (selected_keyword_metrics_json.get("primary") or {}) if primary_keyword else {}
+
+    return {
+        "Keywords": ", ".join(all_keywords),
+        "keyword_candidates_json": all_keywords,
+        "keyword_research_status": "ready" if primary_keyword else "fallback",
+        "keyword_research_source": "dataforseo_exact" if has_exact_metrics else "llm_fallback",
+        "keyword_research_confidence": 0.85 if has_exact_metrics else 0.35,
+        "keyword_research_generated_at": now_iso,
+        "primary_keywords": [primary_keyword] if primary_keyword else [],
+        "primary_keyword": primary_keyword,
+        "secondary_keywords": secondary_keywords,
+        "secondary_keywords_json": secondary_keywords,
+        "selected_keyword_search_volume": int(primary_metric.get("search_volume") or idea.get("total_search_volume") or 0),
+        "selected_keyword_difficulty": float(primary_metric.get("keyword_difficulty") or idea.get("average_difficulty") or 0.0),
+        "selected_keyword_intent": idea.get("target_intent") or "informational",
+        "selected_keyword_metrics_json": selected_keyword_metrics_json,
+        "keyword_selection_reason": selection_reason,
+        "keyword_strategy_version": strategy_version,
+        "keyword_selection_source": selection_source,
+        "search_phrase": idea.get("search_phrase") or primary_keyword,
+    }
+
+
 def _sanitize_for_json(value):
     """Recursively sanitize values so PostgREST JSON encoding never fails."""
     if isinstance(value, dict):
@@ -968,46 +1166,13 @@ def _build_keyword_metrics_payload(
 
 def _sync_titles_keyword_fields_from_idea(supabase, idea: dict, user_id: str, now_iso: str) -> int:
     """Update Titles keyword fields from a content_ideas row; returns number of rows updated."""
-    primary_keywords = idea.get("primary_keywords") or idea.get("keywords") or []
-    secondary_keywords = idea.get("secondary_keywords") or []
-    if isinstance(primary_keywords, str):
-        primary_keywords = [k.strip() for k in primary_keywords.split(",") if k.strip()]
-    if isinstance(secondary_keywords, str):
-        secondary_keywords = [k.strip() for k in secondary_keywords.split(",") if k.strip()]
-    if not secondary_keywords and isinstance(primary_keywords, list) and len(primary_keywords) > 1:
-        secondary_keywords = primary_keywords[1:]
-
-    primary_keyword = primary_keywords[0] if primary_keywords else ""
-    exact_keyword_metrics = idea.get("keyword_metrics") or {}
-    if not exact_keyword_metrics:
-        seo_offer_enrichment = (idea.get("idea_metadata") or {}).get("seo_offer_enrichment") or {}
-        exact_keyword_metrics = seo_offer_enrichment.get("keyword_metrics") or {}
-    selected_keyword_metrics_json = _build_keyword_metrics_payload(
-        primary_keyword=primary_keyword,
-        secondary_keywords=secondary_keywords,
-        metrics_map=exact_keyword_metrics,
-        source="dataforseo" if idea.get("total_search_volume") else "llm_fallback",
-        target_intent=idea.get("target_intent") or "informational",
+    update_payload = _build_titles_keyword_payload_from_idea(
+        idea,
+        now_iso=now_iso,
+        selection_reason="Refreshed from content_ideas keyword enrichment.",
+        strategy_version="phase1_v4",
+        selection_source="rebuild_keyword_dossier_sync",
     )
-    primary_metric = (selected_keyword_metrics_json.get("primary") or {}) if primary_keyword else {}
-
-    update_payload = {
-        "Keywords": ", ".join(primary_keywords),
-        "keyword_candidates_json": primary_keywords + [k for k in secondary_keywords if k not in primary_keywords],
-        "keyword_research_status": "ready" if primary_keywords else "fallback",
-        "keyword_research_source": "dataforseo" if idea.get("total_search_volume") else "llm_fallback",
-        "keyword_research_confidence": 0.85 if idea.get("total_search_volume") else 0.35,
-        "keyword_research_generated_at": now_iso,
-        "primary_keyword": primary_keyword,
-        "secondary_keywords_json": secondary_keywords,
-        "selected_keyword_search_volume": int(primary_metric.get("search_volume") or idea.get("total_search_volume") or 0),
-        "selected_keyword_difficulty": float(primary_metric.get("keyword_difficulty") or idea.get("average_difficulty") or 0.0),
-        "selected_keyword_intent": idea.get("target_intent") or "informational",
-        "selected_keyword_metrics_json": selected_keyword_metrics_json,
-        "keyword_selection_reason": "Refreshed from content_ideas keyword enrichment.",
-        "keyword_strategy_version": "phase1_v3",
-        "keyword_selection_source": "re-ranked_with_dataforseo",
-    }
     updated_rows = 0
     for where_key, where_value in (("source_idea_id", idea.get("id")), ("id", idea.get("titles_record_id"))):
         if not where_value:
@@ -1867,33 +2032,18 @@ def _publish_article_content_idea_to_titles(
         idea_metadata = {}
     if category_context:
         idea_metadata["category_context"] = category_context
-    primary_keywords = idea.get("primary_keywords") or idea.get("keywords") or []
-    secondary_keywords = idea.get("secondary_keywords") or []
-    if isinstance(primary_keywords, str):
-        primary_keywords = [k.strip() for k in primary_keywords.split(",") if k.strip()]
-    if isinstance(secondary_keywords, str):
-        secondary_keywords = [k.strip() for k in secondary_keywords.split(",") if k.strip()]
-    if not secondary_keywords and isinstance(primary_keywords, list) and len(primary_keywords) > 1:
-        secondary_keywords = primary_keywords[1:]
-    primary_keyword = primary_keywords[0] if primary_keywords else ""
-    exact_keyword_metrics = idea.get("keyword_metrics") or {}
-    if not exact_keyword_metrics:
-        seo_offer_enrichment = (idea.get("idea_metadata") or {}).get("seo_offer_enrichment") or {}
-        exact_keyword_metrics = seo_offer_enrichment.get("keyword_metrics") or {}
-    selected_keyword_metrics_json = _build_keyword_metrics_payload(
-        primary_keyword=primary_keyword,
-        secondary_keywords=secondary_keywords,
-        metrics_map=exact_keyword_metrics,
-        source="dataforseo" if idea.get("total_search_volume") else "llm_fallback",
-        target_intent=idea.get("target_intent") or "informational",
+    keyword_payload = _build_titles_keyword_payload_from_idea(
+        idea,
+        now_iso=now,
+        selection_reason="Initialized from research idea publish payload.",
+        strategy_version="phase1_v4",
+        selection_source="research_rebuild_publish",
     )
-    primary_metric = (selected_keyword_metrics_json.get("primary") or {}) if primary_keyword else {}
     title_payload = {
         "id": str(uuid4()),
         "user_id": user_id,
         "Title": idea.get("title") or "Untitled Article",
         "userDescription": idea.get("description") or "",
-        "Keywords": ", ".join(primary_keywords),
         "status": "New",
         "published": False,
         "dateCreatedOn": now,
@@ -1905,25 +2055,9 @@ def _publish_article_content_idea_to_titles(
         "topic_id": idea.get("topic_id"),
         "idea_metadata": idea_metadata,
         "raw_dataforseo_output": idea.get("raw_dataforseo_output"),
-        "primary_keywords": primary_keywords[:1] if primary_keywords else [],
-        "secondary_keywords": secondary_keywords if secondary_keywords else [],
-        "search_phrase": idea.get("search_phrase") or (primary_keywords[0] if primary_keywords else ""),
-        "keyword_candidates_json": primary_keywords + [k for k in secondary_keywords if k not in primary_keywords],
         "keyword_clusters_json": [],
-        "keyword_research_status": "ready" if primary_keywords else "fallback",
-        "keyword_research_source": "dataforseo" if idea.get("total_search_volume") else "llm_fallback",
-        "keyword_research_confidence": 0.85 if idea.get("total_search_volume") else 0.35,
-        "keyword_research_generated_at": now,
-        "primary_keyword": primary_keyword,
-        "secondary_keywords_json": secondary_keywords,
-        "selected_keyword_search_volume": int(primary_metric.get("search_volume") or idea.get("total_search_volume") or 0),
-        "selected_keyword_difficulty": float(primary_metric.get("keyword_difficulty") or idea.get("average_difficulty") or 0.0),
-        "selected_keyword_intent": idea.get("target_intent") or "informational",
-        "selected_keyword_metrics_json": selected_keyword_metrics_json,
-        "keyword_selection_reason": "Initialized from research idea publish payload.",
-        "keyword_strategy_version": "phase1_v1",
-        "keyword_selection_source": "research_dossier_reused",
     }
+    title_payload.update(keyword_payload)
     try:
         response = supabase.table("Titles").insert(title_payload).execute()
         inserted = (response.data or [{}])[0]

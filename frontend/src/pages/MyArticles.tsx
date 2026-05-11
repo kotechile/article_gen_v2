@@ -1425,6 +1425,7 @@ export const MyArticles: React.FC = () => {
                         user_id: kwIntelArticle.user_id,
                         title: kwIntelArticle.Title ?? '',
                         content_type: (kwIntelArticle.content_type ?? 'blog') as any,
+                        keywords: parseKeywordValues((kwIntelArticle as any).Keywords ?? ''),
                         primary_keywords: (() => {
                             const raw = (kwIntelArticle as any).primary_keywords ?? (kwIntelArticle as any).primary_keyword
                             return parseKeywordValues(raw)
@@ -1433,6 +1434,10 @@ export const MyArticles: React.FC = () => {
                             const raw = (kwIntelArticle as any).secondary_keywords ?? (kwIntelArticle as any).secondary_keywords_json
                             return parseKeywordValues(raw)
                         })(),
+                        keyword_metrics: (kwIntelArticle as any).keyword_metrics ?? {},
+                        selected_keyword_metrics_json: (kwIntelArticle as any).selected_keyword_metrics_json ?? null,
+                        keyword_candidates_json: (kwIntelArticle as any).keyword_candidates_json ?? [],
+                        idea_metadata: (kwIntelArticle as any).idea_metadata ?? null,
                         search_phrase: (kwIntelArticle as any).search_phrase ?? (kwIntelArticle as any).primary_keyword ?? '',
                         raw_dataforseo_output: (kwIntelArticle as any).raw_dataforseo_output ?? null,
                         seo_optimization_score: kwIntelArticle.seo_optimization_score ?? 0,
@@ -1442,7 +1447,7 @@ export const MyArticles: React.FC = () => {
                         average_cpc: null,
                         created_at: kwIntelArticle.dateCreatedOn ?? new Date().toISOString(),
                         topic_id: '',
-                    } satisfies ContentIdea
+                    } as ContentIdea & Record<string, any>
 
                     return (
                         <KeywordIntelligenceModal
@@ -1477,9 +1482,33 @@ export const MyArticles: React.FC = () => {
                                                 ...a,
                                                 primary_keywords: [primaryClean],
                                                 secondary_keywords: secondaryClean,
+                                                secondary_keywords_json: secondaryClean,
+                                                Keywords: [primaryClean, ...secondaryClean].filter(Boolean).join(', '),
                                                 search_phrase: primaryClean,
                                                 selected_keyword_search_volume: metrics.volume ?? undefined,
                                                 selected_keyword_difficulty: metrics.difficulty ?? undefined,
+                                                selected_keyword_metrics_json: {
+                                                    primary: {
+                                                        keyword: primaryClean,
+                                                        search_volume: metrics.volume ?? null,
+                                                        keyword_difficulty: metrics.difficulty ?? null,
+                                                        cpc: metrics.cpc ?? null,
+                                                        metric_source: metrics ? 'manual_keyword_intelligence' : 'llm_fallback',
+                                                        is_estimated: !metrics,
+                                                        intent: 'informational',
+                                                    },
+                                                    secondary: secondaryClean.map((keyword) => ({
+                                                        keyword,
+                                                        search_volume: null,
+                                                        keyword_difficulty: null,
+                                                        cpc: null,
+                                                        metric_source: 'manual_keyword_intelligence',
+                                                        is_estimated: true,
+                                                    })),
+                                                    candidate_count: [primaryClean, ...secondaryClean].filter(Boolean).length,
+                                                    source: metrics ? 'dataforseo_exact' : 'manual_keyword_intelligence',
+                                                    generated_at: new Date().toISOString(),
+                                                },
                                                 raw_dataforseo_output: rawOutput,
                                             } as any
                                             : a

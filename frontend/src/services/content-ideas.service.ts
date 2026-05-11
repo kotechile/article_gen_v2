@@ -526,6 +526,28 @@ class ContentIdeasService {
             const { primary, secondary, all } = this.normalizeKeywordSelection(primaryKeyword, secondaryKeywords);
             if (!primary) return false;
             const now = new Date().toISOString();
+            const selectedKeywordMetricsJson = {
+                primary: {
+                    keyword: primary,
+                    search_volume: metrics?.volume ?? null,
+                    keyword_difficulty: metrics?.difficulty ?? null,
+                    cpc: metrics?.cpc ?? null,
+                    metric_source: metrics ? 'manual_keyword_intelligence' : 'llm_fallback',
+                    is_estimated: !metrics,
+                    intent: 'informational',
+                },
+                secondary: secondary.map((keyword) => ({
+                    keyword,
+                    search_volume: null,
+                    keyword_difficulty: null,
+                    cpc: null,
+                    metric_source: 'manual_keyword_intelligence',
+                    is_estimated: true,
+                })),
+                candidate_count: all.length,
+                source: 'manual_keyword_intelligence',
+                generated_at: now,
+            };
 
             console.log(`[ContentIdeasService] updateTitleKeywordSelection for title: ${titleId}`, {
                 primaryKeyword,
@@ -557,6 +579,7 @@ class ContentIdeasService {
                 .from('Titles')
                 .update({
                     // Force replacement semantics before setting the new values.
+                    Keywords: all.join(', '),
                     primary_keywords: [primary],
                     secondary_keywords: secondary,
                     search_phrase: primary,
@@ -565,10 +588,11 @@ class ContentIdeasService {
                     secondary_keywords_json: secondary,
                     keyword_candidates_json: all,
                     keyword_research_status: 'ready',
-                    keyword_research_source: 'manual_keyword_intelligence',
+                    keyword_research_source: metrics ? 'dataforseo_exact' : 'manual_keyword_intelligence',
                     keyword_selection_source: 'keyword_intelligence_modal',
                     selected_keyword_search_volume: metrics?.volume ?? undefined,
                     selected_keyword_difficulty: metrics?.difficulty ?? undefined,
+                    selected_keyword_metrics_json: selectedKeywordMetricsJson,
                     raw_dataforseo_output: rawOutput ?? undefined,
                     keyword_research_generated_at: now,
                     last_updated: now,

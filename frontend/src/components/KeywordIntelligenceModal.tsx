@@ -224,6 +224,9 @@ function normalizeKeywordKey(input: string): string {
 function collectIdeaKeywordPool(idea: ContentIdea): string[] {
     const metadata = safeJsonParse<any>((idea as any).idea_metadata, {});
     const topicKeywordResearch = metadata?.topic_keyword_research || {};
+    const directCandidates = safeJsonParse<any[]>((idea as any).keyword_candidates_json, [])
+        .map((row) => typeof row === 'string' ? row : String(row?.keyword || row?.term || "").trim())
+        .filter(Boolean);
     const rankedCandidates = safeJsonParse<any[]>(metadata?.seo_offer_enrichment?.keyword_ranked_candidates, [])
         .map((row) => String(row?.keyword || "").trim())
         .filter(Boolean);
@@ -240,6 +243,7 @@ function collectIdeaKeywordPool(idea: ContentIdea): string[] {
         ...extractKeywordValues((idea as any).keywords),
         ...extractKeywordValues((idea as any).primary_keywords ?? (idea as any).primary_keyword),
         ...extractKeywordValues((idea as any).secondary_keywords ?? (idea as any).secondary_keywords_json),
+        ...directCandidates,
         ...extractKeywordValues(metadata?.seo_offer_enrichment?.keywords_used),
         ...extractKeywordValues(metadata?.input_keywords),
         ...extractKeywordValues(metadata?.keyword_seed_pack?.input_keywords),
@@ -265,11 +269,13 @@ function collectIdeaKeywordMetricMap(idea: ContentIdea): Map<string, { search_vo
     const metadata = safeJsonParse<any>((idea as any).idea_metadata, {});
     const topicKeywordResearch = metadata?.topic_keyword_research || {};
     const fromColumn = safeJsonParse<any>((idea as any).keyword_metrics, {});
+    const fromSelectedMetrics = safeJsonParse<any>((idea as any).selected_keyword_metrics_json, {});
     const fromMetadata = safeJsonParse<any>(metadata?.seo_offer_enrichment?.keyword_metrics, {});
     const fromTopicCandidates = safeJsonParse<any[]>(topicKeywordResearch?.keyword_candidates, []);
     const fromQualifiedCandidates = safeJsonParse<any[]>(topicKeywordResearch?.qualified_keywords, []);
     const fromCandidates = safeJsonParse<any[]>(metadata?.seo_offer_enrichment?.keyword_ranked_candidates, []);
     const fromPass2Candidates = safeJsonParse<any[]>(metadata?.keyword_pass_2?.keyword_ranked_candidates, []);
+    const directCandidates = safeJsonParse<any[]>((idea as any).keyword_candidates_json, []);
 
     const ingest = (keywordInput: unknown, metricInput: any) => {
         const keyword = String(keywordInput || "").trim();
@@ -301,6 +307,13 @@ function collectIdeaKeywordMetricMap(idea: ContentIdea): Map<string, { search_vo
     ingestSource(fromQualifiedCandidates);
     ingestSource(fromCandidates);
     ingestSource(fromPass2Candidates);
+    ingestSource(directCandidates);
+    if (fromSelectedMetrics && typeof fromSelectedMetrics === 'object') {
+        ingest(fromSelectedMetrics?.primary?.keyword, fromSelectedMetrics?.primary);
+        if (Array.isArray(fromSelectedMetrics?.secondary)) {
+            fromSelectedMetrics.secondary.forEach((row: any) => ingest(row?.keyword, row));
+        }
+    }
     return map;
 }
 
