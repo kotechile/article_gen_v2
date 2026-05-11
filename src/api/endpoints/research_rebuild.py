@@ -111,6 +111,7 @@ async def _build_persisted_workflow_snapshot(
     project_id: UUID,
     primary_category_id: UUID | None = None,
     secondary_category_id: UUID | None = None,
+    batch_id: str | None = None,
     job_status: str | None = None,
     workflow_run_id: str | None = None,
     route: str | None = None,
@@ -126,6 +127,7 @@ async def _build_persisted_workflow_snapshot(
         project_id=project_id,
         primary_category_id=primary_category_id,
         secondary_category_id=secondary_category_id,
+        batch_id=batch_id,
         status=job_status,
         include_archived=False,
         active_only=False,
@@ -240,6 +242,7 @@ async def _list_persisted_workflow_runs(
     project_id: UUID,
     primary_category_id: UUID | None = None,
     secondary_category_id: UUID | None = None,
+    batch_id: str | None = None,
     job_status: str | None = None,
     limit: int = 20,
 ) -> list[dict]:
@@ -249,6 +252,7 @@ async def _list_persisted_workflow_runs(
         project_id=project_id,
         primary_category_id=primary_category_id,
         secondary_category_id=secondary_category_id,
+        batch_id=batch_id,
         status=job_status,
         include_archived=False,
         active_only=False,
@@ -631,6 +635,7 @@ async def _build_workflow_context(
     project_id: UUID,
     primary_category_id: UUID | None = None,
     secondary_category_id: UUID | None = None,
+    batch_id: str | None = None,
     job_status: str | None = None,
     workflow_run_id: str | None = None,
     route: str | None = None,
@@ -647,6 +652,7 @@ async def _build_workflow_context(
         project_id=project_id,
         primary_category_id=primary_category_id,
         secondary_category_id=secondary_category_id,
+        batch_id=batch_id,
         job_status=job_status,
         limit=run_limit,
     )
@@ -655,6 +661,7 @@ async def _build_workflow_context(
         project_id=project_id,
         primary_category_id=primary_category_id,
         secondary_category_id=secondary_category_id,
+        batch_id=batch_id,
         job_status=job_status,
         workflow_run_id=workflow_run_id,
         route=route,
@@ -682,6 +689,7 @@ async def _build_page_context(
     project_id: UUID,
     primary_category_id: UUID | None = None,
     secondary_category_id: UUID | None = None,
+    batch_id: str | None = None,
     job_status: str | None = None,
     workflow_run_id: str | None = None,
     route: str | None = None,
@@ -698,6 +706,7 @@ async def _build_page_context(
         project_id=project_id,
         primary_category_id=primary_category_id,
         secondary_category_id=secondary_category_id,
+        batch_id=batch_id,
         status=job_status,
         active_only=True,
     )
@@ -706,6 +715,7 @@ async def _build_page_context(
         project_id=project_id,
         primary_category_id=primary_category_id,
         secondary_category_id=secondary_category_id,
+        batch_id=batch_id,
         job_status=job_status,
         workflow_run_id=workflow_run_id,
         route=route,
@@ -1951,6 +1961,7 @@ def get_workflow_context():
                 secondary_category_id=_parse_uuid(request.args["secondary_category_id"], "secondary_category_id")
                 if request.args.get("secondary_category_id")
                 else None,
+                batch_id=(request.args.get("batch_id") or "").strip() or None,
                 job_status=request.args.get("job_status"),
                 workflow_run_id=request.args.get("workflow_run_id"),
                 route=request.args.get("route"),
@@ -1994,6 +2005,7 @@ def get_page_context():
                 secondary_category_id=_parse_uuid(request.args["secondary_category_id"], "secondary_category_id")
                 if request.args.get("secondary_category_id")
                 else None,
+                batch_id=(request.args.get("batch_id") or "").strip() or None,
                 job_status=request.args.get("job_status"),
                 workflow_run_id=request.args.get("workflow_run_id"),
                 route=request.args.get("route"),
@@ -2277,15 +2289,17 @@ def release_generated_software_outcome(outcome_id: str):
     if not user_id:
         return jsonify({"error": "Authentication required"}), 401
     try:
+        from .content_ideas import _upsert_released_software_idea
+
         outcome_uuid = _parse_uuid(outcome_id, "outcome_id")
         outcome = asyncio.run(generation_service.get_record(record_id=outcome_uuid, user_id=UUID(user_id)))
         if not outcome:
             return jsonify({"error": "Generated outcome not found"}), 404
         if str(outcome.get("outcome_type") or "") != "software":
             return jsonify({"error": "Only software outcomes can be released here"}), 400
+        supabase = _get_admin_supabase_client()
         content_idea = None
         if outcome.get("content_idea_id"):
-            supabase = _get_admin_supabase_client()
             result = (
                 supabase
                 .table("content_ideas")
@@ -2296,15 +2310,52 @@ def release_generated_software_outcome(outcome_id: str):
                 .execute()
             )
             content_idea = (result.data or [None])[0]
-        payload = asyncio.run(
-            compatibility_adapter_service.outcome_to_released_software_payload(
-                generated_outcome=outcome,
-                content_idea=content_idea,
-                user_id=user_id,
-                released_at=datetime.utcnow().isoformat(),
+
+        if not content_idea:
+            candidate_uuid = _parse_uuid(str(outcome.get("candidate_id") or ""), "candidate_id")
+            candidate = asyncio.run(candidate_service.get_record(record_id=candidate_uuid, user_id=UUID(user_id)))
+            if not candidate:
+                return jsonify({"error": "Source candidate not found"}), 404
+            keyword_packs = asyncio.run(
+                keyword_pack_service.list_keyword_packs(
+                    user_id=UUID(user_id),
+                    project_id=_parse_uuid(str(outcome.get("project_id") or ""), "project_id"),
+                    candidate_id=candidate_uuid,
+                )
             )
+            keyword_pack = keyword_packs[0] if keyword_packs else None
+            candidate_metadata = candidate.get("candidate_metadata") or {}
+            category_context = candidate_metadata.get("category_context") or {}
+            content_idea = asyncio.run(
+                compatibility_adapter_service.outcome_to_content_idea_payload(
+                    candidate=candidate,
+                    generated_outcome=outcome,
+                    category_context=category_context,
+                    keyword_pack=keyword_pack,
+                )
+            )
+            # Reuse the generated outcome id as a stable compatibility source id
+            # so repeated release attempts update the same released-software row.
+            content_idea["id"] = str(outcome.get("id") or "")
+            if category_context.get("domain") and not content_idea.get("domain"):
+                content_idea["domain"] = category_context.get("domain")
+
+        released_at = datetime.utcnow().isoformat()
+        persisted, released_row_id = _upsert_released_software_idea(supabase, content_idea, user_id, released_at)
+        if not persisted:
+            return jsonify({"error": "Failed to save released software idea"}), 500
+        released_rows = (
+            supabase
+            .table("released_software_ideas")
+            .select("*")
+            .eq("id", released_row_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
         )
-        inserted = _insert_with_schema_fallback(_get_admin_supabase_client(), "released_software_ideas", payload)
+        inserted = released_rows[0] if released_rows else {"id": released_row_id}
         updated = asyncio.run(
             generation_service.update_record(
                 record_id=outcome_uuid,
@@ -2344,6 +2395,7 @@ def get_research_rebuild_workflow_snapshot():
                 project_id=_parse_uuid(project_id, "project_id"),
                 primary_category_id=_parse_uuid(request.args["primary_category_id"], "primary_category_id") if request.args.get("primary_category_id") else None,
                 secondary_category_id=_parse_uuid(request.args["secondary_category_id"], "secondary_category_id") if request.args.get("secondary_category_id") else None,
+                batch_id=(request.args.get("batch_id") or "").strip() or None,
                 job_status=request.args.get("job_status"),
                 workflow_run_id=request.args.get("workflow_run_id"),
                 route=request.args.get("route"),
@@ -2390,6 +2442,7 @@ def list_research_rebuild_workflow_runs():
                 project_id=_parse_uuid(project_id, "project_id"),
                 primary_category_id=_parse_uuid(request.args["primary_category_id"], "primary_category_id") if request.args.get("primary_category_id") else None,
                 secondary_category_id=_parse_uuid(request.args["secondary_category_id"], "secondary_category_id") if request.args.get("secondary_category_id") else None,
+                batch_id=(request.args.get("batch_id") or "").strip() or None,
                 job_status=request.args.get("job_status"),
                 limit=limit,
             )

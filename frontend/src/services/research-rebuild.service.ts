@@ -26,12 +26,14 @@ class ResearchRebuildService {
         project_id: string
         primary_category_id?: string
         secondary_category_id?: string
+        batch_id?: string
         status?: string
     }): Promise<ResearchRebuildListResponse<ResearchRebuildJob>> {
         const query = new URLSearchParams()
         query.append('project_id', params.project_id)
         if (params.primary_category_id) query.append('primary_category_id', params.primary_category_id)
         if (params.secondary_category_id) query.append('secondary_category_id', params.secondary_category_id)
+        if (params.batch_id) query.append('batch_id', params.batch_id)
         if (params.status) query.append('status', params.status)
         return await apiClient.get(`${this.baseUrl}/jobs?${query.toString()}`)
     }
@@ -40,6 +42,7 @@ class ResearchRebuildService {
         project_id: string
         primary_category_id?: string
         secondary_category_id?: string
+        batch_id?: string
         job_status?: string
         workflow_run_id?: string
         route?: string
@@ -53,6 +56,7 @@ class ResearchRebuildService {
         query.append('project_id', params.project_id)
         if (params.primary_category_id) query.append('primary_category_id', params.primary_category_id)
         if (params.secondary_category_id) query.append('secondary_category_id', params.secondary_category_id)
+        if (params.batch_id) query.append('batch_id', params.batch_id)
         if (params.job_status) query.append('job_status', params.job_status)
         if (params.workflow_run_id) query.append('workflow_run_id', params.workflow_run_id)
         if (params.route) query.append('route', params.route)
@@ -68,6 +72,7 @@ class ResearchRebuildService {
         project_id: string
         primary_category_id?: string
         secondary_category_id?: string
+        batch_id?: string
         job_status?: string
         limit?: number
     }): Promise<ResearchRebuildListResponse<ResearchRebuildWorkflowRunSummary>> {
@@ -75,6 +80,7 @@ class ResearchRebuildService {
         query.append('project_id', params.project_id)
         if (params.primary_category_id) query.append('primary_category_id', params.primary_category_id)
         if (params.secondary_category_id) query.append('secondary_category_id', params.secondary_category_id)
+        if (params.batch_id) query.append('batch_id', params.batch_id)
         if (params.job_status) query.append('job_status', params.job_status)
         if (params.limit !== undefined) query.append('limit', String(params.limit))
         return await apiClient.get(`${this.baseUrl}/workflow/runs?${query.toString()}`)
@@ -150,6 +156,7 @@ class ResearchRebuildService {
         project_id: string
         primary_category_id?: string
         secondary_category_id?: string
+        batch_id?: string
         job_status?: string
         workflow_run_id?: string
         route?: string
@@ -164,6 +171,7 @@ class ResearchRebuildService {
         query.append('project_id', params.project_id)
         if (params.primary_category_id) query.append('primary_category_id', params.primary_category_id)
         if (params.secondary_category_id) query.append('secondary_category_id', params.secondary_category_id)
+        if (params.batch_id) query.append('batch_id', params.batch_id)
         if (params.job_status) query.append('job_status', params.job_status)
         if (params.workflow_run_id) query.append('workflow_run_id', params.workflow_run_id)
         if (params.route) query.append('route', params.route)
@@ -180,6 +188,7 @@ class ResearchRebuildService {
         project_id: string
         primary_category_id?: string
         secondary_category_id?: string
+        batch_id?: string
         job_status?: string
         workflow_run_id?: string
         route?: string
@@ -194,6 +203,7 @@ class ResearchRebuildService {
         query.append('project_id', params.project_id)
         if (params.primary_category_id) query.append('primary_category_id', params.primary_category_id)
         if (params.secondary_category_id) query.append('secondary_category_id', params.secondary_category_id)
+        if (params.batch_id) query.append('batch_id', params.batch_id)
         if (params.job_status) query.append('job_status', params.job_status)
         if (params.workflow_run_id) query.append('workflow_run_id', params.workflow_run_id)
         if (params.route) query.append('route', params.route)

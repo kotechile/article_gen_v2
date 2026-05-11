@@ -79,7 +79,9 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const incomingPrimaryCategoryId = searchParams.get('primary_category_id') || ''
     const incomingSecondaryCategoryId = searchParams.get('secondary_category_id') || ''
     const incomingWorkflowRunId = searchParams.get('workflow_run_id') || ''
+    const incomingBatchId = searchParams.get('batch_id') || ''
     const [workflowRunFilter, setWorkflowRunFilter] = React.useState(incomingWorkflowRunId || 'all')
+    const [activeBatchId, setActiveBatchId] = React.useState(incomingBatchId)
 
     const primaryCategories = React.useMemo(
         () => projectCategories.filter((category) => category.level === 1),
@@ -134,9 +136,12 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
         if (effectiveRunId) {
             params.set('workflow_run_id', effectiveRunId)
         }
+        if (activeBatchId) {
+            params.set('batch_id', activeBatchId)
+        }
         const query = params.toString()
         return `/research-rebuild/${targetMode}${query ? `?${query}` : ''}`
-    }, [activeProject?.id, primaryCategoryId, secondaryCategoryId, workflowRunFilter])
+    }, [activeBatchId, activeProject?.id, primaryCategoryId, secondaryCategoryId, workflowRunFilter])
 
     const currentViewUrl = React.useMemo(() => {
         const path = buildScopedPath(mode)
@@ -207,7 +212,8 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
         if (incomingWorkflowRunId) {
             setWorkflowRunFilter((current) => (current === 'all' ? incomingWorkflowRunId : current))
         }
-    }, [incomingPrimaryCategoryId, incomingSecondaryCategoryId, incomingWorkflowRunId])
+        setActiveBatchId(incomingBatchId)
+    }, [incomingBatchId, incomingPrimaryCategoryId, incomingSecondaryCategoryId, incomingWorkflowRunId])
 
     React.useEffect(() => {
         if (typeof window === 'undefined') return
@@ -252,8 +258,11 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
         if (workflowRunFilter !== 'all') {
             params.set('workflow_run_id', workflowRunFilter)
         }
+        if (activeBatchId) {
+            params.set('batch_id', activeBatchId)
+        }
 
-        const relevantKeys = ['project_id', 'primary_category_id', 'secondary_category_id', 'workflow_run_id']
+        const relevantKeys = ['project_id', 'primary_category_id', 'secondary_category_id', 'workflow_run_id', 'batch_id']
         const hasChanged = relevantKeys.some(key => params.get(key) !== searchParams.get(key))
         
         // Also check if there are extra keys in searchParams that we should strip
@@ -270,11 +279,11 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
             },
             { replace: true },
         )
-    }, [activeProject?.id, mode, navigate, primaryCategoryId, searchParams, secondaryCategoryId, workflowRunFilter])
+    }, [activeBatchId, activeProject?.id, mode, navigate, primaryCategoryId, searchParams, secondaryCategoryId, workflowRunFilter])
 
     React.useEffect(() => {
         setWorkflowPage(0)
-    }, [activeProject?.id, primaryCategoryId, secondaryCategoryId, jobStatusFilter, workflowRunFilter, routeFilter, candidateSearch])
+    }, [activeProject?.id, primaryCategoryId, secondaryCategoryId, activeBatchId, jobStatusFilter, workflowRunFilter, routeFilter, candidateSearch])
 
     React.useEffect(() => {
         if (workflowRunFilter === 'all') return
@@ -285,11 +294,13 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const refreshPageContext = React.useCallback(async (options?: {
         workflowRunId?: string
         workflowPage?: number
+        batchId?: string
     }) => {
         if (!activeProject?.id) return
 
         const nextWorkflowRunFilter = options?.workflowRunId ?? workflowRunFilter
         const nextWorkflowPage = options?.workflowPage ?? workflowPage
+        const nextBatchId = options?.batchId ?? activeBatchId
 
         try {
             setLoadingJobs(true)
@@ -298,6 +309,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                 project_id: activeProject.id,
                 primary_category_id: primaryCategoryId || undefined,
                 secondary_category_id: secondaryCategoryId || undefined,
+                batch_id: nextBatchId || undefined,
                 job_status: jobStatusFilter !== 'all' ? jobStatusFilter : undefined,
                 workflow_run_id: nextWorkflowRunFilter !== 'all' ? nextWorkflowRunFilter : undefined,
                 route: routeFilter !== 'all' ? routeFilter : undefined,
@@ -317,7 +329,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
             setLoadingJobs(false)
             setLoadingWorkflowArtifacts(false)
         }
-    }, [activeProject?.id, primaryCategoryId, secondaryCategoryId, jobStatusFilter, workflowRunFilter, routeFilter, candidateSearch, workflowPage, workflowPageSize])
+    }, [activeBatchId, activeProject?.id, primaryCategoryId, secondaryCategoryId, jobStatusFilter, workflowRunFilter, routeFilter, candidateSearch, workflowPage, workflowPageSize])
 
     React.useEffect(() => {
         void refreshPageContext()
@@ -350,11 +362,22 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                 count: 12,
                 archive_existing_in_scope: startFreshBatch,
             })
+            const nextBatchId = response.batch_id || ''
+            setWorkflowResults([])
+            setWorkflowRuns([])
+            setWorkflowTotalJobs(0)
+            setWorkflowRunFilter('all')
+            setWorkflowPage(0)
+            setActiveBatchId(nextBatchId)
             const archivedPrefix = (response.archived_count || 0) > 0
                 ? `Archived ${response.archived_count} earlier active job${response.archived_count === 1 ? '' : 's'} and `
                 : ''
             setSuccess(`${archivedPrefix}generated ${response.count} fresh job${response.count === 1 ? '' : 's'}.`)
-            await refreshPageContext()
+            await refreshPageContext({
+                batchId: nextBatchId || undefined,
+                workflowRunId: 'all',
+                workflowPage: 0,
+            })
         } catch (err) {
             console.error('Failed to generate jobs:', err)
             setError('Failed to generate jobs.')
@@ -768,7 +791,15 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     <SelectField 
                                         label="Primary Domain Category" 
                                         value={primaryCategoryId} 
-                                        onChange={(val) => { setPrimaryCategoryId(val); setSecondaryCategoryId(''); }}
+                                        onChange={(val) => {
+                                            setPrimaryCategoryId(val)
+                                            setSecondaryCategoryId('')
+                                            setActiveBatchId('')
+                                            setWorkflowRunFilter('all')
+                                            setWorkflowResults([])
+                                            setWorkflowRuns([])
+                                            setWorkflowTotalJobs(0)
+                                        }}
                                         options={[{ value: '', label: 'Select Primary Category' }, ...primaryCategories.map(c => ({ value: c.id, label: c.name }))]} 
                                     />
                                     {primaryCategory?.description && (
@@ -784,7 +815,14 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     <SelectField 
                                         label="Target Sub-Category" 
                                         value={secondaryCategoryId} 
-                                        onChange={setSecondaryCategoryId}
+                                        onChange={(val) => {
+                                            setSecondaryCategoryId(val)
+                                            setActiveBatchId('')
+                                            setWorkflowRunFilter('all')
+                                            setWorkflowResults([])
+                                            setWorkflowRuns([])
+                                            setWorkflowTotalJobs(0)
+                                        }}
                                         options={[{ value: '', label: 'Select Sub-category' }, ...secondaryCategories.map(c => ({ value: c.id, label: c.name }))]} 
                                     />
                                     {secondaryCategory?.description && (
