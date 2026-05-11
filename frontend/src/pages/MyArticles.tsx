@@ -398,6 +398,16 @@ export const MyArticles: React.FC = () => {
             }
 
             const topicById = new Map<string, { project_id?: string | null; primary_category_id?: string | null; secondary_category_id?: string | null }>()
+            const candidateContextById = new Map<
+                string,
+                {
+                    project_id?: string | null
+                    primary_category_id?: string | null
+                    secondary_category_id?: string | null
+                    primary_category_name?: string | null
+                    secondary_category_name?: string | null
+                }
+            >()
             const projectNameById = new Map<string, string>()
             const categoryNameById = new Map<string, string>()
 
@@ -417,6 +427,59 @@ export const MyArticles: React.FC = () => {
                             primary_category_id: row.primary_category_id || null,
                             secondary_category_id: row.secondary_category_id || null,
                         })
+                    }
+                }
+
+                const unresolvedTopicIds = topicIdsArray.filter((topicId) => !topicById.has(String(topicId)))
+                if (unresolvedTopicIds.length > 0) {
+                    const { data: candidateRows, error: candidateError } = await supabase
+                        .from('research_opportunity_candidates')
+                        .select('id, project_id, user_job_id, candidate_metadata')
+                        .in('id', unresolvedTopicIds)
+
+                    if (candidateError) {
+                        console.warn('[ContentLibrary] rebuild candidate metadata query failed', candidateError)
+                    } else {
+                        const userJobIds = Array.from(
+                            new Set(
+                                ((candidateRows || []) as any[])
+                                    .map((row) => row.user_job_id)
+                                    .filter(Boolean)
+                                    .map((value) => String(value))
+                            )
+                        )
+                        const jobById = new Map<string, { primary_category_id?: string | null; secondary_category_id?: string | null }>()
+
+                        if (userJobIds.length > 0) {
+                            const { data: jobRows, error: jobError } = await supabase
+                                .from('research_user_jobs')
+                                .select('id, primary_category_id, secondary_category_id')
+                                .in('id', userJobIds)
+
+                            if (jobError) {
+                                console.warn('[ContentLibrary] rebuild job metadata query failed', jobError)
+                            } else {
+                                for (const row of (jobRows || []) as any[]) {
+                                    jobById.set(String(row.id), {
+                                        primary_category_id: row.primary_category_id || null,
+                                        secondary_category_id: row.secondary_category_id || null,
+                                    })
+                                }
+                            }
+                        }
+
+                        for (const row of (candidateRows || []) as any[]) {
+                            const candidateMetadata = row.candidate_metadata || {}
+                            const categoryContext = candidateMetadata.category_context || {}
+                            const linkedJob = row.user_job_id ? jobById.get(String(row.user_job_id)) : null
+                            candidateContextById.set(String(row.id), {
+                                project_id: row.project_id || null,
+                                primary_category_id: linkedJob?.primary_category_id || null,
+                                secondary_category_id: linkedJob?.secondary_category_id || null,
+                                primary_category_name: categoryContext.primary || categoryContext.primary_category_name || null,
+                                secondary_category_name: categoryContext.secondary || categoryContext.secondary_category_name || null,
+                            })
+                        }
                     }
                 }
             }
@@ -474,26 +537,32 @@ export const MyArticles: React.FC = () => {
                     telemetryByTitleId.get(String(row.id || ''))
                 const topicId = row.topic_id || (row.source_idea_id ? ideaTopicById.get(String(row.source_idea_id)) : null)
                 const topicMeta = topicId ? topicById.get(String(topicId)) : null
+                const candidateMeta = topicId ? candidateContextById.get(String(topicId)) : null
                 const fallbackContext = getCategoryContextFallback(row)
                 return {
                     ...row,
                     _keywordTelemetry: ideaTelemetry,
                     _topic_id: topicId || null,
-                    _project_id: topicMeta?.project_id || fallbackContext.project_id || null,
-                    _primary_category_id: topicMeta?.primary_category_id || fallbackContext.primary_category_id || null,
-                    _secondary_category_id: topicMeta?.secondary_category_id || fallbackContext.secondary_category_id || null,
+                    _project_id: topicMeta?.project_id || candidateMeta?.project_id || fallbackContext.project_id || null,
+                    _primary_category_id: topicMeta?.primary_category_id || candidateMeta?.primary_category_id || fallbackContext.primary_category_id || null,
+                    _secondary_category_id: topicMeta?.secondary_category_id || candidateMeta?.secondary_category_id || fallbackContext.secondary_category_id || null,
                     _project_name:
                         (topicMeta?.project_id ? (projectNameById.get(String(topicMeta.project_id)) || null) : null)
+                        || (candidateMeta?.project_id ? (projectNameById.get(String(candidateMeta.project_id)) || null) : null)
                         || (fallbackContext.project_id ? (projectNameById.get(String(fallbackContext.project_id)) || null) : null)
                         || fallbackContext.project_name
                         || null,
                     _primary_category_name:
                         (topicMeta?.primary_category_id ? (categoryNameById.get(String(topicMeta.primary_category_id)) || null) : null)
+                        || (candidateMeta?.primary_category_id ? (categoryNameById.get(String(candidateMeta.primary_category_id)) || null) : null)
+                        || candidateMeta?.primary_category_name
                         || (fallbackContext.primary_category_id ? (categoryNameById.get(String(fallbackContext.primary_category_id)) || null) : null)
                         || fallbackContext.primary_category_name
                         || null,
                     _secondary_category_name:
                         (topicMeta?.secondary_category_id ? (categoryNameById.get(String(topicMeta.secondary_category_id)) || null) : null)
+                        || (candidateMeta?.secondary_category_id ? (categoryNameById.get(String(candidateMeta.secondary_category_id)) || null) : null)
+                        || candidateMeta?.secondary_category_name
                         || (fallbackContext.secondary_category_id ? (categoryNameById.get(String(fallbackContext.secondary_category_id)) || null) : null)
                         || fallbackContext.secondary_category_name
                         || null,
@@ -510,24 +579,30 @@ export const MyArticles: React.FC = () => {
             const mappedIdeas: LibraryArticle[] = libraryIdeas.map((idea) => ({
                 ...(() => {
                     const topicMeta = idea.topic_id ? topicById.get(String(idea.topic_id)) : null
+                    const candidateMeta = idea.topic_id ? candidateContextById.get(String(idea.topic_id)) : null
                     const fallbackContext = getCategoryContextFallback(idea)
                     return {
                         _topic_id: idea.topic_id || null,
-                        _project_id: topicMeta?.project_id || fallbackContext.project_id || null,
-                        _primary_category_id: topicMeta?.primary_category_id || fallbackContext.primary_category_id || null,
-                        _secondary_category_id: topicMeta?.secondary_category_id || fallbackContext.secondary_category_id || null,
+                        _project_id: topicMeta?.project_id || candidateMeta?.project_id || fallbackContext.project_id || null,
+                        _primary_category_id: topicMeta?.primary_category_id || candidateMeta?.primary_category_id || fallbackContext.primary_category_id || null,
+                        _secondary_category_id: topicMeta?.secondary_category_id || candidateMeta?.secondary_category_id || fallbackContext.secondary_category_id || null,
                         _project_name:
                             (topicMeta?.project_id ? (projectNameById.get(String(topicMeta.project_id)) || null) : null)
+                            || (candidateMeta?.project_id ? (projectNameById.get(String(candidateMeta.project_id)) || null) : null)
                             || (fallbackContext.project_id ? (projectNameById.get(String(fallbackContext.project_id)) || null) : null)
                             || fallbackContext.project_name
                             || null,
                         _primary_category_name:
                             (topicMeta?.primary_category_id ? (categoryNameById.get(String(topicMeta.primary_category_id)) || null) : null)
+                            || (candidateMeta?.primary_category_id ? (categoryNameById.get(String(candidateMeta.primary_category_id)) || null) : null)
+                            || candidateMeta?.primary_category_name
                             || (fallbackContext.primary_category_id ? (categoryNameById.get(String(fallbackContext.primary_category_id)) || null) : null)
                             || fallbackContext.primary_category_name
                             || null,
                         _secondary_category_name:
                             (topicMeta?.secondary_category_id ? (categoryNameById.get(String(topicMeta.secondary_category_id)) || null) : null)
+                            || (candidateMeta?.secondary_category_id ? (categoryNameById.get(String(candidateMeta.secondary_category_id)) || null) : null)
+                            || candidateMeta?.secondary_category_name
                             || (fallbackContext.secondary_category_id ? (categoryNameById.get(String(fallbackContext.secondary_category_id)) || null) : null)
                             || fallbackContext.secondary_category_name
                             || null,

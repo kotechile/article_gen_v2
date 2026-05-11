@@ -426,6 +426,7 @@ export const ContentStudio: React.FC = () => {
                     typeof (artData as any)?.idea_metadata?.category_context?.category_path === 'string'
                         ? String((artData as any).idea_metadata.category_context.category_path).trim() || null
                         : null;
+                let resolvedDomain: string | null = String((artData as any)?.domain || '').trim() || null;
 
                 if (!resolvedCategoryPath) {
                     let linkedTopicId = (artData as any)?.topic_id ? String((artData as any).topic_id) : null;
@@ -468,11 +469,79 @@ export const ContentStudio: React.FC = () => {
                                 categoryById.get(String(topicRow?.secondary_category_id || '')),
                             ].filter(Boolean).join(' / ') || null;
                         }
+
+                        if (!resolvedCategoryPath || !resolvedDomain) {
+                            const { data: candidateRow } = await supabase
+                                .from('research_opportunity_candidates')
+                                .select('project_id, user_job_id, candidate_metadata')
+                                .eq('id', linkedTopicId)
+                                .maybeSingle();
+
+                            if (candidateRow) {
+                                const candidateContext = (candidateRow as any)?.candidate_metadata?.category_context || {};
+                                const fallbackPrimaryName =
+                                    typeof candidateContext?.primary === 'string' ? candidateContext.primary.trim() : '';
+                                const fallbackSecondaryName =
+                                    typeof candidateContext?.secondary === 'string' ? candidateContext.secondary.trim() : '';
+
+                                if (!resolvedCategoryPath) {
+                                    resolvedCategoryPath = [fallbackPrimaryName, fallbackSecondaryName]
+                                        .filter(Boolean)
+                                        .join(' / ') || null;
+                                }
+
+                                if (!resolvedDomain && (candidateRow as any)?.project_id) {
+                                    const { data: projectRow } = await supabase
+                                        .from('projects')
+                                        .select('domain, app_name')
+                                        .eq('id', (candidateRow as any).project_id)
+                                        .maybeSingle();
+                                    resolvedDomain =
+                                        String((projectRow as any)?.domain || '').trim()
+                                        || String((projectRow as any)?.app_name || '').trim()
+                                        || null;
+                                }
+
+                                if (!resolvedCategoryPath && (candidateRow as any)?.user_job_id) {
+                                    const { data: userJobRow } = await supabase
+                                        .from('research_user_jobs')
+                                        .select('primary_category_id, secondary_category_id')
+                                        .eq('id', (candidateRow as any).user_job_id)
+                                        .maybeSingle();
+
+                                    const rebuildCategoryIds = [
+                                        (userJobRow as any)?.primary_category_id,
+                                        (userJobRow as any)?.secondary_category_id,
+                                    ].filter(Boolean);
+
+                                    if (rebuildCategoryIds.length > 0) {
+                                        const { data: rebuildCategoryRows } = await supabase
+                                            .from('project_categories')
+                                            .select('id, name')
+                                            .in('id', rebuildCategoryIds as string[]);
+
+                                        const rebuildCategoryById = new Map<string, string>();
+                                        for (const row of rebuildCategoryRows || []) {
+                                            rebuildCategoryById.set(String((row as any).id), String((row as any).name || '').trim());
+                                        }
+
+                                        resolvedCategoryPath = [
+                                            rebuildCategoryById.get(String((userJobRow as any)?.primary_category_id || '')),
+                                            rebuildCategoryById.get(String((userJobRow as any)?.secondary_category_id || '')),
+                                        ].filter(Boolean).join(' / ') || resolvedCategoryPath;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
-                setArticle(normalizedArticle);
-                setSeoShiftEnabled(shouldEnableSEOShiftByDefault(normalizedArticle));
+                const enrichedArticle = {
+                    ...normalizedArticle,
+                    domain: resolvedDomain || normalizedArticle.domain,
+                };
+                setArticle(enrichedArticle);
+                setSeoShiftEnabled(shouldEnableSEOShiftByDefault(enrichedArticle));
                 setCategoryPath(resolvedCategoryPath);
                 const savedGenerationSession = localStorage.getItem(getContentStudioGenerationStorageKey(articleId));
                 if (savedGenerationSession) {

@@ -1638,8 +1638,7 @@ def _resolve_publish_context_from_idea(supabase_admin, idea: dict, user_id: str)
         "category": idea.get("category"),
         "domain": idea.get("domain"),
     }
-    idea_metadata = _coerce_json_field(idea.get("idea_metadata"), {})
-    category_context = (idea_metadata.get("category_context") or {}) if isinstance(idea_metadata, dict) else {}
+    category_context = _resolve_category_context_from_idea(supabase_admin, idea, user_id)
 
     if all(resolved.values()):
         return resolved
@@ -1648,23 +1647,6 @@ def _resolve_publish_context_from_idea(supabase_admin, idea: dict, user_id: str)
     project_id = category_context.get("project_id")
     primary_category_id = category_context.get("primary_category_id")
     secondary_category_id = category_context.get("secondary_category_id")
-    if topic_id:
-        try:
-            topic_response = (
-                supabase_admin
-                .table("research_topics")
-                .select("project_id, primary_category_id, secondary_category_id")
-                .eq("id", topic_id)
-                .eq("user_id", user_id)
-                .limit(1)
-                .execute()
-            )
-            topic_row = (topic_response.data or [None])[0] or {}
-            project_id = topic_row.get("project_id") or project_id
-            primary_category_id = topic_row.get("primary_category_id") or primary_category_id
-            secondary_category_id = topic_row.get("secondary_category_id") or secondary_category_id
-        except Exception:
-            logger.warning("Could not resolve research topic context for topic_id=%s", topic_id, exc_info=True)
 
     if not project_id:
         return resolved
@@ -1716,11 +1698,130 @@ def _resolve_publish_context_from_idea(supabase_admin, idea: dict, user_id: str)
             if resolved.get("wordpress_parent_category_id") is None:
                 resolved["wordpress_parent_category_id"] = selected_row.get("wordpress_parent_category_id")
             if not str(resolved.get("category") or "").strip():
-                resolved["category"] = selected_row.get("description")
+                resolved["category"] = selected_row.get("description") or selected_row.get("name")
     except Exception:
         logger.warning("Could not resolve project category context for project_id=%s", project_id, exc_info=True)
 
     return resolved
+
+
+def _resolve_category_context_from_idea(supabase_admin, idea: dict, user_id: str) -> dict:
+    """
+    Recover project/category lineage for legacy and rebuild-origin ideas.
+
+    Supports both:
+    - legacy topic-backed ideas (`topic_id -> research_topics`)
+    - rebuild ideas where `topic_id` may actually be a candidate id
+    """
+    idea_metadata = _coerce_json_field(idea.get("idea_metadata"), {})
+    existing = dict((idea_metadata.get("category_context") or {}) if isinstance(idea_metadata, dict) else {})
+    context = {
+        "project_id": existing.get("project_id"),
+        "primary_category_id": existing.get("primary_category_id"),
+        "secondary_category_id": existing.get("secondary_category_id"),
+        "project_name": existing.get("project_name"),
+        "primary_category_name": existing.get("primary_category_name"),
+        "secondary_category_name": existing.get("secondary_category_name"),
+        "category_path": existing.get("category_path"),
+    }
+
+    topic_id = idea.get("topic_id")
+    candidate_row = None
+    if topic_id:
+        try:
+            topic_response = (
+                supabase_admin
+                .table("research_topics")
+                .select("project_id, primary_category_id, secondary_category_id")
+                .eq("id", topic_id)
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            topic_row = (topic_response.data or [None])[0] or {}
+            context["project_id"] = topic_row.get("project_id") or context.get("project_id")
+            context["primary_category_id"] = topic_row.get("primary_category_id") or context.get("primary_category_id")
+            context["secondary_category_id"] = topic_row.get("secondary_category_id") or context.get("secondary_category_id")
+        except Exception:
+            logger.warning("Could not resolve research topic category context for topic_id=%s", topic_id, exc_info=True)
+
+        if not context.get("project_id"):
+            try:
+                candidate_response = (
+                    supabase_admin
+                    .table("research_opportunity_candidates")
+                    .select("project_id, user_job_id, candidate_metadata")
+                    .eq("id", topic_id)
+                    .eq("user_id", user_id)
+                    .limit(1)
+                    .execute()
+                )
+                candidate_row = (candidate_response.data or [None])[0] or None
+            except Exception:
+                logger.warning("Could not resolve rebuild candidate context for topic_id=%s", topic_id, exc_info=True)
+
+    if candidate_row:
+        candidate_metadata = candidate_row.get("candidate_metadata") or {}
+        rebuild_context = (candidate_metadata.get("category_context") or {}) if isinstance(candidate_metadata, dict) else {}
+        context["project_id"] = candidate_row.get("project_id") or context.get("project_id")
+        context["primary_category_name"] = rebuild_context.get("primary") or rebuild_context.get("primary_category_name") or context.get("primary_category_name")
+        context["secondary_category_name"] = rebuild_context.get("secondary") or rebuild_context.get("secondary_category_name") or context.get("secondary_category_name")
+
+        user_job_id = candidate_row.get("user_job_id")
+        if user_job_id:
+            try:
+                job_response = (
+                    supabase_admin
+                    .table("research_user_jobs")
+                    .select("project_id, primary_category_id, secondary_category_id")
+                    .eq("id", user_job_id)
+                    .eq("user_id", user_id)
+                    .limit(1)
+                    .execute()
+                )
+                job_row = (job_response.data or [None])[0] or {}
+                context["project_id"] = job_row.get("project_id") or context.get("project_id")
+                context["primary_category_id"] = job_row.get("primary_category_id") or context.get("primary_category_id")
+                context["secondary_category_id"] = job_row.get("secondary_category_id") or context.get("secondary_category_id")
+            except Exception:
+                logger.warning("Could not resolve research user job context for user_job_id=%s", user_job_id, exc_info=True)
+
+    if context.get("project_id") and not context.get("project_name"):
+        try:
+            project_response = (
+                supabase_admin
+                .table("projects")
+                .select("id, domain, app_name")
+                .eq("id", context["project_id"])
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            project_row = (project_response.data or [None])[0] or {}
+            context["project_name"] = project_row.get("domain") or project_row.get("app_name") or context.get("project_name")
+        except Exception:
+            logger.warning("Could not resolve project for category context project_id=%s", context.get("project_id"), exc_info=True)
+
+    category_ids = [cid for cid in [context.get("primary_category_id"), context.get("secondary_category_id")] if cid]
+    if category_ids:
+        try:
+            categories_response = (
+                supabase_admin
+                .table("project_categories")
+                .select("id, name")
+                .in_("id", category_ids)
+                .eq("user_id", user_id)
+                .execute()
+            )
+            category_map = {str(row.get("id")): row.get("name") for row in (categories_response.data or [])}
+            context["primary_category_name"] = category_map.get(str(context.get("primary_category_id"))) or context.get("primary_category_name")
+            context["secondary_category_name"] = category_map.get(str(context.get("secondary_category_id"))) or context.get("secondary_category_name")
+        except Exception:
+            logger.warning("Could not resolve project categories for context ids=%s", category_ids, exc_info=True)
+
+    category_path = [context.get("primary_category_name"), context.get("secondary_category_name")]
+    context["category_path"] = " / ".join([part for part in category_path if str(part or "").strip()]) or context.get("category_path")
+    return context
 
 
 def _publish_article_content_idea_to_titles(
@@ -1755,11 +1856,17 @@ def _publish_article_content_idea_to_titles(
     if existing_rows:
         return True, existing_rows[0].get("id")
 
+    category_context = _resolve_category_context_from_idea(supabase_admin, idea, user_id)
     publish_context = _resolve_publish_context_from_idea(
         supabase_admin,
         idea,
         user_id,
     )
+    idea_metadata = _coerce_json_field(idea.get("idea_metadata"), {})
+    if not isinstance(idea_metadata, dict):
+        idea_metadata = {}
+    if category_context:
+        idea_metadata["category_context"] = category_context
     primary_keywords = idea.get("primary_keywords") or idea.get("keywords") or []
     secondary_keywords = idea.get("secondary_keywords") or []
     if isinstance(primary_keywords, str):
@@ -1796,7 +1903,7 @@ def _publish_article_content_idea_to_titles(
         "domain": publish_context.get("domain"),
         "source_idea_id": idea.get("id"),
         "topic_id": idea.get("topic_id"),
-        "idea_metadata": idea.get("idea_metadata") or {},
+        "idea_metadata": idea_metadata,
         "raw_dataforseo_output": idea.get("raw_dataforseo_output"),
         "primary_keywords": primary_keywords[:1] if primary_keywords else [],
         "secondary_keywords": secondary_keywords if secondary_keywords else [],
