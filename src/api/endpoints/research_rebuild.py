@@ -127,7 +127,7 @@ async def _build_persisted_workflow_snapshot(
         primary_category_id=primary_category_id,
         secondary_category_id=secondary_category_id,
         status=job_status,
-        include_archived=True,
+        include_archived=False,
         active_only=False,
     )
     allowed_job_ids = {str(job.get("id")) for job in jobs}
@@ -250,7 +250,7 @@ async def _list_persisted_workflow_runs(
         primary_category_id=primary_category_id,
         secondary_category_id=secondary_category_id,
         status=job_status,
-        include_archived=True,
+        include_archived=False,
         active_only=False,
     )
     allowed_job_ids = {str(job.get("id")) for job in jobs}
