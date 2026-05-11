@@ -11,7 +11,7 @@ import { MetricTooltip } from '../components/Tooltip';
 import { GenerationModal } from '../components/GenerationModal';
 import { KeywordIntelligenceModal } from '../components/KeywordIntelligenceModal';
 import { computeGEOContext } from '../utils/seoUtils';
-import { contentIdeasService } from '../services/content-ideas.service';
+import { contentIdeasService, mergeKeywordSelectionState } from '../services/content-ideas.service';
 import type { ContentIdea } from '../types/idea-burst';
 
 function sanitizeErrorForLog(error: unknown): Record<string, unknown> {
@@ -1820,44 +1820,9 @@ export const ContentStudio: React.FC = () => {
                         );
                     }}
                     onSaved={(primary, secondary, metrics, rawOutput) => {
-                        const nextPrimary = primary ? [primary] : [];
                         setArticle((prev) => {
                             if (!prev) return prev;
-                            const updated: ArticleData = {
-                                ...prev,
-                                primary_keywords: nextPrimary,
-                                secondary_keywords: secondary,
-                                secondary_keywords_json: secondary,
-                                search_phrase: primary || prev.search_phrase,
-                                primary_keyword: primary || prev.primary_keyword,
-                                Keywords: [primary, ...secondary].filter(Boolean).join(', '),
-                                selected_keyword_search_volume: metrics.volume ?? prev.selected_keyword_search_volume,
-                                selected_keyword_difficulty: metrics.difficulty ?? prev.selected_keyword_difficulty,
-                                selected_keyword_metrics_json: {
-                                    primary: {
-                                        keyword: primary,
-                                        search_volume: metrics.volume ?? null,
-                                        keyword_difficulty: metrics.difficulty ?? null,
-                                        cpc: metrics.cpc ?? null,
-                                        metric_source: metrics ? 'manual_keyword_intelligence' : 'llm_fallback',
-                                        is_estimated: !metrics,
-                                        intent: 'informational',
-                                    },
-                                    secondary: secondary.map((keyword) => ({
-                                        keyword,
-                                        search_volume: null,
-                                        keyword_difficulty: null,
-                                        cpc: null,
-                                        metric_source: 'manual_keyword_intelligence',
-                                        is_estimated: true,
-                                    })),
-                                    candidate_count: [primary, ...secondary].filter(Boolean).length,
-                                    source: metrics ? 'dataforseo_exact' : 'manual_keyword_intelligence',
-                                    generated_at: new Date().toISOString(),
-                                },
-                                raw_dataforseo_output: rawOutput ?? prev.raw_dataforseo_output,
-                            };
-                            return updated;
+                            return mergeKeywordSelectionState(prev, primary, secondary, metrics, rawOutput) as ArticleData;
                         });
                         setFormData((prev) => ({
                             ...prev,

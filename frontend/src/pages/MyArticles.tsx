@@ -9,7 +9,7 @@ import { motion } from 'framer-motion'
 import { apiClient } from '../api-client'
 import { KeywordIntelligenceModal } from '../components/KeywordIntelligenceModal'
 import type { ContentIdea } from '../types/idea-burst'
-import { contentIdeasService } from '../services/content-ideas.service'
+import { contentIdeasService, mergeKeywordSelectionState } from '../services/content-ideas.service'
 
 type LibraryArticle = Article & {
     _source: 'titles' | 'content_ideas'
@@ -1478,39 +1478,7 @@ export const MyArticles: React.FC = () => {
                                     // reflects the new primary keyword immediately.
                                     setArticles((prev) => prev.map((a) =>
                                         a.id === kwIntelArticle.id
-                                            ? {
-                                                ...a,
-                                                primary_keywords: [primaryClean],
-                                                secondary_keywords: secondaryClean,
-                                                secondary_keywords_json: secondaryClean,
-                                                Keywords: [primaryClean, ...secondaryClean].filter(Boolean).join(', '),
-                                                search_phrase: primaryClean,
-                                                selected_keyword_search_volume: metrics.volume ?? undefined,
-                                                selected_keyword_difficulty: metrics.difficulty ?? undefined,
-                                                selected_keyword_metrics_json: {
-                                                    primary: {
-                                                        keyword: primaryClean,
-                                                        search_volume: metrics.volume ?? null,
-                                                        keyword_difficulty: metrics.difficulty ?? null,
-                                                        cpc: metrics.cpc ?? null,
-                                                        metric_source: metrics ? 'manual_keyword_intelligence' : 'llm_fallback',
-                                                        is_estimated: !metrics,
-                                                        intent: 'informational',
-                                                    },
-                                                    secondary: secondaryClean.map((keyword) => ({
-                                                        keyword,
-                                                        search_volume: null,
-                                                        keyword_difficulty: null,
-                                                        cpc: null,
-                                                        metric_source: 'manual_keyword_intelligence',
-                                                        is_estimated: true,
-                                                    })),
-                                                    candidate_count: [primaryClean, ...secondaryClean].filter(Boolean).length,
-                                                    source: metrics ? 'dataforseo_exact' : 'manual_keyword_intelligence',
-                                                    generated_at: new Date().toISOString(),
-                                                },
-                                                raw_dataforseo_output: rawOutput,
-                                            } as any
+                                            ? mergeKeywordSelectionState(a as any, primaryClean, secondaryClean, metrics, rawOutput) as any
                                             : a
                                     ))
                                 }
