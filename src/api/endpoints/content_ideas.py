@@ -1638,33 +1638,33 @@ def _resolve_publish_context_from_idea(supabase_admin, idea: dict, user_id: str)
         "category": idea.get("category"),
         "domain": idea.get("domain"),
     }
+    idea_metadata = _coerce_json_field(idea.get("idea_metadata"), {})
+    category_context = (idea_metadata.get("category_context") or {}) if isinstance(idea_metadata, dict) else {}
 
     if all(resolved.values()):
         return resolved
 
     topic_id = idea.get("topic_id")
-    if not topic_id:
-        return resolved
-
-    project_id = None
-    primary_category_id = None
-    secondary_category_id = None
-    try:
-        topic_response = (
-            supabase_admin
-            .table("research_topics")
-            .select("project_id, primary_category_id, secondary_category_id")
-            .eq("id", topic_id)
-            .eq("user_id", user_id)
-            .limit(1)
-            .execute()
-        )
-        topic_row = (topic_response.data or [None])[0] or {}
-        project_id = topic_row.get("project_id")
-        primary_category_id = topic_row.get("primary_category_id")
-        secondary_category_id = topic_row.get("secondary_category_id")
-    except Exception:
-        logger.warning("Could not resolve research topic context for topic_id=%s", topic_id, exc_info=True)
+    project_id = category_context.get("project_id")
+    primary_category_id = category_context.get("primary_category_id")
+    secondary_category_id = category_context.get("secondary_category_id")
+    if topic_id:
+        try:
+            topic_response = (
+                supabase_admin
+                .table("research_topics")
+                .select("project_id, primary_category_id, secondary_category_id")
+                .eq("id", topic_id)
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            topic_row = (topic_response.data or [None])[0] or {}
+            project_id = topic_row.get("project_id") or project_id
+            primary_category_id = topic_row.get("primary_category_id") or primary_category_id
+            secondary_category_id = topic_row.get("secondary_category_id") or secondary_category_id
+        except Exception:
+            logger.warning("Could not resolve research topic context for topic_id=%s", topic_id, exc_info=True)
 
     if not project_id:
         return resolved
@@ -1721,6 +1721,182 @@ def _resolve_publish_context_from_idea(supabase_admin, idea: dict, user_id: str)
         logger.warning("Could not resolve project category context for project_id=%s", project_id, exc_info=True)
 
     return resolved
+
+
+def _publish_article_content_idea_to_titles(
+    supabase,
+    supabase_admin,
+    *,
+    idea: dict,
+    user_id: str,
+    now: str,
+) -> tuple[bool, str | None]:
+    """
+    Promote one non-software content idea into Titles.
+
+    Returns (published, titles_record_id). If a Titles row already exists for
+    this source idea, it is reused instead of creating a duplicate.
+    """
+    existing_rows = []
+    try:
+        existing_response = (
+            supabase
+            .table("Titles")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("source_idea_id", idea.get("id"))
+            .limit(1)
+            .execute()
+        )
+        existing_rows = existing_response.data or []
+    except Exception:
+        logger.warning("Could not check existing Titles row for idea_id=%s", idea.get("id"), exc_info=True)
+
+    if existing_rows:
+        return True, existing_rows[0].get("id")
+
+    publish_context = _resolve_publish_context_from_idea(
+        supabase_admin,
+        idea,
+        user_id,
+    )
+    primary_keywords = idea.get("primary_keywords") or idea.get("keywords") or []
+    secondary_keywords = idea.get("secondary_keywords") or []
+    if isinstance(primary_keywords, str):
+        primary_keywords = [k.strip() for k in primary_keywords.split(",") if k.strip()]
+    if isinstance(secondary_keywords, str):
+        secondary_keywords = [k.strip() for k in secondary_keywords.split(",") if k.strip()]
+    if not secondary_keywords and isinstance(primary_keywords, list) and len(primary_keywords) > 1:
+        secondary_keywords = primary_keywords[1:]
+    primary_keyword = primary_keywords[0] if primary_keywords else ""
+    exact_keyword_metrics = idea.get("keyword_metrics") or {}
+    if not exact_keyword_metrics:
+        seo_offer_enrichment = (idea.get("idea_metadata") or {}).get("seo_offer_enrichment") or {}
+        exact_keyword_metrics = seo_offer_enrichment.get("keyword_metrics") or {}
+    selected_keyword_metrics_json = _build_keyword_metrics_payload(
+        primary_keyword=primary_keyword,
+        secondary_keywords=secondary_keywords,
+        metrics_map=exact_keyword_metrics,
+        source="dataforseo" if idea.get("total_search_volume") else "llm_fallback",
+        target_intent=idea.get("target_intent") or "informational",
+    )
+    primary_metric = (selected_keyword_metrics_json.get("primary") or {}) if primary_keyword else {}
+    title_payload = {
+        "id": str(uuid4()),
+        "user_id": user_id,
+        "Title": idea.get("title") or "Untitled Article",
+        "userDescription": idea.get("description") or "",
+        "Keywords": ", ".join(primary_keywords),
+        "status": "New",
+        "published": False,
+        "dateCreatedOn": now,
+        "wordpress_category_id": publish_context.get("wordpress_category_id"),
+        "wordpress_parent_category_id": publish_context.get("wordpress_parent_category_id"),
+        "category": publish_context.get("category"),
+        "domain": publish_context.get("domain"),
+        "source_idea_id": idea.get("id"),
+        "topic_id": idea.get("topic_id"),
+        "idea_metadata": idea.get("idea_metadata") or {},
+        "raw_dataforseo_output": idea.get("raw_dataforseo_output"),
+        "primary_keywords": primary_keywords[:1] if primary_keywords else [],
+        "secondary_keywords": secondary_keywords if secondary_keywords else [],
+        "search_phrase": idea.get("search_phrase") or (primary_keywords[0] if primary_keywords else ""),
+        "keyword_candidates_json": primary_keywords + [k for k in secondary_keywords if k not in primary_keywords],
+        "keyword_clusters_json": [],
+        "keyword_research_status": "ready" if primary_keywords else "fallback",
+        "keyword_research_source": "dataforseo" if idea.get("total_search_volume") else "llm_fallback",
+        "keyword_research_confidence": 0.85 if idea.get("total_search_volume") else 0.35,
+        "keyword_research_generated_at": now,
+        "primary_keyword": primary_keyword,
+        "secondary_keywords_json": secondary_keywords,
+        "selected_keyword_search_volume": int(primary_metric.get("search_volume") or idea.get("total_search_volume") or 0),
+        "selected_keyword_difficulty": float(primary_metric.get("keyword_difficulty") or idea.get("average_difficulty") or 0.0),
+        "selected_keyword_intent": idea.get("target_intent") or "informational",
+        "selected_keyword_metrics_json": selected_keyword_metrics_json,
+        "keyword_selection_reason": "Initialized from research idea publish payload.",
+        "keyword_strategy_version": "phase1_v1",
+        "keyword_selection_source": "research_dossier_reused",
+    }
+    try:
+        response = supabase.table("Titles").insert(title_payload).execute()
+        inserted = (response.data or [{}])[0]
+        return True, inserted.get("id") or title_payload["id"]
+    except Exception as insert_error:
+        err = str(insert_error)
+        missing_cols = re.findall(r"Could not find the '([^']+)' column", err)
+        if missing_cols:
+            fallback_payload = dict(title_payload)
+            for col in missing_cols:
+                fallback_payload.pop(col, None)
+            try:
+                response = supabase.table("Titles").insert(fallback_payload).execute()
+                inserted = (response.data or [{}])[0]
+                logger.warning(
+                    "Inserted Titles row for idea_id=%s after dropping missing columns: %s",
+                    idea.get("id"),
+                    ", ".join(missing_cols),
+                )
+                return True, inserted.get("id") or fallback_payload["id"]
+            except Exception:
+                logger.warning("Could not insert Titles row for idea_id=%s", idea.get("id"), exc_info=True)
+                return False, None
+        logger.warning("Could not insert Titles row for idea_id=%s", idea.get("id"), exc_info=True)
+        return False, None
+
+
+def _mark_content_idea_published(
+    supabase,
+    *,
+    idea_id: str,
+    user_id: str,
+    now: str,
+    titles_record_id: str | None = None,
+) -> int:
+    """Best-effort status update after an idea is promoted."""
+    base_payload = {
+        "status": "published",
+        "published": True,
+        "published_to_titles": True,
+        "published_at": now,
+        "updated_at": now,
+    }
+    if titles_record_id:
+        base_payload["titles_record_id"] = titles_record_id
+
+    try:
+        supabase.table("content_ideas").update(base_payload).eq("id", idea_id).eq("user_id", user_id).execute()
+        return 1
+    except Exception:
+        pass
+
+    fallback_payload = {
+        "status": "published",
+        "updated_at": now,
+    }
+    if titles_record_id:
+        fallback_payload["titles_record_id"] = titles_record_id
+    try:
+        supabase.table("content_ideas").update(fallback_payload).eq("id", idea_id).eq("user_id", user_id).execute()
+        return 1
+    except Exception:
+        pass
+
+    final_payload = {"updated_at": now}
+    if titles_record_id:
+        final_payload["titles_record_id"] = titles_record_id
+    try:
+        supabase.table("content_ideas").update(final_payload).eq("id", idea_id).eq("user_id", user_id).execute()
+        return 1
+    except Exception:
+        result = (
+            supabase
+            .table("content_ideas")
+            .update({"description": ""})
+            .eq("id", idea_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        return 1 if result.data else 0
 
 
 def _build_released_software_payload(idea: dict, user_id: str, released_at: str) -> dict:
@@ -1998,6 +2174,8 @@ def publish_content_ideas():
             if not idea_resp.data:
                 continue
             idea = idea_resp.data[0]
+            titles_record_id = None
+            released_software_id = None
 
             # 2) Persist released ideas into their durable destination table.
             if (idea.get("content_type") or "").lower() == "software":
@@ -2021,138 +2199,24 @@ def publish_content_ideas():
                             exc_info=True,
                         )
             else:
-                publish_context = _resolve_publish_context_from_idea(
+                title_published, titles_record_id = _publish_article_content_idea_to_titles(
+                    supabase,
                     supabase_admin,
-                    idea,
-                    user_id,
+                    idea=idea,
+                    user_id=user_id,
+                    now=now,
                 )
-                primary_keywords = idea.get("primary_keywords") or idea.get("keywords") or []
-                secondary_keywords = idea.get("secondary_keywords") or []
-                if isinstance(primary_keywords, str):
-                    primary_keywords = [k.strip() for k in primary_keywords.split(",") if k.strip()]
-                if isinstance(secondary_keywords, str):
-                    secondary_keywords = [k.strip() for k in secondary_keywords.split(",") if k.strip()]
-                if not secondary_keywords and isinstance(primary_keywords, list) and len(primary_keywords) > 1:
-                    secondary_keywords = primary_keywords[1:]
-                primary_keyword = primary_keywords[0] if primary_keywords else ""
-                # Prefer explicit keyword_metrics column in content_ideas schema.
-                exact_keyword_metrics = idea.get("keyword_metrics") or {}
-                if not exact_keyword_metrics:
-                    seo_offer_enrichment = (idea.get("idea_metadata") or {}).get("seo_offer_enrichment") or {}
-                    exact_keyword_metrics = seo_offer_enrichment.get("keyword_metrics") or {}
-                selected_keyword_metrics_json = _build_keyword_metrics_payload(
-                    primary_keyword=primary_keyword,
-                    secondary_keywords=secondary_keywords,
-                    metrics_map=exact_keyword_metrics,
-                    source="dataforseo" if idea.get("total_search_volume") else "llm_fallback",
-                    target_intent=idea.get("target_intent") or "informational",
-                )
-                primary_metric = (selected_keyword_metrics_json.get("primary") or {}) if primary_keyword else {}
-                title_payload = {
-                    "id": str(uuid4()),
-                    "user_id": user_id,
-                    "Title": idea.get("title") or "Untitled Article",
-                    "userDescription": idea.get("description") or "",
-                    "Keywords": ", ".join(primary_keywords),
-                    # This record is queued for writing, not published to an external CMS.
-                    "status": "New",
-                    "published": False,
-                    "dateCreatedOn": now,
-                    "wordpress_category_id": publish_context.get("wordpress_category_id"),
-                    "wordpress_parent_category_id": publish_context.get("wordpress_parent_category_id"),
-                    "category": publish_context.get("category"),
-                    "domain": publish_context.get("domain"),
-                    "source_idea_id": idea.get("id"),
-                    "topic_id": idea.get("topic_id"),
-                    "idea_metadata": idea.get("idea_metadata") or {},
-                    # ── Keyword data parity fields ──────────────────────────────
-                    # Copy raw DataForSEO output so Keyword Intelligence Modal
-                    # can operate on live Titles records without re-enriching.
-                    "raw_dataforseo_output": idea.get("raw_dataforseo_output"),
-                    "primary_keywords": primary_keywords[:1] if primary_keywords else [],
-                    "secondary_keywords": secondary_keywords if secondary_keywords else [],
-                    "search_phrase": idea.get("search_phrase") or (primary_keywords[0] if primary_keywords else ""),
-                    # ── Phase 1 keyword handoff defaults (Research → Content Generation) ──
-                    "keyword_candidates_json": primary_keywords + [k for k in secondary_keywords if k not in primary_keywords],
-                    "keyword_clusters_json": [],
-                    "keyword_research_status": "ready" if primary_keywords else "fallback",
-                    "keyword_research_source": "dataforseo" if idea.get("total_search_volume") else "llm_fallback",
-                    "keyword_research_confidence": 0.85 if idea.get("total_search_volume") else 0.35,
-                    "keyword_research_generated_at": now,
-                    "primary_keyword": primary_keyword,
-                    "secondary_keywords_json": secondary_keywords,
-                    "selected_keyword_search_volume": int(primary_metric.get("search_volume") or idea.get("total_search_volume") or 0),
-                    "selected_keyword_difficulty": float(primary_metric.get("keyword_difficulty") or idea.get("average_difficulty") or 0.0),
-                    "selected_keyword_intent": idea.get("target_intent") or "informational",
-                    "selected_keyword_metrics_json": selected_keyword_metrics_json,
-                    "keyword_selection_reason": "Initialized from research idea publish payload.",
-                    "keyword_strategy_version": "phase1_v1",
-                    "keyword_selection_source": "research_dossier_reused",
-                }
-                try:
-                    supabase.table("Titles").insert(title_payload).execute()
+                if title_published:
                     published_to_titles_count += 1
-                except Exception as insert_error:
-                    err = str(insert_error)
-                    missing_cols = re.findall(r"Could not find the '([^']+)' column", err)
-                    if missing_cols:
-                        fallback_payload = dict(title_payload)
-                        for col in missing_cols:
-                            fallback_payload.pop(col, None)
-                        try:
-                            supabase.table("Titles").insert(fallback_payload).execute()
-                            published_to_titles_count += 1
-                            logger.warning(
-                                "Inserted Titles row for idea_id=%s after dropping missing columns: %s",
-                                idea_id,
-                                ", ".join(missing_cols),
-                            )
-                        except Exception:
-                            logger.warning("Could not insert Titles row for idea_id=%s", idea_id, exc_info=True)
-                    else:
-                        logger.warning("Could not insert Titles row for idea_id=%s", idea_id, exc_info=True)
 
             # 3) Best-effort status update on content_ideas with progressive fallbacks.
-            try:
-                supabase.table("content_ideas").update({
-                    "status": "published",
-                    "published": True,
-                    "published_to_titles": True,
-                    "published_at": now,
-                    "updated_at": now,
-                }).eq("id", idea_id).eq("user_id", user_id).execute()
-                updated_count += 1
-                continue
-            except Exception:
-                pass
-
-            try:
-                supabase.table("content_ideas").update({
-                    "status": "published",
-                    "updated_at": now,
-                }).eq("id", idea_id).eq("user_id", user_id).execute()
-                updated_count += 1
-                continue
-            except Exception:
-                pass
-
-            try:
-                supabase.table("content_ideas").update({
-                    "updated_at": now,
-                }).eq("id", idea_id).eq("user_id", user_id).execute()
-                updated_count += 1
-            except Exception:
-                # Last fallback for minimal schemas without updated_at.
-                result = (
-                    supabase
-                    .table("content_ideas")
-                    .update({"description": idea.get("description") or ""})
-                    .eq("id", idea_id)
-                    .eq("user_id", user_id)
-                    .execute()
-                )
-                if result.data:
-                    updated_count += 1
+            updated_count += _mark_content_idea_published(
+                supabase,
+                idea_id=idea_id,
+                user_id=user_id,
+                now=now,
+                titles_record_id=titles_record_id if (idea.get("content_type") or "").lower() != "software" else released_software_id,
+            )
 
         success = (updated_count > 0) or (published_to_titles_count > 0) or (published_to_software_count > 0)
         status_code = 200 if success else 400

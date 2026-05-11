@@ -2130,6 +2130,12 @@ def persist_generated_outcome_to_content_idea(outcome_id: str):
         return jsonify({"error": "Authentication required"}), 401
 
     try:
+        from .content_ideas import (
+            _get_admin_supabase_client as _get_content_ideas_admin_client,
+            _mark_content_idea_published,
+            _publish_article_content_idea_to_titles,
+        )
+
         outcome_uuid = _parse_uuid(outcome_id, "outcome_id")
         outcome = asyncio.run(generation_service.get_record(record_id=outcome_uuid, user_id=UUID(user_id)))
         if not outcome:
@@ -2181,29 +2187,75 @@ def persist_generated_outcome_to_content_idea(outcome_id: str):
             )
         )
 
-        topic_id = data.get("topic_id") or payload.get("topic_id") or candidate_id
-        payload["topic_id"] = topic_id
         payload["user_id"] = user_id
 
         supabase = _get_admin_supabase_client()
-        inserted = _insert_with_schema_fallback(supabase, "content_ideas", payload)
-        if not inserted:
-            return jsonify({"error": "Failed to insert content idea"}), 500
+        content_idea = None
+        if outcome.get("content_idea_id"):
+            existing_response = (
+                supabase
+                .table("content_ideas")
+                .select("*")
+                .eq("id", outcome.get("content_idea_id"))
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            content_idea = (existing_response.data or [None])[0]
+
+        if not content_idea:
+            topic_id = data.get("topic_id") or payload.get("topic_id") or candidate_id
+            payload["topic_id"] = topic_id
+            content_idea = _insert_with_schema_fallback(supabase, "content_ideas", payload)
+            if not content_idea:
+                return jsonify({"error": "Failed to insert content idea"}), 500
+
+        supabase_admin = _get_content_ideas_admin_client(supabase)
+        published_to_titles, titles_record_id = _publish_article_content_idea_to_titles(
+            supabase,
+            supabase_admin,
+            idea=content_idea,
+            user_id=user_id,
+            now=datetime.utcnow().isoformat(),
+        )
+        if not published_to_titles:
+            return jsonify({"error": "Failed to promote idea to Content Studio"}), 500
+
+        _mark_content_idea_published(
+            supabase,
+            idea_id=str(content_idea.get("id")),
+            user_id=user_id,
+            now=datetime.utcnow().isoformat(),
+            titles_record_id=titles_record_id,
+        )
+
+        if titles_record_id:
+            refreshed_response = (
+                supabase
+                .table("content_ideas")
+                .select("*")
+                .eq("id", content_idea.get("id"))
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            content_idea = (refreshed_response.data or [content_idea])[0]
 
         updated_outcome = asyncio.run(
             generation_service.update_record(
                 record_id=outcome_uuid,
                 user_id=UUID(user_id),
                 data={
-                    "content_idea_id": inserted.get("id"),
-                    "status": "persisted",
+                    "content_idea_id": content_idea.get("id"),
+                    "status": "published",
                 },
             )
         )
 
         return jsonify(
             {
-                "content_idea": inserted,
+                "content_idea": content_idea,
+                "titles_record_id": titles_record_id,
                 "generated_outcome": updated_outcome,
             }
         ), 201

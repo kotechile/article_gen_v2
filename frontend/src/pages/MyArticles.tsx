@@ -51,6 +51,15 @@ type ProjectCategory = {
     parent_category_id: string | null
 }
 
+type CategoryContextFallback = {
+    project_id: string | null
+    primary_category_id: string | null
+    secondary_category_id: string | null
+    project_name: string | null
+    primary_category_name: string | null
+    secondary_category_name: string | null
+}
+
 function hasWrittenContent(article: any) {
     return Boolean(
         String(article?.htmlArticle || '').trim() ||
@@ -215,6 +224,18 @@ function getKeywordRows(article: any): Array<{ keyword: string; volume: number; 
     }))
 }
 
+function getCategoryContextFallback(value: any): CategoryContextFallback {
+    const context = value?.idea_metadata?.category_context || {}
+    return {
+        project_id: context?.project_id ? String(context.project_id) : null,
+        primary_category_id: context?.primary_category_id ? String(context.primary_category_id) : null,
+        secondary_category_id: context?.secondary_category_id ? String(context.secondary_category_id) : null,
+        project_name: context?.project_name ? String(context.project_name) : null,
+        primary_category_name: context?.primary_category_name ? String(context.primary_category_name) : null,
+        secondary_category_name: context?.secondary_category_name ? String(context.secondary_category_name) : null,
+    }
+}
+
 export const MyArticles: React.FC = () => {
     const ITEMS_PER_PAGE = 5
     const { user } = useAuth()
@@ -358,12 +379,22 @@ export const MyArticles: React.FC = () => {
             }
 
             const topicIds = new Set<string>()
+            const fallbackProjectIds = new Set<string>()
+            const fallbackCategoryIds = new Set<string>()
             for (const row of titleRows as any[]) {
+                const fallbackContext = getCategoryContextFallback(row)
                 const topicId = row.topic_id || (row.source_idea_id ? ideaTopicById.get(String(row.source_idea_id)) : null)
                 if (topicId) topicIds.add(String(topicId))
+                if (fallbackContext.project_id) fallbackProjectIds.add(fallbackContext.project_id)
+                if (fallbackContext.primary_category_id) fallbackCategoryIds.add(fallbackContext.primary_category_id)
+                if (fallbackContext.secondary_category_id) fallbackCategoryIds.add(fallbackContext.secondary_category_id)
             }
             for (const idea of ideaRows) {
+                const fallbackContext = getCategoryContextFallback(idea)
                 if (idea.topic_id) topicIds.add(String(idea.topic_id))
+                if (fallbackContext.project_id) fallbackProjectIds.add(fallbackContext.project_id)
+                if (fallbackContext.primary_category_id) fallbackCategoryIds.add(fallbackContext.primary_category_id)
+                if (fallbackContext.secondary_category_id) fallbackCategoryIds.add(fallbackContext.secondary_category_id)
             }
 
             const topicById = new Map<string, { project_id?: string | null; primary_category_id?: string | null; secondary_category_id?: string | null }>()
@@ -395,6 +426,7 @@ export const MyArticles: React.FC = () => {
                     Array.from(topicById.values())
                         .map((row) => row.project_id)
                         .filter(Boolean)
+                        .concat(Array.from(fallbackProjectIds))
                 )
             ) as string[]
             const categoryIds = Array.from(
@@ -402,6 +434,7 @@ export const MyArticles: React.FC = () => {
                     Array.from(topicById.values())
                         .flatMap((row) => [row.primary_category_id, row.secondary_category_id])
                         .filter(Boolean)
+                        .concat(Array.from(fallbackCategoryIds))
                 )
             ) as string[]
 
@@ -441,16 +474,29 @@ export const MyArticles: React.FC = () => {
                     telemetryByTitleId.get(String(row.id || ''))
                 const topicId = row.topic_id || (row.source_idea_id ? ideaTopicById.get(String(row.source_idea_id)) : null)
                 const topicMeta = topicId ? topicById.get(String(topicId)) : null
+                const fallbackContext = getCategoryContextFallback(row)
                 return {
                     ...row,
                     _keywordTelemetry: ideaTelemetry,
                     _topic_id: topicId || null,
-                    _project_id: topicMeta?.project_id || null,
-                    _primary_category_id: topicMeta?.primary_category_id || null,
-                    _secondary_category_id: topicMeta?.secondary_category_id || null,
-                    _project_name: topicMeta?.project_id ? (projectNameById.get(String(topicMeta.project_id)) || null) : null,
-                    _primary_category_name: topicMeta?.primary_category_id ? (categoryNameById.get(String(topicMeta.primary_category_id)) || null) : null,
-                    _secondary_category_name: topicMeta?.secondary_category_id ? (categoryNameById.get(String(topicMeta.secondary_category_id)) || null) : null,
+                    _project_id: topicMeta?.project_id || fallbackContext.project_id || null,
+                    _primary_category_id: topicMeta?.primary_category_id || fallbackContext.primary_category_id || null,
+                    _secondary_category_id: topicMeta?.secondary_category_id || fallbackContext.secondary_category_id || null,
+                    _project_name:
+                        (topicMeta?.project_id ? (projectNameById.get(String(topicMeta.project_id)) || null) : null)
+                        || (fallbackContext.project_id ? (projectNameById.get(String(fallbackContext.project_id)) || null) : null)
+                        || fallbackContext.project_name
+                        || null,
+                    _primary_category_name:
+                        (topicMeta?.primary_category_id ? (categoryNameById.get(String(topicMeta.primary_category_id)) || null) : null)
+                        || (fallbackContext.primary_category_id ? (categoryNameById.get(String(fallbackContext.primary_category_id)) || null) : null)
+                        || fallbackContext.primary_category_name
+                        || null,
+                    _secondary_category_name:
+                        (topicMeta?.secondary_category_id ? (categoryNameById.get(String(topicMeta.secondary_category_id)) || null) : null)
+                        || (fallbackContext.secondary_category_id ? (categoryNameById.get(String(fallbackContext.secondary_category_id)) || null) : null)
+                        || fallbackContext.secondary_category_name
+                        || null,
                 }
             })
             const libraryIdeas = ideaRows.filter((idea) => {
@@ -462,26 +508,31 @@ export const MyArticles: React.FC = () => {
             })
 
             const mappedIdeas: LibraryArticle[] = libraryIdeas.map((idea) => ({
-                ...(idea.topic_id ? (() => {
-                    const topicMeta = topicById.get(String(idea.topic_id))
+                ...(() => {
+                    const topicMeta = idea.topic_id ? topicById.get(String(idea.topic_id)) : null
+                    const fallbackContext = getCategoryContextFallback(idea)
                     return {
-                        _topic_id: idea.topic_id,
-                        _project_id: topicMeta?.project_id || null,
-                        _primary_category_id: topicMeta?.primary_category_id || null,
-                        _secondary_category_id: topicMeta?.secondary_category_id || null,
-                        _project_name: topicMeta?.project_id ? (projectNameById.get(String(topicMeta.project_id)) || null) : null,
-                        _primary_category_name: topicMeta?.primary_category_id ? (categoryNameById.get(String(topicMeta.primary_category_id)) || null) : null,
-                        _secondary_category_name: topicMeta?.secondary_category_id ? (categoryNameById.get(String(topicMeta.secondary_category_id)) || null) : null,
+                        _topic_id: idea.topic_id || null,
+                        _project_id: topicMeta?.project_id || fallbackContext.project_id || null,
+                        _primary_category_id: topicMeta?.primary_category_id || fallbackContext.primary_category_id || null,
+                        _secondary_category_id: topicMeta?.secondary_category_id || fallbackContext.secondary_category_id || null,
+                        _project_name:
+                            (topicMeta?.project_id ? (projectNameById.get(String(topicMeta.project_id)) || null) : null)
+                            || (fallbackContext.project_id ? (projectNameById.get(String(fallbackContext.project_id)) || null) : null)
+                            || fallbackContext.project_name
+                            || null,
+                        _primary_category_name:
+                            (topicMeta?.primary_category_id ? (categoryNameById.get(String(topicMeta.primary_category_id)) || null) : null)
+                            || (fallbackContext.primary_category_id ? (categoryNameById.get(String(fallbackContext.primary_category_id)) || null) : null)
+                            || fallbackContext.primary_category_name
+                            || null,
+                        _secondary_category_name:
+                            (topicMeta?.secondary_category_id ? (categoryNameById.get(String(topicMeta.secondary_category_id)) || null) : null)
+                            || (fallbackContext.secondary_category_id ? (categoryNameById.get(String(fallbackContext.secondary_category_id)) || null) : null)
+                            || fallbackContext.secondary_category_name
+                            || null,
                     }
-                })() : {
-                    _topic_id: null,
-                    _project_id: null,
-                    _primary_category_id: null,
-                    _secondary_category_id: null,
-                    _project_name: null,
-                    _primary_category_name: null,
-                    _secondary_category_name: null,
-                }),
+                })(),
                 id: idea.id,
                 user_id: idea.user_id,
                 Title: idea.title,

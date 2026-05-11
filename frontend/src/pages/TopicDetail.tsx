@@ -825,10 +825,10 @@ export function TopicDetail() {
                 refreshStoredIdeasState(id),
                 refreshTopicRebuildContext(),
             ])
-            toast.success('Rebuild article outcome persisted to Content Ideas.')
+            toast.success('Rebuild article outcome sent to Content Studio.')
         } catch (err) {
             console.error('Failed to persist rebuild outcome:', err)
-            toast.error('Failed to persist rebuild outcome.')
+            toast.error('Failed to send rebuild outcome to Content Studio.')
         } finally {
             setPersistingRebuildOutcomeIds((current) => {
                 const next = new Set(current)
@@ -1157,10 +1157,10 @@ export function TopicDetail() {
                                                             className="border-border hover:bg-muted"
                                                         >
                                                             {persistingRebuildOutcomeIds.has(row.generatedOutcome.id)
-                                                                ? 'Persisting...'
+                                                                ? 'Sending...'
                                                                 : row.generatedOutcome.status === 'persisted' || row.generatedOutcome.status === 'published'
-                                                                ? 'Persisted'
-                                                                : 'Persist To Ideas'}
+                                                                ? 'Sent'
+                                                                : 'Send to Content Studio'}
                                                         </Button>
                                                     )}
                                                 </div>

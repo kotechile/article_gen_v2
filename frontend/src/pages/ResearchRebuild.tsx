@@ -514,10 +514,10 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                 },
             })
             await refreshPageContext()
-            setSuccess('Outcome persisted to Content Ideas.')
+            setSuccess('Outcome sent to Content Studio.')
         } catch (err) {
-            console.error('Failed to persist outcome to content ideas:', err)
-            setError('Failed to persist outcome to Content Ideas.')
+            console.error('Failed to send outcome to Content Studio:', err)
+            setError('Failed to send outcome to Content Studio.')
         } finally {
             setMutatingOutcomeIds((current) => {
                 const next = new Set(current)
@@ -1491,7 +1491,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                                         disabled={isMutating}
                                     >
                                         {isMutating ? <Loader2 className="h-4 w-4 animate-spin mr-3" /> : <Sparkles className="h-4 w-4 mr-3 text-indigo-600 group-hover/btn:scale-110 transition-transform" />}
-                                        Promote Idea
+                                        Send to Content Studio
                                     </Button>
                                 )}
                                 <div className="w-px h-8 bg-white/10 mx-1" />
