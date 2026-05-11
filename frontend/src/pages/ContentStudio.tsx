@@ -702,17 +702,18 @@ export const ContentStudio: React.FC = () => {
         return `${Math.round(pct)}%`;
     };
 
-    const keywordModalIdea: ContentIdea | null = article
+    const keywordModalIdea: (ContentIdea & Record<string, any>) | null = article
         ? {
             id: article.id,
             title: article.Title || formData.title || 'Untitled Article',
             content_type: 'blog',
+            keywords: normalizeKeywordList(article.Keywords ?? ''),
             primary_keywords: article.primary_keywords ?? [],
             secondary_keywords: article.secondary_keywords ?? [],
             seo_optimization_score: article.seo_optimization_score ?? 0,
             traffic_potential_score: article.traffic_potential_score ?? 0,
-            total_search_volume: article.total_search_volume ?? null,
-            average_difficulty: article.avg_keyword_difficulty ?? null,
+            total_search_volume: article.selected_keyword_search_volume ?? article.total_search_volume ?? null,
+            average_difficulty: article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? null,
             average_cpc: null,
             created_at: '',
             user_id: user?.id || '',
@@ -720,6 +721,8 @@ export const ContentStudio: React.FC = () => {
             description: article.userDescription,
             search_phrase: article.search_phrase,
             keyword_metrics: article.selected_keyword_metrics_json || undefined,
+            selected_keyword_metrics_json: article.selected_keyword_metrics_json || undefined,
+            keyword_candidates_json: normalizeKeywordList((article as any).keyword_candidates_json ?? article.Keywords ?? ''),
             raw_dataforseo_output: article.raw_dataforseo_output ?? null,
             raw_supabase_output: article.raw_supabase_output ?? null,
             idea_metadata: article.idea_metadata || undefined,
