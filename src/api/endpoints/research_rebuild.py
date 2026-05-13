@@ -927,6 +927,7 @@ def generate_research_jobs():
                 project_id=project_uuid,
                 primary_category_id=primary_category_uuid,
                 secondary_category_id=secondary_category_uuid,
+                include_existing_jobs=not bool(data.get("archive_existing_in_scope", True)),
             )
         )
         generated = asyncio.run(
@@ -951,10 +952,10 @@ def generate_research_jobs():
             )
             payload["generation_metadata"] = generation_metadata
             generated_with_batch.append(payload)
-        archived_count = 0
+        cleared_count = 0
         if archive_existing_in_scope and generated_with_batch:
-            archived_count = asyncio.run(
-                job_service.archive_active_jobs_in_scope(
+            cleared_count = asyncio.run(
+                job_service.delete_active_jobs_in_scope(
                     user_id=UUID(user_id),
                     project_id=project_uuid,
                     primary_category_id=primary_category_uuid,
@@ -980,7 +981,7 @@ def generate_research_jobs():
             "items": saved,
             "count": len(saved),
             "batch_id": batch_id,
-            "archived_count": archived_count,
+            "cleared_count": cleared_count,
             "exhausted_focus": exhausted_focus,
             "message": (
                 "No distinct jobs were found for this focus area. Try a more specific angle or relax the focus."

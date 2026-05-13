@@ -72,23 +72,71 @@ class ResearchJobService(ResearchRebuildBaseService):
         text = text.rstrip(" .")
         return text
 
-    async def generate_jobs(
+    def _normalize_generated_jobs(self, jobs: Any, *, source: str = "llm_generation") -> List[Dict[str, Any]]:
+        """Normalize raw LLM jobs into persisted job records."""
+        normalized: List[Dict[str, Any]] = []
+        seen = set()
+        for item in jobs or []:
+            if not isinstance(item, dict):
+                continue
+            job_text = self._normalize_job_text(str(item.get("job_text") or ""))
+            if not job_text:
+                continue
+            key = job_text.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            generation_metadata = dict(item.get("generation_metadata") or {})
+            raw_search_seeds = generation_metadata.get("search_seeds") or item.get("search_seeds") or []
+            search_seeds: List[str] = []
+            for seed in raw_search_seeds if isinstance(raw_search_seeds, list) else []:
+                cleaned_seed = re.sub(r"\s+", " ", str(seed or "").strip().lower())
+                if not cleaned_seed:
+                    continue
+                if cleaned_seed not in search_seeds:
+                    search_seeds.append(cleaned_seed)
+            if search_seeds:
+                generation_metadata["search_seeds"] = search_seeds[:3]
+            intent_type = str(
+                generation_metadata.get("intent_type") or item.get("intent_type") or ""
+            ).strip().lower()
+            if intent_type in {"informational", "navigational", "transactional"}:
+                generation_metadata["intent_type"] = intent_type
+            normalized.append(
+                {
+                    "job_text": job_text,
+                    "job_type_hint": str(item.get("job_type_hint") or "hybrid").strip().lower(),
+                    "job_source": source,
+                    "status": "draft",
+                    "generation_metadata": generation_metadata,
+                }
+            )
+        return normalized
+
+    def _build_generate_jobs_prompt(
         self,
         *,
         context: Dict[str, Any],
-        count: int = 30,
-        negative_context: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Generate jobs from website/category context.
+        count: int,
+        negative_notes: Dict[str, Any],
+        current_date: str,
+        current_year: int,
+        relaxed_overlap: bool = False,
+    ) -> str:
+        overlap_rules = """
+- Avoid overlap with previously generated jobs unless the focus area clearly creates a narrower or materially different angle.
+- If the focus area overlaps with existing jobs, generate narrower sub-angles, different user intents, or more execution-specific variants instead of returning nothing.
+- Treat "different audience + different task + different output" as distinct enough when the focus area is narrower than earlier broad jobs.
+""".strip()
+        if relaxed_overlap:
+            overlap_rules = """
+- Use previous jobs only to avoid near-exact duplicates.
+- If older jobs were broader, you may generate narrower variants for this focus area.
+- When in doubt, prefer a fresh focused JTBD variant over returning nothing.
+""".strip()
 
-        Returns compact job records that can be persisted directly.
-        """
-        negative_notes = negative_context or {}
-        current_date = datetime.now().strftime("%B %-d, %Y")
-        current_year = datetime.now().year
-        prompt = f"""
-You are generating high-signal user jobs for a content and software discovery workflow.
+        return f"""
+Role: You are an expert Product Strategist and SEO Analyst specializing in the Jobs-to-be-Done (JTBD) framework.
 
 Today's date is {current_date}. The current year is {current_year}.
 
@@ -96,9 +144,14 @@ Return valid JSON with this shape:
 {{
   "jobs": [
     {{
-      "job_text": "string",
+      "job_text": "When [situation], I want to [action], so I can [expected outcome].",
       "job_type_hint": "seo|editorial|software|hybrid",
-      "generation_metadata": {{"why": "short reason"}}
+      "generation_metadata": {{
+        "why": "short reason",
+        "intent_type": "informational|navigational|transactional",
+        "search_seeds": ["seed one", "seed two", "seed three"],
+        "category": "primary or secondary category label"
+      }}
     }}
   ]
 }}
@@ -106,23 +159,23 @@ Return valid JSON with this shape:
 Rules:
 - Generate exactly {max(1, min(count, 50))} jobs.
 - Jobs must be specific user problems, not abstract topics or content ideas.
-- Treat the output as "jobs to be done" statements first. Do not pre-decide whether the solution is a comparison, calculator, workflow, template, article, or software tool.
+- Treat the output as JTBD statements first. Do not pre-decide whether the solution is a comparison, calculator, workflow, template, article, or software tool.
 - Write every job_text in straightforward everyday language that a normal reader can understand quickly.
-- Job text must sound like a plain user need, not an internal strategy label, content format, or framework name.
-- Prefer JTBD phrasing that starts with "I need to..." or occasionally "I want to...".
-- Good examples: "I need to compare AI newsletter tools for quick daily industry updates", "I need to check which travel credit card gives me the best rewards for my spending", "I need to compare warranty terms before buying a dishwasher".
+- Follow this structure closely: "When [situation], I want to [action], so I can [expected outcome]."
+- Focus on functional jobs that are easy to translate into SEO seed keywords.
+- Good examples: "When I am picking a travel card, I want to compare reward programs, so I can choose the best one for my spending.", "When I am buying an appliance, I want to compare warranty terms, so I can avoid expensive surprises later."
 - Bad examples: "Decision tree: Choosing between...", "Prompt sequence to analyze...", "Workflow: Using AI to extract...", "Comparison: X vs. Y...".
 - Avoid prefixes such as "Decision tree:", "Decision matrix:", "Comparison:", "Workflow:", and "Prompt sequence:".
-- Avoid naming output formats in the job itself unless the user is explicitly seeking that format.
 - The goal is to produce jobs that can later generate keyword candidates with measurable related-keyword support in DataForSEO.
+- For each job, include exactly 3 search seeds in generation_metadata.search_seeds.
+- Search seeds must be raw 2-4 word phrases that a real person would type into Google.
+- Search seeds must avoid headline language and should likely have search volume.
+- Label each job with one intent_type: informational, navigational, or transactional.
 - Prefer jobs with clear search language, clear intent, and concrete nouns a real person would search for.
 - Avoid duplicates and near-duplicates.
 - Avoid jobs already rejected for being off-brand, too broad, or technically impossible.
-- Avoid overlap with previously generated jobs unless the focus area clearly creates a narrower or materially different angle.
-- If the focus area overlaps with existing jobs, generate narrower sub-angles, different user intents, or more execution-specific variants instead of returning nothing.
-- Treat "different audience + different task + different output" as distinct enough when the focus area is narrower than earlier broad jobs.
-- Keep each job_text short and practical.
-- Prefer one sentence, ideally under 16 words when possible.
+{overlap_rules}
+- Keep each job_text concise but complete enough to preserve the JTBD structure.
 - If a focus area is provided, make at least 80% of jobs clearly centered on that focus.
 - If avoid guidance is provided, actively steer away from those patterns or themes.
 - Prefer literal, searchable phrasing over essay-like or poetic titles.
@@ -145,33 +198,53 @@ Website context:
 Rejected patterns to avoid:
 {negative_notes}
 """
+
+    async def generate_jobs(
+        self,
+        *,
+        context: Dict[str, Any],
+        count: int = 30,
+        negative_context: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate jobs from website/category context.
+
+        Returns compact job records that can be persisted directly.
+        """
+        negative_notes = negative_context or {}
+        current_date = datetime.now().strftime("%B %-d, %Y")
+        current_year = datetime.now().year
+        prompt = self._build_generate_jobs_prompt(
+            context=context,
+            count=count,
+            negative_notes=negative_notes,
+            current_date=current_date,
+            current_year=current_year,
+            relaxed_overlap=False,
+        )
         response = await llm_service.generate_json(
             prompt,
             task_role=LLM_ROLE_RESEARCH_TOPIC_GENERATION,
             max_tokens=2200,
         )
         jobs = response.get("jobs") if isinstance(response, dict) else []
-        normalized: List[Dict[str, Any]] = []
-        seen = set()
-        for item in jobs or []:
-            if not isinstance(item, dict):
-                continue
-            job_text = self._normalize_job_text(str(item.get("job_text") or ""))
-            if not job_text:
-                continue
-            key = job_text.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            normalized.append(
-                {
-                    "job_text": job_text,
-                    "job_type_hint": str(item.get("job_type_hint") or "hybrid").strip().lower(),
-                    "job_source": "llm_generation",
-                    "status": "draft",
-                    "generation_metadata": item.get("generation_metadata") or {},
-                }
+        normalized = self._normalize_generated_jobs(jobs)
+        if not normalized and context.get("focus_area"):
+            retry_prompt = self._build_generate_jobs_prompt(
+                context=context,
+                count=count,
+                negative_notes=negative_notes,
+                current_date=current_date,
+                current_year=current_year,
+                relaxed_overlap=True,
             )
+            retry_response = await llm_service.generate_json(
+                retry_prompt,
+                task_role=LLM_ROLE_RESEARCH_TOPIC_GENERATION,
+                max_tokens=2200,
+            )
+            retry_jobs = retry_response.get("jobs") if isinstance(retry_response, dict) else []
+            normalized = self._normalize_generated_jobs(retry_jobs, source="llm_generation_retry")
         logger.info("research rebuild generated jobs count=%s", len(normalized))
         return normalized[:count]
 
@@ -304,6 +377,7 @@ Rejected patterns to avoid:
         project_id: UUID,
         primary_category_id: Optional[UUID] = None,
         secondary_category_id: Optional[UUID] = None,
+        include_existing_jobs: bool = True,
     ) -> Dict[str, Any]:
         """
         Build a compact negative prompt context from rejected jobs.
@@ -316,16 +390,19 @@ Rejected patterns to avoid:
             order_by={"updated_at": "desc"},
             limit=50,
         )
-        existing_jobs = await self.list_records(
-            user_id=user_id,
-            filters={
-                "project_id": str(project_id),
-                "primary_category_id": str(primary_category_id) if primary_category_id else None,
-                "secondary_category_id": str(secondary_category_id) if secondary_category_id else None,
-            },
-            order_by={"updated_at": "desc"},
-            limit=75,
-        )
+        existing_jobs: List[Dict[str, Any]] = []
+        if include_existing_jobs:
+            existing_jobs = await self.list_records(
+                user_id=user_id,
+                filters={
+                    "project_id": str(project_id),
+                    "primary_category_id": str(primary_category_id) if primary_category_id else None,
+                    "secondary_category_id": str(secondary_category_id) if secondary_category_id else None,
+                    "status": "draft",
+                },
+                order_by={"updated_at": "desc"},
+                limit=75,
+            )
         return {
             "recent_rejected_jobs": [
                 {
@@ -342,11 +419,10 @@ Rejected patterns to avoid:
                     "job_type_hint": item.get("job_type_hint"),
                 }
                 for item in existing_jobs
-                if str(item.get("status") or "").strip().lower() != "rejected"
             ],
         }
 
-    async def archive_active_jobs_in_scope(
+    async def delete_active_jobs_in_scope(
         self,
         *,
         user_id: UUID,
@@ -354,7 +430,7 @@ Rejected patterns to avoid:
         primary_category_id: Optional[UUID] = None,
         secondary_category_id: Optional[UUID] = None,
     ) -> int:
-        """Archive non-rejected jobs in the current scope to start a clean batch."""
+        """Delete draft and approved jobs in the current scope to start a clean batch."""
         existing_jobs = await self.list_jobs(
             user_id=user_id,
             project_id=project_id,
@@ -368,14 +444,12 @@ Rejected patterns to avoid:
         ]
         if not active_jobs:
             return 0
-
-        updates = [
-            {
-                "id": str(job.get("id")),
-                "status": "archived",
-            }
-            for job in active_jobs
-            if job.get("id")
-        ]
-        await self.supabase_service.bulk_update(self.table_name, updates, user_id)
-        return len(updates)
+        deleted_count = 0
+        for job in active_jobs:
+            record_id = str(job.get("id") or "").strip()
+            if not record_id:
+                continue
+            deleted = await self.delete_record(record_id=UUID(record_id), user_id=user_id)
+            if deleted:
+                deleted_count += 1
+        return deleted_count
