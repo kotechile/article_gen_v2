@@ -896,6 +896,32 @@ export const resolveLinkedWordPressCategoryIds = async (
             projectId = topic?.project_id ? String(topic.project_id) : projectId;
             primaryCategoryId = topic?.primary_category_id ? String(topic.primary_category_id) : primaryCategoryId;
             secondaryCategoryId = topic?.secondary_category_id ? String(topic.secondary_category_id) : secondaryCategoryId;
+
+            if (!topic) {
+                const { data: candidate } = await supabase
+                    .from('research_opportunity_candidates')
+                    .select('project_id, user_job_id, candidate_metadata')
+                    .eq('id', topicId)
+                    .maybeSingle();
+
+                if (candidate) {
+                    const candidateContext = normalizeCategoryContext(candidate);
+                    projectId = candidate?.project_id ? String(candidate.project_id) : (projectId || candidateContext.projectId);
+                    primaryCategoryId = primaryCategoryId || candidateContext.primaryCategoryId;
+                    secondaryCategoryId = secondaryCategoryId || candidateContext.secondaryCategoryId;
+
+                    if ((candidate as any)?.user_job_id && (!primaryCategoryId || !secondaryCategoryId)) {
+                        const { data: userJob } = await supabase
+                            .from('research_user_jobs')
+                            .select('primary_category_id, secondary_category_id')
+                            .eq('id', (candidate as any).user_job_id)
+                            .maybeSingle();
+
+                        primaryCategoryId = primaryCategoryId || (userJob?.primary_category_id ? String(userJob.primary_category_id) : null);
+                        secondaryCategoryId = secondaryCategoryId || (userJob?.secondary_category_id ? String(userJob.secondary_category_id) : null);
+                    }
+                }
+            }
         }
 
         if (!projectId || (!primaryCategoryId && !secondaryCategoryId)) return [];

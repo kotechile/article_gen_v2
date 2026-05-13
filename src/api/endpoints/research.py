@@ -589,6 +589,8 @@ def create_research_task():
             'draft_title',
             'article_id',
             'source_strategy',
+            'seo_primary_keyword',
+            'seo_secondary_keywords',
         ]
         for field in extra_fields:
             if field in data and field not in task_data:

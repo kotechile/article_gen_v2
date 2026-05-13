@@ -10,6 +10,7 @@ import re
 import html
 import sys
 import json
+import time
 import concurrent.futures
 import asyncio
 from datetime import datetime
@@ -775,6 +776,294 @@ def _build_geo_faq_block(topic_phrase: str, support_points: List[str]) -> str:
         f"<h3>When should you revisit your {html.escape(topic_lower)} plan?</h3>\n"
         f"<p>{html.escape(answer_three)}</p>\n\n"
     )
+
+
+_SUPPORT_SECTION_NOISE_PATTERNS = (
+    r"\bhere(?:'s| is)\b",
+    r"\bbelow is\b",
+    r"\bjson\b",
+    r"\bprompt\b",
+    r"\breasoning\b",
+    r"\banalysis\b",
+    r"\bchain of thought\b",
+    r"\bclaim extracted from\b",
+    r"\boutcome:\b",
+    r"\boriginal creative intent\b",
+    r"\bprimary keyword:\b",
+    r"\bsecondary keywords?\b",
+    r"\bgenerative engine optimization\b",
+    r"\bgeo directive\b",
+)
+
+
+def _extract_json_payload_from_response(raw_text: str) -> Any:
+    """Extract the first usable JSON object/array from an LLM response."""
+    text = str(raw_text or "").strip()
+    if not text:
+        return None
+
+    candidates: List[str] = []
+
+    fenced_matches = re.findall(r"```(?:json)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
+    candidates.extend(match.strip() for match in fenced_matches if match.strip())
+
+    if text:
+        candidates.append(text)
+
+    for opening, closing in (("{", "}"), ("[", "]")):
+        start = text.find(opening)
+        end = text.rfind(closing)
+        if start >= 0 and end > start:
+            candidates.append(text[start:end + 1].strip())
+
+    seen = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            return json.loads(candidate)
+        except Exception:
+            continue
+
+    return None
+
+
+def _looks_like_support_section_noise(value: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not normalized:
+        return True
+    lowered = normalized.lower()
+    if any(re.search(pattern, lowered) for pattern in _SUPPORT_SECTION_NOISE_PATTERNS):
+        return True
+    if normalized.startswith("{") or normalized.startswith("["):
+        return True
+    if len(normalized) < 20:
+        return True
+    return False
+
+
+def _sanitize_takeaway_text(value: str) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip(" -:;,.")
+    text = re.sub(r"^(key takeaway|takeaway)\s*:\s*", "", text, flags=re.IGNORECASE).strip()
+    if not text:
+        return ""
+    if _looks_like_support_section_noise(text):
+        return ""
+    if len(text) < 35 or len(text) > 320:
+        return ""
+    if not re.search(r"[.!?]$", text):
+        text = f"{text}."
+    return text
+
+
+def _sanitize_faq_question(value: str) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip(" -:;,.")
+    text = re.sub(r"^(q|question)\s*[:.-]\s*", "", text, flags=re.IGNORECASE).strip()
+    if not text or _looks_like_support_section_noise(text):
+        return ""
+    if len(text) < 12 or len(text) > 180:
+        return ""
+    if not text.endswith("?"):
+        text = f"{text.rstrip('?')}?"
+    return text
+
+
+def _sanitize_faq_answer(value: str) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    text = re.sub(r"^(a|answer)\s*[:.-]\s*", "", text, flags=re.IGNORECASE).strip()
+    if not text or _looks_like_support_section_noise(text):
+        return ""
+    if len(text) < 40 or len(text) > 650:
+        return ""
+    if not re.search(r"[.!?]$", text):
+        text = f"{text}."
+    return text
+
+
+def _normalize_takeaway_items(payload: Any) -> List[str]:
+    raw_items = payload.get("takeaways") if isinstance(payload, dict) else payload
+    if not isinstance(raw_items, list):
+        return []
+
+    cleaned: List[str] = []
+    seen = set()
+    for item in raw_items:
+        if isinstance(item, dict):
+            value = item.get("text") or item.get("takeaway") or item.get("bullet") or ""
+        else:
+            value = item
+        text = _sanitize_takeaway_text(str(value or ""))
+        if not text:
+            continue
+        dedupe_key = re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+        if not dedupe_key or dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        cleaned.append(text)
+        if len(cleaned) >= 5:
+            break
+    return cleaned[:5] if len(cleaned) >= 3 else []
+
+
+def _normalize_faq_items(payload: Any) -> List[Dict[str, str]]:
+    raw_items = payload.get("faq") if isinstance(payload, dict) else payload
+    if not isinstance(raw_items, list):
+        return []
+
+    cleaned: List[Dict[str, str]] = []
+    seen = set()
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        question = _sanitize_faq_question(str(item.get("question") or item.get("q") or ""))
+        answer = _sanitize_faq_answer(str(item.get("answer") or item.get("a") or ""))
+        if not question or not answer:
+            continue
+        dedupe_key = re.sub(r"[^a-z0-9]+", " ", question.lower()).strip()
+        if not dedupe_key or dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        cleaned.append({"question": question, "answer": answer})
+        if len(cleaned) >= 5:
+            break
+    return cleaned[:5] if len(cleaned) >= 3 else []
+
+
+def _render_key_takeaways_html(items: List[str]) -> str:
+    if not items:
+        return ""
+    bullet_html = "".join(f"<li>{html.escape(item)}</li>" for item in items)
+    return "<h2>Key Takeaways</h2>\n\n<ul>" + bullet_html + "</ul>\n\n"
+
+
+def _render_faq_html(items: List[Dict[str, str]]) -> str:
+    if not items:
+        return ""
+    parts = ["<h2>FAQ</h2>\n\n"]
+    for item in items:
+        parts.append(f"<h3>{html.escape(item['question'])}</h3>\n")
+        parts.append(f"<p>{html.escape(item['answer'])}</p>\n\n")
+    return "".join(parts)
+
+
+def _pop_named_h2_section(html_content: str, heading_pattern: str) -> tuple[str, str]:
+    pattern = re.compile(
+        rf"(?is)(<h2[^>]*>\s*(?:{heading_pattern})\s*</h2>\s*.*?)(?=(?:<h2\b|<hr\b|$))"
+    )
+    match = pattern.search(html_content or "")
+    if not match:
+        return str(html_content or ""), ""
+    extracted = match.group(1).strip()
+    cleaned = (html_content or "")[:match.start()] + (html_content or "")[match.end():]
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned, extracted
+
+
+def _create_support_section_llm_client(research_data: Dict[str, Any]):
+    review_provider, review_model, review_key = get_llm_provider_for_role(LLM_ROLE_FINAL_REVIEW)
+    provider = review_provider or research_data.get('provider', 'openai')
+    model = review_model or research_data.get('model', 'gpt-4')
+    api_key = review_key or research_data.get('api_key') or research_data.get('llm_key', '')
+    return create_llm_client(
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        temperature=0.2,
+        timeout=45,
+        max_retries=1,
+        max_tokens=900,
+    )
+
+
+def _generate_key_takeaways_from_article(
+    *,
+    llm_client: Any,
+    article_title: str,
+    article_text: str,
+) -> str:
+    if not str(article_text or "").strip():
+        return ""
+
+    prompt = f"""
+You are writing the final Key Takeaways section for a professional article.
+Read the full article and return STRICT JSON only.
+
+Rules:
+- Generate 3 to 5 takeaway bullets.
+- Each takeaway must be specific, meaningful, and reader-facing.
+- Use complete sentences.
+- Do not mention prompts, instructions, reasoning, analysis, SEO, GEO, keywords, or citations.
+- Do not repeat the article title.
+- Do not include a heading.
+- Output schema:
+{{
+  "takeaways": [
+    {{"text": "First takeaway sentence."}},
+    {{"text": "Second takeaway sentence."}}
+  ]
+}}
+
+Article title: {article_title}
+
+Full article:
+{article_text}
+""".strip()
+
+    response = llm_client.generate(
+        [
+            {"role": "system", "content": "You write polished support sections for finished articles. Output strict JSON only."},
+            {"role": "user", "content": prompt},
+        ]
+    )
+    payload = _extract_json_payload_from_response(response.content)
+    items = _normalize_takeaway_items(payload)
+    return _render_key_takeaways_html(items)
+
+
+def _generate_faq_from_article(
+    *,
+    llm_client: Any,
+    article_title: str,
+    article_text: str,
+) -> str:
+    if not str(article_text or "").strip():
+        return ""
+
+    prompt = f"""
+You are writing the final FAQ section for a professional article.
+Read the full article and return STRICT JSON only.
+
+Rules:
+- Generate 3 to 5 FAQs.
+- Questions must reflect realistic reader follow-up questions about the article.
+- Answers must be concise, direct, and professional.
+- Each answer should be 1 to 3 sentences.
+- Do not mention prompts, instructions, reasoning, analysis, SEO, GEO, keywords, or citations.
+- Do not include a heading.
+- Output schema:
+{{
+  "faq": [
+    {{"question": "Question?", "answer": "Answer."}},
+    {{"question": "Question?", "answer": "Answer."}}
+  ]
+}}
+
+Article title: {article_title}
+
+Full article:
+{article_text}
+""".strip()
+
+    response = llm_client.generate(
+        [
+            {"role": "system", "content": "You write polished FAQ sections for finished articles. Output strict JSON only."},
+            {"role": "user", "content": prompt},
+        ]
+    )
+    payload = _extract_json_payload_from_response(response.content)
+    items = _normalize_faq_items(payload)
+    return _render_faq_html(items)
 
 
 def _extract_external_links(citations: List[Dict[str, Any]]) -> List[str]:
@@ -1626,6 +1915,15 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     recovered_intent = str(title_row.get('selected_keyword_intent') or '').strip().lower()
                     recovered_selected_keyword_metrics = title_row.get('selected_keyword_metrics_json') or {}
                     recovered_keyword_metric_map = _normalize_keyword_metric_map(title_row.get('keyword_metrics_map') or {})
+                    recovered_raw_dataforseo_output = title_row.get('raw_dataforseo_output') or {}
+
+                    explicit_request_primary = str(research_data.get('seo_primary_keyword') or '').strip()
+                    explicit_request_secondary = research_data.get('seo_secondary_keywords') or []
+                    if isinstance(explicit_request_secondary, str):
+                        explicit_request_secondary = [k.strip() for k in explicit_request_secondary.split(',') if k.strip()]
+                    if not isinstance(explicit_request_secondary, list):
+                        explicit_request_secondary = []
+                    explicit_request_secondary = [str(k).strip() for k in explicit_request_secondary if str(k).strip()]
 
                     gate_settings = _load_keyword_gate_settings()
                     strict_titles_authority = bool(
@@ -1641,6 +1939,17 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     if keyword_candidates:
                         research_data['keyword_candidates'] = keyword_candidates
                         research_data['keywords'] = research_data.get('keywords') or ", ".join(keyword_candidates)
+                        research_data['primary_keyword'] = explicit_request_primary or title_primary_keyword or keyword_candidates[0]
+                        if explicit_request_secondary:
+                            research_data['secondary_keywords'] = [
+                                kw for kw in explicit_request_secondary
+                                if kw and kw != research_data['primary_keyword']
+                            ][:12]
+                        elif title_secondary_keywords:
+                            research_data['secondary_keywords'] = [
+                                kw for kw in title_secondary_keywords
+                                if kw and kw != research_data['primary_keyword']
+                            ][:12]
                         research_data['total_search_volume'] = recovered_volume
                         research_data['avg_keyword_difficulty'] = recovered_difficulty
                         research_data['target_intent'] = recovered_intent or "informational"
@@ -1648,6 +1957,8 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         research_data['keyword_research_source'] = title_row.get('keyword_research_source') or 'research_dossier_reused'
                         research_data['keyword_research_confidence'] = float(title_row.get('keyword_research_confidence') or 0.75)
                         research_data['selected_keyword_metrics_json'] = recovered_selected_keyword_metrics
+                        if isinstance(recovered_raw_dataforseo_output, dict) and recovered_raw_dataforseo_output:
+                            research_data['raw_dataforseo_output'] = recovered_raw_dataforseo_output
                         if recovered_keyword_metric_map:
                             research_data['keyword_metrics_map'] = recovered_keyword_metric_map
 
@@ -1658,11 +1969,15 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                             'keyword_research_source': research_data['keyword_research_source'],
                             'keyword_research_confidence': research_data['keyword_research_confidence'],
                             'keyword_research_generated_at': datetime.utcnow().isoformat(),
-                            'primary_keyword': (title_row.get('primary_keyword') or keyword_candidates[0]),
+                            'primary_keyword': research_data.get('primary_keyword') or (title_row.get('primary_keyword') or keyword_candidates[0]),
+                            'primary_keywords': [research_data.get('primary_keyword') or (title_row.get('primary_keyword') or keyword_candidates[0])],
+                            'secondary_keywords': research_data.get('secondary_keywords') or title_secondary_keywords or [],
                             'selected_keyword_search_volume': recovered_volume,
                             'selected_keyword_difficulty': recovered_difficulty,
                             'selected_keyword_intent': research_data['target_intent'],
                             'selected_keyword_metrics_json': recovered_selected_keyword_metrics,
+                            'search_phrase': research_data.get('primary_keyword') or title_search_phrase or title_primary_keyword or keyword_candidates[0],
+                            'raw_dataforseo_output': recovered_raw_dataforseo_output if isinstance(recovered_raw_dataforseo_output, dict) else {},
                         }
                         try:
                             supabase.table('Titles').update(keyword_updates).eq('id', article_id).execute()
@@ -1898,6 +2213,7 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         'selected_keyword_difficulty': final_content.get('selected_keyword_difficulty', 0.0),
                         'selected_keyword_intent': final_content.get('selected_keyword_intent', ''),
                         'selected_keyword_metrics_json': final_content.get('selected_keyword_metrics_json', {}),
+                        'raw_dataforseo_output': final_content.get('raw_dataforseo_output', {}),
                         'keyword_selection_reason': final_content.get('keyword_selection_reason', ''),
                         'keyword_strategy_version': final_content.get('keyword_strategy_version', ''),
                         'keyword_selection_source': final_content.get('keyword_selection_source', ''),
@@ -1955,6 +2271,7 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                             'selected_keyword_difficulty',
                             'selected_keyword_intent',
                             'selected_keyword_metrics_json',
+                            'raw_dataforseo_output',
                             'keyword_selection_reason',
                             'keyword_strategy_version',
                             'keyword_selection_source',
@@ -2261,8 +2578,13 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
             research_data.get('search_phrase'),
             research_data.get('seo_primary_keyword'),
         ]
+        request_secondary_keywords = research_data.get('seo_secondary_keywords') or research_data.get('secondary_keywords') or []
+        if isinstance(request_secondary_keywords, str):
+            request_secondary_keywords = [k.strip() for k in request_secondary_keywords.split(',') if k.strip()]
+        if not isinstance(request_secondary_keywords, list):
+            request_secondary_keywords = []
         request_brief_keywords = _parse_keyword_list(research_data.get('keywords') or "")
-        for kw in request_primary_keywords + request_brief_keywords:
+        for kw in request_primary_keywords + request_secondary_keywords + request_brief_keywords:
             kw_text = str(kw or "").strip()
             if kw_text and kw_text not in request_keyword_candidates:
                 request_keyword_candidates.append(kw_text)
@@ -2325,8 +2647,20 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
         scored.sort(key=lambda x: x[0], reverse=True)
         ranked_keywords = [kw for _, kw in scored]
 
-        selected_primary = ranked_keywords[0] if ranked_keywords else ""
-        selected_secondary = [kw for kw in ranked_keywords[1:] if kw != selected_primary][:12]
+        explicit_primary = str(research_data.get('seo_primary_keyword') or research_data.get('primary_keyword') or '').strip()
+        explicit_secondary = research_data.get('seo_secondary_keywords') or research_data.get('secondary_keywords') or []
+        if isinstance(explicit_secondary, str):
+            explicit_secondary = [k.strip() for k in explicit_secondary.split(',') if k.strip()]
+        if not isinstance(explicit_secondary, list):
+            explicit_secondary = []
+        explicit_secondary = [str(k).strip() for k in explicit_secondary if str(k).strip()]
+
+        selected_primary = explicit_primary or (ranked_keywords[0] if ranked_keywords else "")
+        selected_secondary = [
+            kw for kw in explicit_secondary if kw and kw != selected_primary
+        ][:12]
+        if not selected_secondary:
+            selected_secondary = [kw for kw in ranked_keywords if kw != selected_primary][:12]
 
         # Derive supporting GEO context for downstream writing + dashboard visibility.
         source_strategy_enabled = _is_source_strategy_refactor_enabled()
@@ -2422,6 +2756,9 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
                         'keyword_research_confidence': float(research_data.get('keyword_research_confidence') or (0.75 if ranked_keywords else 0.35)),
                         'keyword_research_generated_at': datetime.utcnow().isoformat(),
                         'primary_keyword': selected_primary,
+                        'primary_keywords': [selected_primary] if selected_primary else [],
+                        'secondary_keywords': selected_secondary,
+                        'search_phrase': selected_primary,
                         'secondary_keywords_json': selected_secondary,
                         'supporting_entities_json': supporting_entities,
                         'priority_questions_json': priority_questions,
@@ -2432,6 +2769,7 @@ def _run_keyword_intelligence(result: Dict[str, Any], task_instance: Any = None)
                         'keyword_selection_reason': research_data['keyword_selection_reason'],
                         'keyword_strategy_version': research_data['keyword_strategy_version'],
                         'keyword_selection_source': research_data['keyword_selection_source'],
+                        'raw_dataforseo_output': research_data.get('raw_dataforseo_output') or {},
                     }
                     try:
                         supabase.table('Titles').update(keyword_updates).eq('id', article_id).execute()
@@ -4749,22 +5087,61 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             full_content = definition_paragraph + full_content
             geo_enrichment_added["definition"] = True
 
-        if "key takeaways" not in lower_plain:
+        full_content, existing_takeaways_block = _pop_named_h2_section(
+            full_content,
+            r"key\s+takeaways",
+        )
+        full_content, existing_faq_block = _pop_named_h2_section(
+            full_content,
+            r"(?:faq|frequently\s+asked\s+questions)",
+        )
+        support_article_text = _extract_plain_text(full_content or "")
+
+        support_llm_client = None
+        generated_takeaways_block = ""
+        generated_faq_block = ""
+        try:
+            support_llm_client = _create_support_section_llm_client(research_data)
+        except Exception as support_client_error:
+            logger.warning("Failed to initialize support-section generator client: %s", support_client_error)
+
+        if support_llm_client:
+            try:
+                generated_takeaways_block = _generate_key_takeaways_from_article(
+                    llm_client=support_llm_client,
+                    article_title=str(structure.get('title', 'Generated Article')),
+                    article_text=support_article_text,
+                )
+            except Exception as takeaway_error:
+                logger.warning("Key Takeaways generation failed; using fallback block. error=%s", takeaway_error)
+
+            try:
+                generated_faq_block = _generate_faq_from_article(
+                    llm_client=support_llm_client,
+                    article_title=str(structure.get('title', 'Generated Article')),
+                    article_text=support_article_text,
+                )
+            except Exception as faq_error:
+                logger.warning("FAQ generation failed; using fallback block. error=%s", faq_error)
+
+        takeaways_block = generated_takeaways_block or existing_takeaways_block
+        if not takeaways_block:
             takeaways_block = _build_geo_takeaways_block(
                 topic_phrase=geo_topic_phrase,
                 support_points=geo_support_points,
             )
-            full_content += "\n" + takeaways_block
             geo_enrichment_added["key_takeaways"] = True
+        full_content += "\n" + takeaways_block
 
-        if "<h2>faq" not in lower_content and "frequently asked questions" not in lower_plain:
+        faq_block = generated_faq_block or existing_faq_block
+        if not faq_block:
             faq_block = _build_geo_faq_block(
                 topic_phrase=geo_topic_phrase,
                 support_points=geo_support_points,
             )
-            full_content += "\n" + faq_block
             geo_enrichment_added["faq"] = True
-            logger.info("GEO enrichment appended missing FAQ block for better extractability")
+            logger.info("Fallback FAQ block appended after dedicated generator returned no usable output")
+        full_content += "\n" + faq_block
 
         if any(geo_enrichment_added.values()):
             logger.info(
@@ -5090,6 +5467,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             'keyword_selection_reason': 'Baseline selection from structure + brief keywords.',
             'keyword_strategy_version': 'phase1_v1',
             'keyword_selection_source': 'research_dossier_reused',
+            'raw_dataforseo_output': research_data.get('raw_dataforseo_output') or {},
             'geo_optimization': {
                 'answer_first_enforced': geo_enforce_answer_first,
                 'answer_first_auto_inserted': geo_auto_applied,
