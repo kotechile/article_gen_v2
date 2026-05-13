@@ -65,6 +65,9 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const [routeFilter, setRouteFilter] = React.useState('all')
     const [candidateSearch, setCandidateSearch] = React.useState('')
     const [manualJobText, setManualJobText] = React.useState('')
+    const [articleTitleDraft, setArticleTitleDraft] = React.useState('')
+    const [articlePrimaryKeyword, setArticlePrimaryKeyword] = React.useState('')
+    const [articleSecondaryKeywordsText, setArticleSecondaryKeywordsText] = React.useState('')
     const [selectedLookupJobId, setSelectedLookupJobId] = React.useState('')
     const [lookupSearchType, setLookupSearchType] = React.useState<'related_keywords' | 'keyword_overview' | 'serp'>('related_keywords')
     const [lookupQueryText, setLookupQueryText] = React.useState('')
@@ -444,7 +447,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
             setCreatingManualJob(true)
             setError(null)
             setSuccess(null)
-            await researchRebuildService.createJob({
+            const createdJob = await researchRebuildService.createJob({
                 project_id: activeProject.id,
                 primary_category_id: primaryCategoryId || undefined,
                 secondary_category_id: secondaryCategoryId || undefined,
@@ -455,10 +458,12 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                     website_description: activeProject.site_description || activeProject.websiteDescription || '',
                 },
             })
+            await researchRebuildService.approveJob(createdJob.id)
             setManualJobText('')
             setActiveBatchId('')
             setWorkflowRunFilter('all')
-            setSuccess('Manual job created and added to the current category scope.')
+            setSelectedLookupJobId(createdJob.id)
+            setSuccess('Topic saved and approved for the manual workflow.')
             await refreshPageContext({
                 batchId: '',
                 workflowRunId: 'all',
@@ -469,6 +474,29 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
             setError(err instanceof Error ? err.message : 'Failed to create manual job.')
         } finally {
             setCreatingManualJob(false)
+        }
+    }
+
+    const handleUseKeywordForArticle = (keyword: string) => {
+        const cleaned = keyword.trim()
+        if (!cleaned) return
+        setArticlePrimaryKeyword(cleaned)
+        setArticleSecondaryKeywordsText((current) => {
+            const existing = Array.from(
+                new Set(
+                    current
+                        .split(/[\n,]+/)
+                        .map((item) => item.trim())
+                        .filter(Boolean),
+                ),
+            )
+            if (!existing.includes(cleaned)) {
+                existing.push(cleaned)
+            }
+            return existing.join('\n')
+        })
+        if (!articleTitleDraft.trim()) {
+            setArticleTitleDraft(cleaned)
         }
     }
 
@@ -519,37 +547,40 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
         }
     }
 
-    const handleCreateCandidateFromSearch = async (
-        candidateType: 'seo_article' | 'software' | 'editorial',
-        candidateText: string,
-        sourceKeyword?: string,
-    ) => {
+    const handleSaveArticleDraft = async () => {
         if (!activeProject?.id || !selectedLookupJobId) {
-            setError('Select a job before saving an opportunity.')
+            setError('Create or select a topic first.')
+            return
+        }
+        if (!articleTitleDraft.trim()) {
+            setError('Add an article title before saving.')
             return
         }
 
-        const trimmedText = candidateText.trim()
-        if (!trimmedText) {
-            setError('Candidate text is required.')
-            return
-        }
+        const keywordList = Array.from(
+            new Set(
+                [
+                    articlePrimaryKeyword,
+                    ...articleSecondaryKeywordsText
+                        .split(/[\n,]+/)
+                        .map((item) => item.trim()),
+                ].filter(Boolean),
+            ),
+        )
 
-        const saveKey = `${candidateType}:${trimmedText}`
         try {
-            setSavingCandidateKey(saveKey)
+            setSavingCandidateKey('article-draft')
             setError(null)
             setSuccess(null)
             await researchRebuildService.createCandidate({
                 project_id: activeProject.id,
                 user_job_id: selectedLookupJobId,
-                candidate_type: candidateType,
-                candidate_text: trimmedText,
-                normalized_candidate_text: trimmedText.toLowerCase(),
+                candidate_type: 'seo_article',
+                candidate_text: articleTitleDraft.trim(),
+                normalized_candidate_text: articleTitleDraft.trim().toLowerCase(),
                 candidate_metadata: {
-                    creation_source: 'manual_dataforseo_search',
-                    search_record_id: activeSearchRecord?.id || null,
-                    search_type: activeSearchRecord?.search_type || lookupSearchType,
+                    creation_source: 'manual_article_draft',
+                    primary_keyword: articlePrimaryKeyword || null,
                     category_context: {
                         project_id: activeProject.id,
                         primary_category_id: primaryCategoryId || null,
@@ -558,12 +589,12 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                         secondary_category_name: secondaryCategory?.name || null,
                     },
                 },
-                source_keywords_json: sourceKeyword ? [sourceKeyword] : [trimmedText],
+                source_keywords_json: keywordList,
             })
-            setSuccess(`Saved "${trimmedText}" as a ${candidateType.replace('_', ' ')} opportunity.`)
+            setSuccess('Article draft saved. You can now continue to validation.')
         } catch (err) {
-            console.error('Failed to create candidate from search:', err)
-            setError(err instanceof Error ? err.message : 'Failed to create candidate.')
+            console.error('Failed to save article draft:', err)
+            setError(err instanceof Error ? err.message : 'Failed to save article draft.')
         } finally {
             setSavingCandidateKey(null)
         }
@@ -920,14 +951,14 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                 </h3>
                                 <p className="text-slate-500 text-xs font-medium leading-relaxed mb-6">
                                     {isJobsPage
-                                        ? 'Define the niche, capture user jobs, and use manual lookups to build only the opportunities worth validating.'
+                                        ? 'Follow a simple 3-step flow: define a topic, research keywords, then save an article draft with assigned keywords.'
                                         : 'Review the approved jobs and scope while you validate only the saved opportunities on the second step.'}
                                 </p>
                                 
                                 <PhaseGuide 
                                     title={isJobsPage ? 'Getting Started' : 'Step Reminder'}
                                     description={isJobsPage
-                                        ? "Define your niche below. You can still generate jobs, but the manual DataForSEO panel is now the safest path for controlled discovery."
+                                        ? "Step 1 defines the topic. Step 2 runs manual SEO lookups. Step 3 saves the article draft you want to validate."
                                         : "This page validates only opportunities you already saved. Go back to Jobs if you need more manual searches or want to add more candidates first."}
                                     color="indigo"
                                 />
@@ -938,12 +969,20 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                             <div className="p-8 border-b border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent">
                                 <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-3">
                                     <Globe className="h-4 w-4 text-indigo-400" />
-                                    Niche Definition
+                                    Simple Manual Workflow
                                 </h3>
                             </div>
 
                             <div className="p-8 space-y-8">
-                                <div className="space-y-5">
+                                <div className="rounded-[2rem] border border-indigo-500/10 bg-indigo-500/[0.03] p-6 space-y-5">
+                                    <div className="flex items-center gap-3">
+                                        <span className="flex h-8 w-8 items-center justify-center rounded-full border border-indigo-500/30 bg-indigo-500/15 text-xs font-black text-indigo-300">1</span>
+                                        <div>
+                                            <h4 className="text-base font-black text-white">Select Domain / Category And Define A Topic</h4>
+                                            <p className="text-sm text-slate-400">Pick the category scope, then write the exact topic you want to research.</p>
+                                        </div>
+                                    </div>
+
                                     <SelectField 
                                         label="Primary Domain Category" 
                                         value={primaryCategoryId} 
@@ -993,109 +1032,41 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     )}
                                     <div className="space-y-2">
                                         <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
-                                            Focus Area For This Batch
+                                            Topic
                                         </label>
                                         <textarea
-                                            value={focusArea}
-                                            onChange={(e) => setFocusArea(e.target.value)}
-                                            placeholder="Example: privacy-first PKM workflows, second-brain tools for structured thinking, AI research efficiency for solo founders"
-                                            className="min-h-[88px] w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 outline-none transition focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/20"
-                                        />
-                                        <p className="text-[11px] text-slate-500 leading-relaxed">
-                                            Use this to tell the generator which slice of the category you want to explore. It guides the batch without creating a job directly.
-                                        </p>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
-                                            Avoid In This Batch
-                                        </label>
-                                        <Input
-                                            value={avoidGuidance}
-                                            onChange={(e) => setAvoidGuidance(e.target.value)}
-                                            placeholder="Example: generic productivity advice, enterprise use cases, broad AI news"
-                                            className="bg-white/[0.03] border-white/10 rounded-xl text-xs h-12 focus:ring-indigo-500/30"
-                                        />
-                                        <p className="text-[11px] text-slate-500 leading-relaxed">
-                                            Optional steering to suppress patterns you do not want repeated in the generated jobs.
-                                        </p>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setStartFreshBatch((current) => !current)}
-                                        className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-left transition hover:bg-white/[0.05]"
-                                    >
-                                        <span className={cn(
-                                            "mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-all",
-                                            startFreshBatch
-                                                ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-400"
-                                                : "border-white/10 bg-white/[0.03] text-slate-500",
-                                        )}>
-                                            {startFreshBatch ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
-                                        </span>
-                                        <div className="space-y-1">
-                                            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-300">
-                                                Start Fresh Batch
-                                            </p>
-                                            <p className="text-[11px] leading-relaxed text-slate-500">
-                                                {startFreshBatch
-                                                    ? "Archive the current draft and approved jobs in this category scope before generating a cleaner batch."
-                                                    : "Keep the current active jobs visible and add the next generation on top of them."}
-                                            </p>
-                                        </div>
-                                    </button>
-                                </div>
-
-                                <div className="pt-2 flex flex-col gap-4">
-                                    <Button 
-                                        className="w-full bg-white text-black hover:bg-indigo-50 h-14 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px] transition-all active:scale-[0.97] shadow-xl group"
-                                        onClick={handleGenerateJobs} 
-                                        disabled={generatingJobs || !activeProject?.id}
-                                    >
-                                        {generatingJobs ? <Loader2 className="mr-3 h-5 w-5 animate-spin" /> : <Sparkles className="mr-3 h-5 w-5 text-indigo-600 group-hover:scale-110 transition-transform" />}
-                                        Generate AI-Driven Jobs
-                                    </Button>
-                                    
-                                    <div className="relative py-2">
-                                        <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-white/5" /></div>
-                                        <div className="relative flex justify-center text-[9px] uppercase tracking-[0.3em]"><span className="bg-[#0d0d0f] px-6 text-slate-600 font-black">Or Manual Entry</span></div>
-                                    </div>
-
-                                    <div className="flex gap-2">
-                                        <Input
                                             value={manualJobText}
                                             onChange={(e) => setManualJobText(e.target.value)}
-                                            placeholder="Example: I need to calculate X..."
-                                            className="bg-white/[0.03] border-white/10 rounded-xl text-xs h-12 focus:ring-indigo-500/30"
+                                            placeholder="Example: Best expired domains for local SEO lead generation"
+                                            className="min-h-[88px] w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 outline-none transition focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/20"
                                         />
-                                        <Button 
-                                            variant="secondary" 
-                                            size="icon"
-                                            onClick={handleCreateManualJob} 
-                                            disabled={creatingManualJob || !manualJobText.trim()}
-                                            className="rounded-xl h-12 w-12 shrink-0 bg-white/5 hover:bg-white/10"
-                                        >
-                                            {creatingManualJob ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
-                                        </Button>
                                     </div>
+                                    <Button
+                                        className="w-full bg-white text-black hover:bg-indigo-50 h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px]"
+                                        onClick={handleCreateManualJob}
+                                        disabled={creatingManualJob || !manualJobText.trim()}
+                                    >
+                                        {creatingManualJob ? <Loader2 className="mr-3 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-3 h-4 w-4" />}
+                                        Save Topic
+                                    </Button>
                                 </div>
 
                                 <div className="rounded-[2rem] border border-emerald-500/10 bg-emerald-500/[0.03] p-6 space-y-5">
-                                    <div>
-                                        <div className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-300/80">
-                                            Manual DataForSEO Research
+                                    <div className="flex items-center gap-3">
+                                        <span className="flex h-8 w-8 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/15 text-xs font-black text-emerald-300">2</span>
+                                        <div>
+                                            <h4 className="text-base font-black text-white">Use SEO Tools To Find Keywords</h4>
+                                            <p className="text-sm text-slate-400">Run a manual lookup, inspect the results, then choose the keyword you want to use.</p>
                                         </div>
-                                        <p className="mt-2 text-sm leading-relaxed text-slate-300">
-                                            Search one seed at a time, save every lookup, and only promote the exact opportunities you want.
-                                        </p>
                                     </div>
 
                                     <SelectField
-                                        label="Attach Search To Job"
+                                        label="Topic"
                                         value={selectedLookupJobId}
                                         onChange={setSelectedLookupJobId}
                                         options={[
-                                            { value: '', label: 'Select Job' },
-                                            ...jobs.map((job) => ({ value: job.id, label: job.job_text })),
+                                            { value: '', label: 'Select Topic' },
+                                            ...approvedJobs.map((job) => ({ value: job.id, label: job.job_text })),
                                         ]}
                                     />
 
@@ -1180,7 +1151,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
 
                                         <div className="rounded-2xl border border-white/5 bg-black/30 p-4">
                                             <div className="mb-3 flex items-center justify-between gap-3">
-                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Search Preview</span>
+                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Keyword Results</span>
                                                 {activeSearchRecord && (
                                                     <span className="text-[10px] text-slate-500">
                                                         {(activeSearchRecord.result_summary_json?.result_count as number | undefined) ?? activeSearchPreviewItems.length} results
@@ -1203,7 +1174,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                         ) : (
                                                             activeSearchPreviewItems.slice(0, 8).map((item, index) => {
                                                                 const keyword = String(item.keyword || item.title || item.url || `Result ${index + 1}`)
-                                                                const saveKeyBase = keyword.trim()
                                                                 return (
                                                                     <div key={`${activeSearchRecord.id}-${index}`} className="rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3">
                                                                         <div className="flex items-start justify-between gap-3">
@@ -1215,22 +1185,13 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                                                         .join(' · ') || String(item.snippet || '')}
                                                                                 </p>
                                                                             </div>
-                                                                            <div className="flex gap-2">
-                                                                                {(['seo_article', 'software', 'editorial'] as const).map((candidateType) => {
-                                                                                    const saveKey = `${candidateType}:${saveKeyBase}`
-                                                                                    return (
-                                                                                        <button
-                                                                                            key={candidateType}
-                                                                                            type="button"
-                                                                                            onClick={() => handleCreateCandidateFromSearch(candidateType, keyword, String(item.keyword || activeSearchRecord.query_text || keyword))}
-                                                                                            disabled={savingCandidateKey === saveKey || !selectedLookupJobId}
-                                                                                            className="rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-300 transition hover:bg-white/[0.08] disabled:opacity-50"
-                                                                                        >
-                                                                                            {savingCandidateKey === saveKey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : candidateType === 'seo_article' ? 'Article' : candidateType === 'software' ? 'Tool' : 'Editorial'}
-                                                                                        </button>
-                                                                                    )
-                                                                                })}
-                                                                            </div>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleUseKeywordForArticle(String(item.keyword || activeSearchRecord.query_text || keyword))}
+                                                                                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-300 transition hover:bg-white/[0.08]"
+                                                                            >
+                                                                                Use Keyword
+                                                                            </button>
                                                                         </div>
                                                                     </div>
                                                                 )
@@ -1242,6 +1203,123 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         </div>
                                     </div>
                                 </div>
+
+                                <div className="rounded-[2rem] border border-amber-500/10 bg-amber-500/[0.03] p-6 space-y-5">
+                                    <div className="flex items-center gap-3">
+                                        <span className="flex h-8 w-8 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/15 text-xs font-black text-amber-300">3</span>
+                                        <div>
+                                            <h4 className="text-base font-black text-white">Define Article Title And Assign Keywords</h4>
+                                            <p className="text-sm text-slate-400">Write the title you want, assign the primary keyword, then save the article draft for validation.</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                            Article Title
+                                        </label>
+                                        <Input
+                                            value={articleTitleDraft}
+                                            onChange={(e) => setArticleTitleDraft(e.target.value)}
+                                            placeholder="Example: Best Expired Domains for Local SEO in 2026"
+                                            className="bg-white/[0.03] border-white/10 rounded-xl text-xs h-12 focus:ring-amber-500/30"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                            Primary Keyword
+                                        </label>
+                                        <Input
+                                            value={articlePrimaryKeyword}
+                                            onChange={(e) => setArticlePrimaryKeyword(e.target.value)}
+                                            placeholder="Pick one keyword from Step 2 or type it here"
+                                            className="bg-white/[0.03] border-white/10 rounded-xl text-xs h-12 focus:ring-amber-500/30"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                            Assigned Keywords
+                                        </label>
+                                        <textarea
+                                            value={articleSecondaryKeywordsText}
+                                            onChange={(e) => setArticleSecondaryKeywordsText(e.target.value)}
+                                            placeholder="One keyword per line"
+                                            className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 outline-none transition focus:border-amber-500/40 focus:ring-2 focus:ring-amber-500/20"
+                                        />
+                                    </div>
+
+                                    <Button
+                                        className="w-full bg-amber-400 text-black hover:bg-amber-300 h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px]"
+                                        onClick={handleSaveArticleDraft}
+                                        disabled={savingCandidateKey === 'article-draft' || !selectedLookupJobId}
+                                    >
+                                        {savingCandidateKey === 'article-draft' ? <Loader2 className="mr-3 h-4 w-4 animate-spin" /> : <FileText className="mr-3 h-4 w-4" />}
+                                        Save Article Draft
+                                    </Button>
+                                </div>
+
+                                <details className="rounded-[2rem] border border-white/5 bg-black/30 p-6">
+                                    <summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+                                        Optional AI Batch Tools
+                                    </summary>
+                                    <div className="mt-5 space-y-5">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                                Focus Area For AI Batch
+                                            </label>
+                                            <textarea
+                                                value={focusArea}
+                                                onChange={(e) => setFocusArea(e.target.value)}
+                                                placeholder="Example: privacy-first PKM workflows, second-brain tools for structured thinking, AI research efficiency for solo founders"
+                                                className="min-h-[88px] w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 outline-none transition focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/20"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                                Avoid In AI Batch
+                                            </label>
+                                            <Input
+                                                value={avoidGuidance}
+                                                onChange={(e) => setAvoidGuidance(e.target.value)}
+                                                placeholder="Example: generic productivity advice, enterprise use cases, broad AI news"
+                                                className="bg-white/[0.03] border-white/10 rounded-xl text-xs h-12 focus:ring-indigo-500/30"
+                                            />
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setStartFreshBatch((current) => !current)}
+                                            className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-left transition hover:bg-white/[0.05]"
+                                        >
+                                            <span className={cn(
+                                                "mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-all",
+                                                startFreshBatch
+                                                    ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-400"
+                                                    : "border-white/10 bg-white/[0.03] text-slate-500",
+                                            )}>
+                                                {startFreshBatch ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
+                                            </span>
+                                            <div className="space-y-1">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-300">
+                                                    Start Fresh Batch
+                                                </p>
+                                                <p className="text-[11px] leading-relaxed text-slate-500">
+                                                    {startFreshBatch
+                                                        ? "Archive the current draft and approved jobs in this category scope before generating a cleaner batch."
+                                                        : "Keep the current active jobs visible and add the next generation on top of them."}
+                                                </p>
+                                            </div>
+                                        </button>
+                                        <Button 
+                                            className="w-full bg-white text-black hover:bg-indigo-50 h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px] transition-all"
+                                            onClick={handleGenerateJobs} 
+                                            disabled={generatingJobs || !activeProject?.id}
+                                        >
+                                            {generatingJobs ? <Loader2 className="mr-3 h-4 w-4 animate-spin" /> : <Sparkles className="mr-3 h-4 w-4 text-indigo-600" />}
+                                            Generate AI Topics
+                                        </Button>
+                                    </div>
+                                </details>
                             </div>
 
                             {/* Job Feed */}
@@ -1249,7 +1327,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                 <div className="p-6 flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                         <Layers className="h-3.5 w-3.5 text-slate-500" />
-                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Job Pipeline</span>
+                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Saved Topics</span>
                                     </div>
                                     <div className="flex gap-1.5 p-1 bg-white/5 rounded-lg">
                                         {['approved', 'draft'].map(s => (
