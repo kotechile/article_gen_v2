@@ -875,8 +875,16 @@ def generate_research_jobs():
         "trend_titles": data.get("trend_titles") or [],
     }
     try:
+        project_uuid = _parse_uuid(project_id, "project_id")
+        primary_category_uuid = _parse_uuid(data["primary_category_id"], "primary_category_id") if data.get("primary_category_id") else None
+        secondary_category_uuid = _parse_uuid(data["secondary_category_id"], "secondary_category_id") if data.get("secondary_category_id") else None
         negative_context = asyncio.run(
-            job_service.build_negative_context(user_id=UUID(user_id), project_id=_parse_uuid(project_id, "project_id"))
+            job_service.build_negative_context(
+                user_id=UUID(user_id),
+                project_id=project_uuid,
+                primary_category_id=primary_category_uuid,
+                secondary_category_id=secondary_category_uuid,
+            )
         )
         generated = asyncio.run(
             job_service.generate_jobs(
@@ -887,16 +895,6 @@ def generate_research_jobs():
         )
         archive_existing_in_scope = bool(data.get("archive_existing_in_scope", True))
         batch_id = str(uuid4())
-        archived_count = 0
-        if archive_existing_in_scope:
-            archived_count = asyncio.run(
-                job_service.archive_active_jobs_in_scope(
-                    user_id=UUID(user_id),
-                    project_id=_parse_uuid(project_id, "project_id"),
-                    primary_category_id=_parse_uuid(data["primary_category_id"], "primary_category_id") if data.get("primary_category_id") else None,
-                    secondary_category_id=_parse_uuid(data["secondary_category_id"], "secondary_category_id") if data.get("secondary_category_id") else None,
-                )
-            )
         generated_with_batch = []
         for item in generated:
             payload = dict(item)
@@ -910,17 +908,44 @@ def generate_research_jobs():
             )
             payload["generation_metadata"] = generation_metadata
             generated_with_batch.append(payload)
+        archived_count = 0
+        if archive_existing_in_scope and generated_with_batch:
+            archived_count = asyncio.run(
+                job_service.archive_active_jobs_in_scope(
+                    user_id=UUID(user_id),
+                    project_id=project_uuid,
+                    primary_category_id=primary_category_uuid,
+                    secondary_category_id=secondary_category_uuid,
+                )
+            )
         saved = asyncio.run(
             job_service.save_jobs(
                 user_id=UUID(user_id),
-                project_id=_parse_uuid(project_id, "project_id"),
-                primary_category_id=_parse_uuid(data["primary_category_id"], "primary_category_id") if data.get("primary_category_id") else None,
-                secondary_category_id=_parse_uuid(data["secondary_category_id"], "secondary_category_id") if data.get("secondary_category_id") else None,
+                project_id=project_uuid,
+                primary_category_id=primary_category_uuid,
+                secondary_category_id=secondary_category_uuid,
                 website_context_snapshot=website_context,
                 jobs=generated_with_batch,
             )
         )
-        return jsonify({"items": saved, "count": len(saved), "batch_id": batch_id, "archived_count": archived_count}), 201
+        if generated_with_batch and not saved:
+            logger.error("research-rebuild generate jobs save failed after generating %s jobs", len(generated_with_batch))
+            return jsonify({"error": "Generated jobs could not be saved."}), 500
+
+        exhausted_focus = len(saved) == 0
+        response_body = {
+            "items": saved,
+            "count": len(saved),
+            "batch_id": batch_id,
+            "archived_count": archived_count,
+            "exhausted_focus": exhausted_focus,
+            "message": (
+                "No distinct jobs were found for this focus area. Try a more specific angle or relax the focus."
+                if exhausted_focus
+                else None
+            ),
+        }
+        return jsonify(response_body), 201
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:

@@ -369,10 +369,14 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
             setWorkflowRunFilter('all')
             setWorkflowPage(0)
             setActiveBatchId(nextBatchId)
-            const archivedPrefix = (response.archived_count || 0) > 0
-                ? `Archived ${response.archived_count} earlier active job${response.archived_count === 1 ? '' : 's'} and `
-                : ''
-            setSuccess(`${archivedPrefix}generated ${response.count} fresh job${response.count === 1 ? '' : 's'}.`)
+            if (response.count > 0) {
+                const archivedPrefix = (response.archived_count || 0) > 0
+                    ? `Archived ${response.archived_count} earlier active job${response.archived_count === 1 ? '' : 's'} and `
+                    : ''
+                setSuccess(`${archivedPrefix}generated ${response.count} fresh job${response.count === 1 ? '' : 's'}.`)
+            } else {
+                setError(response.message || 'No distinct jobs were found for this focus area.')
+            }
             await refreshPageContext({
                 batchId: nextBatchId || undefined,
                 workflowRunId: 'all',

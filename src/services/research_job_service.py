@@ -60,12 +60,15 @@ Rules:
 - Avoid duplicates and near-duplicates.
 - Avoid jobs already rejected for being off-brand, too broad, or technically impossible.
 - Avoid overlap with previously generated jobs unless the focus area clearly creates a narrower or materially different angle.
+- If the focus area overlaps with existing jobs, generate narrower sub-angles, different user intents, or more execution-specific variants instead of returning nothing.
+- Treat "different audience + different task + different output" as distinct enough when the focus area is narrower than earlier broad jobs.
 - Keep each job_text short and practical.
 - If a focus area is provided, make at least 80% of jobs clearly centered on that focus.
 - If avoid guidance is provided, actively steer away from those patterns or themes.
 - Prefer literal, searchable phrasing over essay-like or poetic titles.
 - Use the current date and year as ground truth. Do not refer to 2025 or any earlier year unless the job is explicitly historical.
 - If a year is needed in job_text, prefer {current_year}.
+- Only return fewer than the requested count if the focus area is truly exhausted after attempting narrower, materially distinct variants.
 
 Website context:
 - Project name: {context.get("project_name") or ""}
@@ -234,7 +237,14 @@ Rejected patterns to avoid:
             },
         )
 
-    async def build_negative_context(self, *, user_id: UUID, project_id: UUID) -> Dict[str, Any]:
+    async def build_negative_context(
+        self,
+        *,
+        user_id: UUID,
+        project_id: UUID,
+        primary_category_id: Optional[UUID] = None,
+        secondary_category_id: Optional[UUID] = None,
+    ) -> Dict[str, Any]:
         """
         Build a compact negative prompt context from rejected jobs.
 
@@ -248,7 +258,11 @@ Rejected patterns to avoid:
         )
         existing_jobs = await self.list_records(
             user_id=user_id,
-            filters={"project_id": str(project_id)},
+            filters={
+                "project_id": str(project_id),
+                "primary_category_id": str(primary_category_id) if primary_category_id else None,
+                "secondary_category_id": str(secondary_category_id) if secondary_category_id else None,
+            },
             order_by={"updated_at": "desc"},
             limit=75,
         )

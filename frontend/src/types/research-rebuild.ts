@@ -182,4 +182,6 @@ export type ResearchRebuildPageContextResponse = {
 export type ResearchRebuildGenerateJobsResponse = ResearchRebuildListResponse<ResearchRebuildJob> & {
     batch_id?: string
     archived_count?: number
+    exhausted_focus?: boolean
+    message?: string | null
 }
