@@ -89,6 +89,24 @@ export type ResearchRebuildInternalLinkCandidate = {
     match_metadata?: Record<string, unknown>
 }
 
+export type ResearchRebuildDataforseoSearch = {
+    id: string
+    project_id: string
+    user_job_id?: string | null
+    primary_category_id?: string | null
+    secondary_category_id?: string | null
+    search_type: 'related_keywords' | 'keyword_overview' | 'serp'
+    endpoint: string
+    query_text: string
+    normalized_query_text?: string | null
+    request_payload?: Record<string, unknown>
+    response_payload?: Record<string, unknown>
+    result_summary_json?: Record<string, unknown>
+    searched_at?: string
+    created_at?: string
+    updated_at?: string
+}
+
 export type ResearchRebuildWorkflowCandidateResult = {
     candidate: ResearchRebuildCandidate
     validation_run: ResearchRebuildValidationRun

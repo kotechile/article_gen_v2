@@ -20,6 +20,7 @@ from flask import Blueprint, jsonify, request
 from ...api.middleware.auth import require_api_key
 from ...services.research_candidate_service import ResearchCandidateService
 from ...services.research_compatibility_adapter_service import ResearchCompatibilityAdapterService
+from ...services.research_dataforseo_search_service import ResearchDataforseoSearchService
 from ...services.research_generation_service import ResearchGenerationService
 from ...services.research_internal_link_fit_service import ResearchInternalLinkFitService
 from ...services.research_job_service import ResearchJobService
@@ -39,6 +40,7 @@ keyword_pack_service = ResearchKeywordPackService()
 internal_link_fit_service = ResearchInternalLinkFitService()
 generation_service = ResearchGenerationService()
 compatibility_adapter_service = ResearchCompatibilityAdapterService()
+dataforseo_search_service = ResearchDataforseoSearchService()
 
 ALLOWED_CANDIDATE_TYPES = {"seo_article", "software", "editorial"}
 ALLOWED_FRESHNESS_STATES = {"fresh", "stale", "expired"}
@@ -55,6 +57,7 @@ ALLOWED_KEYWORD_PACK_STATUSES = {"draft", "ready", "cluster_too_thin", "needs_mo
 ALLOWED_LINK_ROLES = {"parent_candidate", "child_candidate", "sibling_candidate", "hub_candidate"}
 ALLOWED_OUTCOME_TYPES = {"article", "software", "editorial"}
 ALLOWED_OUTCOME_STATUSES = {"draft", "generated", "persisted", "published", "archived"}
+ALLOWED_DATAFORSEO_SEARCH_TYPES = {"related_keywords", "keyword_overview", "serp"}
 PROMOTABLE_ROUTES = {"article_ready", "software_ready", "article_plus_software", "editorial_only"}
 
 
@@ -1201,6 +1204,84 @@ def reject_research_candidate(candidate_id: str):
     except Exception as exc:
         logger.error("research-rebuild reject candidate failed: %s", exc, exc_info=True)
         return jsonify({"error": f"Failed to reject candidate: {exc}"}), 500
+
+
+@research_rebuild_bp.route("/dataforseo-searches", methods=["GET"])
+@require_api_key
+def list_dataforseo_searches():
+    """List persisted manual DataForSEO searches."""
+    project_id = request.args.get("project_id")
+    if not project_id:
+        return jsonify({"error": "project_id is required"}), 400
+
+    user_id = _get_user_id_from_request()
+    if not user_id:
+        return jsonify({"error": "Authentication required"}), 401
+
+    search_type = request.args.get("search_type")
+    if search_type and search_type not in ALLOWED_DATAFORSEO_SEARCH_TYPES:
+        return jsonify({"error": "search_type is invalid"}), 400
+
+    try:
+        items = asyncio.run(
+            dataforseo_search_service.list_searches(
+                user_id=UUID(user_id),
+                project_id=_parse_uuid(project_id, "project_id"),
+                user_job_id=_parse_uuid(request.args["user_job_id"], "user_job_id") if request.args.get("user_job_id") else None,
+                search_type=search_type,
+                limit=int(request.args.get("limit") or 20),
+            )
+        )
+        return jsonify({"items": items, "count": len(items)}), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("research-rebuild list dataforseo searches failed: %s", exc, exc_info=True)
+        return jsonify({"error": f"Failed to list DataForSEO searches: {exc}"}), 500
+
+
+@research_rebuild_bp.route("/dataforseo-searches", methods=["POST"])
+@require_api_key
+def create_dataforseo_search():
+    """Run and persist a user-triggered DataForSEO lookup."""
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 400
+
+    data = request.get_json() or {}
+    project_id = data.get("project_id")
+    search_type = str(data.get("search_type") or "").strip().lower()
+
+    if not project_id:
+        return jsonify({"error": "project_id is required"}), 400
+    if search_type not in ALLOWED_DATAFORSEO_SEARCH_TYPES:
+        return jsonify({"error": "search_type must be one of related_keywords, keyword_overview, serp"}), 400
+
+    user_id = _get_user_id_from_request()
+    if not user_id:
+        return jsonify({"error": "Authentication required"}), 401
+
+    try:
+        item = asyncio.run(
+            dataforseo_search_service.run_search(
+                user_id=UUID(user_id),
+                project_id=_parse_uuid(project_id, "project_id"),
+                user_job_id=_parse_uuid(data["user_job_id"], "user_job_id") if data.get("user_job_id") else None,
+                primary_category_id=data.get("primary_category_id"),
+                secondary_category_id=data.get("secondary_category_id"),
+                search_type=search_type,
+                query_text=data.get("query_text"),
+                keywords=data.get("keywords") if isinstance(data.get("keywords"), list) else None,
+                language_code=str(data.get("language_code") or "en"),
+                location_code=int(data.get("location_code") or 2840),
+                limit=int(data.get("limit") or 25),
+            )
+        )
+        return jsonify(item), 201
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("research-rebuild create dataforseo search failed: %s", exc, exc_info=True)
+        return jsonify({"error": f"Failed to create DataForSEO search: {exc}"}), 500
 
 
 @research_rebuild_bp.route("/validation-runs", methods=["GET"])
@@ -2558,11 +2639,10 @@ def list_research_rebuild_workflow_runs():
 @require_api_key
 def run_research_rebuild_workflow():
     """
-    Run the first-pass rebuild workflow for selected jobs.
+    Run the validation-first rebuild workflow for selected jobs.
 
     Current scope:
-    - derive candidates from approved jobs
-    - validate candidates
+    - validate saved candidates
     - route candidates
     - build keyword packs
     - generate outcomes
@@ -2587,28 +2667,16 @@ def run_research_rebuild_workflow():
             if not job:
                 continue
             website_context = job.get("website_context_snapshot") or {}
-            generated_candidates = asyncio.run(
-                candidate_service.derive_candidates_from_job(job=job, website_context=website_context)
-            )
-            for item in generated_candidates:
-                metadata = dict(item.get("candidate_metadata") or {})
-                metadata.setdefault("category_context", {
-                    "project_id": project_id,
-                    "primary_category_id": job.get("primary_category_id"),
-                    "secondary_category_id": job.get("secondary_category_id"),
-                })
-                metadata.setdefault("job_text", job.get("job_text"))
-                metadata["workflow_run_id"] = workflow_run_id
-                metadata["workflow_run_started_at"] = workflow_run_started_at
-                item["candidate_metadata"] = metadata
-            saved_candidates = asyncio.run(
-                candidate_service.save_candidates(
-                    user_id=UUID(user_id),
-                    project_id=_parse_uuid(project_id, "project_id"),
-                    user_job_id=_parse_uuid(str(user_job_id), "user_job_id"),
-                    candidates=generated_candidates,
+            saved_candidates = [
+                candidate for candidate in asyncio.run(
+                    candidate_service.list_candidates(
+                        user_id=UUID(user_id),
+                        project_id=_parse_uuid(project_id, "project_id"),
+                        user_job_id=_parse_uuid(str(user_job_id), "user_job_id"),
+                    )
                 )
-            )
+                if str(candidate.get("status") or "").strip().lower() not in {"rejected", "archived"}
+            ]
 
             job_result = {"job_id": user_job_id, "job": job, "candidates": []}
             for candidate in saved_candidates:
@@ -2741,7 +2809,7 @@ def run_research_rebuild_workflow():
                 for candidate_result in job_result["candidates"]
             ]
             has_promotable_route = any(route_value in PROMOTABLE_ROUTES for route_value in route_values)
-            if not has_promotable_route:
+            if saved_candidates and not has_promotable_route:
                 job_metadata = dict(job.get("generation_metadata") or {})
                 job_metadata["last_workflow_run_id"] = workflow_run_id
                 job_metadata["last_workflow_run_started_at"] = workflow_run_started_at

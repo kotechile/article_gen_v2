@@ -2,6 +2,7 @@ import { apiClient } from '@/api-client'
 import axios from 'axios'
 import type {
     ResearchRebuildCandidate,
+    ResearchRebuildDataforseoSearch,
     ResearchRebuildGenerateJobsResponse,
     ResearchRebuildGeneratedOutcome,
     ResearchRebuildInternalLinkCandidate,
@@ -363,6 +364,23 @@ class ResearchRebuildService {
         return await apiClient.post(`${this.baseUrl}/candidates/generate`, payload)
     }
 
+    async createCandidate(payload: {
+        project_id: string
+        user_job_id: string
+        candidate_type: 'seo_article' | 'software' | 'editorial'
+        candidate_text: string
+        normalized_candidate_text?: string
+        status?: string
+        candidate_metadata?: Record<string, unknown>
+        source_keywords_json?: string[]
+    }): Promise<ResearchRebuildCandidate> {
+        try {
+            return await apiClient.post(`${this.baseUrl}/candidates`, payload)
+        } catch (error) {
+            throw new Error(this.extractErrorMessage(error, 'Failed to create candidate.'))
+        }
+    }
+
     async rejectCandidate(candidateId: string, payload: {
         rejection_reason_tags: string[]
         rejection_reason_free_text?: string
@@ -408,6 +426,41 @@ class ResearchRebuildService {
         generated_outcome: ResearchRebuildGeneratedOutcome
     }> {
         return await apiClient.post(`${this.baseUrl}/generated-outcomes/${outcomeId}/persist-content-idea`, payload)
+    }
+
+    async listDataforseoSearches(params: {
+        project_id: string
+        user_job_id?: string
+        search_type?: 'related_keywords' | 'keyword_overview' | 'serp'
+        limit?: number
+    }): Promise<ResearchRebuildListResponse<ResearchRebuildDataforseoSearch>> {
+        const query = new URLSearchParams()
+        query.append('project_id', params.project_id)
+        if (params.user_job_id) query.append('user_job_id', params.user_job_id)
+        if (params.search_type) query.append('search_type', params.search_type)
+        if (params.limit !== undefined) query.append('limit', String(params.limit))
+        return await apiClient.get(`${this.baseUrl}/dataforseo-searches?${query.toString()}`)
+    }
+
+    async runDataforseoSearch(payload: {
+        project_id: string
+        user_job_id?: string
+        primary_category_id?: string
+        secondary_category_id?: string
+        search_type: 'related_keywords' | 'keyword_overview' | 'serp'
+        query_text?: string
+        keywords?: string[]
+        language_code?: string
+        location_code?: number
+        limit?: number
+    }): Promise<ResearchRebuildDataforseoSearch> {
+        try {
+            return await apiClient.post(`${this.baseUrl}/dataforseo-searches`, payload, {
+                timeout: 300000,
+            })
+        } catch (error) {
+            throw new Error(this.extractErrorMessage(error, 'Failed to run DataForSEO search.'))
+        }
     }
 }
 

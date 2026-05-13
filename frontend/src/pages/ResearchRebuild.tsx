@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { 
-    Loader2, Rocket, Wrench, CheckCircle2, Sparkles, ChevronDown, 
+    Loader2, Rocket, Wrench, CheckCircle2, Sparkles, ChevronDown, Search,
     ChevronUp, XCircle, RefreshCw, Ban, Copy, FileText, 
     Gauge, Target, Layers, Globe, ExternalLink, Info, Filter, ArrowRight,
     ChevronLeft, ChevronRight
@@ -17,6 +17,7 @@ import { researchRebuildService } from '@/services/research-rebuild.service'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type {
     ResearchRebuildInternalLinkCandidate,
+    ResearchRebuildDataforseoSearch,
     ResearchRebuildJob,
     ResearchRebuildValidationRun,
     ResearchRebuildWorkflowJobResult,
@@ -38,6 +39,11 @@ type ResearchRebuildProps = {
 }
 
 const WORKFLOW_BATCH_SIZE = 4
+const DATAFORSEO_SEARCH_TYPES = [
+    { value: 'related_keywords', label: 'Related Keywords' },
+    { value: 'keyword_overview', label: 'Keyword Overview' },
+    { value: 'serp', label: 'SERP Snapshot' },
+] as const
 
 export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const { user } = useAuth()
@@ -59,6 +65,14 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const [routeFilter, setRouteFilter] = React.useState('all')
     const [candidateSearch, setCandidateSearch] = React.useState('')
     const [manualJobText, setManualJobText] = React.useState('')
+    const [selectedLookupJobId, setSelectedLookupJobId] = React.useState('')
+    const [lookupSearchType, setLookupSearchType] = React.useState<'related_keywords' | 'keyword_overview' | 'serp'>('related_keywords')
+    const [lookupQueryText, setLookupQueryText] = React.useState('')
+    const [lookupKeywordsText, setLookupKeywordsText] = React.useState('')
+    const [runningLookup, setRunningLookup] = React.useState(false)
+    const [savingCandidateKey, setSavingCandidateKey] = React.useState<string | null>(null)
+    const [dataforseoSearches, setDataforseoSearches] = React.useState<ResearchRebuildDataforseoSearch[]>([])
+    const [activeSearchRecord, setActiveSearchRecord] = React.useState<ResearchRebuildDataforseoSearch | null>(null)
     const [focusArea, setFocusArea] = React.useState('')
     const [avoidGuidance, setAvoidGuidance] = React.useState('')
     const [startFreshBatch, setStartFreshBatch] = React.useState(true)
@@ -99,6 +113,12 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
         [jobs],
     )
 
+    React.useEffect(() => {
+        if (!selectedLookupJobId && jobs.length > 0) {
+            setSelectedLookupJobId(jobs[0].id)
+        }
+    }, [jobs, selectedLookupJobId])
+
     const jobStatusCounts = React.useMemo(() => {
         const counts = new Map<string, number>()
         for (const job of jobs) {
@@ -121,6 +141,11 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
             ),
         [filteredWorkflowResults],
     )
+
+    const activeSearchPreviewItems = React.useMemo(() => {
+        const topItems = activeSearchRecord?.result_summary_json?.top_items
+        return Array.isArray(topItems) ? topItems as Array<Record<string, unknown>> : []
+    }, [activeSearchRecord])
 
     const buildScopedPath = React.useCallback((targetMode: ResearchRebuildMode, runId?: string | null) => {
         const params = new URLSearchParams()
@@ -336,6 +361,28 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
         void refreshPageContext()
     }, [refreshPageContext])
 
+    const refreshSearchHistory = React.useCallback(async () => {
+        if (!activeProject?.id) {
+            setDataforseoSearches([])
+            return
+        }
+        try {
+            const response = await researchRebuildService.listDataforseoSearches({
+                project_id: activeProject.id,
+                user_job_id: selectedLookupJobId || undefined,
+                limit: 12,
+            })
+            setDataforseoSearches(response.items || [])
+            setActiveSearchRecord((current) => current || response.items?.[0] || null)
+        } catch (err) {
+            console.error('Failed to load DataForSEO search history:', err)
+        }
+    }, [activeProject?.id, selectedLookupJobId])
+
+    React.useEffect(() => {
+        void refreshSearchHistory()
+    }, [refreshSearchHistory])
+
     const primaryCategory = primaryCategories.find((category) => category.id === primaryCategoryId)
     const secondaryCategory = secondaryCategories.find((category) => category.id === secondaryCategoryId)
     const latestWorkflowRunId = workflowRuns[0]?.workflow_run_id || ''
@@ -422,6 +469,103 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
             setError(err instanceof Error ? err.message : 'Failed to create manual job.')
         } finally {
             setCreatingManualJob(false)
+        }
+    }
+
+    const parseLookupKeywords = React.useCallback(() => {
+        return Array.from(
+            new Set(
+                lookupKeywordsText
+                    .split(/[\n,]+/)
+                    .map((item) => item.trim())
+                    .filter(Boolean),
+            ),
+        )
+    }, [lookupKeywordsText])
+
+    const handleRunDataforseoSearch = async () => {
+        if (!activeProject?.id) return
+        if (lookupSearchType === 'keyword_overview' && parseLookupKeywords().length === 0) {
+            setError('Add at least one keyword for keyword overview lookups.')
+            return
+        }
+        if (lookupSearchType !== 'keyword_overview' && !lookupQueryText.trim()) {
+            setError('Enter a search query before running a lookup.')
+            return
+        }
+
+        try {
+            setRunningLookup(true)
+            setError(null)
+            setSuccess(null)
+            const item = await researchRebuildService.runDataforseoSearch({
+                project_id: activeProject.id,
+                user_job_id: selectedLookupJobId || undefined,
+                primary_category_id: primaryCategoryId || undefined,
+                secondary_category_id: secondaryCategoryId || undefined,
+                search_type: lookupSearchType,
+                query_text: lookupSearchType === 'keyword_overview' ? undefined : lookupQueryText.trim(),
+                keywords: lookupSearchType === 'keyword_overview' ? parseLookupKeywords() : undefined,
+                limit: lookupSearchType === 'serp' ? 10 : 25,
+            })
+            setActiveSearchRecord(item)
+            await refreshSearchHistory()
+            setSuccess('DataForSEO lookup saved to history.')
+        } catch (err) {
+            console.error('Failed to run DataForSEO search:', err)
+            setError(err instanceof Error ? err.message : 'Failed to run DataForSEO search.')
+        } finally {
+            setRunningLookup(false)
+        }
+    }
+
+    const handleCreateCandidateFromSearch = async (
+        candidateType: 'seo_article' | 'software' | 'editorial',
+        candidateText: string,
+        sourceKeyword?: string,
+    ) => {
+        if (!activeProject?.id || !selectedLookupJobId) {
+            setError('Select a job before saving an opportunity.')
+            return
+        }
+
+        const trimmedText = candidateText.trim()
+        if (!trimmedText) {
+            setError('Candidate text is required.')
+            return
+        }
+
+        const saveKey = `${candidateType}:${trimmedText}`
+        try {
+            setSavingCandidateKey(saveKey)
+            setError(null)
+            setSuccess(null)
+            await researchRebuildService.createCandidate({
+                project_id: activeProject.id,
+                user_job_id: selectedLookupJobId,
+                candidate_type: candidateType,
+                candidate_text: trimmedText,
+                normalized_candidate_text: trimmedText.toLowerCase(),
+                candidate_metadata: {
+                    creation_source: 'manual_dataforseo_search',
+                    search_record_id: activeSearchRecord?.id || null,
+                    search_type: activeSearchRecord?.search_type || lookupSearchType,
+                    category_context: {
+                        project_id: activeProject.id,
+                        primary_category_id: primaryCategoryId || null,
+                        secondary_category_id: secondaryCategoryId || null,
+                        primary_category_name: primaryCategory?.name || null,
+                        secondary_category_name: secondaryCategory?.name || null,
+                    },
+                },
+                source_keywords_json: sourceKeyword ? [sourceKeyword] : [trimmedText],
+            })
+            setSuccess(`Saved "${trimmedText}" as a ${candidateType.replace('_', ' ')} opportunity.`)
+        } catch (err) {
+            console.error('Failed to create candidate from search:', err)
+            setError(err instanceof Error ? err.message : 'Failed to create candidate.')
+        } finally {
+            setSavingCandidateKey(null)
         }
     }
 
@@ -776,15 +920,15 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                 </h3>
                                 <p className="text-slate-500 text-xs font-medium leading-relaxed mb-6">
                                     {isJobsPage
-                                        ? 'Define the niche and capture category-specific user jobs to fuel the research engine.'
-                                        : 'Review the approved jobs and scope while you validate opportunities on the second step.'}
+                                        ? 'Define the niche, capture user jobs, and use manual lookups to build only the opportunities worth validating.'
+                                        : 'Review the approved jobs and scope while you validate only the saved opportunities on the second step.'}
                                 </p>
                                 
                                 <PhaseGuide 
                                     title={isJobsPage ? 'Getting Started' : 'Step Reminder'}
                                     description={isJobsPage
-                                        ? "Define your niche below. Use 'Generate AI-Driven Jobs' to discover what users are looking for in this category."
-                                        : "This page is for validation and decision-making. Go back to Jobs if you need to reshape the batch before running validation again."}
+                                        ? "Define your niche below. You can still generate jobs, but the manual DataForSEO panel is now the safest path for controlled discovery."
+                                        : "This page validates only opportunities you already saved. Go back to Jobs if you need more manual searches or want to add more candidates first."}
                                     color="indigo"
                                 />
                             </div>
@@ -932,6 +1076,170 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         >
                                             {creatingManualJob ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
                                         </Button>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-[2rem] border border-emerald-500/10 bg-emerald-500/[0.03] p-6 space-y-5">
+                                    <div>
+                                        <div className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-300/80">
+                                            Manual DataForSEO Research
+                                        </div>
+                                        <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                                            Search one seed at a time, save every lookup, and only promote the exact opportunities you want.
+                                        </p>
+                                    </div>
+
+                                    <SelectField
+                                        label="Attach Search To Job"
+                                        value={selectedLookupJobId}
+                                        onChange={setSelectedLookupJobId}
+                                        options={[
+                                            { value: '', label: 'Select Job' },
+                                            ...jobs.map((job) => ({ value: job.id, label: job.job_text })),
+                                        ]}
+                                    />
+
+                                    <SelectField
+                                        label="Lookup Type"
+                                        value={lookupSearchType}
+                                        onChange={(value) => setLookupSearchType(value as 'related_keywords' | 'keyword_overview' | 'serp')}
+                                        options={DATAFORSEO_SEARCH_TYPES.map((item) => ({ value: item.value, label: item.label }))}
+                                    />
+
+                                    {lookupSearchType === 'keyword_overview' ? (
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                                Keywords
+                                            </label>
+                                            <textarea
+                                                value={lookupKeywordsText}
+                                                onChange={(e) => setLookupKeywordsText(e.target.value)}
+                                                placeholder="Paste one keyword per line or comma separated"
+                                                className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 outline-none transition focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                                Query
+                                            </label>
+                                            <Input
+                                                value={lookupQueryText}
+                                                onChange={(e) => setLookupQueryText(e.target.value)}
+                                                placeholder={lookupSearchType === 'serp' ? 'Enter the exact Google query to inspect' : 'Enter one seed keyword'}
+                                                className="bg-white/[0.03] border-white/10 rounded-xl text-xs h-12 focus:ring-emerald-500/30"
+                                            />
+                                        </div>
+                                    )}
+
+                                    <Button
+                                        className="w-full bg-emerald-500 text-black hover:bg-emerald-400 h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px]"
+                                        onClick={handleRunDataforseoSearch}
+                                        disabled={runningLookup || !activeProject?.id}
+                                    >
+                                        {runningLookup ? <Loader2 className="mr-3 h-4 w-4 animate-spin" /> : <Search className="mr-3 h-4 w-4" />}
+                                        Run And Save Lookup
+                                    </Button>
+
+                                    <div className="grid gap-4 xl:grid-cols-[1.05fr,0.95fr]">
+                                        <div className="rounded-2xl border border-white/5 bg-black/30 p-4">
+                                            <div className="mb-3 flex items-center justify-between">
+                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Saved Searches</span>
+                                                <span className="text-[10px] text-slate-600">{dataforseoSearches.length}</span>
+                                            </div>
+                                            <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
+                                                {dataforseoSearches.length === 0 ? (
+                                                    <p className="text-xs text-slate-500">No saved searches in this scope yet.</p>
+                                                ) : (
+                                                    dataforseoSearches.map((item) => (
+                                                        <button
+                                                            key={item.id}
+                                                            type="button"
+                                                            onClick={() => setActiveSearchRecord(item)}
+                                                            className={cn(
+                                                                "w-full rounded-2xl border px-4 py-3 text-left transition",
+                                                                activeSearchRecord?.id === item.id
+                                                                    ? "border-emerald-500/30 bg-emerald-500/[0.08]"
+                                                                    : "border-white/5 bg-white/[0.02] hover:border-white/10",
+                                                            )}
+                                                        >
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <span className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300/80">
+                                                                    {item.search_type.replace('_', ' ')}
+                                                                </span>
+                                                                <span className="text-[10px] text-slate-500">
+                                                                    {item.searched_at ? new Date(item.searched_at).toLocaleDateString() : ''}
+                                                                </span>
+                                                            </div>
+                                                            <p className="mt-2 text-sm text-slate-200 line-clamp-2">{item.query_text}</p>
+                                                        </button>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="rounded-2xl border border-white/5 bg-black/30 p-4">
+                                            <div className="mb-3 flex items-center justify-between gap-3">
+                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Search Preview</span>
+                                                {activeSearchRecord && (
+                                                    <span className="text-[10px] text-slate-500">
+                                                        {(activeSearchRecord.result_summary_json?.result_count as number | undefined) ?? activeSearchPreviewItems.length} results
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {!activeSearchRecord ? (
+                                                <p className="text-xs text-slate-500">Run a lookup or select one from history to inspect it here.</p>
+                                            ) : (
+                                                <div className="space-y-3">
+                                                    <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3">
+                                                        <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                                                            {activeSearchRecord.search_type.replace('_', ' ')}
+                                                        </div>
+                                                        <p className="mt-2 text-sm text-slate-200">{activeSearchRecord.query_text}</p>
+                                                    </div>
+                                                    <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
+                                                        {activeSearchPreviewItems.length === 0 ? (
+                                                            <p className="text-xs text-slate-500">This search did not return preview items.</p>
+                                                        ) : (
+                                                            activeSearchPreviewItems.slice(0, 8).map((item, index) => {
+                                                                const keyword = String(item.keyword || item.title || item.url || `Result ${index + 1}`)
+                                                                const saveKeyBase = keyword.trim()
+                                                                return (
+                                                                    <div key={`${activeSearchRecord.id}-${index}`} className="rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3">
+                                                                        <div className="flex items-start justify-between gap-3">
+                                                                            <div className="min-w-0 flex-1">
+                                                                                <p className="text-sm text-slate-200">{keyword}</p>
+                                                                                <p className="mt-1 text-[11px] text-slate-500">
+                                                                                    {[item.search_volume ? `Vol ${item.search_volume}` : null, item.keyword_difficulty ? `KD ${item.keyword_difficulty}` : null, item.cpc ? `CPC ${item.cpc}` : null]
+                                                                                        .filter(Boolean)
+                                                                                        .join(' · ') || String(item.snippet || '')}
+                                                                                </p>
+                                                                            </div>
+                                                                            <div className="flex gap-2">
+                                                                                {(['seo_article', 'software', 'editorial'] as const).map((candidateType) => {
+                                                                                    const saveKey = `${candidateType}:${saveKeyBase}`
+                                                                                    return (
+                                                                                        <button
+                                                                                            key={candidateType}
+                                                                                            type="button"
+                                                                                            onClick={() => handleCreateCandidateFromSearch(candidateType, keyword, String(item.keyword || activeSearchRecord.query_text || keyword))}
+                                                                                            disabled={savingCandidateKey === saveKey || !selectedLookupJobId}
+                                                                                            className="rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-300 transition hover:bg-white/[0.08] disabled:opacity-50"
+                                                                                        >
+                                                                                            {savingCandidateKey === saveKey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : candidateType === 'seo_article' ? 'Article' : candidateType === 'software' ? 'Tool' : 'Editorial'}
+                                                                                        </button>
+                                                                                    )
+                                                                                })}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                )
+                                                            })
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1108,8 +1416,8 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                 </h4>
                                 <p className="text-slate-400 text-[13px] mb-10 leading-relaxed font-medium">
                                     {isJobsPage
-                                        ? <>Analyze <span className="text-white font-bold">{approvedJobs.length} approved candidates</span> against real-time SERP weakness and keyword feasibility.</>
-                                        : <>Use the approved jobs on the left to run or rerun validation, then inspect the strongest opportunities on this page.</>}
+                                        ? <>Move forward with <span className="text-white font-bold">{approvedJobs.length} approved jobs</span>, then validate only the opportunities you manually saved from your searches.</>
+                                        : <>Use the approved jobs on the left to run or rerun validation for saved opportunities, then inspect the strongest outcomes on this page.</>}
                                 </p>
                                 
                                 <Button 
@@ -1126,7 +1434,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         ? <Loader2 className="mr-3 h-5 w-5 animate-spin" />
                                         : <Rocket className={cn("mr-3 h-5 w-5 fill-current", approvedJobs.length > 0 ? "animate-bounce" : "")} />}
                                     {approvedJobs.length > 0
-                                        ? (isJobsPage ? `Continue With ${approvedJobs.length} Approved Jobs` : `Validate ${approvedJobs.length} Candidates`)
+                                        ? (isJobsPage ? `Continue With ${approvedJobs.length} Approved Jobs` : `Validate Saved Opportunities`)
                                         : 'Select Candidates First'}
                                 </Button>
                             </div>
