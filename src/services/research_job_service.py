@@ -5,6 +5,7 @@ Job discovery service for the research rebuild.
 from __future__ import annotations
 
 from datetime import datetime
+import math
 import logging
 import re
 from typing import Any, Dict, List, Optional
@@ -27,6 +28,58 @@ class ResearchJobService(ResearchRebuildBaseService):
         r"^(decision tree|decision matrix|comparison|workflow|prompt sequence|checklist|template|calculator)\s*:\s*",
         re.IGNORECASE,
     )
+    _JTBD_PATTERN = re.compile(
+        r"^(?:i need to\s+)?when\s+(?P<situation>.+?),\s*i want to\s+(?P<action>.+?),\s*so i can\s+(?P<outcome>.+?)[.]?$",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _simplify_action_text(cls, raw_action: str) -> str:
+        """Rewrite action phrasing into short, searchable everyday language."""
+        action = re.sub(r"\s+", " ", str(raw_action or "").strip())
+        if not action:
+            return ""
+        substitutions = (
+            (r"\bfeed the ai\b", "use AI with"),
+            (r"\busing an ai chain\b", "with AI"),
+            (r"\busing ai tools?\b", "with AI"),
+            (r"\busing ai\b", "with AI"),
+            (r"\bgenerate a first draft\b", "draft a first version"),
+            (r"\bmy unique writing style\b", "my writing style"),
+            (r"\bmultiple research papers\b", "research papers"),
+            (r"\bmultiple industry reports\b", "industry reports"),
+            (r"\bcross-reference\b", "compare"),
+        )
+        for pattern, replacement in substitutions:
+            action = re.sub(pattern, replacement, action, flags=re.IGNORECASE)
+        action = re.sub(r"\s+", " ", action).strip(" .")
+        return action
+
+    @classmethod
+    def _extract_jtbd_parts(cls, raw_job_text: str) -> Optional[Dict[str, str]]:
+        """Extract JTBD parts from a full JTBD sentence when present."""
+        text = re.sub(r"\s+", " ", str(raw_job_text or "").strip())
+        if not text:
+            return None
+        match = cls._JTBD_PATTERN.match(text)
+        if not match:
+            return None
+        parts = {
+            "situation": match.group("situation").strip(" ."),
+            "action": match.group("action").strip(" ."),
+            "outcome": match.group("outcome").strip(" ."),
+        }
+        if not all(parts.values()):
+            return None
+        return parts
+
+    @classmethod
+    def _build_jtbd_statement(cls, parts: Dict[str, str]) -> str:
+        """Rebuild a clean JTBD statement from extracted parts."""
+        return (
+            f"When {parts['situation']}, I want to {parts['action']}, "
+            f"so I can {parts['outcome']}."
+        )
 
     @classmethod
     def _normalize_job_text(cls, raw_job_text: str) -> str:
@@ -37,6 +90,14 @@ class ResearchJobService(ResearchRebuildBaseService):
 
         text = cls._LEADING_LABEL_PATTERN.sub("", text).strip()
         text = re.sub(r"^[\"'“”]+|[\"'“”]+$", "", text).strip()
+
+        jtbd_parts = cls._extract_jtbd_parts(text)
+        if jtbd_parts:
+            action = cls._simplify_action_text(jtbd_parts["action"])
+            outcome = jtbd_parts["outcome"]
+            if re.match(r"^(choose|select|pick|find)\b", action, re.IGNORECASE):
+                action = f"{action} that {outcome[:1].lower()}{outcome[1:]}" if len(outcome) > 1 else action
+            text = f"I need to {action}"
 
         replacements = (
             (r"^using ai to\s+", "I need to use AI to "),
@@ -79,7 +140,9 @@ class ResearchJobService(ResearchRebuildBaseService):
         for item in jobs or []:
             if not isinstance(item, dict):
                 continue
-            job_text = self._normalize_job_text(str(item.get("job_text") or ""))
+            raw_job_text = str(item.get("job_text") or "")
+            jtbd_parts = self._extract_jtbd_parts(raw_job_text)
+            job_text = self._normalize_job_text(raw_job_text)
             if not job_text:
                 continue
             key = job_text.lower()
@@ -87,6 +150,10 @@ class ResearchJobService(ResearchRebuildBaseService):
                 continue
             seen.add(key)
             generation_metadata = dict(item.get("generation_metadata") or {})
+            if jtbd_parts:
+                generation_metadata["jtbd_statement"] = self._build_jtbd_statement(jtbd_parts)
+                generation_metadata["situation"] = jtbd_parts["situation"]
+                generation_metadata["outcome"] = jtbd_parts["outcome"]
             raw_search_seeds = generation_metadata.get("search_seeds") or item.get("search_seeds") or []
             search_seeds: List[str] = []
             for seed in raw_search_seeds if isinstance(raw_search_seeds, list) else []:
@@ -113,6 +180,43 @@ class ResearchJobService(ResearchRebuildBaseService):
             )
         return normalized
 
+    @classmethod
+    def _build_context_guardrails(cls, context: Dict[str, Any]) -> str:
+        """Add prompt guardrails based on the category and website context."""
+        combined = " ".join(
+            str(
+                context.get(key) or ""
+            )
+            for key in (
+                "website_description",
+                "primary_category_name",
+                "primary_category_description",
+                "secondary_category_name",
+                "secondary_category_description",
+                "focus_area",
+            )
+        ).lower()
+        if any(
+            phrase in combined
+            for phrase in (
+                "daily work",
+                "daily life",
+                "real daily life",
+                "save time",
+                "reduce admin",
+                "automation",
+                "personal workflow",
+            )
+        ):
+            return """
+- Prioritize real-life automation and everyday workflow needs over abstract knowledge-work tasks.
+- Favor jobs tied to saving time, reducing admin, staying organized, turning information into action, and getting routine tasks done faster.
+- Good directions include scheduling, note-taking, inbox cleanup, task follow-up, summarizing long content, comparing options before buying, planning, budgeting, travel, shopping, family coordination, and personal learning workflows.
+- Avoid drifting into enterprise, analyst, consultant, or academic-language tasks unless the website context clearly makes that the main audience.
+- If the focus area mentions prompt engineering, context management, or AI chains, translate that into the human outcome the person wants in daily life rather than making the prompt mechanic itself the job.
+""".strip()
+        return ""
+
     def _build_generate_jobs_prompt(
         self,
         *,
@@ -134,6 +238,7 @@ class ResearchJobService(ResearchRebuildBaseService):
 - If older jobs were broader, you may generate narrower variants for this focus area.
 - When in doubt, prefer a fresh focused JTBD variant over returning nothing.
 """.strip()
+        context_guardrails = self._build_context_guardrails(context)
 
         return f"""
 Role: You are an expert Product Strategist and SEO Analyst specializing in the Jobs-to-be-Done (JTBD) framework.
@@ -144,10 +249,11 @@ Return valid JSON with this shape:
 {{
   "jobs": [
     {{
-      "job_text": "When [situation], I want to [action], so I can [expected outcome].",
+      "job_text": "I need to [plain-language action].",
       "job_type_hint": "seo|editorial|software|hybrid",
       "generation_metadata": {{
         "why": "short reason",
+        "jtbd_statement": "When [situation], I want to [action], so I can [expected outcome].",
         "intent_type": "informational|navigational|transactional",
         "search_seeds": ["seed one", "seed two", "seed three"],
         "category": "primary or secondary category label"
@@ -160,11 +266,18 @@ Rules:
 - Generate exactly {max(1, min(count, 50))} jobs.
 - Jobs must be specific user problems, not abstract topics or content ideas.
 - Treat the output as JTBD statements first. Do not pre-decide whether the solution is a comparison, calculator, workflow, template, article, or software tool.
-- Write every job_text in straightforward everyday language that a normal reader can understand quickly.
-- Follow this structure closely: "When [situation], I want to [action], so I can [expected outcome]."
+- Write every job_text as a short, straightforward everyday-language sentence that starts with "I need to ...".
+- Put the full JTBD formula in generation_metadata.jtbd_statement using this structure: "When [situation], I want to [action], so I can [expected outcome]."
+- job_text should be the readable summary of the job, not the full three-clause JTBD sentence.
+- job_text should usually be about 6-16 words and should read like a clear, searchable task.
+- Prefer user-task wording over prompt-engineering wording. Say "I need to compare research papers with AI" instead of "I need to build an AI chain to cross-reference papers."
+- Avoid phrasing that sounds like model instructions or tool internals, such as "feed the AI", "prompt chain", "multi-step prompting", or "generate a first draft in my voice".
 - Focus on functional jobs that are easy to translate into SEO seed keywords.
-- Good examples: "When I am picking a travel card, I want to compare reward programs, so I can choose the best one for my spending.", "When I am buying an appliance, I want to compare warranty terms, so I can avoid expensive surprises later."
+- Good job_text examples: "I need to compare travel card reward programs", "I need to compare appliance warranty terms", "I need to choose an AI meal planner that fits my diet"
+- Good job_text examples for this category: "I need to compare research papers with AI", "I need to draft reports in my writing style", "I need to turn long videos into quick action notes"
+- Good JTBD examples: "When I am picking a travel card, I want to compare reward programs, so I can choose the best one for my spending.", "When I am buying an appliance, I want to compare warranty terms, so I can avoid expensive surprises later."
 - Bad examples: "Decision tree: Choosing between...", "Prompt sequence to analyze...", "Workflow: Using AI to extract...", "Comparison: X vs. Y...".
+- Bad job_text examples: "When I am drowning in back-to-back video calls, I want to compare AI meeting assistants...", "I need to when I am...", "Prompt sequence to analyze..."
 - Avoid prefixes such as "Decision tree:", "Decision matrix:", "Comparison:", "Workflow:", and "Prompt sequence:".
 - The goal is to produce jobs that can later generate keyword candidates with measurable related-keyword support in DataForSEO.
 - For each job, include exactly 3 search seeds in generation_metadata.search_seeds.
@@ -174,6 +287,7 @@ Rules:
 - Prefer jobs with clear search language, clear intent, and concrete nouns a real person would search for.
 - Avoid duplicates and near-duplicates.
 - Avoid jobs already rejected for being off-brand, too broad, or technically impossible.
+{context_guardrails}
 {overlap_rules}
 - Keep each job_text concise but complete enough to preserve the JTBD structure.
 - If a focus area is provided, make at least 80% of jobs clearly centered on that focus.
@@ -229,11 +343,23 @@ Rejected patterns to avoid:
         )
         jobs = response.get("jobs") if isinstance(response, dict) else []
         normalized = self._normalize_generated_jobs(jobs)
-        if not normalized and context.get("focus_area"):
+        minimum_viable_count = min(count, max(3, math.ceil(count * 0.6))) if count > 1 else 1
+        if len(normalized) < minimum_viable_count and count > len(normalized):
+            retry_negative_notes = dict(negative_notes)
+            retry_existing_jobs = list(retry_negative_notes.get("recent_existing_jobs") or [])
+            retry_existing_jobs.extend(
+                {
+                    "job_text": item.get("job_text"),
+                    "status": item.get("status"),
+                    "job_type_hint": item.get("job_type_hint"),
+                }
+                for item in normalized
+            )
+            retry_negative_notes["recent_existing_jobs"] = retry_existing_jobs
             retry_prompt = self._build_generate_jobs_prompt(
                 context=context,
-                count=count,
-                negative_notes=negative_notes,
+                count=count - len(normalized),
+                negative_notes=retry_negative_notes,
                 current_date=current_date,
                 current_year=current_year,
                 relaxed_overlap=True,
@@ -244,7 +370,12 @@ Rejected patterns to avoid:
                 max_tokens=2200,
             )
             retry_jobs = retry_response.get("jobs") if isinstance(retry_response, dict) else []
-            normalized = self._normalize_generated_jobs(retry_jobs, source="llm_generation_retry")
+            retry_normalized = self._normalize_generated_jobs(retry_jobs, source="llm_generation_retry")
+            existing_keys = {str(item.get("job_text") or "").strip().lower() for item in normalized}
+            normalized.extend(
+                item for item in retry_normalized
+                if str(item.get("job_text") or "").strip().lower() not in existing_keys
+            )
         logger.info("research rebuild generated jobs count=%s", len(normalized))
         return normalized[:count]
 
