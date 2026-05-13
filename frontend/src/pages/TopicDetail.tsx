@@ -846,7 +846,7 @@ export function TopicDetail() {
             toast.success('Rebuild software outcome released to Released Software.')
         } catch (err) {
             console.error('Failed to release rebuild software outcome:', err)
-            toast.error('Failed to release rebuild software outcome.')
+            toast.error(err instanceof Error ? err.message : 'Failed to release rebuild software outcome.')
         } finally {
             setReleasingRebuildOutcomeIds((current) => {
                 const next = new Set(current)

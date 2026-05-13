@@ -1,4 +1,5 @@
 import { apiClient } from '@/api-client'
+import axios from 'axios'
 import type {
     ResearchRebuildCandidate,
     ResearchRebuildGenerateJobsResponse,
@@ -21,6 +22,19 @@ import type {
 
 class ResearchRebuildService {
     private baseUrl = '/research-rebuild'
+
+    private extractErrorMessage(error: unknown, fallback: string): string {
+        if (axios.isAxiosError(error)) {
+            const serverMessage =
+                (error.response?.data as any)?.message ||
+                (error.response?.data as any)?.error
+            if (serverMessage) return String(serverMessage)
+        }
+        if (error instanceof Error && error.message) {
+            return error.message
+        }
+        return fallback
+    }
 
     async listJobs(params: {
         project_id: string
@@ -370,7 +384,11 @@ class ResearchRebuildService {
         released_software_idea: Record<string, unknown>
         generated_outcome: ResearchRebuildGeneratedOutcome
     }> {
-        return await apiClient.post(`${this.baseUrl}/generated-outcomes/${outcomeId}/release-software`, {})
+        try {
+            return await apiClient.post(`${this.baseUrl}/generated-outcomes/${outcomeId}/release-software`, {})
+        } catch (error) {
+            throw new Error(this.extractErrorMessage(error, 'Failed to release software outcome.'))
+        }
     }
 
     async persistOutcomeToContentIdea(outcomeId: string, payload: {

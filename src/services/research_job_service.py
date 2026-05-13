@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import logging
+import re
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -21,6 +22,55 @@ class ResearchJobService(ResearchRebuildBaseService):
     """Persist and manage first-class user jobs."""
 
     table_name = "research_user_jobs"
+
+    _LEADING_LABEL_PATTERN = re.compile(
+        r"^(decision tree|decision matrix|comparison|workflow|prompt sequence|checklist|template|calculator)\s*:\s*",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _normalize_job_text(cls, raw_job_text: str) -> str:
+        """Rewrite generated jobs into straightforward JTBD language."""
+        text = re.sub(r"\s+", " ", str(raw_job_text or "").strip())
+        if not text:
+            return ""
+
+        text = cls._LEADING_LABEL_PATTERN.sub("", text).strip()
+        text = re.sub(r"^[\"'“”]+|[\"'“”]+$", "", text).strip()
+
+        replacements = (
+            (r"^using ai to\s+", "I need to use AI to "),
+            (r"^how to\s+", "I need to "),
+            (r"^selecting\s+", "I need to choose "),
+            (r"^choosing\s+", "I need to choose "),
+            (r"^analyz(?:e|ing)\s+", "I need to analyze "),
+            (r"^extract and compare\s+", "I need to extract and compare "),
+            (r"^compare\s+", "I need to compare "),
+            (r"^choose\s+", "I need to choose "),
+            (r"^find\s+", "I need to find "),
+            (r"^check\s+", "I need to check "),
+            (r"^track\s+", "I need to track "),
+            (r"^calculate\s+", "I need to calculate "),
+            (r"^estimate\s+", "I need to estimate "),
+            (r"^plan\s+", "I need to plan "),
+            (r"^use\s+", "I need to use "),
+            (r"^review\s+", "I need to review "),
+            (r"^decide\s+", "I need to decide "),
+            (r"^pick\s+", "I need to pick "),
+        )
+        for pattern, replacement in replacements:
+            if re.match(pattern, text, re.IGNORECASE):
+                text = re.sub(pattern, replacement, text, count=1, flags=re.IGNORECASE).strip()
+                break
+
+        if re.match(r"^(ai-powered|manual timers|perplexity|searchgpt)\b", text, re.IGNORECASE):
+            text = f"I need to compare {text}"
+
+        if not re.match(r"^(i need to|i want to)\b", text, re.IGNORECASE):
+            text = f"I need to {text[:1].lower()}{text[1:]}" if len(text) > 1 else text
+
+        text = text.rstrip(" .")
+        return text
 
     async def generate_jobs(
         self,
@@ -55,14 +105,24 @@ Return valid JSON with this shape:
 
 Rules:
 - Generate exactly {max(1, min(count, 50))} jobs.
-- Jobs must be specific user problems, not abstract topics.
-- Favor concrete tasks, comparisons, decisions, workflows, calculators, templates, checklists, and recurring questions.
+- Jobs must be specific user problems, not abstract topics or content ideas.
+- Treat the output as "jobs to be done" statements first. Do not pre-decide whether the solution is a comparison, calculator, workflow, template, article, or software tool.
+- Write every job_text in straightforward everyday language that a normal reader can understand quickly.
+- Job text must sound like a plain user need, not an internal strategy label, content format, or framework name.
+- Prefer JTBD phrasing that starts with "I need to..." or occasionally "I want to...".
+- Good examples: "I need to compare AI newsletter tools for quick daily industry updates", "I need to check which travel credit card gives me the best rewards for my spending", "I need to compare warranty terms before buying a dishwasher".
+- Bad examples: "Decision tree: Choosing between...", "Prompt sequence to analyze...", "Workflow: Using AI to extract...", "Comparison: X vs. Y...".
+- Avoid prefixes such as "Decision tree:", "Decision matrix:", "Comparison:", "Workflow:", and "Prompt sequence:".
+- Avoid naming output formats in the job itself unless the user is explicitly seeking that format.
+- The goal is to produce jobs that can later generate keyword candidates with measurable related-keyword support in DataForSEO.
+- Prefer jobs with clear search language, clear intent, and concrete nouns a real person would search for.
 - Avoid duplicates and near-duplicates.
 - Avoid jobs already rejected for being off-brand, too broad, or technically impossible.
 - Avoid overlap with previously generated jobs unless the focus area clearly creates a narrower or materially different angle.
 - If the focus area overlaps with existing jobs, generate narrower sub-angles, different user intents, or more execution-specific variants instead of returning nothing.
 - Treat "different audience + different task + different output" as distinct enough when the focus area is narrower than earlier broad jobs.
 - Keep each job_text short and practical.
+- Prefer one sentence, ideally under 16 words when possible.
 - If a focus area is provided, make at least 80% of jobs clearly centered on that focus.
 - If avoid guidance is provided, actively steer away from those patterns or themes.
 - Prefer literal, searchable phrasing over essay-like or poetic titles.
@@ -96,7 +156,7 @@ Rejected patterns to avoid:
         for item in jobs or []:
             if not isinstance(item, dict):
                 continue
-            job_text = str(item.get("job_text") or "").strip()
+            job_text = self._normalize_job_text(str(item.get("job_text") or ""))
             if not job_text:
                 continue
             key = job_text.lower()

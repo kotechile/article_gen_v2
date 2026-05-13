@@ -515,7 +515,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
             setSuccess('Software outcome released to Released Software.')
         } catch (err) {
             console.error('Failed to release software outcome:', err)
-            setError('Failed to release software outcome.')
+            setError(err instanceof Error ? err.message : 'Failed to release software outcome.')
         } finally {
             setMutatingOutcomeIds((current) => {
                 const next = new Set(current)

@@ -105,6 +105,49 @@ def _get_admin_supabase_client():
     return get_supabase_client()
 
 
+def _build_release_fallback_content_idea(outcome: dict) -> dict:
+    """Create a minimal software-idea payload when rebuild lineage is incomplete."""
+    outcome_metadata = dict(outcome.get("outcome_metadata") or {})
+    research_rebuild_metadata = {
+        "candidate_id": outcome.get("candidate_id"),
+        "generated_outcome_id": outcome.get("id"),
+        "validation_run_id": outcome.get("validation_run_id"),
+        "routing_decision_id": outcome.get("routing_decision_id"),
+    }
+    return {
+        "id": str(outcome.get("id") or ""),
+        "title": outcome_metadata.get("title")
+        or outcome_metadata.get("headline")
+        or "Untitled Software Idea",
+        "description": outcome_metadata.get("description")
+        or outcome_metadata.get("summary")
+        or "",
+        "content_type": "software",
+        "category": outcome_metadata.get("category") or "software_tool",
+        "subtopic": outcome_metadata.get("subtopic")
+        or outcome_metadata.get("title")
+        or "Software opportunity",
+        "topic_id": outcome_metadata.get("topic_id"),
+        "keywords": [],
+        "primary_keywords": [],
+        "secondary_keywords": [],
+        "search_phrase": outcome_metadata.get("search_phrase")
+        or outcome_metadata.get("title"),
+        "target_intent": outcome_metadata.get("target_intent"),
+        "product_type": outcome_metadata.get("product_type"),
+        "user_job_to_be_done": outcome_metadata.get("user_job_to_be_done"),
+        "build_complexity": outcome_metadata.get("build_complexity"),
+        "distribution_angle": outcome_metadata.get("distribution_angle"),
+        "keyword_metrics": {},
+        "idea_metadata": {
+            "research_rebuild": research_rebuild_metadata,
+        },
+        "status": "draft",
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+
+
 async def _build_persisted_workflow_snapshot(
     *,
     user_id: UUID,
@@ -2337,33 +2380,63 @@ def release_generated_software_outcome(outcome_id: str):
             content_idea = (result.data or [None])[0]
 
         if not content_idea:
-            candidate_uuid = _parse_uuid(str(outcome.get("candidate_id") or ""), "candidate_id")
-            candidate = asyncio.run(candidate_service.get_record(record_id=candidate_uuid, user_id=UUID(user_id)))
-            if not candidate:
-                return jsonify({"error": "Source candidate not found"}), 404
-            keyword_packs = asyncio.run(
-                keyword_pack_service.list_keyword_packs(
-                    user_id=UUID(user_id),
-                    project_id=_parse_uuid(str(outcome.get("project_id") or ""), "project_id"),
-                    candidate_id=candidate_uuid,
-                )
-            )
-            keyword_pack = keyword_packs[0] if keyword_packs else None
-            candidate_metadata = candidate.get("candidate_metadata") or {}
-            category_context = candidate_metadata.get("category_context") or {}
-            content_idea = asyncio.run(
-                compatibility_adapter_service.outcome_to_content_idea_payload(
-                    candidate=candidate,
-                    generated_outcome=outcome,
-                    category_context=category_context,
-                    keyword_pack=keyword_pack,
-                )
-            )
-            # Reuse the generated outcome id as a stable compatibility source id
-            # so repeated release attempts update the same released-software row.
-            content_idea["id"] = str(outcome.get("id") or "")
-            if category_context.get("domain") and not content_idea.get("domain"):
-                content_idea["domain"] = category_context.get("domain")
+            content_idea = None
+            candidate_id_raw = str(outcome.get("candidate_id") or "").strip()
+            if candidate_id_raw:
+                try:
+                    candidate_uuid = _parse_uuid(candidate_id_raw, "candidate_id")
+                    candidate = asyncio.run(
+                        candidate_service.get_record(record_id=candidate_uuid, user_id=UUID(user_id))
+                    )
+                except ValueError:
+                    candidate = None
+                    logger.warning(
+                        "research-rebuild release software outcome skipping invalid candidate_id=%s outcome_id=%s",
+                        candidate_id_raw,
+                        outcome.get("id"),
+                    )
+                if candidate:
+                    keyword_pack = None
+                    project_id_raw = str(outcome.get("project_id") or "").strip()
+                    if project_id_raw:
+                        try:
+                            keyword_packs = asyncio.run(
+                                keyword_pack_service.list_keyword_packs(
+                                    user_id=UUID(user_id),
+                                    project_id=_parse_uuid(project_id_raw, "project_id"),
+                                    candidate_id=candidate_uuid,
+                                )
+                            )
+                            keyword_pack = keyword_packs[0] if keyword_packs else None
+                        except ValueError:
+                            logger.warning(
+                                "research-rebuild release software outcome skipping invalid project_id=%s outcome_id=%s",
+                                project_id_raw,
+                                outcome.get("id"),
+                            )
+                    candidate_metadata = candidate.get("candidate_metadata") or {}
+                    category_context = candidate_metadata.get("category_context") or {}
+                    content_idea = asyncio.run(
+                        compatibility_adapter_service.outcome_to_content_idea_payload(
+                            candidate=candidate,
+                            generated_outcome=outcome,
+                            category_context=category_context,
+                            keyword_pack=keyword_pack,
+                        )
+                    )
+                    # Reuse the generated outcome id as a stable compatibility source id
+                    # so repeated release attempts update the same released-software row.
+                    content_idea["id"] = str(outcome.get("id") or "")
+                    if category_context.get("domain") and not content_idea.get("domain"):
+                        content_idea["domain"] = category_context.get("domain")
+                else:
+                    logger.warning(
+                        "research-rebuild release software outcome falling back without candidate outcome_id=%s candidate_id=%s",
+                        outcome.get("id"),
+                        candidate_id_raw,
+                    )
+            if not content_idea:
+                content_idea = _build_release_fallback_content_idea(outcome)
 
         released_at = datetime.utcnow().isoformat()
         persisted, released_row_id = _upsert_released_software_idea(supabase, content_idea, user_id, released_at)
