@@ -238,7 +238,11 @@ class ResearchRebuildService {
         job_type_hint?: string
         website_context_snapshot?: Record<string, unknown>
     }): Promise<ResearchRebuildJob> {
-        return await apiClient.post(`${this.baseUrl}/jobs`, payload)
+        try {
+            return await apiClient.post(`${this.baseUrl}/jobs`, payload)
+        } catch (error) {
+            throw new Error(this.extractErrorMessage(error, 'Failed to create manual job.'))
+        }
     }
 
     async generateJobs(payload: {
@@ -258,7 +262,11 @@ class ResearchRebuildService {
         trend_titles?: string[]
         archive_existing_in_scope?: boolean
     }): Promise<ResearchRebuildGenerateJobsResponse> {
-        return await apiClient.post(`${this.baseUrl}/jobs/generate`, payload)
+        try {
+            return await apiClient.post(`${this.baseUrl}/jobs/generate`, payload)
+        } catch (error) {
+            throw new Error(this.extractErrorMessage(error, 'Failed to generate jobs.'))
+        }
     }
 
     async approveJob(jobId: string): Promise<ResearchRebuildJob> {

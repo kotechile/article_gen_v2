@@ -65,6 +65,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const [loadingJobs, setLoadingJobs] = React.useState(false)
     const [loadingWorkflowArtifacts, setLoadingWorkflowArtifacts] = React.useState(false)
     const [generatingJobs, setGeneratingJobs] = React.useState(false)
+    const [creatingManualJob, setCreatingManualJob] = React.useState(false)
     const [runningWorkflow, setRunningWorkflow] = React.useState(false)
     const [mutatingOutcomeIds, setMutatingOutcomeIds] = React.useState<Set<string>>(new Set())
     const [expandedCandidateIds, setExpandedCandidateIds] = React.useState<Set<string>>(new Set())
@@ -393,9 +394,10 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const handleCreateManualJob = async () => {
         if (!activeProject?.id || !manualJobText.trim()) return
         try {
+            setCreatingManualJob(true)
             setError(null)
             setSuccess(null)
-            const created = await researchRebuildService.createJob({
+            await researchRebuildService.createJob({
                 project_id: activeProject.id,
                 primary_category_id: primaryCategoryId || undefined,
                 secondary_category_id: secondaryCategoryId || undefined,
@@ -407,13 +409,19 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                 },
             })
             setManualJobText('')
-            setSuccess('Manual job created.')
-            if (created?.id) {
-                await refreshPageContext()
-            }
+            setActiveBatchId('')
+            setWorkflowRunFilter('all')
+            setSuccess('Manual job created and added to the current category scope.')
+            await refreshPageContext({
+                batchId: '',
+                workflowRunId: 'all',
+                workflowPage: 0,
+            })
         } catch (err) {
             console.error('Failed to create manual job:', err)
-            setError('Failed to create manual job.')
+            setError(err instanceof Error ? err.message : 'Failed to create manual job.')
+        } finally {
+            setCreatingManualJob(false)
         }
     }
 
@@ -919,10 +927,10 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                             variant="secondary" 
                                             size="icon"
                                             onClick={handleCreateManualJob} 
-                                            disabled={!manualJobText.trim()}
+                                            disabled={creatingManualJob || !manualJobText.trim()}
                                             className="rounded-xl h-12 w-12 shrink-0 bg-white/5 hover:bg-white/10"
                                         >
-                                            <ArrowRight className="h-5 w-5" />
+                                            {creatingManualJob ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
                                         </Button>
                                     </div>
                                 </div>
