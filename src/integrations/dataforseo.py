@@ -879,6 +879,248 @@ class DataForSEOAPI:
             logger.error(f"DataForSEO keyword trends API error: {e}")
             return []
 
+    async def get_google_trends_explore_live(
+        self,
+        keywords: List[str],
+        language_code: str = "en",
+        location_code: int = 2840,
+        date_from: str = None,
+        date_to: str = None,
+        return_raw: bool = False,
+    ) -> Any:
+        """Get Google Trends Explore data for up to five keywords."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                url = f"{self.base_url}/keywords_data/google_trends/explore/live"
+                payload = [{
+                    "keywords": keywords[:5],
+                    "language_code": language_code,
+                    "location_code": location_code,
+                    "type": "web",
+                    "date_from": date_from,
+                    "date_to": date_to,
+                }]
+                headers = {
+                    "Authorization": self.auth_header,
+                    "Content-Type": "application/json",
+                }
+                data = await self._make_request_with_retry(client, url, payload, headers)
+                parsed = self._process_keyword_trends(data)
+                if return_raw:
+                    return {
+                        "items": parsed,
+                        "raw": {
+                            "endpoint": "keywords_data/google_trends/explore/live",
+                            "request": {"url": url, "payload": payload},
+                            "response": data,
+                        },
+                    }
+                return parsed
+        except Exception as e:
+            logger.error(f"DataForSEO google trends explore live error: {e}")
+            if return_raw:
+                return {
+                    "items": [],
+                    "raw": {"endpoint": "keywords_data/google_trends/explore/live", "error": str(e)},
+                }
+            return []
+
+    async def get_google_organic_live_advanced(
+        self,
+        keyword: str,
+        language_code: str = "en",
+        location_code: int = 2840,
+        device: str = "desktop",
+        depth: int = 10,
+        return_raw: bool = False,
+    ) -> Any:
+        """Get live advanced Google organic SERP results."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                url = f"{self.base_url}/serp/google/organic/live/advanced"
+                payload = [{
+                    "keyword": keyword,
+                    "language_code": language_code,
+                    "location_code": location_code,
+                    "device": device,
+                    "depth": max(1, min(int(depth or 10), 10)),
+                }]
+                headers = {
+                    "Authorization": self.auth_header,
+                    "Content-Type": "application/json",
+                }
+                data = await self._make_request_with_retry(client, url, payload, headers)
+                analysis = self._process_serp_analysis(data, keyword)
+                organic_rows = analysis.get("organic_results", [])
+                normalized_items = [
+                    {
+                        "rank_group": row.get("position"),
+                        "title": row.get("title"),
+                        "url": row.get("url"),
+                        "domain": row.get("domain"),
+                        "snippet": row.get("description"),
+                    }
+                    for row in organic_rows
+                ]
+                if return_raw:
+                    return {
+                        "items": normalized_items,
+                        "raw": {
+                            "endpoint": "serp/google/organic/live/advanced",
+                            "request": {"url": url, "payload": payload},
+                            "response": data,
+                        },
+                    }
+                return normalized_items
+        except Exception as e:
+            logger.error(f"DataForSEO google organic live advanced error: {e}")
+            if return_raw:
+                return {
+                    "items": [],
+                    "raw": {"endpoint": "serp/google/organic/live/advanced", "error": str(e)},
+                }
+            return []
+
+    async def get_ranked_keywords_live(
+        self,
+        target: str,
+        language_code: str = "en",
+        location_code: int = 2840,
+        limit: int = 100,
+        ignore_synonyms: bool = True,
+        filters: Optional[List[Any]] = None,
+        order_by: Optional[List[str]] = None,
+        return_raw: bool = False,
+    ) -> Any:
+        """Get ranked keywords for a target domain or webpage URL."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                url = f"{self.base_url}/dataforseo_labs/google/ranked_keywords/live"
+                payload = [{
+                    "target": target,
+                    "language_code": language_code,
+                    "location_code": location_code,
+                    "ignore_synonyms": ignore_synonyms,
+                    "limit": max(1, min(int(limit or 100), 1000)),
+                    "filters": filters or [
+                        ["keyword_data.keyword_info.search_volume", ">", 10],
+                        "and",
+                        ["ranked_serp_element.serp_item.rank_group", "<=", 20],
+                    ],
+                    "order_by": order_by or [
+                        "keyword_data.keyword_info.search_volume,desc",
+                        "keyword_data.keyword_info.cpc,desc",
+                    ],
+                }]
+                headers = {
+                    "Authorization": self.auth_header,
+                    "Content-Type": "application/json",
+                }
+                data = await self._make_request_with_retry(client, url, payload, headers)
+                items = self._process_ranked_keywords(data)
+                if return_raw:
+                    return {
+                        "items": items,
+                        "raw": {
+                            "endpoint": "dataforseo_labs/google/ranked_keywords/live",
+                            "request": {"url": url, "payload": payload},
+                            "response": data,
+                        },
+                    }
+                return items
+        except Exception as e:
+            logger.error(f"DataForSEO ranked keywords live error: {e}")
+            if return_raw:
+                return {
+                    "items": [],
+                    "raw": {"endpoint": "dataforseo_labs/google/ranked_keywords/live", "error": str(e)},
+                }
+            return []
+
+    async def get_keyword_overview_live(
+        self,
+        keywords: List[str],
+        language_code: str = "en",
+        location_code: int = 2840,
+        return_raw: bool = False,
+    ) -> Any:
+        """Get keyword overview metrics from DataForSEO Labs."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                url = f"{self.base_url}/dataforseo_labs/google/keyword_overview/live"
+                payload = [{
+                    "keywords": keywords[:100],
+                    "language_code": language_code,
+                    "location_code": location_code,
+                }]
+                headers = {
+                    "Authorization": self.auth_header,
+                    "Content-Type": "application/json",
+                }
+                data = await self._make_request_with_retry(client, url, payload, headers)
+                items = self._process_keyword_overview(data)
+                if return_raw:
+                    return {
+                        "items": items,
+                        "raw": {
+                            "endpoint": "dataforseo_labs/google/keyword_overview/live",
+                            "request": {"url": url, "payload": payload},
+                            "response": data,
+                        },
+                    }
+                return items
+        except Exception as e:
+            logger.error(f"DataForSEO keyword overview live error: {e}")
+            if return_raw:
+                return {
+                    "items": [],
+                    "raw": {"endpoint": "dataforseo_labs/google/keyword_overview/live", "error": str(e)},
+                }
+            return []
+
+    async def get_relevant_pages_live(
+        self,
+        keyword: str,
+        language_code: str = "en",
+        location_code: int = 2840,
+        limit: int = 20,
+        return_raw: bool = False,
+    ) -> Any:
+        """Get relevant pages for a keyword from DataForSEO Labs."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                url = f"{self.base_url}/dataforseo_labs/google/relevant_pages/live"
+                payload = [{
+                    "keyword": keyword,
+                    "language_code": language_code,
+                    "location_code": location_code,
+                    "limit": max(1, min(int(limit or 20), 100)),
+                }]
+                headers = {
+                    "Authorization": self.auth_header,
+                    "Content-Type": "application/json",
+                }
+                data = await self._make_request_with_retry(client, url, payload, headers)
+                items = self._process_relevant_pages(data)
+                if return_raw:
+                    return {
+                        "items": items,
+                        "raw": {
+                            "endpoint": "dataforseo_labs/google/relevant_pages/live",
+                            "request": {"url": url, "payload": payload},
+                            "response": data,
+                        },
+                    }
+                return items
+        except Exception as e:
+            logger.error(f"DataForSEO relevant pages live error: {e}")
+            if return_raw:
+                return {
+                    "items": [],
+                    "raw": {"endpoint": "dataforseo_labs/google/relevant_pages/live", "error": str(e)},
+                }
+            return []
+
     async def get_serp_standard(
         self,
         keyword: str,
@@ -1201,6 +1443,78 @@ class DataForSEOAPI:
                     })
         
         return trends
+
+    def _process_ranked_keywords(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Process ranked keywords response into a flat list."""
+        rows: List[Dict[str, Any]] = []
+        if "tasks" not in data or not data["tasks"]:
+            return rows
+        task = data["tasks"][0]
+        for result_entry in task.get("result") or []:
+            for item in result_entry.get("items") or []:
+                keyword_data = item.get("keyword_data") or {}
+                keyword_info = keyword_data.get("keyword_info") or {}
+                search_intent_info = keyword_data.get("search_intent_info") or {}
+                serp_element = item.get("ranked_serp_element") or {}
+                serp_item = serp_element.get("serp_item") or {}
+                rows.append({
+                    "keyword": item.get("keyword"),
+                    "search_volume": keyword_info.get("search_volume"),
+                    "cpc": keyword_info.get("cpc") or keyword_data.get("cpc"),
+                    "competition": keyword_info.get("competition"),
+                    "competition_level": keyword_info.get("competition_level"),
+                    "competition_index": keyword_data.get("competition"),
+                    "keyword_difficulty": keyword_data.get("keyword_difficulty"),
+                    "intent": search_intent_info.get("main_intent"),
+                    "rank_group": serp_item.get("rank_group"),
+                    "rank_absolute": serp_item.get("rank_absolute"),
+                    "url": serp_item.get("url"),
+                    "title": serp_item.get("title"),
+                })
+        return rows
+
+    def _process_keyword_overview(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Process keyword overview response."""
+        rows: List[Dict[str, Any]] = []
+        if "tasks" not in data or not data["tasks"]:
+            return rows
+        task = data["tasks"][0]
+        for result_entry in task.get("result") or []:
+            for item in result_entry.get("items") or []:
+                keyword_info = item.get("keyword_info") or {}
+                keyword_properties = item.get("keyword_properties") or {}
+                search_intent_info = item.get("search_intent_info") or {}
+                rows.append({
+                    "keyword": item.get("keyword"),
+                    "search_volume": keyword_info.get("search_volume"),
+                    "cpc": keyword_info.get("cpc"),
+                    "competition": keyword_info.get("competition"),
+                    "competition_level": keyword_info.get("competition_level"),
+                    "competition_index": keyword_properties.get("competition"),
+                    "keyword_difficulty": keyword_properties.get("keyword_difficulty"),
+                    "intent": search_intent_info.get("main_intent"),
+                    "monthly_searches": keyword_info.get("monthly_searches") or [],
+                })
+        return rows
+
+    def _process_relevant_pages(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Process relevant pages response."""
+        rows: List[Dict[str, Any]] = []
+        if "tasks" not in data or not data["tasks"]:
+            return rows
+        task = data["tasks"][0]
+        for result_entry in task.get("result") or []:
+            for item in result_entry.get("items") or []:
+                metrics = item.get("metrics") or {}
+                rows.append({
+                    "url": item.get("url"),
+                    "title": item.get("title"),
+                    "domain": item.get("domain"),
+                    "main_domain": item.get("main_domain"),
+                    "rank_group": metrics.get("rank_group") or item.get("rank_group"),
+                    "traffic": metrics.get("etv") or item.get("etv"),
+                })
+        return rows
     
     def _process_keyword_ideas(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Process keyword ideas response"""

@@ -19,6 +19,8 @@ import type {
     ResearchRebuildWorkflowContextResponse,
     ResearchRebuildWorkflowSnapshotResponse,
     ResearchRebuildWorkflowRunSummary,
+    ResearchStrategyRun,
+    ResearchStrategyRunDetail,
 } from '@/types/research-rebuild'
 
 class ResearchRebuildService {
@@ -435,7 +437,7 @@ class ResearchRebuildService {
     async listDataforseoSearches(params: {
         project_id: string
         user_job_id?: string
-        search_type?: 'related_keywords' | 'keyword_overview' | 'serp'
+        search_type?: 'related_keywords' | 'keyword_overview' | 'serp' | 'google_trends' | 'serp_probe' | 'ranked_keywords' | 'relevant_pages'
         limit?: number
     }): Promise<ResearchRebuildListResponse<ResearchRebuildDataforseoSearch>> {
         const query = new URLSearchParams()
@@ -451,12 +453,14 @@ class ResearchRebuildService {
         user_job_id?: string
         primary_category_id?: string
         secondary_category_id?: string
-        search_type: 'related_keywords' | 'keyword_overview' | 'serp'
+        search_type: 'related_keywords' | 'keyword_overview' | 'serp' | 'google_trends' | 'serp_probe' | 'ranked_keywords' | 'relevant_pages'
         query_text?: string
         keywords?: string[]
+        target?: string
         language_code?: string
         location_code?: number
         limit?: number
+        force_refresh?: boolean
     }): Promise<ResearchRebuildDataforseoSearch> {
         try {
             return await apiClient.post(`${this.baseUrl}/dataforseo-searches`, payload, {
@@ -464,6 +468,69 @@ class ResearchRebuildService {
             })
         } catch (error) {
             throw new Error(this.extractErrorMessage(error, 'Failed to run DataForSEO search.'))
+        }
+    }
+
+    async listStrategyRuns(params: {
+        project_id: string
+        topic_id?: string
+        primary_category_id?: string
+        secondary_category_id?: string
+        limit?: number
+    }): Promise<ResearchRebuildListResponse<ResearchStrategyRun>> {
+        const query = new URLSearchParams()
+        query.append('project_id', params.project_id)
+        if (params.topic_id) query.append('topic_id', params.topic_id)
+        if (params.primary_category_id) query.append('primary_category_id', params.primary_category_id)
+        if (params.secondary_category_id) query.append('secondary_category_id', params.secondary_category_id)
+        if (params.limit !== undefined) query.append('limit', String(params.limit))
+        return await apiClient.get(`${this.baseUrl}/strategy-runs?${query.toString()}`)
+    }
+
+    async getStrategyRun(runId: string): Promise<ResearchStrategyRunDetail> {
+        return await apiClient.get(`${this.baseUrl}/strategy-runs/${runId}`)
+    }
+
+    async createStrategyRun(payload: {
+        project_id: string
+        primary_category_id?: string
+        secondary_category_id?: string
+        topic_id?: string
+        topic_text?: string
+        force_refresh?: boolean
+    }): Promise<ResearchStrategyRunDetail> {
+        try {
+            return await apiClient.post(`${this.baseUrl}/strategy-runs`, payload, {
+                timeout: 300000,
+            })
+        } catch (error) {
+            throw new Error(this.extractErrorMessage(error, 'Failed to create strategy run.'))
+        }
+    }
+
+    async rerunStrategyStage(runId: string, payload: {
+        stage: 'trends' | 'serp' | 'competitor_mining'
+        force_refresh?: boolean
+    }): Promise<ResearchStrategyRunDetail> {
+        try {
+            return await apiClient.post(`${this.baseUrl}/strategy-runs/${runId}/rerun-stage`, payload, {
+                timeout: 300000,
+            })
+        } catch (error) {
+            throw new Error(this.extractErrorMessage(error, 'Failed to rerun stage.'))
+        }
+    }
+
+    async selectStrategyCluster(runId: string, payload: {
+        cluster_id?: string
+        force_refresh?: boolean
+    }): Promise<ResearchStrategyRunDetail> {
+        try {
+            return await apiClient.post(`${this.baseUrl}/strategy-runs/${runId}/select-cluster`, payload, {
+                timeout: 300000,
+            })
+        } catch (error) {
+            throw new Error(this.extractErrorMessage(error, 'Failed to select cluster.'))
         }
     }
 }

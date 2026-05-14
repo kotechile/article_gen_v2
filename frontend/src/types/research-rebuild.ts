@@ -95,7 +95,14 @@ export type ResearchRebuildDataforseoSearch = {
     user_job_id?: string | null
     primary_category_id?: string | null
     secondary_category_id?: string | null
-    search_type: 'related_keywords' | 'keyword_overview' | 'serp'
+    search_type:
+        | 'related_keywords'
+        | 'keyword_overview'
+        | 'serp'
+        | 'google_trends'
+        | 'serp_probe'
+        | 'ranked_keywords'
+        | 'relevant_pages'
     endpoint: string
     query_text: string
     normalized_query_text?: string | null
@@ -202,4 +209,109 @@ export type ResearchRebuildGenerateJobsResponse = ResearchRebuildListResponse<Re
     cleared_count?: number
     exhausted_focus?: boolean
     message?: string | null
+}
+
+export type ResearchStrategyRun = {
+    id: string
+    project_id: string
+    topic_id: string
+    primary_category_id?: string | null
+    secondary_category_id?: string | null
+    status: string
+    current_stage?: string | null
+    selected_bet_id?: string | null
+    selected_cluster_id?: string | null
+    winning_route?: 'article_ready' | 'software_ready' | 'editorial_only' | 'rejected_low_achievability' | null
+    confidence_score?: number | null
+    limits_json?: Record<string, unknown>
+    run_metadata?: Record<string, unknown>
+    validated_at?: string | null
+    expires_at?: string | null
+    created_at?: string
+    updated_at?: string
+}
+
+export type ResearchTopicBet = {
+    id: string
+    run_id: string
+    topic_id: string
+    bet_text: string
+    searcher_problem?: string | null
+    article_format?: string | null
+    commercial_angle?: string | null
+    buyer_or_seller_intent?: string | null
+    route_hint?: string | null
+    trend_score?: number | null
+    serp_articleability_score?: number | null
+    serp_weakness_score?: number | null
+    intent_fit_score?: number | null
+    article_fit_score?: number | null
+    status: string
+    reason_codes?: string[]
+    bet_metadata?: Record<string, unknown>
+}
+
+export type ResearchProbeQuery = {
+    id: string
+    run_id: string
+    bet_id: string
+    query_text: string
+    query_role: 'primary_probe' | 'secondary_probe'
+    trend_search_id?: string | null
+    serp_search_id?: string | null
+    articleability_passed?: boolean | null
+    serp_classification?: string | null
+    probe_metadata?: Record<string, unknown>
+}
+
+export type ResearchCompetitorPage = {
+    id: string
+    run_id: string
+    bet_id: string
+    probe_query_id?: string | null
+    url: string
+    title?: string | null
+    rank_group?: number | null
+    domain?: string | null
+    page_type?: string | null
+    mined_search_id?: string | null
+    selected_for_mining?: boolean | null
+    page_metadata?: Record<string, unknown>
+}
+
+export type ResearchKeywordCluster = {
+    id: string
+    run_id: string
+    bet_id: string
+    cluster_name: string
+    primary_keyword_candidate?: string | null
+    secondary_keywords_json?: string[]
+    supporting_competitor_urls_json?: string[]
+    cluster_type?: string | null
+    competitor_support_score?: number | null
+    kd_median_score?: number | null
+    commercial_value_score?: number | null
+    trend_score?: number | null
+    articleability_score?: number | null
+    serp_weakness_score?: number | null
+    article_fit_score?: number | null
+    opportunity_score?: number | null
+    status?: string | null
+    cluster_metadata?: Record<string, unknown>
+}
+
+export type ResearchStrategyRunDetail = {
+    run: ResearchStrategyRun
+    topic: ResearchRebuildJob | null
+    bets: ResearchTopicBet[]
+    probe_queries: ResearchProbeQuery[]
+    competitor_pages: ResearchCompetitorPage[]
+    clusters: ResearchKeywordCluster[]
+    final_selection?: {
+        candidate?: ResearchRebuildCandidate | null
+        validation_run?: ResearchRebuildValidationRun | null
+        routing_decision?: ResearchRebuildRoutingDecision | null
+        keyword_pack?: ResearchRebuildKeywordPack | null
+        generated_outcome?: ResearchRebuildGeneratedOutcome | null
+    } | null
 }

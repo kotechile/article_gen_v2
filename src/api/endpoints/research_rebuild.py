@@ -26,6 +26,7 @@ from ...services.research_internal_link_fit_service import ResearchInternalLinkF
 from ...services.research_job_service import ResearchJobService
 from ...services.research_keyword_pack_service import ResearchKeywordPackService
 from ...services.research_routing_service import ResearchRoutingService
+from ...services.research_strategy_service import ResearchStrategyService
 from ...services.research_validation_service import ResearchValidationService
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ internal_link_fit_service = ResearchInternalLinkFitService()
 generation_service = ResearchGenerationService()
 compatibility_adapter_service = ResearchCompatibilityAdapterService()
 dataforseo_search_service = ResearchDataforseoSearchService()
+strategy_service = ResearchStrategyService()
 
 ALLOWED_CANDIDATE_TYPES = {"seo_article", "software", "editorial"}
 ALLOWED_FRESHNESS_STATES = {"fresh", "stale", "expired"}
@@ -57,8 +59,17 @@ ALLOWED_KEYWORD_PACK_STATUSES = {"draft", "ready", "cluster_too_thin", "needs_mo
 ALLOWED_LINK_ROLES = {"parent_candidate", "child_candidate", "sibling_candidate", "hub_candidate"}
 ALLOWED_OUTCOME_TYPES = {"article", "software", "editorial"}
 ALLOWED_OUTCOME_STATUSES = {"draft", "generated", "persisted", "published", "archived"}
-ALLOWED_DATAFORSEO_SEARCH_TYPES = {"related_keywords", "keyword_overview", "serp"}
+ALLOWED_DATAFORSEO_SEARCH_TYPES = {
+    "related_keywords",
+    "keyword_overview",
+    "serp",
+    "google_trends",
+    "serp_probe",
+    "ranked_keywords",
+    "relevant_pages",
+}
 PROMOTABLE_ROUTES = {"article_ready", "software_ready", "article_plus_software", "editorial_only"}
+ALLOWED_STRATEGY_RERUN_STAGES = {"trends", "serp", "competitor_mining"}
 
 
 def _normalize_review_title(value: str | None) -> str:
@@ -1279,7 +1290,7 @@ def create_dataforseo_search():
     if not project_id:
         return jsonify({"error": "project_id is required"}), 400
     if search_type not in ALLOWED_DATAFORSEO_SEARCH_TYPES:
-        return jsonify({"error": "search_type must be one of related_keywords, keyword_overview, serp"}), 400
+        return jsonify({"error": "search_type is invalid"}), 400
 
     user_id = _get_user_id_from_request()
     if not user_id:
@@ -1296,9 +1307,11 @@ def create_dataforseo_search():
                 search_type=search_type,
                 query_text=data.get("query_text"),
                 keywords=data.get("keywords") if isinstance(data.get("keywords"), list) else None,
+                target=data.get("target"),
                 language_code=str(data.get("language_code") or "en"),
                 location_code=int(data.get("location_code") or 2840),
                 limit=int(data.get("limit") or 25),
+                force_refresh=bool(data.get("force_refresh")),
             )
         )
         return jsonify(item), 201
@@ -1307,6 +1320,159 @@ def create_dataforseo_search():
     except Exception as exc:
         logger.error("research-rebuild create dataforseo search failed: %s", exc, exc_info=True)
         return jsonify({"error": f"Failed to create DataForSEO search: {exc}"}), 500
+
+
+@research_rebuild_bp.route("/strategy-runs", methods=["GET"])
+@require_api_key
+def list_strategy_runs():
+    """List strategic competitive SERP mining runs."""
+    project_id = request.args.get("project_id")
+    if not project_id:
+        return jsonify({"error": "project_id is required"}), 400
+
+    user_id = _get_user_id_from_request()
+    if not user_id:
+        return jsonify({"error": "Authentication required"}), 401
+
+    try:
+        items = asyncio.run(
+            strategy_service.list_runs(
+                user_id=UUID(user_id),
+                project_id=_parse_uuid(project_id, "project_id"),
+                topic_id=_parse_uuid(request.args["topic_id"], "topic_id") if request.args.get("topic_id") else None,
+                primary_category_id=_parse_uuid(request.args["primary_category_id"], "primary_category_id") if request.args.get("primary_category_id") else None,
+                secondary_category_id=_parse_uuid(request.args["secondary_category_id"], "secondary_category_id") if request.args.get("secondary_category_id") else None,
+                limit=int(request.args.get("limit") or 20),
+            )
+        )
+        return jsonify({"items": items, "count": len(items)}), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("research-rebuild list strategy runs failed: %s", exc, exc_info=True)
+        return jsonify({"error": f"Failed to list strategy runs: {exc}"}), 500
+
+
+@research_rebuild_bp.route("/strategy-runs", methods=["POST"])
+@require_api_key
+def create_strategy_run():
+    """Create and execute a competitive SERP mining strategy run."""
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 400
+
+    data = request.get_json() or {}
+    project_id = data.get("project_id")
+    topic_text = str(data.get("topic_text") or "").strip()
+    topic_id = data.get("topic_id")
+    if not project_id:
+        return jsonify({"error": "project_id is required"}), 400
+    if not topic_id and not topic_text:
+        return jsonify({"error": "topic_text or topic_id is required"}), 400
+
+    user_id = _get_user_id_from_request()
+    if not user_id:
+        return jsonify({"error": "Authentication required"}), 401
+
+    try:
+        item = asyncio.run(
+            strategy_service.start_strategy_run(
+                user_id=UUID(user_id),
+                project_id=_parse_uuid(project_id, "project_id"),
+                primary_category_id=_parse_uuid(data["primary_category_id"], "primary_category_id") if data.get("primary_category_id") else None,
+                secondary_category_id=_parse_uuid(data["secondary_category_id"], "secondary_category_id") if data.get("secondary_category_id") else None,
+                topic_id=_parse_uuid(topic_id, "topic_id") if topic_id else None,
+                topic_text=topic_text or None,
+                force_refresh=bool(data.get("force_refresh")),
+            )
+        )
+        return jsonify(item), 201
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("research-rebuild create strategy run failed: %s", exc, exc_info=True)
+        return jsonify({"error": f"Failed to create strategy run: {exc}"}), 500
+
+
+@research_rebuild_bp.route("/strategy-runs/<run_id>", methods=["GET"])
+@require_api_key
+def get_strategy_run(run_id: str):
+    """Fetch a full strategic run detail."""
+    user_id = _get_user_id_from_request()
+    if not user_id:
+        return jsonify({"error": "Authentication required"}), 401
+
+    try:
+        item = asyncio.run(strategy_service.get_run_detail(user_id=UUID(user_id), run_id=_parse_uuid(run_id, "run_id")))
+        if not item:
+            return jsonify({"error": "Strategy run not found"}), 404
+        return jsonify(item), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("research-rebuild get strategy run failed: %s", exc, exc_info=True)
+        return jsonify({"error": f"Failed to load strategy run: {exc}"}), 500
+
+
+@research_rebuild_bp.route("/strategy-runs/<run_id>/select-cluster", methods=["POST"])
+@require_api_key
+def select_strategy_cluster(run_id: str):
+    """Lock a cluster and generate the final article/software/editorial output."""
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 400
+
+    data = request.get_json() or {}
+    user_id = _get_user_id_from_request()
+    if not user_id:
+        return jsonify({"error": "Authentication required"}), 401
+
+    try:
+        item = asyncio.run(
+            strategy_service.select_cluster(
+                user_id=UUID(user_id),
+                run_id=_parse_uuid(run_id, "run_id"),
+                cluster_id=_parse_uuid(data["cluster_id"], "cluster_id") if data.get("cluster_id") else None,
+                force_refresh=bool(data.get("force_refresh")),
+            )
+        )
+        return jsonify(item), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("research-rebuild select strategy cluster failed: %s", exc, exc_info=True)
+        return jsonify({"error": f"Failed to select cluster: {exc}"}), 500
+
+
+@research_rebuild_bp.route("/strategy-runs/<run_id>/rerun-stage", methods=["POST"])
+@require_api_key
+def rerun_strategy_stage(run_id: str):
+    """Rerun a specific strategy stage using the saved topic scope."""
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 400
+
+    data = request.get_json() or {}
+    stage = str(data.get("stage") or "").strip().lower()
+    if stage not in ALLOWED_STRATEGY_RERUN_STAGES:
+        return jsonify({"error": "stage must be one of trends, serp, competitor_mining"}), 400
+
+    user_id = _get_user_id_from_request()
+    if not user_id:
+        return jsonify({"error": "Authentication required"}), 401
+
+    try:
+        item = asyncio.run(
+            strategy_service.rerun_stage(
+                user_id=UUID(user_id),
+                run_id=_parse_uuid(run_id, "run_id"),
+                stage=stage,
+                force_refresh=bool(data.get("force_refresh")),
+            )
+        )
+        return jsonify(item), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("research-rebuild rerun strategy stage failed: %s", exc, exc_info=True)
+        return jsonify({"error": f"Failed to rerun strategy stage: {exc}"}), 500
 
 
 @research_rebuild_bp.route("/validation-runs", methods=["GET"])

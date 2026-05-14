@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -26,6 +27,31 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
     @staticmethod
     def _normalize_query_text(value: Any) -> str:
         return " ".join(str(value or "").strip().lower().split())
+
+    @classmethod
+    def _build_cache_key(
+        cls,
+        *,
+        search_type: str,
+        query_text: Optional[str] = None,
+        keywords: Optional[List[str]] = None,
+        target: Optional[str] = None,
+        language_code: str = "en",
+        location_code: int = 2840,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        parts = [str(search_type or "").strip().lower(), language_code.strip().lower(), str(location_code)]
+        if query_text:
+            parts.append(cls._normalize_query_text(query_text))
+        if keywords:
+            cleaned = sorted({cls._normalize_query_text(item) for item in keywords if str(item or "").strip()})
+            parts.extend(cleaned)
+        if target:
+            parts.append(cls._normalize_query_text(target))
+        if extra:
+            for key in sorted(extra.keys()):
+                parts.append(f"{key}:{cls._normalize_query_text(extra[key])}")
+        return "|".join(part for part in parts if part)
 
     @staticmethod
     def _sanitize_for_json(value: Any) -> Any:
@@ -105,6 +131,69 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
             "top_items": top_items,
         }
 
+    @staticmethod
+    def _summarize_google_trends(items: List[Dict[str, Any]], keywords: List[str]) -> Dict[str, Any]:
+        top_items = []
+        for row in items or []:
+            for item in row.get("items", []) or []:
+                keyword = item.get("keyword") or item.get("title") or item.get("term")
+                if keyword:
+                    top_items.append(item)
+        return {
+            "query_text": ", ".join(keywords[:5]),
+            "result_count": len(top_items),
+            "top_items": top_items[:20],
+        }
+
+    @staticmethod
+    def _summarize_ranked_keywords(items: List[Dict[str, Any]], target: str) -> Dict[str, Any]:
+        return {
+            "query_text": target,
+            "result_count": len(items or []),
+            "top_items": (items or [])[:50],
+        }
+
+    @staticmethod
+    def _summarize_relevant_pages(items: List[Dict[str, Any]], query_text: str) -> Dict[str, Any]:
+        return {
+            "query_text": query_text,
+            "result_count": len(items or []),
+            "top_items": (items or [])[:20],
+        }
+
+    async def find_cached_search(
+        self,
+        *,
+        user_id: UUID,
+        project_id: UUID,
+        search_type: str,
+        normalized_query_text: str,
+        ttl_days: int,
+    ) -> Optional[Dict[str, Any]]:
+        rows = await self.list_records(
+            user_id=user_id,
+            filters={
+                "project_id": str(project_id),
+                "search_type": str(search_type or "").strip().lower(),
+                "normalized_query_text": normalized_query_text,
+            },
+            order_by={"searched_at": "desc"},
+            limit=1,
+        )
+        if not rows:
+            return None
+        row = rows[0]
+        searched_at = row.get("searched_at")
+        if not searched_at:
+            return None
+        try:
+            searched_dt = datetime.fromisoformat(str(searched_at).replace("Z", "+00:00"))
+            if searched_dt >= datetime.now(timezone.utc) - timedelta(days=max(1, ttl_days)):
+                return row
+        except Exception:
+            return None
+        return None
+
     async def run_search(
         self,
         *,
@@ -113,15 +202,39 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
         search_type: str,
         query_text: Optional[str] = None,
         keywords: Optional[List[str]] = None,
+        target: Optional[str] = None,
         user_job_id: Optional[UUID] = None,
         primary_category_id: Optional[str] = None,
         secondary_category_id: Optional[str] = None,
         language_code: str = "en",
         location_code: int = 2840,
         limit: int = 25,
+        force_refresh: bool = False,
+        cache_ttl_days: int = 30,
+        extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         search_type_normalized = str(search_type or "").strip().lower()
         now_iso = datetime.now(timezone.utc).isoformat()
+        normalized_query = self._build_cache_key(
+            search_type=search_type_normalized,
+            query_text=query_text,
+            keywords=keywords,
+            target=target,
+            language_code=language_code,
+            location_code=location_code,
+            extra=extra,
+        )
+
+        if not force_refresh:
+            cached = await self.find_cached_search(
+                user_id=user_id,
+                project_id=project_id,
+                search_type=search_type_normalized,
+                normalized_query_text=normalized_query,
+                ttl_days=cache_ttl_days,
+            )
+            if cached:
+                return cached
 
         if search_type_normalized == "related_keywords":
             seed = str(query_text or "").strip()
@@ -138,7 +251,6 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
             response_payload = self._sanitize_for_json(raw_result)
             result_summary_json = self._summarize_related_keywords(items)
             endpoint = "dataforseo_labs/google/related_keywords/live"
-            normalized_query = self._normalize_query_text(seed)
             request_payload = {
                 "seed_keyword": seed,
                 "language_code": language_code,
@@ -175,7 +287,6 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
             )
             result_summary_json = self._summarize_keyword_overview(metric_items, kd_items)
             endpoint = "keywords_data/google_ads/search_volume + dataforseo_labs/google/bulk_keyword_difficulty/live"
-            normalized_query = self._normalize_query_text(", ".join(cleaned_keywords[:10]))
             request_payload = {
                 "keywords": cleaned_keywords,
                 "language_code": language_code,
@@ -205,15 +316,98 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
             )
             result_summary_json = self._summarize_serp(seed, items)
             endpoint = "serp/google/organic/task_post"
-            normalized_query = self._normalize_query_text(seed)
             request_payload = {
                 "keyword": seed,
                 "language_code": language_code,
                 "location_code": int(location_code),
                 "depth": max(10, min(int(limit or 10), 20)),
             }
+        elif search_type_normalized == "google_trends":
+            cleaned_keywords = [str(keyword or "").strip() for keyword in (keywords or []) if str(keyword or "").strip()]
+            if not cleaned_keywords:
+                raise ValueError("keywords is required for google_trends searches")
+            trend_result = await dataforseo_api.get_google_trends_explore_live(
+                cleaned_keywords[:5],
+                language_code=language_code,
+                location_code=int(location_code),
+                return_raw=True,
+            )
+            items = (trend_result or {}).get("items") or []
+            response_payload = self._sanitize_for_json((trend_result or {}).get("raw") or trend_result)
+            result_summary_json = self._summarize_google_trends(items, cleaned_keywords)
+            endpoint = "keywords_data/google_trends/explore/live"
+            request_payload = {
+                "keywords": cleaned_keywords[:5],
+                "language_code": language_code,
+                "location_code": int(location_code),
+            }
+            query_text = ", ".join(cleaned_keywords[:5])
+        elif search_type_normalized == "serp_probe":
+            seed = str(query_text or "").strip()
+            if not seed:
+                raise ValueError("query_text is required for serp_probe searches")
+            serp_result = await dataforseo_api.get_google_organic_live_advanced(
+                seed,
+                language_code=language_code,
+                location_code=int(location_code),
+                depth=min(int(limit or 10), 10),
+                return_raw=True,
+            )
+            items = (serp_result or {}).get("items") or []
+            response_payload = self._sanitize_for_json((serp_result or {}).get("raw") or serp_result)
+            result_summary_json = self._summarize_serp(seed, items)
+            endpoint = "serp/google/organic/live/advanced"
+            request_payload = {
+                "keyword": seed,
+                "language_code": language_code,
+                "location_code": int(location_code),
+                "depth": min(int(limit or 10), 10),
+            }
+        elif search_type_normalized == "ranked_keywords":
+            page_target = str(target or query_text or "").strip()
+            if not page_target:
+                raise ValueError("target is required for ranked_keywords searches")
+            ranked_result = await dataforseo_api.get_ranked_keywords_live(
+                page_target,
+                language_code=language_code,
+                location_code=int(location_code),
+                limit=max(1, min(int(limit or 100), 100)),
+                return_raw=True,
+            )
+            items = (ranked_result or {}).get("items") or []
+            response_payload = self._sanitize_for_json((ranked_result or {}).get("raw") or ranked_result)
+            result_summary_json = self._summarize_ranked_keywords(items, page_target)
+            endpoint = "dataforseo_labs/google/ranked_keywords/live"
+            request_payload = {
+                "target": page_target,
+                "language_code": language_code,
+                "location_code": int(location_code),
+                "limit": max(1, min(int(limit or 100), 100)),
+            }
+            query_text = page_target
+        elif search_type_normalized == "relevant_pages":
+            seed = str(query_text or "").strip()
+            if not seed:
+                raise ValueError("query_text is required for relevant_pages searches")
+            relevant_result = await dataforseo_api.get_relevant_pages_live(
+                seed,
+                language_code=language_code,
+                location_code=int(location_code),
+                limit=max(1, min(int(limit or 20), 20)),
+                return_raw=True,
+            )
+            items = (relevant_result or {}).get("items") or []
+            response_payload = self._sanitize_for_json((relevant_result or {}).get("raw") or relevant_result)
+            result_summary_json = self._summarize_relevant_pages(items, seed)
+            endpoint = "dataforseo_labs/google/relevant_pages/live"
+            request_payload = {
+                "keyword": seed,
+                "language_code": language_code,
+                "location_code": int(location_code),
+                "limit": max(1, min(int(limit or 20), 20)),
+            }
         else:
-            raise ValueError("search_type must be one of related_keywords, keyword_overview, serp")
+            raise ValueError("search_type must be one of related_keywords, keyword_overview, serp, google_trends, serp_probe, ranked_keywords, relevant_pages")
 
         item = await self.create_record(
             user_id=user_id,
