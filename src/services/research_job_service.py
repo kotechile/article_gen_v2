@@ -501,6 +501,14 @@ Rejected patterns to avoid:
             },
         )
 
+    async def archive_job(self, *, job_id: UUID, user_id: UUID) -> Optional[Dict[str, Any]]:
+        """Archive a job so it disappears from the active manual workflow."""
+        return await self.update_record(
+            record_id=job_id,
+            user_id=user_id,
+            data={"status": "archived"},
+        )
+
     async def build_negative_context(
         self,
         *,

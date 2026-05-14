@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { researchRebuildService } from '@/services/research-rebuild.service'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import type {
     ResearchRebuildInternalLinkCandidate,
     ResearchRebuildDataforseoSearch,
@@ -49,6 +49,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const { user } = useAuth()
     const { activeProject, projects, setActiveProject } = useProject()
     const navigate = useNavigate()
+    const location = useLocation()
     const [searchParams] = useSearchParams()
     const isJobsPage = mode === 'jobs'
     const isOpportunitiesPage = mode === 'opportunities'
@@ -84,9 +85,12 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const [generatingJobs, setGeneratingJobs] = React.useState(false)
     const [creatingManualJob, setCreatingManualJob] = React.useState(false)
     const [runningWorkflow, setRunningWorkflow] = React.useState(false)
+    const [showCategoryDescriptions, setShowCategoryDescriptions] = React.useState(false)
+    const [showSavedTopicsModal, setShowSavedTopicsModal] = React.useState(false)
     const [mutatingOutcomeIds, setMutatingOutcomeIds] = React.useState<Set<string>>(new Set())
     const [expandedCandidateIds, setExpandedCandidateIds] = React.useState<Set<string>>(new Set())
     const [rejectingJobIds, setRejectingJobIds] = React.useState<Set<string>>(new Set())
+    const [archivingJobIds, setArchivingJobIds] = React.useState<Set<string>>(new Set())
     const [rejectingCandidateIds, setRejectingCandidateIds] = React.useState<Set<string>>(new Set())
     const [refreshingValidationIds, setRefreshingValidationIds] = React.useState<Set<string>>(new Set())
     const [refreshingAllStale, setRefreshingAllStale] = React.useState(false)
@@ -291,24 +295,20 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
             params.set('batch_id', activeBatchId)
         }
 
-        const relevantKeys = ['project_id', 'primary_category_id', 'secondary_category_id', 'workflow_run_id', 'batch_id']
-        const hasChanged = relevantKeys.some(key => params.get(key) !== searchParams.get(key))
-        
-        // Also check if there are extra keys in searchParams that we should strip
-        const hasExtraKeys = Array.from(searchParams.keys()).some(key => !relevantKeys.includes(key))
-
-        if (!hasChanged && !hasExtraKeys) {
+        const targetPathname = mode === 'jobs' ? '/research-rebuild/jobs' : '/research-rebuild/opportunities'
+        const targetSearch = params.toString() ? `?${params.toString()}` : ''
+        if (location.pathname === targetPathname && location.search === targetSearch) {
             return
         }
 
         navigate(
             {
-                pathname: mode === 'jobs' ? '/research-rebuild/jobs' : '/research-rebuild/opportunities',
-                search: params.toString() ? `?${params.toString()}` : '',
+                pathname: targetPathname,
+                search: targetSearch,
             },
             { replace: true },
         )
-    }, [activeBatchId, activeProject?.id, mode, navigate, primaryCategoryId, searchParams, secondaryCategoryId, workflowRunFilter])
+    }, [activeBatchId, activeProject?.id, location.pathname, location.search, mode, navigate, primaryCategoryId, secondaryCategoryId, workflowRunFilter])
 
     React.useEffect(() => {
         setWorkflowPage(0)
@@ -385,6 +385,17 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     React.useEffect(() => {
         void refreshSearchHistory()
     }, [refreshSearchHistory])
+
+    React.useEffect(() => {
+        if (!showSavedTopicsModal) return
+        const handleEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setShowSavedTopicsModal(false)
+            }
+        }
+        window.addEventListener('keydown', handleEscape)
+        return () => window.removeEventListener('keydown', handleEscape)
+    }, [showSavedTopicsModal])
 
     const primaryCategory = primaryCategories.find((category) => category.id === primaryCategoryId)
     const secondaryCategory = secondaryCategories.find((category) => category.id === secondaryCategoryId)
@@ -629,6 +640,27 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
         }
     }
 
+    const handleArchiveJob = async (jobId: string) => {
+        setArchivingJobIds((current) => new Set(current).add(jobId))
+        try {
+            await researchRebuildService.archiveJob(jobId)
+            if (selectedLookupJobId === jobId) {
+                setSelectedLookupJobId('')
+            }
+            await refreshPageContext()
+            setSuccess('Topic removed from the active workflow.')
+        } catch (err) {
+            console.error('Failed to archive job:', err)
+            setError('Failed to remove topic.')
+        } finally {
+            setArchivingJobIds((current) => {
+                const next = new Set(current)
+                next.delete(jobId)
+                return next
+            })
+        }
+    }
+
     const chunkJobIds = React.useCallback((jobIds: string[]) => {
         if (jobIds.length <= WORKFLOW_BATCH_SIZE) return [jobIds]
         const batches: string[][] = []
@@ -830,9 +862,9 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     }
 
     return (
-        <div className="min-h-screen bg-[#08080a] text-slate-200 selection:bg-indigo-500/30">
+        <div className="min-h-screen bg-[#06070b] text-slate-100 selection:bg-indigo-500/30">
             {/* Premium Header */}
-            <header className="border-b border-white/5 bg-[#0d0d0f]/90 backdrop-blur-2xl sticky top-0 z-50">
+            <header className="sticky top-0 z-50 border-b border-white/10 bg-[#10131a] shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
                 <div className="mx-auto max-w-[1600px] px-6 py-4 flex items-center justify-between">
                     <div className="flex items-center gap-4">
                         <div className="bg-gradient-to-tr from-indigo-600 to-indigo-400 p-2.5 rounded-2xl shadow-[0_0_20px_rgba(99,102,241,0.4)]">
@@ -884,7 +916,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                             </button>
                         </div>
                         <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-xl border border-white/10">
-                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            <div className="w-2 h-2 rounded-full bg-emerald-500" />
                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Live Engine</span>
                         </div>
                         <Button 
@@ -965,8 +997,8 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                             </div>
                         </div>
 
-                        <section className={cn("bg-[#0d0d0f] border border-white/5 rounded-[2.5rem] shadow-2xl overflow-hidden", isOpportunitiesPage && "hidden")}>
-                            <div className="p-8 border-b border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent">
+                        <section className={cn("bg-[#10131a] border border-white/10 rounded-[2.5rem] shadow-2xl overflow-hidden", isOpportunitiesPage && "hidden")}>
+                            <div className="p-8 border-b border-white/10 bg-gradient-to-br from-white/[0.04] to-transparent">
                                 <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-3">
                                     <Globe className="h-4 w-4 text-indigo-400" />
                                     Simple Manual Workflow
@@ -974,7 +1006,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                             </div>
 
                             <div className="p-8 space-y-8">
-                                <div className="rounded-[2rem] border border-indigo-500/10 bg-indigo-500/[0.03] p-6 space-y-5">
+                                <div className="rounded-[2rem] border border-indigo-400/20 bg-[#151925] p-6 space-y-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                                     <div className="flex items-center gap-3">
                                         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-indigo-500/30 bg-indigo-500/15 text-xs font-black text-indigo-300">1</span>
                                         <div>
@@ -983,53 +1015,79 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         </div>
                                     </div>
 
-                                    <SelectField 
-                                        label="Primary Domain Category" 
-                                        value={primaryCategoryId} 
-                                        onChange={(val) => {
-                                            setPrimaryCategoryId(val)
-                                            setSecondaryCategoryId('')
-                                            setActiveBatchId('')
-                                            setWorkflowRunFilter('all')
-                                            setWorkflowResults([])
-                                            setWorkflowRuns([])
-                                            setWorkflowTotalJobs(0)
-                                        }}
-                                        options={[{ value: '', label: 'Select Primary Category' }, ...primaryCategories.map(c => ({ value: c.id, label: c.name }))]} 
-                                    />
-                                    {primaryCategory?.description && (
-                                        <div className="rounded-2xl border border-indigo-500/10 bg-indigo-500/[0.04] px-4 py-3">
-                                            <div className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-300/80">
-                                                Category Description
+                                    <div className="grid gap-4 md:grid-cols-2">
+                                        <SelectField 
+                                            label="Primary Domain Category" 
+                                            value={primaryCategoryId} 
+                                            onChange={(val) => {
+                                                setPrimaryCategoryId(val)
+                                                setSecondaryCategoryId('')
+                                                setActiveBatchId('')
+                                                setWorkflowRunFilter('all')
+                                                setWorkflowResults([])
+                                                setWorkflowRuns([])
+                                                setWorkflowTotalJobs(0)
+                                            }}
+                                            options={[{ value: '', label: 'Select Primary Category' }, ...primaryCategories.map(c => ({ value: c.id, label: c.name }))]} 
+                                        />
+                                        <SelectField 
+                                            label="Target Sub-Category" 
+                                            value={secondaryCategoryId} 
+                                            onChange={(val) => {
+                                                setSecondaryCategoryId(val)
+                                                setActiveBatchId('')
+                                                setWorkflowRunFilter('all')
+                                                setWorkflowResults([])
+                                                setWorkflowRuns([])
+                                                setWorkflowTotalJobs(0)
+                                            }}
+                                            options={[{ value: '', label: 'Select Sub-category' }, ...secondaryCategories.map(c => ({ value: c.id, label: c.name }))]} 
+                                        />
+                                    </div>
+
+                                    <div className="rounded-2xl border border-white/10 bg-[#0d1016]">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowCategoryDescriptions((current) => !current)}
+                                            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                                        >
+                                            <div>
+                                                <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">
+                                                    Category Descriptions
+                                                </div>
+                                                <p className="mt-1 text-xs text-slate-500">
+                                                    Expand to review the selected category and sub-category details.
+                                                </p>
                                             </div>
-                                            <p className="mt-2 text-sm leading-relaxed text-slate-300">
-                                                {primaryCategory.description}
-                                            </p>
-                                        </div>
-                                    )}
-                                    <SelectField 
-                                        label="Target Sub-Category" 
-                                        value={secondaryCategoryId} 
-                                        onChange={(val) => {
-                                            setSecondaryCategoryId(val)
-                                            setActiveBatchId('')
-                                            setWorkflowRunFilter('all')
-                                            setWorkflowResults([])
-                                            setWorkflowRuns([])
-                                            setWorkflowTotalJobs(0)
-                                        }}
-                                        options={[{ value: '', label: 'Select Sub-category' }, ...secondaryCategories.map(c => ({ value: c.id, label: c.name }))]} 
-                                    />
-                                    {secondaryCategory?.description && (
-                                        <div className="rounded-2xl border border-emerald-500/10 bg-emerald-500/[0.04] px-4 py-3">
-                                            <div className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-300/80">
-                                                Sub-Category Description
+                                            {showCategoryDescriptions ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                                        </button>
+                                        {showCategoryDescriptions && (
+                                            <div className="max-h-56 space-y-4 overflow-y-auto border-t border-white/10 px-4 py-4">
+                                                <div className="rounded-2xl border border-indigo-400/15 bg-indigo-500/[0.06] px-4 py-3">
+                                                    <div className="text-[10px] font-black uppercase tracking-[0.22em] text-indigo-200/90">
+                                                        Category
+                                                    </div>
+                                                    <div className="mt-2 text-sm font-semibold text-white">
+                                                        {primaryCategory?.name || 'No category selected'}
+                                                    </div>
+                                                    <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                                                        {primaryCategory?.description || 'Select a primary category to see its description here.'}
+                                                    </p>
+                                                </div>
+                                                <div className="rounded-2xl border border-emerald-400/15 bg-emerald-500/[0.06] px-4 py-3">
+                                                    <div className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-200/90">
+                                                        Sub-Category
+                                                    </div>
+                                                    <div className="mt-2 text-sm font-semibold text-white">
+                                                        {secondaryCategory?.name || 'No sub-category selected'}
+                                                    </div>
+                                                    <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                                                        {secondaryCategory?.description || 'Select a sub-category to see its description here.'}
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <p className="mt-2 text-sm leading-relaxed text-slate-300">
-                                                {secondaryCategory.description}
-                                            </p>
-                                        </div>
-                                    )}
+                                        )}
+                                    </div>
                                     <div className="space-y-2">
                                         <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
                                             Topic
@@ -1038,20 +1096,30 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                             value={manualJobText}
                                             onChange={(e) => setManualJobText(e.target.value)}
                                             placeholder="Example: Best expired domains for local SEO lead generation"
-                                            className="min-h-[88px] w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 outline-none transition focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/20"
+                                            className="min-h-[88px] w-full rounded-2xl border border-white/15 bg-[#0d1016] px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/20"
                                         />
                                     </div>
-                                    <Button
-                                        className="w-full bg-white text-black hover:bg-indigo-50 h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px]"
-                                        onClick={handleCreateManualJob}
-                                        disabled={creatingManualJob || !manualJobText.trim()}
-                                    >
-                                        {creatingManualJob ? <Loader2 className="mr-3 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-3 h-4 w-4" />}
-                                        Save Topic
-                                    </Button>
+                                    <div className="flex flex-col gap-3 sm:flex-row">
+                                        <Button
+                                            className="flex-1 bg-white text-black hover:bg-indigo-50 h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px]"
+                                            onClick={handleCreateManualJob}
+                                            disabled={creatingManualJob || !manualJobText.trim()}
+                                        >
+                                            {creatingManualJob ? <Loader2 className="mr-3 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-3 h-4 w-4" />}
+                                            Save Topic
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="h-12 rounded-2xl border-white/15 bg-[#0d1016] px-5 text-[11px] font-black uppercase tracking-[0.15em] text-slate-200 hover:bg-white/[0.06]"
+                                            onClick={() => setShowSavedTopicsModal(true)}
+                                        >
+                                            View Saved Topics
+                                        </Button>
+                                    </div>
                                 </div>
 
-                                <div className="rounded-[2rem] border border-emerald-500/10 bg-emerald-500/[0.03] p-6 space-y-5">
+                                <div className="rounded-[2rem] border border-emerald-400/20 bg-[#141b19] p-6 space-y-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                                     <div className="flex items-center gap-3">
                                         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/15 text-xs font-black text-emerald-300">2</span>
                                         <div>
@@ -1086,7 +1154,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                 value={lookupKeywordsText}
                                                 onChange={(e) => setLookupKeywordsText(e.target.value)}
                                                 placeholder="Paste one keyword per line or comma separated"
-                                                className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 outline-none transition focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20"
+                                                className="min-h-[110px] w-full rounded-2xl border border-white/15 bg-[#0d1016] px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-500/20"
                                             />
                                         </div>
                                     ) : (
@@ -1098,7 +1166,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                 value={lookupQueryText}
                                                 onChange={(e) => setLookupQueryText(e.target.value)}
                                                 placeholder={lookupSearchType === 'serp' ? 'Enter the exact Google query to inspect' : 'Enter one seed keyword'}
-                                                className="bg-white/[0.03] border-white/10 rounded-xl text-xs h-12 focus:ring-emerald-500/30"
+                                                className="bg-[#0d1016] border-white/15 rounded-xl text-xs h-12 text-slate-100 focus:ring-emerald-500/30"
                                             />
                                         </div>
                                     )}
@@ -1113,7 +1181,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     </Button>
 
                                     <div className="grid gap-4 xl:grid-cols-[1.05fr,0.95fr]">
-                                        <div className="rounded-2xl border border-white/5 bg-black/30 p-4">
+                                        <div className="rounded-2xl border border-white/10 bg-[#0d1016] p-4">
                                             <div className="mb-3 flex items-center justify-between">
                                                 <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Saved Searches</span>
                                                 <span className="text-[10px] text-slate-600">{dataforseoSearches.length}</span>
@@ -1149,7 +1217,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                             </div>
                                         </div>
 
-                                        <div className="rounded-2xl border border-white/5 bg-black/30 p-4">
+                                        <div className="rounded-2xl border border-white/10 bg-[#0d1016] p-4">
                                             <div className="mb-3 flex items-center justify-between gap-3">
                                                 <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Keyword Results</span>
                                                 {activeSearchRecord && (
@@ -1162,7 +1230,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                 <p className="text-xs text-slate-500">Run a lookup or select one from history to inspect it here.</p>
                                             ) : (
                                                 <div className="space-y-3">
-                                                    <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3">
+                                                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
                                                         <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
                                                             {activeSearchRecord.search_type.replace('_', ' ')}
                                                         </div>
@@ -1175,7 +1243,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                             activeSearchPreviewItems.slice(0, 8).map((item, index) => {
                                                                 const keyword = String(item.keyword || item.title || item.url || `Result ${index + 1}`)
                                                                 return (
-                                                                    <div key={`${activeSearchRecord.id}-${index}`} className="rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3">
+                                                                    <div key={`${activeSearchRecord.id}-${index}`} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
                                                                         <div className="flex items-start justify-between gap-3">
                                                                             <div className="min-w-0 flex-1">
                                                                                 <p className="text-sm text-slate-200">{keyword}</p>
@@ -1188,7 +1256,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() => handleUseKeywordForArticle(String(item.keyword || activeSearchRecord.query_text || keyword))}
-                                                                                className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-300 transition hover:bg-white/[0.08]"
+                                                                                className="rounded-xl border border-white/15 bg-white/[0.05] px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-100 transition hover:bg-white/[0.1]"
                                                                             >
                                                                                 Use Keyword
                                                                             </button>
@@ -1204,7 +1272,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     </div>
                                 </div>
 
-                                <div className="rounded-[2rem] border border-amber-500/10 bg-amber-500/[0.03] p-6 space-y-5">
+                                <div className="rounded-[2rem] border border-amber-400/20 bg-[#1b1711] p-6 space-y-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                                     <div className="flex items-center gap-3">
                                         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/15 text-xs font-black text-amber-300">3</span>
                                         <div>
@@ -1221,7 +1289,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                             value={articleTitleDraft}
                                             onChange={(e) => setArticleTitleDraft(e.target.value)}
                                             placeholder="Example: Best Expired Domains for Local SEO in 2026"
-                                            className="bg-white/[0.03] border-white/10 rounded-xl text-xs h-12 focus:ring-amber-500/30"
+                                            className="bg-[#0d1016] border-white/15 rounded-xl text-xs h-12 text-slate-100 focus:ring-amber-500/30"
                                         />
                                     </div>
 
@@ -1233,7 +1301,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                             value={articlePrimaryKeyword}
                                             onChange={(e) => setArticlePrimaryKeyword(e.target.value)}
                                             placeholder="Pick one keyword from Step 2 or type it here"
-                                            className="bg-white/[0.03] border-white/10 rounded-xl text-xs h-12 focus:ring-amber-500/30"
+                                            className="bg-[#0d1016] border-white/15 rounded-xl text-xs h-12 text-slate-100 focus:ring-amber-500/30"
                                         />
                                     </div>
 
@@ -1245,7 +1313,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                             value={articleSecondaryKeywordsText}
                                             onChange={(e) => setArticleSecondaryKeywordsText(e.target.value)}
                                             placeholder="One keyword per line"
-                                            className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 outline-none transition focus:border-amber-500/40 focus:ring-2 focus:ring-amber-500/20"
+                                            className="min-h-[110px] w-full rounded-2xl border border-white/15 bg-[#0d1016] px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-amber-500/40 focus:ring-2 focus:ring-amber-500/20"
                                         />
                                     </div>
 
@@ -1259,7 +1327,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     </Button>
                                 </div>
 
-                                <details className="rounded-[2rem] border border-white/5 bg-black/30 p-6">
+                                <details className="rounded-[2rem] border border-white/10 bg-[#0d1016] p-6">
                                     <summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
                                         Optional AI Batch Tools
                                     </summary>
@@ -1272,7 +1340,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                 value={focusArea}
                                                 onChange={(e) => setFocusArea(e.target.value)}
                                                 placeholder="Example: privacy-first PKM workflows, second-brain tools for structured thinking, AI research efficiency for solo founders"
-                                                className="min-h-[88px] w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 outline-none transition focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/20"
+                                                className="min-h-[88px] w-full rounded-2xl border border-white/15 bg-[#111521] px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/20"
                                             />
                                         </div>
                                         <div className="space-y-2">
@@ -1283,13 +1351,13 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                 value={avoidGuidance}
                                                 onChange={(e) => setAvoidGuidance(e.target.value)}
                                                 placeholder="Example: generic productivity advice, enterprise use cases, broad AI news"
-                                                className="bg-white/[0.03] border-white/10 rounded-xl text-xs h-12 focus:ring-indigo-500/30"
+                                                className="bg-[#111521] border-white/15 rounded-xl text-xs h-12 text-slate-100 focus:ring-indigo-500/30"
                                             />
                                         </div>
                                         <button
                                             type="button"
                                             onClick={() => setStartFreshBatch((current) => !current)}
-                                            className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-left transition hover:bg-white/[0.05]"
+                                            className="flex items-start gap-3 rounded-2xl border border-white/15 bg-white/[0.04] px-4 py-4 text-left transition hover:bg-white/[0.07]"
                                         >
                                             <span className={cn(
                                                 "mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-all",
@@ -1322,112 +1390,41 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                 </details>
                             </div>
 
-                            {/* Job Feed */}
-                            <div className="bg-black/40 border-t border-white/5">
-                                <div className="p-6 flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <Layers className="h-3.5 w-3.5 text-slate-500" />
-                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Saved Topics</span>
-                                    </div>
-                                    <div className="flex gap-1.5 p-1 bg-white/5 rounded-lg">
-                                        {['approved', 'draft'].map(s => (
-                                            <button 
-                                                key={s} 
-                                                onClick={() => setJobStatusFilter(s)} 
-                                                className={cn(
-                                                    "px-3 py-1 rounded-md text-[9px] font-black uppercase transition-all", 
-                                                    jobStatusFilter === s ? "bg-white text-black shadow-lg" : "text-slate-500 hover:text-slate-300"
-                                                )}
-                                            >
-                                                {s} <span className="opacity-50 ml-1">{jobStatusCounts.get(s) || 0}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div className="max-h-[440px] overflow-y-auto px-6 pb-8 space-y-3 custom-scrollbar">
-                                    {loadingJobs ? (
-                                        <div className="py-20 text-center flex flex-col items-center gap-4">
-                                            <Loader2 className="h-6 w-6 animate-spin text-slate-700" />
-                                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">Retrieving Jobs...</p>
+                            <div className="border-t border-white/10 bg-[#0d1016]">
+                                <div className="flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <Layers className="h-3.5 w-3.5 text-slate-400" />
+                                            <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Saved Topics</span>
                                         </div>
-                                    ) : jobs.length === 0 ? (
-                                        <div className="py-20 text-center flex flex-col items-center gap-3">
-                                            <Info className="h-8 w-8 text-slate-800" />
-                                            <p className="text-slate-600 font-bold text-xs">No active jobs found.</p>
-                                            <p className="text-slate-700 text-[10px] uppercase tracking-widest max-w-[200px]">Generate or add jobs to start the pipeline.</p>
+                                        <p className="mt-2 text-sm text-slate-400">
+                                            {approvedJobs.length} approved and {(jobStatusCounts.get('draft') || 0)} draft topics in this scope.
+                                        </p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <div className="flex gap-1.5 rounded-lg bg-white/5 p-1">
+                                            {['approved', 'draft'].map(s => (
+                                                <button 
+                                                    key={s} 
+                                                    onClick={() => setJobStatusFilter(s)} 
+                                                    className={cn(
+                                                        "px-3 py-1 rounded-md text-[9px] font-black uppercase transition-all", 
+                                                        jobStatusFilter === s ? "bg-white text-black shadow-lg" : "text-slate-500 hover:text-slate-300"
+                                                    )}
+                                                >
+                                                    {s} <span className="opacity-50 ml-1">{jobStatusCounts.get(s) || 0}</span>
+                                                </button>
+                                            ))}
                                         </div>
-                                    ) : (
-                                        jobs.map((job) => (
-                                            <div 
-                                                key={job.id} 
-                                                className={cn(
-                                                    "group relative rounded-2xl p-4 border transition-all duration-300", 
-                                                    job.status === 'approved' 
-                                                        ? "bg-indigo-500/[0.04] border-indigo-500/10 hover:border-indigo-500/20" 
-                                                        : "bg-white/[0.02] border-white/5 hover:border-white/10"
-                                                )}
-                                            >
-                                                <div className="mb-3 flex items-center justify-between gap-3">
-                                                    <div className="flex items-center gap-2">
-                                                        {job.status === 'approved' ? (
-                                                            <>
-                                                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30">
-                                                                    <CheckCircle2 className="h-3.5 w-3.5" />
-                                                                </span>
-                                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-300/90">
-                                                                    Approved
-                                                                </span>
-                                                            </>
-                                                        ) : job.status === 'draft' ? (
-                                                            <>
-                                                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/5 text-slate-500 ring-1 ring-white/10">
-                                                                    <Info className="h-3.5 w-3.5" />
-                                                                </span>
-                                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
-                                                                    Needs Review
-                                                                </span>
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-500/10 text-red-400 ring-1 ring-red-500/20">
-                                                                    <Ban className="h-3.5 w-3.5" />
-                                                                </span>
-                                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-red-300/80">
-                                                                    Rejected
-                                                                </span>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-start justify-between gap-4">
-                                                    <p className={cn("text-[13px] leading-relaxed font-medium transition-colors", job.status === 'approved' ? "text-slate-200" : "text-slate-400")}>
-                                                        {job.job_text}
-                                                    </p>
-                                                    <div className="flex flex-col gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        {job.status !== 'approved' && job.status !== 'rejected' && (
-                                                            <button 
-                                                                onClick={() => handleApproveJob(job.id)} 
-                                                                className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all shadow-xl shadow-emerald-500/10"
-                                                                title="Approve for Validation"
-                                                            >
-                                                                <CheckCircle2 className="h-4 w-4" />
-                                                            </button>
-                                                        )}
-                                                        {job.status !== 'rejected' && (
-                                                            <button 
-                                                                onClick={() => handleRejectJob(job.id, 'off_brand')} 
-                                                                disabled={rejectingJobIds.has(job.id)} 
-                                                                className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all shadow-xl shadow-red-500/10"
-                                                                title="Reject Job"
-                                                            >
-                                                                {rejectingJobIds.has(job.id) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="rounded-xl border-white/15 bg-white/[0.03] px-4 text-[10px] font-black uppercase tracking-[0.15em] text-slate-200 hover:bg-white/[0.07]"
+                                            onClick={() => setShowSavedTopicsModal(true)}
+                                        >
+                                            Manage Topics
+                                        </Button>
+                                    </div>
                                 </div>
                             </div>
                         </section>
@@ -1724,6 +1721,89 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                     )}
                 </div>
             </main>
+
+            {showSavedTopicsModal && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm">
+                    <div className="w-full max-w-3xl rounded-[2rem] border border-white/10 bg-[#10131a] shadow-[0_30px_90px_rgba(0,0,0,0.55)]">
+                        <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
+                            <div>
+                                <h3 className="text-lg font-black text-white">Saved Topics</h3>
+                                <p className="mt-1 text-sm text-slate-400">Review, approve, reject, or remove topics without crowding the main workflow.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowSavedTopicsModal(false)}
+                                className="rounded-xl border border-white/10 bg-white/[0.03] p-2 text-slate-400 transition hover:bg-white/[0.08] hover:text-white"
+                            >
+                                <XCircle className="h-4 w-4" />
+                            </button>
+                        </div>
+                        <div className="max-h-[70vh] overflow-y-auto px-6 py-6">
+                            {loadingJobs ? (
+                                <div className="flex min-h-[240px] flex-col items-center justify-center gap-4">
+                                    <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
+                                    <p className="text-sm text-slate-400">Loading saved topics...</p>
+                                </div>
+                            ) : jobs.length === 0 ? (
+                                <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 text-center">
+                                    <Info className="h-8 w-8 text-slate-600" />
+                                    <p className="text-sm font-semibold text-slate-300">No saved topics yet.</p>
+                                    <p className="max-w-sm text-sm text-slate-500">Create a topic in Step 1 and it will appear here for later review and cleanup.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {jobs.map((job) => (
+                                        <div key={job.id} className="rounded-2xl border border-white/10 bg-[#0d1016] p-4">
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <TopicStatusBadge status={job.status} />
+                                                        {(job.primary_category_id || job.secondary_category_id) && (
+                                                            <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                                                                Scoped Topic
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="mt-3 text-sm leading-relaxed text-slate-100">{job.job_text}</p>
+                                                </div>
+                                                <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                                                    {job.status !== 'approved' && job.status !== 'rejected' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleApproveJob(job.id)}
+                                                            className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-300 transition hover:bg-emerald-500/20"
+                                                        >
+                                                            Approve
+                                                        </button>
+                                                    )}
+                                                    {job.status !== 'rejected' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRejectJob(job.id, 'off_brand')}
+                                                            disabled={rejectingJobIds.has(job.id)}
+                                                            className="rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
+                                                        >
+                                                            {rejectingJobIds.has(job.id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Reject'}
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleArchiveJob(job.id)}
+                                                        disabled={archivingJobIds.has(job.id)}
+                                                        className="rounded-xl border border-white/15 bg-white/[0.04] px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-200 transition hover:bg-white/[0.08] disabled:opacity-50"
+                                                    >
+                                                        {archivingJobIds.has(job.id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Remove'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
@@ -1755,21 +1835,33 @@ function FlowStep({ number, label, active, icon }: { number: string; label: stri
 function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
     return (
         <div className="space-y-2.5">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] pl-1">{label}</label>
+            <label className="pl-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{label}</label>
             <div className="relative group">
                 <select 
                     value={value} 
                     onChange={(e) => onChange(e.target.value)} 
-                    className="w-full bg-white/[0.03] border border-white/10 rounded-2xl h-12 px-4 text-xs font-medium text-slate-200 focus:ring-2 focus:ring-indigo-500/40 outline-none hover:bg-white/[0.06] transition-all appearance-none cursor-pointer"
+                    className="h-12 w-full cursor-pointer appearance-none rounded-2xl border border-white/15 bg-[#0d1016] px-4 text-xs font-medium text-slate-100 outline-none transition-all hover:bg-white/[0.06] focus:ring-2 focus:ring-indigo-500/40"
                 >
-                    {options.map(opt => <option key={opt.value} value={opt.value} className="bg-[#0d0d0f] py-3">{opt.label}</option>)}
+                    {options.map(opt => <option key={opt.value} value={opt.value} className="bg-[#10131a] py-3">{opt.label}</option>)}
                 </select>
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500 group-hover:text-slate-300 transition-colors">
+                <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-hover:text-slate-200">
                     <ChevronDown className="h-4 w-4" />
                 </div>
             </div>
         </div>
     )
+}
+
+function TopicStatusBadge({ status }: { status: string }) {
+    const normalized = String(status || '').toLowerCase()
+
+    if (normalized === 'approved') {
+        return <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">Approved</span>
+    }
+    if (normalized === 'rejected') {
+        return <span className="rounded-full border border-red-400/20 bg-red-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-red-300">Rejected</span>
+    }
+    return <span className="rounded-full border border-white/15 bg-white/[0.05] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">Draft</span>
 }
 
 function FilterSelect({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {

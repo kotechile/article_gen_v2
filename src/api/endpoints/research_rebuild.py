@@ -1049,6 +1049,31 @@ def reject_research_job(job_id: str):
         return jsonify({"error": f"Failed to reject job: {exc}"}), 500
 
 
+@research_rebuild_bp.route("/jobs/<job_id>/archive", methods=["POST"])
+@require_api_key
+def archive_research_job(job_id: str):
+    """Archive a persisted user job so it is removed from active views."""
+    user_id = _get_user_id_from_request()
+    if not user_id:
+        return jsonify({"error": "Authentication required"}), 401
+
+    try:
+        item = asyncio.run(
+            job_service.archive_job(
+                job_id=_parse_uuid(job_id, "job_id"),
+                user_id=UUID(user_id),
+            )
+        )
+        if not item:
+            return jsonify({"error": "Job not found"}), 404
+        return jsonify(item), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("research-rebuild archive job failed: %s", exc, exc_info=True)
+        return jsonify({"error": f"Failed to archive job: {exc}"}), 500
+
+
 @research_rebuild_bp.route("/candidates", methods=["GET"])
 @require_api_key
 def list_research_candidates():

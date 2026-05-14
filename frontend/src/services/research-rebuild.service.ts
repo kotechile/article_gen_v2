@@ -281,6 +281,10 @@ class ResearchRebuildService {
         return await apiClient.post(`${this.baseUrl}/jobs/${jobId}/reject`, payload)
     }
 
+    async archiveJob(jobId: string): Promise<ResearchRebuildJob> {
+        return await apiClient.post(`${this.baseUrl}/jobs/${jobId}/archive`, {})
+    }
+
     async listCandidates(params: {
         project_id: string
         user_job_id?: string
