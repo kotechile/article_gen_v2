@@ -1028,6 +1028,12 @@ Bet:
         probes = await self.supabase_service.get_by_filters(self.probe_queries_table, filters={"run_id": str(run["id"])}, user_id=user_id, order_by={"created_at": "asc"})
         pages = await self.supabase_service.get_by_filters(self.competitor_pages_table, filters={"run_id": str(run["id"])}, user_id=user_id, order_by={"created_at": "asc"})
         clusters = await self.supabase_service.get_by_filters(self.keyword_clusters_table, filters={"run_id": str(run["id"])}, user_id=user_id, order_by={"opportunity_score": "desc"})
+        final_selection = await self._load_final_selection(
+            user_id=user_id,
+            project_id=UUID(str(run["project_id"])),
+            topic_id=UUID(str(run["topic_id"])),
+            run_id=UUID(str(run["id"])),
+        )
         return {
             "run": run,
             "topic": topic,
@@ -1035,6 +1041,60 @@ Bet:
             "probe_queries": probes,
             "competitor_pages": pages,
             "clusters": clusters,
+            "final_selection": final_selection,
+        }
+
+    async def _load_final_selection(
+        self,
+        *,
+        user_id: UUID,
+        project_id: UUID,
+        topic_id: UUID,
+        run_id: UUID,
+    ) -> Optional[Dict[str, Any]]:
+        candidates = await self.candidate_service.list_candidates(
+            user_id=user_id,
+            project_id=project_id,
+            user_job_id=topic_id,
+        )
+        strategy_candidates = [
+            candidate
+            for candidate in candidates
+            if str((candidate.get("candidate_metadata") or {}).get("strategy_run_id") or "") == str(run_id)
+        ]
+        if not strategy_candidates:
+            return None
+
+        candidate = strategy_candidates[0]
+        candidate_id = UUID(str(candidate["id"]))
+
+        validation_runs = await self.validation_service.list_validation_runs(
+            user_id=user_id,
+            project_id=project_id,
+            candidate_id=candidate_id,
+        )
+        routing_decisions = await self.routing_service.list_routing_decisions(
+            user_id=user_id,
+            project_id=project_id,
+            candidate_id=candidate_id,
+        )
+        keyword_packs = await self.keyword_pack_service.list_keyword_packs(
+            user_id=user_id,
+            project_id=project_id,
+            candidate_id=candidate_id,
+        )
+        generated_outcomes = await self.generation_service.list_generated_outcomes(
+            user_id=user_id,
+            project_id=project_id,
+            candidate_id=candidate_id,
+        )
+
+        return {
+            "candidate": candidate,
+            "validation_run": validation_runs[0] if validation_runs else None,
+            "routing_decision": routing_decisions[0] if routing_decisions else None,
+            "keyword_pack": keyword_packs[0] if keyword_packs else None,
+            "generated_outcome": generated_outcomes[0] if generated_outcomes else None,
         }
 
     async def _delete_run_artifacts(self, *, user_id: UUID, run_id: UUID, tables: List[str]) -> None:
