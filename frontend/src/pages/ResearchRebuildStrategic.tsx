@@ -67,6 +67,7 @@ export function ResearchRebuildStrategicPage() {
     const [topicsModalOpen, setTopicsModalOpen] = React.useState(false)
     const [supportingToolsOpen, setSupportingToolsOpen] = React.useState(false)
     const [isLoading, setIsLoading] = React.useState(false)
+    const [loadingLabel, setLoadingLabel] = React.useState('Working through the strategic research flow…')
     const [isRemovingTopic, setIsRemovingTopic] = React.useState<string | null>(null)
     const [error, setError] = React.useState<string | null>(null)
 
@@ -227,9 +228,15 @@ export function ResearchRebuildStrategicPage() {
         return mapping
     }, [runs])
 
+    const selectedTopic = React.useMemo(
+        () => topics.find((topic) => topic.id === selectedTopicId) || null,
+        [selectedTopicId, topics],
+    )
+
     const handleCreateTopic = async () => {
         if (!projectId || !topicDraft.trim()) return
         setIsLoading(true)
+        setLoadingLabel('Saving topic…')
         setError(null)
         try {
             const job = await researchRebuildService.createJob({
@@ -258,6 +265,7 @@ export function ResearchRebuildStrategicPage() {
         const resolvedTopicId = topicId || selectedTopicId
         if (!projectId || !resolvedTopicId) return
         setIsLoading(true)
+        setLoadingLabel('Generating angle bets, checking trends, and screening SERPs…')
         setError(null)
         try {
             const detail = await researchRebuildService.createStrategyRun({
@@ -301,6 +309,7 @@ export function ResearchRebuildStrategicPage() {
     const handleRerunStage = async (stage: 'trends' | 'serp' | 'competitor_mining') => {
         if (!runDetail) return
         setIsLoading(true)
+        setLoadingLabel(`Rerunning ${stage.replace('_', ' ')}…`)
         setError(null)
         try {
             const detail = await researchRebuildService.rerunStrategyStage(runDetail.run.id, { stage })
@@ -319,6 +328,7 @@ export function ResearchRebuildStrategicPage() {
         const resolvedClusterId = clusterId || selectedClusterId
         if (!resolvedClusterId) return
         setIsLoading(true)
+        setLoadingLabel('Locking the cluster and generating the final output…')
         setError(null)
         try {
             const detail = await researchRebuildService.selectStrategyCluster(runDetail.run.id, {
@@ -349,6 +359,7 @@ export function ResearchRebuildStrategicPage() {
             return
         }
         setIsLoading(true)
+        setLoadingLabel('Running and saving the supporting DataForSEO lookup…')
         setError(null)
         try {
             await researchRebuildService.runDataforseoSearch({
@@ -399,13 +410,29 @@ export function ResearchRebuildStrategicPage() {
                     </div>
                 ) : null}
 
+                {isLoading ? (
+                    <div className="rounded-[24px] border border-sky-400/30 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_45%),#08111d] px-5 py-4 shadow-[0_0_40px_rgba(56,189,248,0.12)]">
+                        <div className="flex items-center gap-4">
+                            <div className="relative flex h-12 w-12 items-center justify-center">
+                                <div className="absolute h-12 w-12 rounded-full border border-sky-400/30 animate-ping" />
+                                <div className="absolute h-8 w-8 rounded-full border-2 border-sky-300/80 border-t-transparent animate-spin" />
+                                <div className="h-2.5 w-2.5 rounded-full bg-sky-300" />
+                            </div>
+                            <div>
+                                <div className="text-xs uppercase tracking-[0.32em] text-sky-300/80">Research engine active</div>
+                                <div className="mt-1 text-base font-medium text-white">{loadingLabel}</div>
+                                <div className="mt-1 text-sm text-slate-300">This can take a moment because the app is generating bets, screening SERPs, and saving the evidence.</div>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+
                 <section className="rounded-[28px] border border-white/10 bg-[#0f1320] p-6">
                     <div className="mb-5 flex items-center justify-between">
                         <div>
                             <div className="text-xs uppercase tracking-[0.35em] text-sky-300/70">Step 1</div>
                             <h2 className="mt-2 text-2xl font-semibold">Select category and define the topic</h2>
                         </div>
-                        {isLoading ? <div className="text-sm text-slate-400">Working…</div> : null}
                     </div>
 
                     <div className="grid gap-4 lg:grid-cols-2">
@@ -452,7 +479,7 @@ export function ResearchRebuildStrategicPage() {
                         </div>
                     </div>
 
-                    <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto_auto]">
+                    <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto]">
                         <textarea
                             value={topicDraft}
                             onChange={(event) => setTopicDraft(event.target.value)}
@@ -467,14 +494,6 @@ export function ResearchRebuildStrategicPage() {
                             className="rounded-2xl border border-slate-600 bg-slate-900 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             Save Topic
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => handleRunTopic()}
-                            disabled={!projectId || !selectedTopicId || isLoading}
-                            className="rounded-2xl bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            Run Strategy
                         </button>
                     </div>
 
@@ -511,6 +530,27 @@ export function ResearchRebuildStrategicPage() {
                                 )
                             })}
                         </div>
+                        {selectedTopic ? (
+                            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                    <div className="text-xs uppercase tracking-[0.28em] text-sky-300/80">Selected topic</div>
+                                    <div className="mt-2 text-base font-medium text-white">{selectedTopic.job_text}</div>
+                                    <div className="mt-1 text-sm text-slate-300">
+                                        {latestRunByTopic.get(selectedTopic.id)
+                                            ? `Latest route: ${routeLabel(latestRunByTopic.get(selectedTopic.id)?.winning_route)}`
+                                            : 'No strategy run yet for this topic.'}
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => handleRunTopic(selectedTopic.id)}
+                                    disabled={!projectId || isLoading}
+                                    className="rounded-2xl bg-sky-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Run Strategy For This Topic
+                                </button>
+                            </div>
+                        ) : null}
                     </div>
                 </section>
 
@@ -528,6 +568,24 @@ export function ResearchRebuildStrategicPage() {
                                 <button type="button" onClick={() => handleRerunStage('competitor_mining')} className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-sm text-slate-100 hover:border-sky-400">Rerun mining</button>
                             </div>
                         ) : null}
+                    </div>
+
+                    <div className="mb-5 rounded-2xl border border-slate-700 bg-[#111827] px-4 py-4">
+                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">How Step 2 works</div>
+                        <div className="mt-3 grid gap-3 text-sm text-slate-300 lg:grid-cols-3">
+                            <div>
+                                <div className="font-medium text-white">1. The app generates bets</div>
+                                <p className="mt-1">From your saved topic, the LLM creates 6 to 10 narrower article-angle bets. Each bet is a possible direction the article could take, not a final keyword.</p>
+                            </div>
+                            <div>
+                                <div className="font-medium text-white">2. Each bet gets probe queries</div>
+                                <p className="mt-1">The app creates 1 to 2 Google-style probe queries for each bet, then checks Trends and the top SERP to see whether Google rewards article-style content for that angle.</p>
+                            </div>
+                            <div>
+                                <div className="font-medium text-white">3. Survived vs. killed</div>
+                                <p className="mt-1"><span className="text-emerald-300">Survived bets</span> passed the articleability screen and can move to competitor mining. <span className="text-rose-300">Killed bets</span> looked too weak, too tool-heavy, or too mismatched for an article, so they stop here.</p>
+                            </div>
+                        </div>
                     </div>
 
                     {!runDetail ? (
