@@ -381,6 +381,29 @@ export function ResearchRebuildStrategicPage() {
 
     const clustersByBet = React.useMemo(() => groupClustersByBet(runDetail?.clusters || []), [runDetail?.clusters])
     const finalOutcome = runDetail?.final_selection?.generated_outcome?.outcome_metadata as Record<string, unknown> | undefined
+    const winningRoute = runDetail?.run.winning_route || null
+    const selectedBet = React.useMemo(
+        () => runDetail?.bets.find((bet) => bet.id === runDetail?.run.selected_bet_id) || null,
+        [runDetail],
+    )
+    const selectedCluster = React.useMemo(
+        () => runDetail?.clusters.find((cluster) => cluster.id === selectedClusterId) || runDetail?.clusters[0] || null,
+        [runDetail, selectedClusterId],
+    )
+    const isArticleRoute = winningRoute === 'article_ready'
+    const isSoftwareRoute = winningRoute === 'software_ready'
+    const isEditorialRoute = winningRoute === 'editorial_only'
+    const canFinalizeSelection = Boolean(
+        runDetail && (
+            (isArticleRoute && selectedClusterId) ||
+            ((isSoftwareRoute || isEditorialRoute) && selectedBet)
+        ),
+    )
+    const finalizeLabel = isSoftwareRoute
+        ? 'Generate software output'
+        : isEditorialRoute
+            ? 'Generate editorial output'
+            : 'Lock cluster and generate output'
 
     return (
         <div className="min-h-screen bg-[#05070c] text-white">
@@ -699,16 +722,28 @@ export function ResearchRebuildStrategicPage() {
                     <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
                             <div className="text-xs uppercase tracking-[0.35em] text-sky-300/70">Step 3</div>
-                            <h2 className="mt-2 text-2xl font-semibold">Choose the winning cluster and define the article</h2>
-                            <p className="mt-2 text-sm text-slate-300">The final decision is cluster-first: choose the angle with the best SERP fit, competitor support, and commercial depth.</p>
+                            <h2 className="mt-2 text-2xl font-semibold">
+                                {isSoftwareRoute
+                                    ? 'Finalize the winning software opportunity'
+                                    : isEditorialRoute
+                                        ? 'Finalize the winning editorial angle'
+                                        : 'Choose the winning cluster and define the article'}
+                            </h2>
+                            <p className="mt-2 text-sm text-slate-300">
+                                {isSoftwareRoute
+                                    ? 'This run looks more like a software-first opportunity, so Step 3 finalizes the winning bet instead of asking for an article cluster.'
+                                    : isEditorialRoute
+                                        ? 'This run looks more like an editorial opportunity, so Step 3 finalizes the winning angle directly.'
+                                        : 'The final decision is cluster-first: choose the angle with the best SERP fit, competitor support, and commercial depth.'}
+                            </p>
                         </div>
                         <button
                             type="button"
                             onClick={() => handleSelectCluster()}
-                            disabled={!runDetail || !selectedClusterId || isLoading}
+                            disabled={!canFinalizeSelection || isLoading}
                             className="rounded-2xl bg-emerald-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            Lock cluster and generate output
+                            {finalizeLabel}
                         </button>
                     </div>
 
@@ -720,35 +755,59 @@ export function ResearchRebuildStrategicPage() {
                                 <div className="mt-2 text-sm text-slate-300">
                                     Confidence {Math.round(Number(runDetail.run.confidence_score || 0) * 100)}%
                                 </div>
-                                <div className="mt-5 grid gap-3">
-                                    {(runDetail.clusters || []).map((cluster) => (
-                                        <div key={cluster.id} className={`rounded-2xl border p-4 ${selectedClusterId === cluster.id ? 'border-sky-400 bg-sky-500/10' : 'border-slate-700 bg-[#141a29]'}`}>
-                                            <div className="flex items-start justify-between gap-4">
-                                                <div>
-                                                    <div className="font-medium text-white">{cluster.cluster_name}</div>
-                                                    <div className="mt-1 text-sm text-slate-300">{cluster.primary_keyword_candidate}</div>
+                                {isArticleRoute ? (
+                                    <div className="mt-5 grid gap-3">
+                                        {(runDetail.clusters || []).map((cluster) => (
+                                            <div key={cluster.id} className={`rounded-2xl border p-4 ${selectedClusterId === cluster.id ? 'border-sky-400 bg-sky-500/10' : 'border-slate-700 bg-[#141a29]'}`}>
+                                                <div className="flex items-start justify-between gap-4">
+                                                    <div>
+                                                        <div className="font-medium text-white">{cluster.cluster_name}</div>
+                                                        <div className="mt-1 text-sm text-slate-300">{cluster.primary_keyword_candidate}</div>
+                                                    </div>
+                                                    <div className={`text-sm ${toneClass(cluster.opportunity_score)}`}>
+                                                        {Math.round(Number(cluster.opportunity_score || 0) * 100)}%
+                                                    </div>
                                                 </div>
-                                                <div className={`text-sm ${toneClass(cluster.opportunity_score)}`}>
-                                                    {Math.round(Number(cluster.opportunity_score || 0) * 100)}%
+                                                <div className="mt-3 grid gap-2 text-xs text-slate-400">
+                                                    <div>SERP weakness: {Math.round(Number(cluster.serp_weakness_score || 0) * 100)}%</div>
+                                                    <div>Competitor support: {Math.round(Number(cluster.competitor_support_score || 0) * 100)}%</div>
+                                                    <div>Commercial value: {Math.round(Number(cluster.commercial_value_score || 0) * 100)}%</div>
                                                 </div>
+                                                {cluster.supporting_competitor_urls_json?.length ? (
+                                                    <div className="mt-3 flex flex-wrap gap-2">
+                                                        {cluster.supporting_competitor_urls_json.slice(0, 3).map((url) => (
+                                                            <a key={url} href={url} target="_blank" rel="noreferrer" className="truncate rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:border-sky-400">
+                                                                {url}
+                                                            </a>
+                                                        ))}
+                                                    </div>
+                                                ) : null}
                                             </div>
-                                            <div className="mt-3 grid gap-2 text-xs text-slate-400">
-                                                <div>SERP weakness: {Math.round(Number(cluster.serp_weakness_score || 0) * 100)}%</div>
-                                                <div>Competitor support: {Math.round(Number(cluster.competitor_support_score || 0) * 100)}%</div>
-                                                <div>Commercial value: {Math.round(Number(cluster.commercial_value_score || 0) * 100)}%</div>
-                                            </div>
-                                            {cluster.supporting_competitor_urls_json?.length ? (
-                                                <div className="mt-3 flex flex-wrap gap-2">
-                                                    {cluster.supporting_competitor_urls_json.slice(0, 3).map((url) => (
-                                                        <a key={url} href={url} target="_blank" rel="noreferrer" className="truncate rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:border-sky-400">
-                                                            {url}
-                                                        </a>
-                                                    ))}
-                                                </div>
-                                            ) : null}
+                                        ))}
+                                    </div>
+                                ) : selectedBet ? (
+                                    <div className="mt-5 rounded-2xl border border-emerald-500/30 bg-[#141a29] p-4">
+                                        <div className="text-xs uppercase tracking-[0.28em] text-emerald-300/80">
+                                            {isSoftwareRoute ? 'Winning software bet' : 'Winning editorial bet'}
                                         </div>
-                                    ))}
-                                </div>
+                                        <div className="mt-2 text-xl font-semibold text-white">{selectedBet.bet_text}</div>
+                                        <p className="mt-2 text-sm text-slate-300">{selectedBet.searcher_problem || 'No searcher problem captured.'}</p>
+                                        <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-300">
+                                            <span className="rounded-full border border-slate-600 px-3 py-1">{selectedBet.article_format || 'format pending'}</span>
+                                            <span className="rounded-full border border-slate-600 px-3 py-1">{selectedBet.commercial_angle || 'commercial angle pending'}</span>
+                                            <span className="rounded-full border border-slate-600 px-3 py-1">{selectedBet.route_hint || 'route pending'}</span>
+                                        </div>
+                                        <div className="mt-4 grid gap-2 text-xs text-slate-400">
+                                            <div>Articleability: {Math.round(Number(selectedBet.serp_articleability_score || 0) * 100)}%</div>
+                                            <div>SERP weakness: {Math.round(Number(selectedBet.serp_weakness_score || 0) * 100)}%</div>
+                                            <div>Article fit: {Math.round(Number(selectedBet.article_fit_score || 0) * 100)}%</div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="mt-5 rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-4 py-8 text-sm text-slate-400">
+                                        No winning selection is available for this route yet.
+                                    </div>
+                                )}
                             </div>
 
                             <div className="rounded-3xl border border-slate-700 bg-[#101726] p-5">
@@ -785,7 +844,13 @@ export function ResearchRebuildStrategicPage() {
                                     </div>
                                 ) : (
                                     <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-4 py-8 text-sm text-slate-400">
-                                        Choose a surviving cluster, then lock it to generate the title, slug, keyword map, and outline.
+                                        {isSoftwareRoute
+                                            ? 'This run is software-first. Generate the software output to create the title, slug, workflow framing, and rationale from the winning bet.'
+                                            : isEditorialRoute
+                                                ? 'This run is editorial-first. Generate the editorial output to create the title, angle, and rationale from the winning bet.'
+                                                : selectedCluster
+                                                    ? 'Lock the selected cluster to generate the title, slug, keyword map, and outline.'
+                                                    : 'No article cluster is available yet for this run.'}
                                     </div>
                                 )}
                             </div>
