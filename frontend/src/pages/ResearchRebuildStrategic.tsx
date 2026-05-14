@@ -70,6 +70,8 @@ export function ResearchRebuildStrategicPage() {
     const [loadingLabel, setLoadingLabel] = React.useState('Working through the strategic research flow…')
     const [isRemovingTopic, setIsRemovingTopic] = React.useState<string | null>(null)
     const [error, setError] = React.useState<string | null>(null)
+    const [success, setSuccess] = React.useState<string | null>(null)
+    const [mutatingOutcomeAction, setMutatingOutcomeAction] = React.useState<'release' | 'persist' | null>(null)
 
     const projectId = searchParams.get('project_id') || activeProject?.id || ''
 
@@ -157,6 +159,7 @@ export function ResearchRebuildStrategicPage() {
     const loadTopicsAndRuns = React.useCallback(async () => {
         if (!projectId) return
         setError(null)
+        setSuccess(null)
         const [topicResponse, runResponse] = await Promise.all([
             researchRebuildService.listJobs({
                 project_id: projectId,
@@ -263,6 +266,7 @@ export function ResearchRebuildStrategicPage() {
         setIsLoading(true)
         setLoadingLabel('Saving topic…')
         setError(null)
+        setSuccess(null)
         try {
             const job = await researchRebuildService.createJob({
                 project_id: projectId,
@@ -292,6 +296,7 @@ export function ResearchRebuildStrategicPage() {
         setIsLoading(true)
         setLoadingLabel('Generating angle bets, checking trends, and screening SERPs…')
         setError(null)
+        setSuccess(null)
         try {
             const detail = await researchRebuildService.createStrategyRun({
                 project_id: projectId,
@@ -336,6 +341,7 @@ export function ResearchRebuildStrategicPage() {
         setIsLoading(true)
         setLoadingLabel(`Rerunning ${stage.replace('_', ' ')}…`)
         setError(null)
+        setSuccess(null)
         try {
             const detail = await researchRebuildService.rerunStrategyStage(runDetail.run.id, { stage })
             setRunDetail(detail)
@@ -361,6 +367,7 @@ export function ResearchRebuildStrategicPage() {
                     : 'Locking the cluster and generating the final output…',
         )
         setError(null)
+        setSuccess(null)
         try {
             const detail = await researchRebuildService.selectStrategyCluster(runDetail.run.id, {
                 cluster_id: resolvedClusterId || undefined,
@@ -392,6 +399,7 @@ export function ResearchRebuildStrategicPage() {
         setIsLoading(true)
         setLoadingLabel('Running and saving the supporting DataForSEO lookup…')
         setError(null)
+        setSuccess(null)
         try {
             await researchRebuildService.runDataforseoSearch({
                 project_id: projectId,
@@ -435,6 +443,53 @@ export function ResearchRebuildStrategicPage() {
         : isEditorialRoute
             ? 'Generate editorial output'
             : 'Lock cluster and generate output'
+    const generatedOutcome = runDetail?.final_selection?.generated_outcome || null
+    const generatedOutcomeId = generatedOutcome?.id ? String(generatedOutcome.id) : null
+
+    const handleReleaseSoftwareIdea = async () => {
+        if (!generatedOutcomeId) return
+        setMutatingOutcomeAction('release')
+        setError(null)
+        setSuccess(null)
+        try {
+            await researchRebuildService.releaseSoftwareOutcome(generatedOutcomeId)
+            const refreshed = await researchRebuildService.getStrategyRun(runDetail!.run.id)
+            setRunDetail(refreshed)
+            setSuccess('Software outcome sent to Software Ideas.')
+        } catch (releaseError) {
+            setError(releaseError instanceof Error ? releaseError.message : 'Failed to release software outcome.')
+        } finally {
+            setMutatingOutcomeAction(null)
+        }
+    }
+
+    const handleSendToContentStudio = async () => {
+        if (!generatedOutcomeId || !projectId) return
+        setMutatingOutcomeAction('persist')
+        setError(null)
+        setSuccess(null)
+        try {
+            await researchRebuildService.persistOutcomeToContentIdea(generatedOutcomeId, {
+                project_id: projectId,
+                topic_id: selectedTopicId || undefined,
+                category_context: {
+                    project_id: projectId,
+                    primary_category_id: primaryCategoryId || null,
+                    secondary_category_id: secondaryCategoryId || null,
+                    primary_category_name: primaryCategory?.name || null,
+                    secondary_category_name: secondaryCategory?.name || null,
+                    category_path: [primaryCategory?.name, secondaryCategory?.name].filter(Boolean).join(' / ') || null,
+                },
+            })
+            const refreshed = await researchRebuildService.getStrategyRun(runDetail!.run.id)
+            setRunDetail(refreshed)
+            setSuccess('Outcome sent to Content Studio.')
+        } catch (persistError) {
+            setError(persistError instanceof Error ? persistError.message : 'Failed to send outcome to Content Studio.')
+        } finally {
+            setMutatingOutcomeAction(null)
+        }
+    }
 
     return (
         <div className="min-h-screen bg-[#05070c] text-white">
@@ -461,6 +516,12 @@ export function ResearchRebuildStrategicPage() {
                 {error ? (
                     <div className="rounded-2xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 text-sm text-rose-200">
                         {error}
+                    </div>
+                ) : null}
+
+                {success ? (
+                    <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-200">
+                        {success}
                     </div>
                 ) : null}
 
@@ -846,31 +907,149 @@ export function ResearchRebuildStrategicPage() {
                                 {finalOutcome ? (
                                     <div className="mt-4">
                                         <h3 className="text-2xl font-semibold text-white">{String(finalOutcome.title || 'Untitled output')}</h3>
-                                        <div className="mt-2 text-sm text-slate-300">
-                                            Primary keyword: <span className="font-medium text-white">{String(finalOutcome.primary_keyword || '')}</span>
-                                        </div>
-                                        <div className="mt-2 text-sm text-slate-300">
-                                            Slug: <span className="font-mono text-slate-100">{String(finalOutcome.slug || '')}</span>
-                                        </div>
-                                        <div className="mt-4 flex flex-wrap gap-2">
-                                            {Array.isArray(finalOutcome.secondary_keywords) ? finalOutcome.secondary_keywords.map((keyword) => (
-                                                <span key={String(keyword)} className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200">
-                                                    {String(keyword)}
-                                                </span>
-                                            )) : null}
-                                        </div>
-                                        <div className="mt-5 rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
-                                            <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Outline</div>
-                                            <ul className="mt-3 grid gap-2 text-sm text-slate-200">
-                                                {Array.isArray(finalOutcome.outline) ? finalOutcome.outline.map((item) => (
-                                                    <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
-                                                        {String(item)}
-                                                    </li>
-                                                )) : null}
-                                            </ul>
-                                        </div>
-                                        <div className="mt-4 text-sm text-slate-300">
-                                            {String(finalOutcome.rationale || '')}
+                                        {isSoftwareRoute ? (
+                                            <>
+                                                <div className="mt-3 text-base text-slate-200">
+                                                    {String(finalOutcome.software_concept || finalOutcome.description || '')}
+                                                </div>
+                                                <div className="mt-4 grid gap-3 text-sm text-slate-300 lg:grid-cols-2">
+                                                    <div>
+                                                        Target user: <span className="font-medium text-white">{String(finalOutcome.target_user || 'Not specified')}</span>
+                                                    </div>
+                                                    <div>
+                                                        Slug: <span className="font-mono text-slate-100">{String(finalOutcome.slug || '')}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-3 text-sm text-slate-300">
+                                                    User problem: <span className="text-white">{String(finalOutcome.user_problem || '')}</span>
+                                                </div>
+                                                <div className="mt-4 flex flex-wrap gap-2">
+                                                    {Array.isArray(finalOutcome.secondary_keywords) ? finalOutcome.secondary_keywords.map((keyword) => (
+                                                        <span key={String(keyword)} className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200">
+                                                            {String(keyword)}
+                                                        </span>
+                                                    )) : null}
+                                                </div>
+                                                <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                                                    <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
+                                                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Core workflow</div>
+                                                        <ul className="mt-3 grid gap-2 text-sm text-slate-200">
+                                                            {Array.isArray(finalOutcome.core_workflow) ? finalOutcome.core_workflow.map((item) => (
+                                                                <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
+                                                                    {String(item)}
+                                                                </li>
+                                                            )) : null}
+                                                        </ul>
+                                                    </div>
+                                                    <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
+                                                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Key features</div>
+                                                        <ul className="mt-3 grid gap-2 text-sm text-slate-200">
+                                                            {Array.isArray(finalOutcome.key_features) ? finalOutcome.key_features.map((item) => (
+                                                                <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
+                                                                    {String(item)}
+                                                                </li>
+                                                            )) : null}
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                                                    <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
+                                                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Inputs</div>
+                                                        <ul className="mt-3 grid gap-2 text-sm text-slate-200">
+                                                            {Array.isArray(finalOutcome.inputs) ? finalOutcome.inputs.map((item) => (
+                                                                <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
+                                                                    {String(item)}
+                                                                </li>
+                                                            )) : null}
+                                                        </ul>
+                                                    </div>
+                                                    <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
+                                                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Outputs</div>
+                                                        <ul className="mt-3 grid gap-2 text-sm text-slate-200">
+                                                            {Array.isArray(finalOutcome.outputs) ? finalOutcome.outputs.map((item) => (
+                                                                <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
+                                                                    {String(item)}
+                                                                </li>
+                                                            )) : null}
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-4 rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
+                                                    <div className="text-xs uppercase tracking-[0.28em] text-slate-400">MVP scope</div>
+                                                    <ul className="mt-3 grid gap-2 text-sm text-slate-200">
+                                                        {Array.isArray(finalOutcome.mvp_scope) ? finalOutcome.mvp_scope.map((item) => (
+                                                            <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
+                                                                {String(item)}
+                                                            </li>
+                                                        )) : null}
+                                                    </ul>
+                                                </div>
+                                                <div className="mt-4 rounded-2xl border border-slate-700 bg-[#0d1320] p-4 text-sm text-slate-300">
+                                                    <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Build notes</div>
+                                                    <div className="mt-2">{String(finalOutcome.build_notes || finalOutcome.rationale || '')}</div>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="mt-2 text-sm text-slate-300">
+                                                    Primary keyword: <span className="font-medium text-white">{String(finalOutcome.primary_keyword || '')}</span>
+                                                </div>
+                                                <div className="mt-2 text-sm text-slate-300">
+                                                    Slug: <span className="font-mono text-slate-100">{String(finalOutcome.slug || '')}</span>
+                                                </div>
+                                                <div className="mt-4 flex flex-wrap gap-2">
+                                                    {Array.isArray(finalOutcome.secondary_keywords) ? finalOutcome.secondary_keywords.map((keyword) => (
+                                                        <span key={String(keyword)} className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200">
+                                                            {String(keyword)}
+                                                        </span>
+                                                    )) : null}
+                                                </div>
+                                                <div className="mt-5 rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
+                                                    <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Outline</div>
+                                                    <ul className="mt-3 grid gap-2 text-sm text-slate-200">
+                                                        {Array.isArray(finalOutcome.outline) ? finalOutcome.outline.map((item) => (
+                                                            <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
+                                                                {String(item)}
+                                                            </li>
+                                                        )) : null}
+                                                    </ul>
+                                                </div>
+                                                <div className="mt-4 text-sm text-slate-300">
+                                                    {String(finalOutcome.rationale || '')}
+                                                </div>
+                                            </>
+                                        )}
+
+                                        <div className="mt-5 flex flex-wrap gap-3">
+                                            {isSoftwareRoute ? (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleReleaseSoftwareIdea}
+                                                        disabled={!generatedOutcomeId || mutatingOutcomeAction !== null}
+                                                        className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                                    >
+                                                        {mutatingOutcomeAction === 'release' ? 'Sending to Software Ideas…' : 'Send to Software Ideas'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleSendToContentStudio}
+                                                        disabled={!generatedOutcomeId || mutatingOutcomeAction !== null}
+                                                        className="rounded-2xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                                    >
+                                                        {mutatingOutcomeAction === 'persist' ? 'Sending to Content Studio…' : 'Send to Content Studio'}
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleSendToContentStudio}
+                                                    disabled={!generatedOutcomeId || mutatingOutcomeAction !== null}
+                                                    className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                    {mutatingOutcomeAction === 'persist' ? 'Sending to Content Studio…' : 'Send to Content Studio'}
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 ) : (

@@ -1318,7 +1318,68 @@ Bet:
         route: str,
         competitor_urls: List[str],
     ) -> Dict[str, Any]:
-        prompt = f"""
+        if route == "software_ready":
+            prompt = f"""
+Return valid JSON:
+{{
+  "title": "string",
+  "slug": "string",
+  "software_concept": "one paragraph describing the software product clearly",
+  "target_user": "string",
+  "user_problem": "string",
+  "core_workflow": ["step 1", "step 2", "step 3", "step 4"],
+  "key_features": ["feature 1", "feature 2", "feature 3", "feature 4"],
+  "inputs": ["input 1", "input 2"],
+  "outputs": ["output 1", "output 2"],
+  "mvp_scope": ["mvp item 1", "mvp item 2", "mvp item 3"],
+  "build_notes": "short paragraph on implementation direction",
+  "primary_keyword": "string",
+  "secondary_keywords": ["string"],
+  "confidence_score": 0.0,
+  "rationale": "string"
+}}
+
+Rules:
+- This is a software idea, not an article brief.
+- Do not return an article outline or section headings.
+- Be concrete about what the tool does for the user.
+- Make the workflow and features feel buildable as a real MVP.
+- Keep key_features to 4-6 items.
+- Keep core_workflow to 4-6 steps.
+
+Topic: {topic.get("job_text")}
+Bet: {bet or {}}
+Cluster: {cluster or {}}
+Route: {route}
+Competitor URLs: {competitor_urls}
+"""
+        elif route == "editorial_only":
+            prompt = f"""
+Return valid JSON:
+{{
+  "title": "string",
+  "slug": "string",
+  "editorial_angle": "string",
+  "why_now": "string",
+  "outline": ["heading 1", "heading 2", "heading 3"],
+  "primary_keyword": "string",
+  "secondary_keywords": ["string"],
+  "confidence_score": 0.0,
+  "rationale": "string"
+}}
+
+Rules:
+- This is an editorial outcome, not a software spec.
+- Outline should contain 5-8 sections.
+
+Topic: {topic.get("job_text")}
+Bet: {bet or {}}
+Cluster: {cluster or {}}
+Route: {route}
+Competitor URLs: {competitor_urls}
+"""
+        else:
+            prompt = f"""
 Return valid JSON:
 {{
   "title": "string",
@@ -1331,9 +1392,7 @@ Return valid JSON:
 }}
 
 Rules:
-- If route is article_ready, generate a strong SEO article title from the winning cluster.
-- If route is software_ready, generate a product-style or tool-explainer title.
-- If route is editorial_only, generate a strategic editorial title.
+- Generate a strong SEO article title from the winning cluster.
 - Outline should contain 5-8 sections.
 
 Topic: {topic.get("job_text")}
