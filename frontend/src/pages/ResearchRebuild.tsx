@@ -61,7 +61,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const [workflowPage, setWorkflowPage] = React.useState(0)
     const [workflowPageSize, setWorkflowPageSize] = React.useState(10)
     const [workflowTotalJobs, setWorkflowTotalJobs] = React.useState(0)
-    const [jobStatusFilter, setJobStatusFilter] = React.useState('all')
     const [workflowRuns, setWorkflowRuns] = React.useState<ResearchRebuildWorkflowRunSummary[]>([])
     const [routeFilter, setRouteFilter] = React.useState('all')
     const [candidateSearch, setCandidateSearch] = React.useState('')
@@ -89,7 +88,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const [showSavedTopicsModal, setShowSavedTopicsModal] = React.useState(false)
     const [mutatingOutcomeIds, setMutatingOutcomeIds] = React.useState<Set<string>>(new Set())
     const [expandedCandidateIds, setExpandedCandidateIds] = React.useState<Set<string>>(new Set())
-    const [rejectingJobIds, setRejectingJobIds] = React.useState<Set<string>>(new Set())
     const [archivingJobIds, setArchivingJobIds] = React.useState<Set<string>>(new Set())
     const [rejectingCandidateIds, setRejectingCandidateIds] = React.useState<Set<string>>(new Set())
     const [refreshingValidationIds, setRefreshingValidationIds] = React.useState<Set<string>>(new Set())
@@ -115,8 +113,8 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
         [projectCategories, primaryCategoryId],
     )
 
-    const approvedJobs = React.useMemo(
-        () => jobs.filter((job) => job.status === 'approved'),
+    const activeTopics = React.useMemo(
+        () => jobs.filter((job) => job.status !== 'archived' && job.status !== 'rejected'),
         [jobs],
     )
 
@@ -125,14 +123,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
             setSelectedLookupJobId(jobs[0].id)
         }
     }, [jobs, selectedLookupJobId])
-
-    const jobStatusCounts = React.useMemo(() => {
-        const counts = new Map<string, number>()
-        for (const job of jobs) {
-            counts.set(job.status, (counts.get(job.status) || 0) + 1)
-        }
-        return counts
-    }, [jobs])
 
     const filteredWorkflowResults = React.useMemo(() => workflowResults, [workflowResults])
 
@@ -312,7 +302,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
 
     React.useEffect(() => {
         setWorkflowPage(0)
-    }, [activeProject?.id, primaryCategoryId, secondaryCategoryId, activeBatchId, jobStatusFilter, workflowRunFilter, routeFilter, candidateSearch])
+    }, [activeProject?.id, primaryCategoryId, secondaryCategoryId, activeBatchId, workflowRunFilter, routeFilter, candidateSearch])
 
     React.useEffect(() => {
         if (workflowRunFilter === 'all') return
@@ -339,7 +329,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                 primary_category_id: primaryCategoryId || undefined,
                 secondary_category_id: secondaryCategoryId || undefined,
                 batch_id: nextBatchId || undefined,
-                job_status: jobStatusFilter !== 'all' ? jobStatusFilter : undefined,
                 workflow_run_id: nextWorkflowRunFilter !== 'all' ? nextWorkflowRunFilter : undefined,
                 route: routeFilter !== 'all' ? routeFilter : undefined,
                 search: candidateSearch.trim() || undefined,
@@ -358,7 +347,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
             setLoadingJobs(false)
             setLoadingWorkflowArtifacts(false)
         }
-    }, [activeBatchId, activeProject?.id, primaryCategoryId, secondaryCategoryId, jobStatusFilter, workflowRunFilter, routeFilter, candidateSearch, workflowPage, workflowPageSize])
+    }, [activeBatchId, activeProject?.id, primaryCategoryId, secondaryCategoryId, workflowRunFilter, routeFilter, candidateSearch, workflowPage, workflowPageSize])
 
     React.useEffect(() => {
         void refreshPageContext()
@@ -469,12 +458,11 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                     website_description: activeProject.site_description || activeProject.websiteDescription || '',
                 },
             })
-            await researchRebuildService.approveJob(createdJob.id)
             setManualJobText('')
             setActiveBatchId('')
             setWorkflowRunFilter('all')
             setSelectedLookupJobId(createdJob.id)
-            setSuccess('Topic saved and approved for the manual workflow.')
+            setSuccess('Topic saved to the manual workflow.')
             await refreshPageContext({
                 batchId: '',
                 workflowRunId: 'all',
@@ -611,46 +599,28 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
         }
     }
 
-    const handleApproveJob = async (jobId: string) => {
-        try {
-            await researchRebuildService.approveJob(jobId)
-            await refreshPageContext()
-        } catch (err) {
-            console.error('Failed to approve job:', err)
-            setError('Failed to approve job.')
-        }
-    }
-
-    const handleRejectJob = async (jobId: string, reason: string) => {
-        setRejectingJobIds((current) => new Set(current).add(jobId))
-        try {
-            await researchRebuildService.rejectJob(jobId, {
-                rejection_reason_tags: [reason],
-            })
-            await refreshPageContext()
-        } catch (err) {
-            console.error('Failed to reject job:', err)
-            setError('Failed to reject job.')
-        } finally {
-            setRejectingJobIds((current) => {
-                const next = new Set(current)
-                next.delete(jobId)
-                return next
-            })
-        }
-    }
-
     const handleArchiveJob = async (jobId: string) => {
         setArchivingJobIds((current) => new Set(current).add(jobId))
+        const remainingTopics = jobs.filter((job) => job.id !== jobId)
+        const nextSelectedTopicId = selectedLookupJobId === jobId
+            ? (remainingTopics[0]?.id || '')
+            : selectedLookupJobId
+
+        setJobs(remainingTopics)
+        setWorkflowResults((current) => current.filter((result) => result.job?.id !== jobId))
+        setWorkflowTotalJobs((current) => Math.max(0, current - 1))
+        setSelectedLookupJobId(nextSelectedTopicId)
+        if (selectedLookupJobId === jobId) {
+            setActiveSearchRecord(null)
+            setDataforseoSearches([])
+        }
+
         try {
             await researchRebuildService.archiveJob(jobId)
-            if (selectedLookupJobId === jobId) {
-                setSelectedLookupJobId('')
-            }
-            await refreshPageContext()
             setSuccess('Topic removed from the active workflow.')
         } catch (err) {
             console.error('Failed to archive job:', err)
+            await refreshPageContext()
             setError('Failed to remove topic.')
         } finally {
             setArchivingJobIds((current) => {
@@ -717,8 +687,8 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
 
     const handleRunWorkflow = async () => {
         await executeWorkflow(
-            approvedJobs.map((job) => job.id),
-            `Workflow ran for ${approvedJobs.length} approved job${approvedJobs.length === 1 ? '' : 's'}.`,
+            activeTopics.map((job) => job.id),
+            `Workflow ran for ${activeTopics.length} saved topic${activeTopics.length === 1 ? '' : 's'}.`,
         )
     }
 
@@ -905,11 +875,11 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                             <button
                                 type="button"
                                 onClick={() => navigate(opportunitiesPagePath)}
-                                disabled={approvedJobs.length === 0}
+                                disabled={activeTopics.length === 0}
                                 className={cn(
                                     "rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] transition-all",
                                     isOpportunitiesPage ? "bg-indigo-500 text-white" : "text-slate-400 hover:text-white",
-                                    approvedJobs.length === 0 && "cursor-not-allowed opacity-40 hover:text-slate-400",
+                                    activeTopics.length === 0 && "cursor-not-allowed opacity-40 hover:text-slate-400",
                                 )}
                             >
                                 2. Opportunities
@@ -1134,7 +1104,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         onChange={setSelectedLookupJobId}
                                         options={[
                                             { value: '', label: 'Select Topic' },
-                                            ...approvedJobs.map((job) => ({ value: job.id, label: job.job_text })),
+                                            ...activeTopics.map((job) => ({ value: job.id, label: job.job_text })),
                                         ]}
                                     />
 
@@ -1398,24 +1368,10 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                             <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Saved Topics</span>
                                         </div>
                                         <p className="mt-2 text-sm text-slate-400">
-                                            {approvedJobs.length} approved and {(jobStatusCounts.get('draft') || 0)} draft topics in this scope.
+                                            {activeTopics.length} saved topic{activeTopics.length === 1 ? '' : 's'} in this scope.
                                         </p>
                                     </div>
                                     <div className="flex gap-2">
-                                        <div className="flex gap-1.5 rounded-lg bg-white/5 p-1">
-                                            {['approved', 'draft'].map(s => (
-                                                <button 
-                                                    key={s} 
-                                                    onClick={() => setJobStatusFilter(s)} 
-                                                    className={cn(
-                                                        "px-3 py-1 rounded-md text-[9px] font-black uppercase transition-all", 
-                                                        jobStatusFilter === s ? "bg-white text-black shadow-lg" : "text-slate-500 hover:text-slate-300"
-                                                    )}
-                                                >
-                                                    {s} <span className="opacity-50 ml-1">{jobStatusCounts.get(s) || 0}</span>
-                                                </button>
-                                            ))}
-                                        </div>
                                         <Button
                                             type="button"
                                             variant="outline"
@@ -1445,12 +1401,12 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     <ContextBlock label="Focus Area" value={focusArea || 'No focus area supplied for this batch.'} />
                                     <ContextBlock label="Avoid Guidance" value={avoidGuidance || 'No avoid guidance supplied for this batch.'} />
                                     <div className="grid gap-4 md:grid-cols-2">
-                                        <ContextStat label="Approved Jobs" value={String(approvedJobs.length)} />
+                                        <ContextStat label="Saved Topics" value={String(activeTopics.length)} />
                                         <ContextStat label="Workflow Runs" value={String(workflowRuns.length)} />
                                     </div>
                                     <div className="rounded-2xl border border-white/5 bg-black/30 p-5">
                                         <div className="mb-3 flex items-center justify-between">
-                                            <span className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">Approved Job Set</span>
+                                            <span className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">Saved Topic Set</span>
                                             <Button
                                                 variant="outline"
                                                 size="sm"
@@ -1461,10 +1417,10 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                             </Button>
                                         </div>
                                         <div className="space-y-3">
-                                            {approvedJobs.length === 0 ? (
-                                                <p className="text-sm text-slate-500">No approved jobs yet. Go back to Jobs and approve the ones worth validating.</p>
+                                            {activeTopics.length === 0 ? (
+                                                <p className="text-sm text-slate-500">No saved topics yet. Go back to Jobs and create the topics you want to validate.</p>
                                             ) : (
-                                                approvedJobs.slice(0, 6).map((job) => (
+                                                activeTopics.slice(0, 6).map((job) => (
                                                     <div key={job.id} className="rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3 text-sm text-slate-300">
                                                         {job.job_text}
                                                     </div>
@@ -1491,25 +1447,25 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                 </h4>
                                 <p className="text-slate-400 text-[13px] mb-10 leading-relaxed font-medium">
                                     {isJobsPage
-                                        ? <>Move forward with <span className="text-white font-bold">{approvedJobs.length} approved jobs</span>, then validate only the opportunities you manually saved from your searches.</>
-                                        : <>Use the approved jobs on the left to run or rerun validation for saved opportunities, then inspect the strongest outcomes on this page.</>}
+                                        ? <>Move forward with <span className="text-white font-bold">{activeTopics.length} saved topic{activeTopics.length === 1 ? '' : 's'}</span>, then validate only the opportunities you manually saved from your searches.</>
+                                        : <>Use the saved topics on the left to run or rerun validation for saved opportunities, then inspect the strongest outcomes on this page.</>}
                                 </p>
                                 
                                 <Button 
                                     className={cn(
                                         "w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[11px] transition-all active:scale-[0.97] border",
-                                        approvedJobs.length > 0 
+                                        activeTopics.length > 0 
                                             ? "bg-indigo-500 text-white hover:bg-indigo-400 shadow-[0_0_25px_rgba(99,102,241,0.4)] border-indigo-400/50" 
                                             : "bg-white/5 text-slate-500 border-white/5 cursor-not-allowed"
                                     )}
                                     onClick={isJobsPage ? () => navigate(opportunitiesPagePath) : handleRunWorkflow}
-                                    disabled={(isOpportunitiesPage && runningWorkflow) || approvedJobs.length === 0 || !activeProject?.id}
+                                    disabled={(isOpportunitiesPage && runningWorkflow) || activeTopics.length === 0 || !activeProject?.id}
                                 >
                                     {isOpportunitiesPage && runningWorkflow
                                         ? <Loader2 className="mr-3 h-5 w-5 animate-spin" />
-                                        : <Rocket className={cn("mr-3 h-5 w-5 fill-current", approvedJobs.length > 0 ? "animate-bounce" : "")} />}
-                                    {approvedJobs.length > 0
-                                        ? (isJobsPage ? `Continue With ${approvedJobs.length} Approved Jobs` : `Validate Saved Opportunities`)
+                                        : <Rocket className={cn("mr-3 h-5 w-5 fill-current", activeTopics.length > 0 ? "animate-bounce" : "")} />}
+                                    {activeTopics.length > 0
+                                        ? (isJobsPage ? `Continue With ${activeTopics.length} Saved Topic${activeTopics.length === 1 ? '' : 's'}` : `Validate Saved Opportunities`)
                                         : 'Select Candidates First'}
                                 </Button>
                             </div>
@@ -1757,7 +1713,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                             <div className="flex items-start justify-between gap-4">
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex flex-wrap items-center gap-2">
-                                                        <TopicStatusBadge status={job.status} />
                                                         {(job.primary_category_id || job.secondary_category_id) && (
                                                             <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
                                                                 Scoped Topic
@@ -1767,25 +1722,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                     <p className="mt-3 text-sm leading-relaxed text-slate-100">{job.job_text}</p>
                                                 </div>
                                                 <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                                                    {job.status !== 'approved' && job.status !== 'rejected' && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleApproveJob(job.id)}
-                                                            className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-300 transition hover:bg-emerald-500/20"
-                                                        >
-                                                            Approve
-                                                        </button>
-                                                    )}
-                                                    {job.status !== 'rejected' && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleRejectJob(job.id, 'off_brand')}
-                                                            disabled={rejectingJobIds.has(job.id)}
-                                                            className="rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
-                                                        >
-                                                            {rejectingJobIds.has(job.id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Reject'}
-                                                        </button>
-                                                    )}
                                                     <button
                                                         type="button"
                                                         onClick={() => handleArchiveJob(job.id)}
@@ -1850,18 +1786,6 @@ function SelectField({ label, value, onChange, options }: { label: string; value
             </div>
         </div>
     )
-}
-
-function TopicStatusBadge({ status }: { status: string }) {
-    const normalized = String(status || '').toLowerCase()
-
-    if (normalized === 'approved') {
-        return <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">Approved</span>
-    }
-    if (normalized === 'rejected') {
-        return <span className="rounded-full border border-red-400/20 bg-red-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-red-300">Rejected</span>
-    }
-    return <span className="rounded-full border border-white/15 bg-white/[0.05] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">Draft</span>
 }
 
 function FilterSelect({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {

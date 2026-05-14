@@ -400,7 +400,7 @@ Rejected patterns to avoid:
                     "job_text": str(job.get("job_text") or "").strip(),
                     "job_type_hint": job.get("job_type_hint"),
                     "job_source": job.get("job_source") or "llm_generation",
-                    "status": job.get("status") or "draft",
+                    "status": job.get("status") or "approved",
                     "website_context_snapshot": website_context_snapshot,
                     "generation_metadata": job.get("generation_metadata") or {},
                 }
@@ -417,7 +417,7 @@ Rejected patterns to avoid:
         secondary_category_id: Optional[UUID] = None,
         job_type_hint: Optional[str] = None,
         job_source: str = "manual",
-        status: str = "draft",
+        status: str = "approved",
         website_context_snapshot: Optional[Dict[str, Any]] = None,
         generation_metadata: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
@@ -531,16 +531,13 @@ Rejected patterns to avoid:
         )
         existing_jobs: List[Dict[str, Any]] = []
         if include_existing_jobs:
-            existing_jobs = await self.list_records(
+            existing_jobs = await self.list_jobs(
                 user_id=user_id,
-                filters={
-                    "project_id": str(project_id),
-                    "primary_category_id": str(primary_category_id) if primary_category_id else None,
-                    "secondary_category_id": str(secondary_category_id) if secondary_category_id else None,
-                    "status": "draft",
-                },
-                order_by={"updated_at": "desc"},
-                limit=75,
+                project_id=project_id,
+                primary_category_id=primary_category_id,
+                secondary_category_id=secondary_category_id,
+                include_archived=False,
+                active_only=True,
             )
         return {
             "recent_rejected_jobs": [
