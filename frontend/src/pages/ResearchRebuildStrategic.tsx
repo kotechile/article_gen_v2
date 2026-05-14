@@ -200,6 +200,27 @@ export function ResearchRebuildStrategicPage() {
     }, [loadTopicsAndRuns, projectId])
 
     React.useEffect(() => {
+        if (!topics.length) return
+        if (selectedTopicId && topics.some((topic) => topic.id === selectedTopicId)) {
+            return
+        }
+
+        const topicFromUrl = searchParams.get('topic_id') || ''
+        if (topicFromUrl && topics.some((topic) => topic.id === topicFromUrl)) {
+            setSelectedTopicId(topicFromUrl)
+            return
+        }
+
+        const latestRunInScope = runs[0]
+        if (latestRunInScope?.topic_id && topics.some((topic) => topic.id === latestRunInScope.topic_id)) {
+            setSelectedTopicId(latestRunInScope.topic_id)
+            return
+        }
+
+        setSelectedTopicId(topics[0].id)
+    }, [runs, searchParams, selectedTopicId, topics])
+
+    React.useEffect(() => {
         loadSearchHistory().catch(() => undefined)
     }, [loadSearchHistory])
 
@@ -211,8 +232,12 @@ export function ResearchRebuildStrategicPage() {
             })
             return
         }
-        if (!selectedTopicId || !runs.length) return
-        const latestRun = runs.find((run) => run.topic_id === selectedTopicId)
+        if (!runs.length) return
+
+        const topicIdToLoad = selectedTopicId || searchParams.get('topic_id') || runs[0]?.topic_id || ''
+        if (!topicIdToLoad) return
+
+        const latestRun = runs.find((run) => run.topic_id === topicIdToLoad)
         if (latestRun) {
             loadRunDetail(latestRun.id).catch(() => undefined)
         }
@@ -326,16 +351,22 @@ export function ResearchRebuildStrategicPage() {
     const handleSelectCluster = async (clusterId?: string) => {
         if (!runDetail) return
         const resolvedClusterId = clusterId || selectedClusterId
-        if (!resolvedClusterId) return
+        if (isArticleRoute && !resolvedClusterId) return
         setIsLoading(true)
-        setLoadingLabel('Locking the cluster and generating the final output…')
+        setLoadingLabel(
+            isSoftwareRoute
+                ? 'Generating the software output from the winning bet…'
+                : isEditorialRoute
+                    ? 'Generating the editorial output from the winning bet…'
+                    : 'Locking the cluster and generating the final output…',
+        )
         setError(null)
         try {
             const detail = await researchRebuildService.selectStrategyCluster(runDetail.run.id, {
-                cluster_id: resolvedClusterId,
+                cluster_id: resolvedClusterId || undefined,
             })
             setRunDetail(detail)
-            setSelectedClusterId(resolvedClusterId)
+            setSelectedClusterId(resolvedClusterId || detail.run.selected_cluster_id || detail.clusters[0]?.id || '')
             await loadTopicsAndRuns()
         } catch (selectError) {
             setError(selectError instanceof Error ? selectError.message : 'Failed to select cluster.')
