@@ -1875,6 +1875,20 @@ def create_research_topic():
         insert_data = hydrated[0] if hydrated else insert_data
 
         supabase_admin = _get_admin_supabase_client(supabase)
+        existing_response = (
+            supabase_admin
+            .table('research_topics')
+            .select('*')
+            .eq('user_id', user_id)
+            .eq('title', insert_data["title"])
+            .limit(1)
+            .execute()
+        )
+        existing_rows = existing_response.data or []
+        if existing_rows:
+            enriched_existing = _enrich_research_topics(supabase, existing_rows)
+            return jsonify(enriched_existing[0]), 200
+
         response = supabase_admin.table('research_topics').insert(insert_data).execute()
             
         if not response or not response.data:
@@ -1884,6 +1898,29 @@ def create_research_topic():
         return jsonify(enriched[0]), 201
 
     except Exception as e:
+        message = str(e)
+        if 'idx_research_topics_user_title' in message or 'duplicate key value violates unique constraint' in message:
+            try:
+                supabase = get_supabase_client()
+                user_id = _resolve_user_id_from_request(supabase, request.get_json(silent=True) or {})
+                title = (request.get_json(silent=True) or {}).get('title')
+                if user_id and title:
+                    supabase_admin = _get_admin_supabase_client(supabase)
+                    existing_response = (
+                        supabase_admin
+                        .table('research_topics')
+                        .select('*')
+                        .eq('user_id', user_id)
+                        .eq('title', title)
+                        .limit(1)
+                        .execute()
+                    )
+                    existing_rows = existing_response.data or []
+                    if existing_rows:
+                        enriched_existing = _enrich_research_topics(supabase, existing_rows)
+                        return jsonify(enriched_existing[0]), 200
+            except Exception:
+                logger.warning("Failed duplicate-topic recovery for title=%r", (request.get_json(silent=True) or {}).get('title'), exc_info=True)
         logger.error(f"Error creating research topic: {str(e)}", exc_info=True)
         return jsonify(ErrorResponse(
             error="internal_error",
