@@ -55,6 +55,10 @@ function groupCompetitorPagesByBet(pages: ResearchStrategyRunDetail['competitor_
     }, {})
 }
 
+function clusterMetadata(cluster?: ResearchKeywordCluster | null) {
+    return (cluster?.cluster_metadata as Record<string, unknown> | undefined) || {}
+}
+
 export function ResearchRebuildStrategicPage() {
     const { activeProject, projects, setActiveProject } = useProject()
     const [searchParams, setSearchParams] = useSearchParams()
@@ -496,6 +500,7 @@ export function ResearchRebuildStrategicPage() {
         () => runDetail?.clusters.find((cluster) => cluster.id === selectedClusterId) || runDetail?.clusters[0] || null,
         [runDetail, selectedClusterId],
     )
+    const selectedClusterMetadata = React.useMemo(() => clusterMetadata(selectedCluster), [selectedCluster])
     const isArticleRoute = winningRoute === 'article_ready'
     const isSoftwareRoute = winningRoute === 'software_ready'
     const isEditorialRoute = winningRoute === 'editorial_only'
@@ -528,6 +533,20 @@ export function ResearchRebuildStrategicPage() {
         || softwareInputs.length
         || softwareOutputs.length
         || softwareMvpScope.length,
+    )
+    const keywordOpportunities = React.useMemo(
+        () => (runDetail?.clusters || []).filter((cluster) => String(cluster.cluster_type || '') === 'keyword_opportunity'),
+        [runDetail?.clusters],
+    )
+    const usedKeywordClusterId = React.useMemo(() => {
+        if (!generatedOutcome || !isArticleRoute) {
+            return ''
+        }
+        return runDetail?.run.selected_cluster_id || selectedClusterId || ''
+    }, [generatedOutcome, isArticleRoute, runDetail?.run.selected_cluster_id, selectedClusterId])
+    const unusedKeywordOpportunities = React.useMemo(
+        () => keywordOpportunities.filter((cluster) => cluster.id !== usedKeywordClusterId),
+        [keywordOpportunities, usedKeywordClusterId],
     )
 
     const handleReleaseSoftwareIdea = async () => {
@@ -968,6 +987,107 @@ export function ResearchRebuildStrategicPage() {
                 </section>
 
                 <section className="rounded-[28px] border border-white/10 bg-[#0f1320] p-6">
+                    <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                        <div>
+                            <div className="text-xs uppercase tracking-[0.35em] text-sky-300/70">Keyword Bank</div>
+                            <h2 className="mt-2 text-2xl font-semibold">Feasible keywords found</h2>
+                            <p className="mt-2 text-sm text-slate-300">
+                                Keep every realistic keyword opportunity from this run visible. If you only use one keyword now, the rest stay available for future articles, together with the exact competitor URL they came from.
+                            </p>
+                        </div>
+                        <div className="text-sm text-slate-400">
+                            {unusedKeywordOpportunities.length} unused keyword{unusedKeywordOpportunities.length === 1 ? '' : 's'}
+                        </div>
+                    </div>
+
+                    {!runDetail ? (
+                        <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-8 text-sm text-slate-400">
+                            Run the strategy first to surface feasible competitor-backed keywords.
+                        </div>
+                    ) : keywordOpportunities.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-8 text-sm text-slate-400">
+                            No feasible keyword opportunities were found for this run yet.
+                        </div>
+                    ) : (
+                        <div className="overflow-hidden rounded-2xl border border-slate-700 bg-[#101726]">
+                            <div className="hidden grid-cols-[minmax(0,2.2fr)_100px_80px_110px_120px_minmax(0,1.5fr)_140px] gap-3 border-b border-slate-700 px-4 py-3 text-[11px] uppercase tracking-[0.26em] text-slate-400 lg:grid">
+                                <div>Keyword</div>
+                                <div>Volume</div>
+                                <div>KD</div>
+                                <div>Intent</div>
+                                <div>Competitor</div>
+                                <div>Source URL</div>
+                                <div className="text-right">Action</div>
+                            </div>
+                            <div className="divide-y divide-slate-800">
+                                {unusedKeywordOpportunities.map((cluster) => {
+                                    const metadata = clusterMetadata(cluster)
+                                    const sourceUrl = String(metadata.source_url || cluster.supporting_competitor_urls_json?.[0] || '')
+                                    const sourceDomain = String(metadata.source_domain || 'Unknown')
+                                    const isSelected = selectedClusterId === cluster.id
+
+                                    return (
+                                        <div key={cluster.id} className={`px-4 py-4 ${isSelected ? 'bg-sky-500/8' : ''}`}>
+                                            <div className="grid gap-3 lg:grid-cols-[minmax(0,2.2fr)_100px_80px_110px_120px_minmax(0,1.5fr)_140px] lg:items-start">
+                                                <div className="min-w-0">
+                                                    <div className="font-medium text-white">{cluster.primary_keyword_candidate || cluster.cluster_name || 'Untitled keyword'}</div>
+                                                    <div className="mt-1 text-xs text-slate-400">
+                                                        Score {Math.round(Number(cluster.opportunity_score || 0) * 100)}%
+                                                        {' · '}
+                                                        Competitor rank {String(metadata.median_rank || cluster.median_rank || 'n/a')}
+                                                    </div>
+                                                </div>
+                                                <div className="text-sm text-slate-200">
+                                                    <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">Volume</span>
+                                                    {String(metadata.search_volume || 'n/a')}
+                                                </div>
+                                                <div className="text-sm text-slate-200">
+                                                    <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">KD</span>
+                                                    {String(metadata.keyword_difficulty || 'n/a')}
+                                                </div>
+                                                <div className="text-sm text-slate-200">
+                                                    <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">Intent</span>
+                                                    {String(metadata.intent || 'n/a')}
+                                                </div>
+                                                <div className="text-sm text-slate-200">
+                                                    <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">Competitor</span>
+                                                    {sourceDomain}
+                                                </div>
+                                                <div className="min-w-0 text-sm">
+                                                    <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">Source URL</span>
+                                                    {sourceUrl ? (
+                                                        <a
+                                                            href={sourceUrl}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="block truncate text-sky-300 transition hover:text-sky-200"
+                                                            title={sourceUrl}
+                                                        >
+                                                            {sourceUrl}
+                                                        </a>
+                                                    ) : (
+                                                        <span className="text-slate-500">No source URL</span>
+                                                    )}
+                                                </div>
+                                                <div className="flex justify-end lg:justify-end">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSelectedClusterId(cluster.id)}
+                                                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${isSelected ? 'border-sky-400 bg-sky-500/15 text-white' : 'border-slate-600 bg-slate-900 text-slate-100 hover:border-sky-400'}`}
+                                                    >
+                                                        {isSelected ? 'Selected' : 'Use this keyword'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </section>
+
+                <section className="rounded-[28px] border border-white/10 bg-[#0f1320] p-6">
                     <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
                             <div className="text-xs uppercase tracking-[0.35em] text-sky-300/70">Step 3</div>
@@ -1016,13 +1136,13 @@ export function ResearchRebuildStrategicPage() {
                                 </div>
                                 {isArticleRoute ? (
                                     <div className="mt-5 grid gap-3">
-                                        {(runDetail.clusters || []).map((cluster) => (
+                                        {keywordOpportunities.map((cluster) => (
                                             <div key={cluster.id} className={`rounded-2xl border p-4 ${selectedClusterId === cluster.id ? 'border-sky-400 bg-sky-500/10' : 'border-slate-700 bg-[#141a29]'}`}>
                                                 <div className="flex items-start justify-between gap-4">
                                                     <div>
                                                         <div className="font-medium text-white">{cluster.primary_keyword_candidate || cluster.cluster_name}</div>
                                                         <div className="mt-1 text-sm text-slate-300">
-                                                            {String((cluster.cluster_metadata as Record<string, unknown> | undefined)?.source_domain || 'Unknown competitor domain')}
+                                                            {String(clusterMetadata(cluster).source_domain || 'Unknown competitor domain')}
                                                         </div>
                                                     </div>
                                                     <div className={`text-sm ${toneClass(cluster.opportunity_score)}`}>
@@ -1033,9 +1153,9 @@ export function ResearchRebuildStrategicPage() {
                                                     <div>SERP weakness: {Math.round(Number(cluster.serp_weakness_score || 0) * 100)}%</div>
                                                     <div>Competitor support: {Math.round(Number(cluster.competitor_support_score || 0) * 100)}%</div>
                                                     <div>Commercial value: {Math.round(Number(cluster.commercial_value_score || 0) * 100)}%</div>
-                                                    <div>Volume: {String((cluster.cluster_metadata as Record<string, unknown> | undefined)?.search_volume || 'n/a')}</div>
-                                                    <div>KD: {String((cluster.cluster_metadata as Record<string, unknown> | undefined)?.keyword_difficulty || 'n/a')}</div>
-                                                    <div>Intent: {String((cluster.cluster_metadata as Record<string, unknown> | undefined)?.intent || 'n/a')}</div>
+                                                    <div>Volume: {String(clusterMetadata(cluster).search_volume || 'n/a')}</div>
+                                                    <div>KD: {String(clusterMetadata(cluster).keyword_difficulty || 'n/a')}</div>
+                                                    <div>Intent: {String(clusterMetadata(cluster).intent || 'n/a')}</div>
                                                 </div>
                                                 {cluster.supporting_competitor_urls_json?.length ? (
                                                     <div className="mt-3 flex flex-wrap gap-2">
@@ -1294,7 +1414,30 @@ export function ResearchRebuildStrategicPage() {
                                                 : isEditorialRoute
                                                     ? 'This run is editorial-first. Generate the editorial output to create the title, angle, and rationale from the winning bet.'
                                                     : selectedCluster
-                                                    ? 'Lock the selected keyword opportunity to generate the title, slug, keyword map, and outline.'
+                                                        ? (
+                                                            <div className="space-y-3">
+                                                                <div>Lock the selected keyword opportunity to generate the title, slug, keyword map, and outline.</div>
+                                                                <div className="rounded-2xl border border-sky-400/20 bg-sky-500/5 px-4 py-3 text-slate-300">
+                                                                    <div className="text-xs uppercase tracking-[0.24em] text-sky-300/80">Selected keyword</div>
+                                                                    <div className="mt-2 font-medium text-white">
+                                                                        {selectedCluster.primary_keyword_candidate || selectedCluster.cluster_name}
+                                                                    </div>
+                                                                    <div className="mt-1 text-sm">
+                                                                        Competitor domain: <span className="text-white">{String(selectedClusterMetadata.source_domain || 'Unknown')}</span>
+                                                                    </div>
+                                                                    {String(selectedClusterMetadata.source_url || selectedCluster.supporting_competitor_urls_json?.[0] || '').trim() ? (
+                                                                        <a
+                                                                            href={String(selectedClusterMetadata.source_url || selectedCluster.supporting_competitor_urls_json?.[0] || '')}
+                                                                            target="_blank"
+                                                                            rel="noreferrer"
+                                                                            className="mt-2 inline-flex max-w-full truncate text-sky-300 hover:text-sky-200"
+                                                                        >
+                                                                            {String(selectedClusterMetadata.source_url || selectedCluster.supporting_competitor_urls_json?.[0] || '')}
+                                                                        </a>
+                                                                    ) : null}
+                                                                </div>
+                                                            </div>
+                                                        )
                                                     : 'No feasible keyword opportunity is available yet for this run.'}
                                     </div>
                                 )}
