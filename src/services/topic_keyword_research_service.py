@@ -833,8 +833,15 @@ QUESTION:: query text
             killer_reasons.append("service_or_ecommerce_dominant_serp")
         if article_page_count == 0:
             killer_reasons.append("no_article_pages_ranking")
-        if not repeated_domains:
-            killer_reasons.append("no_repeated_competitor_domains")
+
+        minimum_viable_opportunity = (
+            consistent_intent
+            and article_page_count >= 2
+            and (
+                niche_page_count >= 2
+                or weak_page_count >= 2
+            )
+        )
 
         serp_weakness_score = round(
             max(
@@ -854,7 +861,7 @@ QUESTION:: query text
         )
 
         return {
-            "passed": pass_count >= 3 and not killer_reasons,
+            "passed": minimum_viable_opportunity and not killer_reasons,
             "signal_count": pass_count,
             "signals": signals,
             "killer_reasons": killer_reasons,
