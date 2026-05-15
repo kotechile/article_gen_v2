@@ -1816,10 +1816,19 @@ Competitor URLs: {competitor_urls}
         bet: Optional[Dict[str, Any]],
         cluster: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        if route != "software_ready":
-            return output
-
         normalized = dict(output or {})
+        cluster_metadata = dict((cluster or {}).get("cluster_metadata") or {})
+        competitor_urls_used = list((cluster or {}).get("supporting_competitor_urls_json") or [])
+        if competitor_urls_used:
+            normalized["competitor_urls_used"] = competitor_urls_used
+        if cluster_metadata.get("source_url"):
+            normalized["source_competitor_url"] = cluster_metadata.get("source_url")
+        if cluster_metadata.get("source_domain"):
+            normalized["source_competitor_domain"] = cluster_metadata.get("source_domain")
+
+        if route != "software_ready":
+            return normalized
+
         product_name = str(normalized.get("product_name") or normalized.get("title") or "").strip()
         if not product_name or self._is_article_like_title(product_name):
             product_name = self._derive_software_product_name(

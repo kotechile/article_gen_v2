@@ -1196,6 +1196,22 @@ export function ResearchRebuildStrategicPage() {
                                                     Primary keyword: <span className="font-medium text-white">{String(finalOutcome.primary_keyword || '')}</span>
                                                 </div>
                                                 <div className="mt-2 text-sm text-slate-300">
+                                                    Competitor domain: <span className="font-medium text-white">{String(finalOutcome.source_competitor_domain || 'Not captured')}</span>
+                                                </div>
+                                                {String(finalOutcome.source_competitor_url || '').trim() ? (
+                                                    <div className="mt-2 text-sm text-slate-300">
+                                                        Competitor URL:{' '}
+                                                        <a
+                                                            href={String(finalOutcome.source_competitor_url)}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="font-medium text-sky-300 underline-offset-2 hover:underline"
+                                                        >
+                                                            {String(finalOutcome.source_competitor_url)}
+                                                        </a>
+                                                    </div>
+                                                ) : null}
+                                                <div className="mt-2 text-sm text-slate-300">
                                                     Slug: <span className="font-mono text-slate-100">{String(finalOutcome.slug || '')}</span>
                                                 </div>
                                                 <div className="mt-4 flex flex-wrap gap-2">
@@ -1218,6 +1234,24 @@ export function ResearchRebuildStrategicPage() {
                                                 <div className="mt-4 text-sm text-slate-300">
                                                     {String(finalOutcome.rationale || '')}
                                                 </div>
+                                                {Array.isArray(finalOutcome.competitor_urls_used) && finalOutcome.competitor_urls_used.length ? (
+                                                    <div className="mt-4 rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
+                                                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Competitor URLs used</div>
+                                                        <div className="mt-3 flex flex-wrap gap-2">
+                                                            {finalOutcome.competitor_urls_used.map((url) => (
+                                                                <a
+                                                                    key={String(url)}
+                                                                    href={String(url)}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="truncate rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:border-sky-400"
+                                                                >
+                                                                    {String(url)}
+                                                                </a>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ) : null}
                                             </>
                                         )}
 
