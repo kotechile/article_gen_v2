@@ -129,6 +129,19 @@ export function ResearchRebuildStrategicPage() {
     const primaryCategory = primaryCategories.find((category) => category.id === primaryCategoryId) || null
     const secondaryCategory = secondaryCategories.find((category) => category.id === secondaryCategoryId) || null
 
+    const applyScopeSelection = React.useCallback((payload: {
+        topicId?: string
+        primaryCategoryId?: string
+        secondaryCategoryId?: string
+    }) => {
+        const nextPrimary = payload.primaryCategoryId || ''
+        const nextSecondary = payload.secondaryCategoryId || ''
+        const nextTopic = payload.topicId || ''
+        setPrimaryCategoryId(nextPrimary)
+        setSecondaryCategoryId(nextSecondary)
+        setSelectedTopicId(nextTopic)
+    }, [])
+
     const syncScopeParams = React.useCallback((nextTopicId?: string) => {
         const next = new URLSearchParams(searchParams)
         if (projectId) next.set('project_id', projectId)
@@ -180,10 +193,14 @@ export function ResearchRebuildStrategicPage() {
     const loadRunDetail = React.useCallback(async (runId: string) => {
         const detail = await researchRebuildService.getStrategyRun(runId)
         setRunDetail(detail)
-        setSelectedTopicId(detail.topic?.id || '')
+        applyScopeSelection({
+            topicId: detail.topic?.id || '',
+            primaryCategoryId: String(detail.run.primary_category_id || detail.topic?.primary_category_id || ''),
+            secondaryCategoryId: String(detail.run.secondary_category_id || detail.topic?.secondary_category_id || ''),
+        })
         setSelectedClusterId(detail.run.selected_cluster_id || detail.clusters[0]?.id || '')
         syncScopeParams(detail.topic?.id || '')
-    }, [syncScopeParams])
+    }, [applyScopeSelection, syncScopeParams])
 
     const loadSearchHistory = React.useCallback(async () => {
         if (!projectId) return
@@ -210,18 +227,46 @@ export function ResearchRebuildStrategicPage() {
 
         const topicFromUrl = searchParams.get('topic_id') || ''
         if (topicFromUrl && topics.some((topic) => topic.id === topicFromUrl)) {
-            setSelectedTopicId(topicFromUrl)
+            const matchedTopic = topics.find((topic) => topic.id === topicFromUrl)
+            applyScopeSelection({
+                topicId: topicFromUrl,
+                primaryCategoryId: String(matchedTopic?.primary_category_id || ''),
+                secondaryCategoryId: String(matchedTopic?.secondary_category_id || ''),
+            })
             return
         }
 
         const latestRunInScope = runs[0]
         if (latestRunInScope?.topic_id && topics.some((topic) => topic.id === latestRunInScope.topic_id)) {
-            setSelectedTopicId(latestRunInScope.topic_id)
+            applyScopeSelection({
+                topicId: latestRunInScope.topic_id,
+                primaryCategoryId: String(latestRunInScope.primary_category_id || ''),
+                secondaryCategoryId: String(latestRunInScope.secondary_category_id || ''),
+            })
             return
         }
 
-        setSelectedTopicId(topics[0].id)
-    }, [runs, searchParams, selectedTopicId, topics])
+        applyScopeSelection({
+            topicId: topics[0].id,
+            primaryCategoryId: String(topics[0].primary_category_id || ''),
+            secondaryCategoryId: String(topics[0].secondary_category_id || ''),
+        })
+    }, [applyScopeSelection, runs, searchParams, selectedTopicId, topics])
+
+    React.useEffect(() => {
+        if (!selectedTopicId || !topics.length) return
+        const matchedTopic = topics.find((topic) => topic.id === selectedTopicId)
+        if (!matchedTopic) return
+
+        const nextPrimary = String(matchedTopic.primary_category_id || '')
+        const nextSecondary = String(matchedTopic.secondary_category_id || '')
+        if (!primaryCategoryId && nextPrimary) {
+            setPrimaryCategoryId(nextPrimary)
+        }
+        if (!secondaryCategoryId && nextSecondary) {
+            setSecondaryCategoryId(nextSecondary)
+        }
+    }, [primaryCategoryId, secondaryCategoryId, selectedTopicId, topics])
 
     React.useEffect(() => {
         loadSearchHistory().catch(() => undefined)
@@ -281,7 +326,11 @@ export function ResearchRebuildStrategicPage() {
             })
             setTopics((current) => [job, ...current])
             setTopicDraft('')
-            setSelectedTopicId(job.id)
+            applyScopeSelection({
+                topicId: job.id,
+                primaryCategoryId: String(job.primary_category_id || primaryCategoryId || ''),
+                secondaryCategoryId: String(job.secondary_category_id || secondaryCategoryId || ''),
+            })
             syncScopeParams(job.id)
         } catch (createError) {
             setError(createError instanceof Error ? createError.message : 'Failed to save topic.')
@@ -305,7 +354,11 @@ export function ResearchRebuildStrategicPage() {
                 topic_id: resolvedTopicId,
             })
             setRunDetail(detail)
-            setSelectedTopicId(detail.topic?.id || resolvedTopicId)
+            applyScopeSelection({
+                topicId: detail.topic?.id || resolvedTopicId,
+                primaryCategoryId: String(detail.run.primary_category_id || detail.topic?.primary_category_id || primaryCategoryId || ''),
+                secondaryCategoryId: String(detail.run.secondary_category_id || detail.topic?.secondary_category_id || secondaryCategoryId || ''),
+            })
             setSelectedClusterId(detail.run.selected_cluster_id || detail.clusters[0]?.id || '')
             await loadTopicsAndRuns()
             syncScopeParams(detail.topic?.id || resolvedTopicId)
@@ -321,7 +374,11 @@ export function ResearchRebuildStrategicPage() {
         setIsRemovingTopic(topicId)
         setTopics((current) => current.filter((topic) => topic.id !== topicId))
         if (selectedTopicId === topicId) {
-            setSelectedTopicId('')
+            applyScopeSelection({
+                topicId: '',
+                primaryCategoryId: '',
+                secondaryCategoryId: '',
+            })
             setRunDetail(null)
             syncScopeParams('')
         }
@@ -665,7 +722,11 @@ export function ResearchRebuildStrategicPage() {
                                         type="button"
                                         key={topic.id}
                                         onClick={() => {
-                                            setSelectedTopicId(topic.id)
+                                            applyScopeSelection({
+                                                topicId: topic.id,
+                                                primaryCategoryId: String(latestRun?.primary_category_id || topic.primary_category_id || ''),
+                                                secondaryCategoryId: String(latestRun?.secondary_category_id || topic.secondary_category_id || ''),
+                                            })
                                             syncScopeParams(topic.id)
                                             if (latestRun) {
                                                 loadRunDetail(latestRun.id).catch(() => undefined)
@@ -1241,7 +1302,11 @@ export function ResearchRebuildStrategicPage() {
                                                 </div>
                                                 <div className="flex gap-2">
                                                     <button type="button" onClick={() => {
-                                                        setSelectedTopicId(topic.id)
+                                                        applyScopeSelection({
+                                                            topicId: topic.id,
+                                                            primaryCategoryId: String(latestRun?.primary_category_id || topic.primary_category_id || ''),
+                                                            secondaryCategoryId: String(latestRun?.secondary_category_id || topic.secondary_category_id || ''),
+                                                        })
                                                         setTopicsModalOpen(false)
                                                         syncScopeParams(topic.id)
                                                     }} className="rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-100 hover:border-sky-400">Use topic</button>
