@@ -293,11 +293,12 @@ class ResearchStrategyService(ResearchRebuildBaseService):
         article_bets = screening["article_bets"]
         software_bets = screening["software_bets"]
         editorial_bets = screening["editorial_bets"]
+        mining_bets = screening["mining_bets"]
         competitor_pages = await self._mine_competitor_pages(
             user_id=user_id,
             project_id=project_id,
             run_id=UUID(run["id"]),
-            article_bets=article_bets,
+            article_bets=mining_bets,
             probes=probes,
             force_refresh=force_refresh,
         )
@@ -306,7 +307,7 @@ class ResearchStrategyService(ResearchRebuildBaseService):
             project_id=project_id,
             run_id=UUID(run["id"]),
             topic=topic,
-            article_bets=article_bets,
+            article_bets=mining_bets,
             competitor_pages=competitor_pages,
             force_refresh=force_refresh,
         )
@@ -359,6 +360,7 @@ class ResearchStrategyService(ResearchRebuildBaseService):
                     "article_bet_count": len(article_bets),
                     "software_bet_count": len(software_bets),
                     "editorial_bet_count": len(editorial_bets),
+                    "mining_bet_count": len(mining_bets),
                     "cluster_count": len(clusters),
                 },
             },
@@ -939,6 +941,7 @@ Bet:
         article_bets: List[Dict[str, Any]] = []
         software_bets: List[Dict[str, Any]] = []
         editorial_bets: List[Dict[str, Any]] = []
+        mining_bets: List[Dict[str, Any]] = []
         for bet in bets:
             probe_rows = probes_by_bet.get(str(bet["id"]), [])
             best_probe_score = -1.0
@@ -978,15 +981,24 @@ Bet:
             bet_status = "killed"
             reason_codes = list(best_classification.get("reason_codes") or [])
             article_score = float(best_classification.get("articleability_score") or 0.0)
-            if best_classification.get("articleability_passed") or (
-                best_classification.get("classification") == "mixed"
-                and article_score >= 0.4
-                and float(best_classification.get("serp_weakness_score") or 0.0) >= 0.3
-            ):
+            classification = str(best_classification.get("classification") or "")
+            serp_weakness = float(best_classification.get("serp_weakness_score") or 0.0)
+            is_article_candidate = (
+                best_classification.get("articleability_passed")
+                or (
+                    classification == "mixed"
+                    and article_score >= 0.25
+                )
+                or (
+                    article_score >= 0.3
+                    and serp_weakness >= 0.2
+                )
+            )
+            if is_article_candidate:
                 bet_status = "survived"
                 if not reason_codes:
                     reason_codes = ["article_candidate"]
-            elif best_classification.get("classification") == "tool_dominant" or route_hint == "software":
+            elif classification == "tool_dominant" or route_hint == "software":
                 bet_status = "survived"
                 reason_codes = ["software_serp"]
             elif float(bet.get("trend_score") or 0.0) >= 0.55:
@@ -1009,13 +1021,11 @@ Bet:
             )
             if not updated:
                 continue
-            if best_classification.get("articleability_passed") or (
-                best_classification.get("classification") == "mixed"
-                and article_score >= 0.4
-                and float(best_classification.get("serp_weakness_score") or 0.0) >= 0.3
-            ):
+            if bet_status == "survived" and classification not in {"service_dominant", "ecommerce_dominant"}:
+                mining_bets.append(updated)
+            if is_article_candidate:
                 article_bets.append(updated)
-            elif best_classification.get("classification") == "tool_dominant" or route_hint == "software":
+            elif classification == "tool_dominant" or route_hint == "software":
                 software_bets.append(updated)
             elif bet_status == "survived":
                 editorial_bets.append(updated)
@@ -1028,6 +1038,7 @@ Bet:
             "article_bets": article_bets,
             "software_bets": software_bets,
             "editorial_bets": editorial_bets,
+            "mining_bets": mining_bets,
         }
 
     async def _mine_competitor_pages(

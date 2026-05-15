@@ -65,6 +65,10 @@ export function ResearchRebuildStrategicPage() {
     const [searchParams, setSearchParams] = useSearchParams()
     const skipNextAutoSelectRef = React.useRef(false)
     const lastLoadedRunIdRef = React.useRef<string>('')
+    const primaryCategoryParam = searchParams.get('primary_category_id') || ''
+    const secondaryCategoryParam = searchParams.get('secondary_category_id') || ''
+    const topicIdParam = searchParams.get('topic_id') || ''
+    const runIdParam = searchParams.get('run_id') || ''
 
     const [categories, setCategories] = React.useState<ProjectCategory[]>([])
     const [topics, setTopics] = React.useState<ResearchRebuildJob[]>([])
@@ -73,10 +77,10 @@ export function ResearchRebuildStrategicPage() {
     const [searchHistory, setSearchHistory] = React.useState<ResearchRebuildDataforseoSearch[]>([])
     const [feasibleKeywords, setFeasibleKeywords] = React.useState<ResearchFeasibleKeywordOpportunity[]>([])
 
-    const [primaryCategoryId, setPrimaryCategoryId] = React.useState(searchParams.get('primary_category_id') || '')
-    const [secondaryCategoryId, setSecondaryCategoryId] = React.useState(searchParams.get('secondary_category_id') || '')
+    const [primaryCategoryId, setPrimaryCategoryId] = React.useState(primaryCategoryParam)
+    const [secondaryCategoryId, setSecondaryCategoryId] = React.useState(secondaryCategoryParam)
     const [topicDraft, setTopicDraft] = React.useState('')
-    const [selectedTopicId, setSelectedTopicId] = React.useState(searchParams.get('topic_id') || '')
+    const [selectedTopicId, setSelectedTopicId] = React.useState(topicIdParam)
     const [selectedClusterId, setSelectedClusterId] = React.useState('')
     const [lookupType, setLookupType] = React.useState<LookupType>('related_keywords')
     const [lookupQuery, setLookupQuery] = React.useState('')
@@ -85,6 +89,7 @@ export function ResearchRebuildStrategicPage() {
     const [supportingToolsOpen, setSupportingToolsOpen] = React.useState(false)
     const [isLoading, setIsLoading] = React.useState(false)
     const [loadingLabel, setLoadingLabel] = React.useState('Working through the strategic research flow…')
+    const [runningTopicId, setRunningTopicId] = React.useState<string | null>(null)
     const [isRemovingTopic, setIsRemovingTopic] = React.useState<string | null>(null)
     const [error, setError] = React.useState<string | null>(null)
     const [success, setSuccess] = React.useState<string | null>(null)
@@ -160,36 +165,34 @@ export function ResearchRebuildStrategicPage() {
     }, [])
 
     const syncScopeParams = React.useCallback((nextTopicId?: string, nextRunId?: string) => {
-        const next = new URLSearchParams(searchParams)
-        if (projectId) next.set('project_id', projectId)
-        if (primaryCategoryId) next.set('primary_category_id', primaryCategoryId)
-        else next.delete('primary_category_id')
-        if (secondaryCategoryId) next.set('secondary_category_id', secondaryCategoryId)
-        else next.delete('secondary_category_id')
-        if (nextTopicId) next.set('topic_id', nextTopicId)
-        else next.delete('topic_id')
-        if (nextRunId) next.set('run_id', nextRunId)
-        else next.delete('run_id')
-        setSearchParams(next, { replace: true })
-    }, [primaryCategoryId, projectId, searchParams, secondaryCategoryId, setSearchParams])
+        setSearchParams((currentParams) => {
+            const next = new URLSearchParams(currentParams)
+            if (projectId) next.set('project_id', projectId)
+            if (primaryCategoryId) next.set('primary_category_id', primaryCategoryId)
+            else next.delete('primary_category_id')
+            if (secondaryCategoryId) next.set('secondary_category_id', secondaryCategoryId)
+            else next.delete('secondary_category_id')
+            if (nextTopicId) next.set('topic_id', nextTopicId)
+            else next.delete('topic_id')
+            if (nextRunId) next.set('run_id', nextRunId)
+            else next.delete('run_id')
+            return next
+        }, { replace: true })
+    }, [primaryCategoryId, projectId, secondaryCategoryId, setSearchParams])
 
     React.useEffect(() => {
         if (!projectId) return
-        const currentPrimary = searchParams.get('primary_category_id') || ''
-        const currentSecondary = searchParams.get('secondary_category_id') || ''
-        const currentTopic = searchParams.get('topic_id') || ''
-        const currentRun = searchParams.get('run_id') || ''
         const selectedRun = runDetail?.run.id || ''
         if (
-            currentPrimary === primaryCategoryId &&
-            currentSecondary === secondaryCategoryId &&
-            currentTopic === selectedTopicId &&
-            currentRun === selectedRun
+            primaryCategoryParam === primaryCategoryId &&
+            secondaryCategoryParam === secondaryCategoryId &&
+            topicIdParam === selectedTopicId &&
+            runIdParam === selectedRun
         ) {
             return
         }
         syncScopeParams(selectedTopicId || '', selectedRun)
-    }, [primaryCategoryId, projectId, runDetail?.run.id, searchParams, secondaryCategoryId, selectedTopicId, syncScopeParams])
+    }, [primaryCategoryId, projectId, runDetail?.run.id, secondaryCategoryId, selectedTopicId, syncScopeParams, primaryCategoryParam, secondaryCategoryParam, topicIdParam, runIdParam])
 
     const loadTopicsAndRuns = React.useCallback(async () => {
         if (!projectId) return
@@ -275,11 +278,10 @@ export function ResearchRebuildStrategicPage() {
             return
         }
 
-        const topicFromUrl = searchParams.get('topic_id') || ''
-        if (topicFromUrl && topics.some((topic) => topic.id === topicFromUrl)) {
-            const matchedTopic = topics.find((topic) => topic.id === topicFromUrl)
+        if (topicIdParam && topics.some((topic) => topic.id === topicIdParam)) {
+            const matchedTopic = topics.find((topic) => topic.id === topicIdParam)
             applyScopeSelection({
-                topicId: topicFromUrl,
+                topicId: topicIdParam,
                 primaryCategoryId: String(matchedTopic?.primary_category_id || ''),
                 secondaryCategoryId: String(matchedTopic?.secondary_category_id || ''),
             })
@@ -301,7 +303,7 @@ export function ResearchRebuildStrategicPage() {
             primaryCategoryId: String(topics[0].primary_category_id || ''),
             secondaryCategoryId: String(topics[0].secondary_category_id || ''),
         })
-    }, [applyScopeSelection, runs, searchParams, selectedTopicId, topics])
+    }, [applyScopeSelection, runs, selectedTopicId, topics, topicIdParam])
 
     React.useEffect(() => {
         if (!selectedTopicId || !topics.length) return
@@ -323,9 +325,8 @@ export function ResearchRebuildStrategicPage() {
     }, [loadSearchHistory])
 
     React.useEffect(() => {
-        const runId = searchParams.get('run_id')
-        if (runId) {
-            loadRunDetail(runId).catch((loadError: unknown) => {
+        if (runIdParam) {
+            loadRunDetail(runIdParam).catch((loadError: unknown) => {
                 lastLoadedRunIdRef.current = ''
                 setError(loadError instanceof Error ? loadError.message : 'Failed to load strategy run.')
             })
@@ -333,7 +334,7 @@ export function ResearchRebuildStrategicPage() {
         }
         if (!runs.length) return
 
-        const topicIdToLoad = selectedTopicId || searchParams.get('topic_id') || runs[0]?.topic_id || ''
+        const topicIdToLoad = selectedTopicId || topicIdParam || runs[0]?.topic_id || ''
         if (!topicIdToLoad) return
 
         const latestRun = runs.find((run) => run.topic_id === topicIdToLoad)
@@ -345,7 +346,7 @@ export function ResearchRebuildStrategicPage() {
             setSelectedClusterId('')
             syncScopeParams(topicIdToLoad, '')
         }
-    }, [loadRunDetail, runs, searchParams, selectedTopicId, syncScopeParams])
+    }, [loadRunDetail, runs, selectedTopicId, syncScopeParams, runIdParam, topicIdParam])
 
     const latestRunByTopic = React.useMemo(() => {
         const mapping = new Map<string, ResearchStrategyRun>()
@@ -400,6 +401,7 @@ export function ResearchRebuildStrategicPage() {
         const resolvedTopicId = topicId || selectedTopicId
         if (!projectId || !resolvedTopicId) return
         setIsLoading(true)
+        setRunningTopicId(resolvedTopicId)
         setLoadingLabel('Generating seed queries, checking SERPs, and mining competitor URLs…')
         setError(null)
         setSuccess(null)
@@ -423,6 +425,7 @@ export function ResearchRebuildStrategicPage() {
         } catch (runError) {
             setError(runError instanceof Error ? runError.message : 'Failed to run strategy.')
         } finally {
+            setRunningTopicId(null)
             setIsLoading(false)
         }
     }
@@ -860,9 +863,16 @@ export function ResearchRebuildStrategicPage() {
                                         type="button"
                                         onClick={() => handleRunTopic(selectedTopic.id)}
                                         disabled={!projectId || isLoading}
-                                        className="rounded-2xl bg-sky-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-sky-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-50"
                                     >
-                                        Run Strategy For This Topic
+                                        {runningTopicId === selectedTopic.id ? (
+                                            <>
+                                                <span className="inline-block h-4 w-4 rounded-full border-2 border-slate-950/30 border-t-slate-950 animate-spin" />
+                                                Screening seed queries…
+                                            </>
+                                        ) : (
+                                            'Run Strategy For This Topic'
+                                        )}
                                     </button>
                                 </div>
                             </div>
@@ -898,8 +908,8 @@ export function ResearchRebuildStrategicPage() {
                                 <p className="mt-1">Each seed is tested directly in Google-style SERPs. The goal is to surface strong competitor article URLs first, then mine those URLs for ranked keywords.</p>
                             </div>
                             <div>
-                                <div className="font-medium text-white">3. Survived vs. killed</div>
-                                <p className="mt-1"><span className="text-emerald-300">Survived seeds</span> earned competitor URL mining and keyword qualification. <span className="text-rose-300">Killed seeds</span> looked too weak, too tool-heavy, or too mismatched for an article, so they stop here.</p>
+                                <div className="font-medium text-white">3. Mining-first screening</div>
+                                <p className="mt-1"><span className="text-emerald-300">Most seeds</span> now continue into competitor mining if the SERP returns usable article or comparison pages. <span className="text-rose-300">Killed seeds</span> only appear when the SERP looks overwhelmingly unusable, such as service-, ecommerce-, or pure product-dominant results.</p>
                             </div>
                         </div>
                     </div>
@@ -1002,7 +1012,7 @@ export function ResearchRebuildStrategicPage() {
                                                     </div>
                                                 ) : (
                                                     <div className="mt-3 text-sm text-slate-400">
-                                                        {bet.status === 'survived' ? 'The seed survived, but no beatable recurring competitor domain was selected yet.' : 'Killed seeds do not proceed into competitor mining.'}
+                                                        {bet.status === 'survived' ? 'The seed survived, but no beatable recurring competitor domain was selected yet.' : 'This seed was rejected before mining because the SERP looked overwhelmingly unusable.'}
                                                     </div>
                                                 )}
                                             </div>
@@ -1049,7 +1059,7 @@ export function ResearchRebuildStrategicPage() {
                                                     </div>
                                                 ) : (
                                                     <div className="mt-3 text-sm text-slate-400">
-                                                        {bet.status === 'survived' ? 'This seed survived, but competitor mining did not surface a feasible keyword opportunity yet.' : 'Killed seeds do not proceed into keyword opportunity mining.'}
+                                                        {bet.status === 'survived' ? 'This seed reached competitor mining, but no feasible keyword opportunity was surfaced yet.' : 'This seed was rejected before keyword mining because the SERP looked overwhelmingly unusable.'}
                                                     </div>
                                                 )}
                                             </div>
