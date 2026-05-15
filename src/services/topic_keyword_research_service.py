@@ -604,12 +604,35 @@ QUESTION:: query text
             logger.warning("LLM probe generation failed topic=%r", topic_title, exc_info=True)
 
         if len(probe_queries) < 3:
-            base = self._clean_seed_phrase(topic_title) or self._queryish_fragment(topic_title, max_words=6)
-            base = base or self._clean_seed_phrase(topic_description)
-            base = base or " ".join(self._meaningful_tokens(topic_title)[:4])
+            base = (
+                self._clean_seed_phrase(topic_title)
+                or self._build_probe_fallback_query(topic_title)
+                or self._clean_seed_phrase(topic_description)
+                or self._build_probe_fallback_query(topic_description)
+                or self._build_probe_fallback_query(" ".join(manual_hints))
+                or self._build_probe_fallback_query(
+                    " ".join(
+                        [
+                            str(primary_category.get("name") or ""),
+                            str(secondary_category.get("name") or ""),
+                            topic_title,
+                        ]
+                    )
+                )
+            )
             practical = base
-            roi = self._clean_seed_phrase(f"{base} property value") or self._clean_seed_phrase(f"{base} roi")
-            question = self._clean_seed_phrase(f"is {base} worth it") or self._clean_seed_phrase(f"are {base} worth it")
+            roi = (
+                self._clean_seed_phrase(f"{base} roi")
+                or self._clean_seed_phrase(f"{base} value")
+                or self._build_probe_fallback_query(f"{base} roi")
+                or self._build_probe_fallback_query(f"{base} value")
+            )
+            question = (
+                self._clean_seed_phrase(f"is {base} worth it")
+                or self._clean_seed_phrase(f"should you use {base}")
+                or self._build_probe_fallback_query(f"is {base} worth it")
+                or self._build_probe_fallback_query(f"should you use {base}")
+            )
             probe_queries = [item for item in [practical, roi, question] if item][:3]
 
         final_queries: List[str] = []
@@ -625,6 +648,47 @@ QUESTION:: query text
             final_queries.append(cleaned)
             if len(final_queries) >= 3:
                 break
+
+        if len(final_queries) < 3:
+            fallback_candidates = [
+                self._build_probe_fallback_query(topic_title),
+                self._build_probe_fallback_query(topic_description),
+                self._build_probe_fallback_query(" ".join(manual_hints)),
+                self._build_probe_fallback_query(
+                    " ".join(
+                        [
+                            str(primary_category.get("name") or ""),
+                            topic_title,
+                        ]
+                    )
+                ),
+                self._build_probe_fallback_query(
+                    " ".join(
+                        [
+                            str(secondary_category.get("name") or ""),
+                            topic_title,
+                        ]
+                    )
+                ),
+            ]
+            base = fallback_candidates[0] or fallback_candidates[1] or fallback_candidates[3] or fallback_candidates[4]
+            if base:
+                fallback_candidates.extend([
+                    base,
+                    self._build_probe_fallback_query(f"{base} roi"),
+                    self._build_probe_fallback_query(f"is {base} worth it"),
+                ])
+
+            for candidate in fallback_candidates:
+                if not candidate:
+                    continue
+                key = candidate.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                final_queries.append(candidate)
+                if len(final_queries) >= 3:
+                    break
 
         if len(final_queries) < 3:
             raise ValueError("Topic keyword research could not generate 3 SERP probes for this topic.")
@@ -1887,6 +1951,29 @@ QUESTION:: query text
         if len(tokens) > 6:
             tokens = tokens[:6]
         phrase = " ".join(tokens)
+        if self._has_repeated_halves(phrase):
+            return ""
+        return phrase
+
+    def _build_probe_fallback_query(self, text: str) -> str:
+        normalized = self._normalize_keyword_key(text)
+        if not normalized:
+            return ""
+        tokens = [token for token in normalized.split(" ") if token]
+        if not tokens:
+            return ""
+
+        preferred = [token for token in tokens if token not in self.QUERY_STOPWORDS]
+        if len(preferred) < 2:
+            preferred = tokens
+
+        if len(preferred) < 2:
+            return ""
+
+        if len(preferred) > 8:
+            preferred = preferred[:8]
+
+        phrase = " ".join(preferred).strip()
         if self._has_repeated_halves(phrase):
             return ""
         return phrase

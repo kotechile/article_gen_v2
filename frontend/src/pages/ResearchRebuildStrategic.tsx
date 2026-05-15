@@ -55,6 +55,16 @@ function slugTokens(value: string) {
         .filter(Boolean)
 }
 
+function dedupePreviewQueries(queries: string[]) {
+    const seen = new Set<string>()
+    return queries.filter((query) => {
+        const normalized = normalizeText(query).toLowerCase()
+        if (!normalized || seen.has(normalized)) return false
+        seen.add(normalized)
+        return true
+    })
+}
+
 function buildProbePreview(topicIdea: string): ProbePreview[] {
     const normalized = normalizeText(topicIdea)
     const tokens = slugTokens(topicIdea)
@@ -62,22 +72,48 @@ function buildProbePreview(topicIdea: string): ProbePreview[] {
     const shortBase = base || normalized.toLowerCase()
     const practical = shortBase || 'topic opportunity'
 
-    const roiProbe =
-        /value|roi|worth|investment|resale|return/.test(shortBase)
-            ? shortBase
-            : `${shortBase} home value`
+    const isValueTopic = /(value|roi|worth|investment|resale|return|appreciation)/.test(shortBase)
+    const isImprovementTopic = /(increase|improve|upgrades|improvements|renovation|renovations|energy|efficient|eco|green|solar|insulation)/.test(shortBase)
+    const isBuyingTopic = /\bbuy\b|\bbuyer\b|\binvest\b|\binvesting\b|\breal estate\b|\bproperty\b|\bhousing\b/.test(shortBase)
 
-    let questionProbe = `are ${shortBase} worth it`
-    if (/(increase|improve|upgrades|improvements)/.test(shortBase)) {
-        questionProbe = `are ${shortBase} worth it`
-    } else if (shortBase) {
-        questionProbe = `does ${shortBase} increase property value`
+    let roiProbe = shortBase
+    if (!isValueTopic) {
+        if (/\bbuy\b/.test(shortBase)) {
+            roiProbe = normalizeText(shortBase.replace(/\bbuy\b/, 'invest in'))
+        } else if (/\bbest\b/.test(shortBase) || isBuyingTopic) {
+            roiProbe = `${shortBase} for investment`
+        } else if (/\bcompare\b|\bcomparison\b|\bvs\b|\bversus\b/.test(shortBase)) {
+            roiProbe = `${shortBase} comparison`
+        } else if (isImprovementTopic) {
+            roiProbe = `${shortBase} roi`
+        } else {
+            roiProbe = `${shortBase} worth it`
+        }
     }
 
+    let questionProbe = `what are the best ${shortBase}`
+    if (isImprovementTopic || isValueTopic) {
+        questionProbe = `are ${shortBase} worth it`
+    } else if (isBuyingTopic) {
+        questionProbe = /\bbest\b/.test(shortBase)
+            ? `what are ${shortBase}`
+            : `what are the best ${shortBase}`
+    } else if (shortBase) {
+        questionProbe = `how to choose ${shortBase}`
+    }
+
+    const [finalPractical, finalRoi, finalQuestion] = dedupePreviewQueries([
+        practical,
+        roiProbe,
+        questionProbe,
+        `${shortBase} guide`,
+        `${shortBase} comparison`,
+    ])
+
     return [
-        { label: 'Practical', query: normalizeText(practical) },
-        { label: 'ROI', query: normalizeText(roiProbe) },
-        { label: 'Question', query: normalizeText(questionProbe) },
+        { label: 'Practical', query: normalizeText(finalPractical || practical) },
+        { label: 'ROI', query: normalizeText(finalRoi || roiProbe || practical) },
+        { label: 'Question', query: normalizeText(finalQuestion || questionProbe || practical) },
     ]
 }
 
