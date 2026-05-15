@@ -180,3 +180,56 @@ def test_mixed_serp_can_still_survive_as_article_candidate():
 
     assert result["classification"] in {"mixed", "article_friendly"}
     assert result["articleability_score"] >= 0.4
+
+
+def test_select_attractive_competitor_targets_prefers_repeat_domains_and_excludes_large_sites():
+    service = ResearchStrategyService()
+    rows = [
+        {"url": "https://smallsite.com/guide/crewai-vs-autogpt", "title": "CrewAI vs AutoGPT", "domain": "smallsite.com", "rank_group": 3, "probe_query_id": "a"},
+        {"url": "https://smallsite.com/blog/autogpt-business-automation", "title": "AutoGPT for business automation", "domain": "smallsite.com", "rank_group": 6, "probe_query_id": "b"},
+        {"url": "https://tomshardware.com/review/crewai", "title": "CrewAI review", "domain": "tomshardware.com", "rank_group": 2, "probe_query_id": "a"},
+    ]
+
+    selected = service._select_attractive_competitor_targets(rows)
+
+    assert selected
+    assert selected[0]["domain"] == "smallsite.com"
+    assert selected[0]["analysis_target"] == "smallsite.com"
+    assert selected[0]["domain_hits"] == 2
+    assert all(item["domain"] != "tomshardware.com" for item in selected)
+
+
+def test_materialize_keyword_opportunities_allows_single_keyword_article_path():
+    service = ResearchStrategyService()
+    opportunities = service._materialize_keyword_opportunities(
+        rows=[
+            {
+                "keyword": "crewai for business automation",
+                "search_volume": 90,
+                "keyword_difficulty": 31,
+                "cpc": 3.2,
+                "competition_index": 0.4,
+                "rank_group": 8,
+                "relevance_score": 0.71,
+                "qualification_score": 0.69,
+                "seed_overlap": 2,
+                "source_domain": "smallsite.com",
+                "source_url": "https://smallsite.com/guide/crewai-vs-autogpt",
+                "source_title": "CrewAI vs AutoGPT",
+                "intent": "commercial",
+            }
+        ],
+        bet={
+            "serp_weakness_score": 0.58,
+            "trend_score": 0.5,
+            "article_fit_score": 0.64,
+            "serp_articleability_score": 0.74,
+        },
+    )
+
+    assert len(opportunities) == 1
+    first = opportunities[0]
+    assert first["cluster_type"] == "keyword_opportunity"
+    assert first["primary_keyword_candidate"] == "crewai for business automation"
+    assert first["supporting_urls"] == ["https://smallsite.com/guide/crewai-vs-autogpt"]
+    assert first["cluster_metadata"]["source_domain"] == "smallsite.com"

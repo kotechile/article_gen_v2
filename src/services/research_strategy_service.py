@@ -35,6 +35,25 @@ STOPWORDS = {
     "value", "values", "guide", "tips", "impact",
 }
 
+EXCLUDED_LARGE_DOMAINS = {
+    "tomshardware.com",
+    "www.tomshardware.com",
+    "forbes.com",
+    "www.forbes.com",
+    "wikipedia.org",
+    "www.wikipedia.org",
+    "investopedia.com",
+    "www.investopedia.com",
+    "nerdwallet.com",
+    "www.nerdwallet.com",
+    "bankrate.com",
+    "www.bankrate.com",
+    "pcmag.com",
+    "www.pcmag.com",
+    "zdnet.com",
+    "www.zdnet.com",
+}
+
 
 class ResearchStrategyService(ResearchRebuildBaseService):
     """Orchestrate the competitive SERP mining workflow."""
@@ -54,6 +73,7 @@ class ResearchStrategyService(ResearchRebuildBaseService):
         "max_competitor_urls_per_bet": 2,
         "max_ranked_keywords_calls": 15,
         "max_keyword_overview_keywords": 40,
+        "max_keyword_opportunities_per_bet": 10,
     }
 
     def __init__(
@@ -955,33 +975,43 @@ Bet:
             )
             if not best_probe:
                 continue
-            serp_search_id = best_probe.get("serp_search_id")
-            serp_rows = []
-            if serp_search_id:
+            serp_candidates: List[Dict[str, Any]] = []
+            for probe in probe_candidates:
+                serp_search_id = probe.get("serp_search_id")
+                if not serp_search_id:
+                    continue
                 search_rows = await self.dataforseo_search_service.list_records(
                     user_id=user_id,
                     filters={"id": str(serp_search_id)},
                     order_by={"searched_at": "desc"},
                     limit=1,
                 )
-                if search_rows:
-                    serp_rows = (search_rows[0].get("result_summary_json") or {}).get("top_items") or []
-            filtered_pages = self._extract_article_competitor_urls(serp_rows)
-            for page in filtered_pages[: self.DEFAULT_LIMITS["max_competitor_urls_per_bet"]]:
+                if not search_rows:
+                    continue
+                serp_rows = (search_rows[0].get("result_summary_json") or {}).get("top_items") or []
+                for page in self._extract_article_competitor_urls(serp_rows):
+                    serp_candidates.append({**page, "probe_query_id": str(probe["id"])})
+
+            selected_targets = self._select_attractive_competitor_targets(serp_candidates)
+            for page in selected_targets[: self.DEFAULT_LIMITS["max_competitor_urls_per_bet"]]:
                 page_row = await self.supabase_service.create(
                     self.competitor_pages_table,
                     data={
                         "project_id": str(project_id),
                         "run_id": str(run_id),
                         "bet_id": str(bet["id"]),
-                        "probe_query_id": str(best_probe["id"]),
+                        "probe_query_id": str(page.get("probe_query_id") or best_probe["id"]),
                         "url": page["url"],
                         "title": page.get("title"),
                         "domain": page.get("domain"),
                         "page_type": "article",
                         "rank_group": page.get("rank_group"),
                         "selected_for_mining": True,
-                        "page_metadata": {},
+                        "page_metadata": {
+                            "analysis_target": page.get("analysis_target") or page.get("domain") or page.get("url"),
+                            "domain_hits": page.get("domain_hits"),
+                            "source_urls": page.get("source_urls") or [page.get("url")],
+                        },
                     },
                     user_id=user_id,
                 )
@@ -990,11 +1020,18 @@ Bet:
                 competitor_pages.append(page_row)
                 if ranked_keyword_calls >= self.DEFAULT_LIMITS["max_ranked_keywords_calls"]:
                     continue
+                analysis_target = str(
+                    (page_row.get("page_metadata") or {}).get("analysis_target")
+                    or page.get("analysis_target")
+                    or page.get("domain")
+                    or page.get("url")
+                    or ""
+                ).strip()
                 ranked_search = await self.dataforseo_search_service.run_search(
                     user_id=user_id,
                     project_id=project_id,
                     search_type="ranked_keywords",
-                    target=page["url"],
+                    target=analysis_target,
                     cache_ttl_days=30,
                     limit=100,
                     force_refresh=force_refresh,
@@ -1006,6 +1043,7 @@ Bet:
                     {
                         "mined_search_id": str(ranked_search["id"]),
                         "page_metadata": {
+                            **(page_row.get("page_metadata") or {}),
                             "ranked_keywords_count": (ranked_search.get("result_summary_json") or {}).get("result_count"),
                         },
                     },
@@ -1046,7 +1084,14 @@ Bet:
                 for item in (search_rows[0].get("result_summary_json") or {}).get("top_items") or []:
                     if not isinstance(item, dict):
                         continue
-                    harvested_keywords.append({**item, "source_url": page.get("url")})
+                    harvested_keywords.append(
+                        {
+                            **item,
+                            "source_url": page.get("url"),
+                            "source_domain": page.get("domain"),
+                            "source_title": page.get("title"),
+                        }
+                    )
             shortlisted_keywords = self._qualify_competitor_keywords(
                 topic_text=str(topic.get("job_text") or ""),
                 bet_text=str(bet.get("bet_text") or ""),
@@ -1068,8 +1113,11 @@ Bet:
             overview_items = (overview_search.get("result_summary_json") or {}).get("top_items") or []
             qualified_rows = self._merge_keyword_overview_metrics(shortlisted_keywords, overview_items)
             qualified_rows = self._filter_really_competitive_keywords(qualified_rows)
-            clusters = self._cluster_keywords(qualified_rows)
-            for cluster in clusters:
+            keyword_opportunities = self._materialize_keyword_opportunities(
+                rows=qualified_rows,
+                bet=bet,
+            )
+            for cluster in keyword_opportunities:
                 row = await self.supabase_service.create(
                     self.keyword_clusters_table,
                     data={
@@ -1080,7 +1128,7 @@ Bet:
                         "primary_keyword_candidate": cluster["primary_keyword_candidate"],
                         "secondary_keywords_json": cluster["secondary_keywords"],
                         "supporting_competitor_urls_json": cluster["supporting_urls"],
-                        "cluster_type": "article",
+                        "cluster_type": cluster["cluster_type"],
                         "competitor_support_score": cluster["competitor_support_score"],
                         "kd_median_score": cluster["kd_median_score"],
                         "commercial_value_score": cluster["commercial_value_score"],
@@ -1102,6 +1150,7 @@ Bet:
                             "median_rank": cluster["median_rank"],
                             "qualified_keyword_count": len(qualified_rows),
                             "overview_search_id": overview_search.get("id") if overview_search else None,
+                            **(cluster.get("cluster_metadata") or {}),
                         },
                     },
                     user_id=user_id,
@@ -1334,6 +1383,50 @@ Bet:
             })
         return filtered
 
+    def _select_attractive_competitor_targets(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            domain = str(row.get("domain") or urlparse(str(row.get("url") or "")).netloc).lower()
+            if not domain or domain in EXCLUDED_LARGE_DOMAINS:
+                continue
+            entry = grouped.setdefault(
+                domain,
+                {
+                    "domain": domain,
+                    "rows": [],
+                    "best_rank": 99.0,
+                },
+            )
+            entry["rows"].append(row)
+            try:
+                entry["best_rank"] = min(float(row.get("rank_group") or 99.0), entry["best_rank"])
+            except Exception:
+                pass
+
+        selected: List[Dict[str, Any]] = []
+        for domain, payload in grouped.items():
+            rows_for_domain = sorted(
+                payload["rows"],
+                key=lambda item: float(item.get("rank_group") or 99.0),
+            )
+            representative = rows_for_domain[0]
+            selected.append(
+                {
+                    **representative,
+                    "analysis_target": domain,
+                    "domain_hits": len(rows_for_domain),
+                    "source_urls": [str(item.get("url") or "") for item in rows_for_domain if str(item.get("url") or "")],
+                }
+            )
+        return sorted(
+            selected,
+            key=lambda item: (
+                int(item.get("domain_hits") or 0),
+                -float(item.get("rank_group") or 99.0),
+            ),
+            reverse=True,
+        )
+
     def _cluster_keywords(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         buckets: Dict[str, Dict[str, Any]] = {}
         for row in rows:
@@ -1424,6 +1517,79 @@ Bet:
                 "median_rank": round(median(bucket["ranks"]), 2) if bucket["ranks"] else None,
             })
         return sorted(clusters, key=lambda item: (item["competitor_support_score"], item["commercial_value_score"]), reverse=True)
+
+    def _materialize_keyword_opportunities(
+        self,
+        *,
+        rows: List[Dict[str, Any]],
+        bet: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        opportunities: List[Dict[str, Any]] = []
+        serp_weakness = float(bet.get("serp_weakness_score") or 0.0)
+        trend_score = float(bet.get("trend_score") or 0.5)
+        article_fit_score = float(bet.get("article_fit_score") or 0.0)
+        articleability_score = float(bet.get("serp_articleability_score") or 0.0)
+
+        for row in rows[: self.DEFAULT_LIMITS["max_keyword_opportunities_per_bet"]]:
+            keyword = str(row.get("keyword") or "").strip()
+            if not keyword:
+                continue
+            source_url = str(row.get("source_url") or "").strip()
+            source_domain = str(row.get("source_domain") or urlparse(source_url).netloc).strip()
+            search_volume = float(row.get("search_volume") or 0.0)
+            kd = float(row.get("keyword_difficulty") or 100.0)
+            cpc = float(row.get("cpc") or 0.0)
+            competition_index = float(row.get("competition_index") or 0.0)
+            competitor_support_score = max(
+                0.25,
+                min(
+                    1.0,
+                    (1.0 if source_domain else 0.0) * 0.55
+                    + max(0.0, 1.0 - (float(row.get("rank_group") or 99.0) / 25.0)) * 0.45,
+                ),
+            )
+            kd_median_score = max(0.0, min(1.0, 1.0 - (kd / 100.0)))
+            commercial_value_score = max(
+                0.0,
+                min(1.0, min(1.0, cpc / 8.0) * 0.6 + min(1.0, competition_index) * 0.4),
+            )
+            opportunity_score = self._compute_cluster_opportunity_score(
+                serp_weakness_score=serp_weakness,
+                competitor_support_score=competitor_support_score,
+                kd_median_score=kd_median_score,
+                commercial_value_score=commercial_value_score,
+                trend_score=trend_score,
+                article_fit_score=article_fit_score,
+            )
+            opportunities.append(
+                {
+                    "cluster_name": keyword,
+                    "primary_keyword_candidate": keyword,
+                    "secondary_keywords": [],
+                    "supporting_urls": [source_url] if source_url else [],
+                    "cluster_type": "keyword_opportunity",
+                    "competitor_support_score": round(competitor_support_score, 4),
+                    "kd_median_score": round(kd_median_score, 4),
+                    "commercial_value_score": round(commercial_value_score, 4),
+                    "keyword_count": 1,
+                    "median_rank": row.get("rank_group"),
+                    "opportunity_score": opportunity_score,
+                    "cluster_metadata": {
+                        "search_volume": search_volume,
+                        "keyword_difficulty": kd,
+                        "intent": row.get("intent"),
+                        "cpc": cpc,
+                        "competition_index": competition_index,
+                        "relevance_score": row.get("relevance_score"),
+                        "seed_overlap": row.get("seed_overlap"),
+                        "qualification_score": row.get("qualification_score"),
+                        "source_domain": source_domain,
+                        "source_url": source_url,
+                        "source_title": row.get("source_title"),
+                    },
+                }
+            )
+        return opportunities
 
     def _qualify_competitor_keywords(
         self,
@@ -1627,7 +1793,7 @@ Return valid JSON:
 }}
 
 Rules:
-- Generate a strong SEO article title from the winning cluster.
+- Generate a strong SEO article title from the winning keyword opportunity.
 - Outline should contain 5-8 sections.
 
 Topic: {topic.get("job_text")}
@@ -1770,7 +1936,7 @@ Competitor URLs: {competitor_urls}
         ]
         if cluster:
             parts.append(
-                f"Winning cluster '{cluster.get('cluster_name')}' showed support from "
-                f"{len(cluster.get('supporting_competitor_urls_json') or [])} competitor pages."
+                f"Winning keyword opportunity '{cluster.get('primary_keyword_candidate') or cluster.get('cluster_name')}' "
+                f"was supported by {len(cluster.get('supporting_competitor_urls_json') or [])} competitor page(s)."
             )
         return " ".join(parts)

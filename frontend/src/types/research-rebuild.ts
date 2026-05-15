@@ -296,6 +296,7 @@ export type ResearchKeywordCluster = {
     serp_weakness_score?: number | null
     article_fit_score?: number | null
     opportunity_score?: number | null
+    median_rank?: number | null
     status?: string | null
     cluster_metadata?: Record<string, unknown>
 }
