@@ -158,7 +158,7 @@ export function ResearchRebuildStrategicPage() {
         setSelectedTopicId(nextTopic)
     }, [])
 
-    const syncScopeParams = React.useCallback((nextTopicId?: string) => {
+    const syncScopeParams = React.useCallback((nextTopicId?: string, nextRunId?: string) => {
         const next = new URLSearchParams(searchParams)
         if (projectId) next.set('project_id', projectId)
         if (primaryCategoryId) next.set('primary_category_id', primaryCategoryId)
@@ -167,6 +167,8 @@ export function ResearchRebuildStrategicPage() {
         else next.delete('secondary_category_id')
         if (nextTopicId) next.set('topic_id', nextTopicId)
         else next.delete('topic_id')
+        if (nextRunId) next.set('run_id', nextRunId)
+        else next.delete('run_id')
         setSearchParams(next, { replace: true })
     }, [primaryCategoryId, projectId, searchParams, secondaryCategoryId, setSearchParams])
 
@@ -215,7 +217,7 @@ export function ResearchRebuildStrategicPage() {
             secondaryCategoryId: String(detail.run.secondary_category_id || detail.topic?.secondary_category_id || ''),
         })
         setSelectedClusterId(detail.run.selected_cluster_id || detail.clusters[0]?.id || '')
-        syncScopeParams(detail.topic?.id || '')
+        syncScopeParams(detail.topic?.id || '', detail.run.id)
     }, [applyScopeSelection, syncScopeParams])
 
     const loadSearchHistory = React.useCallback(async () => {
@@ -327,8 +329,12 @@ export function ResearchRebuildStrategicPage() {
         const latestRun = runs.find((run) => run.topic_id === topicIdToLoad)
         if (latestRun) {
             loadRunDetail(latestRun.id).catch(() => undefined)
+        } else {
+            setRunDetail(null)
+            setSelectedClusterId('')
+            syncScopeParams(topicIdToLoad, '')
         }
-    }, [loadRunDetail, runs, searchParams, selectedTopicId])
+    }, [loadRunDetail, runs, searchParams, selectedTopicId, syncScopeParams])
 
     const latestRunByTopic = React.useMemo(() => {
         const mapping = new Map<string, ResearchStrategyRun>()
@@ -402,7 +408,7 @@ export function ResearchRebuildStrategicPage() {
             setSelectedClusterId(detail.run.selected_cluster_id || detail.clusters[0]?.id || '')
             await loadTopicsAndRuns()
             await loadFeasibleKeywords()
-            syncScopeParams(detail.topic?.id || resolvedTopicId)
+            syncScopeParams(detail.topic?.id || resolvedTopicId, detail.run.id)
         } catch (runError) {
             setError(runError instanceof Error ? runError.message : 'Failed to run strategy.')
         } finally {
@@ -653,7 +659,7 @@ export function ResearchRebuildStrategicPage() {
                 primaryCategoryId: String(item.primary_category_id || ''),
                 secondaryCategoryId: String(item.secondary_category_id || ''),
             })
-            syncScopeParams(item.topic_id)
+            syncScopeParams(item.topic_id, item.run_id)
         } catch (openError) {
             setError(openError instanceof Error ? openError.message : 'Failed to open the source run for this keyword.')
         } finally {
