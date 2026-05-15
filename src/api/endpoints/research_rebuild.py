@@ -1353,6 +1353,38 @@ def list_strategy_runs():
         return jsonify({"error": f"Failed to list strategy runs: {exc}"}), 500
 
 
+@research_rebuild_bp.route("/strategy-keywords", methods=["GET"])
+@require_api_key
+def list_strategy_keywords():
+    """List feasible keyword opportunities preserved from strategic runs."""
+    project_id = request.args.get("project_id")
+    if not project_id:
+        return jsonify({"error": "project_id is required"}), 400
+
+    user_id = _get_user_id_from_request()
+    if not user_id:
+        return jsonify({"error": "Authentication required"}), 401
+
+    try:
+        items = asyncio.run(
+            strategy_service.list_feasible_keywords(
+                user_id=UUID(user_id),
+                project_id=_parse_uuid(project_id, "project_id"),
+                topic_id=_parse_uuid(request.args["topic_id"], "topic_id") if request.args.get("topic_id") else None,
+                primary_category_id=_parse_uuid(request.args["primary_category_id"], "primary_category_id") if request.args.get("primary_category_id") else None,
+                secondary_category_id=_parse_uuid(request.args["secondary_category_id"], "secondary_category_id") if request.args.get("secondary_category_id") else None,
+                include_used=str(request.args.get("include_used") or "").strip().lower() in {"1", "true", "yes"},
+                limit=int(request.args.get("limit") or 200),
+            )
+        )
+        return jsonify({"items": items, "count": len(items)}), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("research-rebuild list strategy keywords failed: %s", exc, exc_info=True)
+        return jsonify({"error": f"Failed to list strategy keywords: {exc}"}), 500
+
+
 @research_rebuild_bp.route("/strategy-runs", methods=["POST"])
 @require_api_key
 def create_strategy_run():

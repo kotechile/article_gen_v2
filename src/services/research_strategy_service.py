@@ -126,6 +126,92 @@ class ResearchStrategyService(ResearchRebuildBaseService):
             return None
         return await self._assemble_run_detail(user_id=user_id, run=run)
 
+    async def list_feasible_keywords(
+        self,
+        *,
+        user_id: UUID,
+        project_id: UUID,
+        topic_id: Optional[UUID] = None,
+        primary_category_id: Optional[UUID] = None,
+        secondary_category_id: Optional[UUID] = None,
+        include_used: bool = False,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        runs = await self.list_runs(
+            user_id=user_id,
+            project_id=project_id,
+            topic_id=topic_id,
+            primary_category_id=primary_category_id,
+            secondary_category_id=secondary_category_id,
+            limit=max(limit, 200),
+        )
+        if not runs:
+            return []
+
+        run_map = {str(run["id"]): run for run in runs}
+        topic_map = {
+            str(topic["id"]): topic
+            for topic in await self.job_service.list_jobs(
+                user_id=user_id,
+                project_id=project_id,
+                primary_category_id=primary_category_id,
+                secondary_category_id=secondary_category_id,
+                include_archived=True,
+                active_only=False,
+            )
+        }
+        clusters = await self.supabase_service.get_by_filters(
+            self.keyword_clusters_table,
+            filters={"project_id": str(project_id), "cluster_type": "keyword_opportunity"},
+            user_id=user_id,
+            order_by={"opportunity_score": "desc"},
+            limit=max(limit * 4, 200),
+        )
+        candidates = await self.candidate_service.list_candidates(user_id=user_id, project_id=project_id)
+        used_cluster_ids = {
+            str((candidate.get("candidate_metadata") or {}).get("cluster_id") or "").strip()
+            for candidate in candidates
+            if str((candidate.get("candidate_metadata") or {}).get("cluster_id") or "").strip()
+        }
+
+        items: List[Dict[str, Any]] = []
+        for cluster in clusters:
+            run = run_map.get(str(cluster.get("run_id") or ""))
+            if not run:
+                continue
+            topic = topic_map.get(str(run.get("topic_id") or "")) or {}
+            metadata = dict(cluster.get("cluster_metadata") or {})
+            cluster_id = str(cluster.get("id") or "")
+            used_in_article = cluster_id in used_cluster_ids
+            if used_in_article and not include_used:
+                continue
+            items.append(
+                {
+                    "id": cluster_id,
+                    "run_id": str(cluster.get("run_id") or ""),
+                    "topic_id": str(run.get("topic_id") or ""),
+                    "topic_text": str(topic.get("job_text") or ""),
+                    "topic_status": topic.get("status"),
+                    "primary_category_id": run.get("primary_category_id"),
+                    "secondary_category_id": run.get("secondary_category_id"),
+                    "route": run.get("winning_route"),
+                    "keyword": str(cluster.get("primary_keyword_candidate") or cluster.get("cluster_name") or ""),
+                    "search_volume": metadata.get("search_volume"),
+                    "keyword_difficulty": metadata.get("keyword_difficulty"),
+                    "intent": metadata.get("intent"),
+                    "competitor_rank": metadata.get("median_rank") or cluster.get("median_rank"),
+                    "opportunity_score": cluster.get("opportunity_score"),
+                    "source_domain": metadata.get("source_domain"),
+                    "source_url": metadata.get("source_url"),
+                    "supporting_competitor_urls": cluster.get("supporting_competitor_urls_json") or [],
+                    "used_in_article": used_in_article,
+                    "created_at": cluster.get("created_at"),
+                }
+            )
+
+        items.sort(key=lambda item: (bool(item.get("used_in_article")), -(float(item.get("opportunity_score") or 0))))
+        return items[:limit]
+
     async def start_strategy_run(
         self,
         *,

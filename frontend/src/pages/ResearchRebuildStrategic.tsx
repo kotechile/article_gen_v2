@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { researchRebuildService } from '@/services/research-rebuild.service'
 import type { ProjectCategory } from '@/types/command-center'
 import type {
+    ResearchFeasibleKeywordOpportunity,
     ResearchRebuildDataforseoSearch,
     ResearchRebuildJob,
     ResearchKeywordCluster,
@@ -62,12 +63,14 @@ function clusterMetadata(cluster?: ResearchKeywordCluster | null) {
 export function ResearchRebuildStrategicPage() {
     const { activeProject, projects, setActiveProject } = useProject()
     const [searchParams, setSearchParams] = useSearchParams()
+    const skipNextAutoSelectRef = React.useRef(false)
 
     const [categories, setCategories] = React.useState<ProjectCategory[]>([])
     const [topics, setTopics] = React.useState<ResearchRebuildJob[]>([])
     const [runs, setRuns] = React.useState<ResearchStrategyRun[]>([])
     const [runDetail, setRunDetail] = React.useState<ResearchStrategyRunDetail | null>(null)
     const [searchHistory, setSearchHistory] = React.useState<ResearchRebuildDataforseoSearch[]>([])
+    const [feasibleKeywords, setFeasibleKeywords] = React.useState<ResearchFeasibleKeywordOpportunity[]>([])
 
     const [primaryCategoryId, setPrimaryCategoryId] = React.useState(searchParams.get('primary_category_id') || '')
     const [secondaryCategoryId, setSecondaryCategoryId] = React.useState(searchParams.get('secondary_category_id') || '')
@@ -225,6 +228,18 @@ export function ResearchRebuildStrategicPage() {
         setSearchHistory(response.items || [])
     }, [projectId, selectedTopicId])
 
+    const loadFeasibleKeywords = React.useCallback(async () => {
+        if (!projectId) return
+        const response = await researchRebuildService.listFeasibleKeywords({
+            project_id: projectId,
+            primary_category_id: primaryCategoryId || undefined,
+            secondary_category_id: secondaryCategoryId || undefined,
+            include_used: false,
+            limit: 200,
+        })
+        setFeasibleKeywords(response.items || [])
+    }, [primaryCategoryId, projectId, secondaryCategoryId])
+
     React.useEffect(() => {
         if (!projectId) return
         loadTopicsAndRuns().catch((loadError: unknown) => {
@@ -233,7 +248,18 @@ export function ResearchRebuildStrategicPage() {
     }, [loadTopicsAndRuns, projectId])
 
     React.useEffect(() => {
+        if (!projectId) return
+        loadFeasibleKeywords().catch((loadError: unknown) => {
+            setError(loadError instanceof Error ? loadError.message : 'Failed to load feasible keywords.')
+        })
+    }, [loadFeasibleKeywords, projectId])
+
+    React.useEffect(() => {
         if (!topics.length) return
+        if (skipNextAutoSelectRef.current) {
+            skipNextAutoSelectRef.current = false
+            return
+        }
         if (selectedTopicId && topics.some((topic) => topic.id === selectedTopicId)) {
             return
         }
@@ -345,6 +371,7 @@ export function ResearchRebuildStrategicPage() {
                 secondaryCategoryId: String(job.secondary_category_id || secondaryCategoryId || ''),
             })
             syncScopeParams(job.id)
+            await loadFeasibleKeywords()
         } catch (createError) {
             setError(createError instanceof Error ? createError.message : 'Failed to save topic.')
         } finally {
@@ -374,6 +401,7 @@ export function ResearchRebuildStrategicPage() {
             })
             setSelectedClusterId(detail.run.selected_cluster_id || detail.clusters[0]?.id || '')
             await loadTopicsAndRuns()
+            await loadFeasibleKeywords()
             syncScopeParams(detail.topic?.id || resolvedTopicId)
         } catch (runError) {
             setError(runError instanceof Error ? runError.message : 'Failed to run strategy.')
@@ -387,10 +415,11 @@ export function ResearchRebuildStrategicPage() {
         setIsRemovingTopic(topicId)
         setTopics((current) => current.filter((topic) => topic.id !== topicId))
         if (selectedTopicId === topicId) {
+            skipNextAutoSelectRef.current = true
             applyScopeSelection({
                 topicId: '',
-                primaryCategoryId: '',
-                secondaryCategoryId: '',
+                primaryCategoryId,
+                secondaryCategoryId,
             })
             setRunDetail(null)
             syncScopeParams('')
@@ -398,6 +427,7 @@ export function ResearchRebuildStrategicPage() {
         try {
             await researchRebuildService.archiveJob(topicId)
             await loadTopicsAndRuns()
+            await loadFeasibleKeywords()
         } catch (removeError) {
             setTopics(previousTopics)
             setError(removeError instanceof Error ? removeError.message : 'Failed to remove topic.')
@@ -417,6 +447,7 @@ export function ResearchRebuildStrategicPage() {
             setRunDetail(detail)
             setSelectedClusterId(detail.run.selected_cluster_id || detail.clusters[0]?.id || '')
             await loadTopicsAndRuns()
+            await loadFeasibleKeywords()
         } catch (rerunError) {
             setError(rerunError instanceof Error ? rerunError.message : 'Failed to rerun stage.')
         } finally {
@@ -445,6 +476,7 @@ export function ResearchRebuildStrategicPage() {
             setRunDetail(detail)
             setSelectedClusterId(resolvedClusterId || detail.run.selected_cluster_id || detail.clusters[0]?.id || '')
             await loadTopicsAndRuns()
+            await loadFeasibleKeywords()
         } catch (selectError) {
             setError(selectError instanceof Error ? selectError.message : 'Failed to select cluster.')
         } finally {
@@ -538,16 +570,6 @@ export function ResearchRebuildStrategicPage() {
         () => (runDetail?.clusters || []).filter((cluster) => String(cluster.cluster_type || '') === 'keyword_opportunity'),
         [runDetail?.clusters],
     )
-    const usedKeywordClusterId = React.useMemo(() => {
-        if (!generatedOutcome || !isArticleRoute) {
-            return ''
-        }
-        return runDetail?.run.selected_cluster_id || selectedClusterId || ''
-    }, [generatedOutcome, isArticleRoute, runDetail?.run.selected_cluster_id, selectedClusterId])
-    const unusedKeywordOpportunities = React.useMemo(
-        () => keywordOpportunities.filter((cluster) => cluster.id !== usedKeywordClusterId),
-        [keywordOpportunities, usedKeywordClusterId],
-    )
 
     const handleReleaseSoftwareIdea = async () => {
         if (!generatedOutcomeId) return
@@ -605,11 +627,37 @@ export function ResearchRebuildStrategicPage() {
             })
             setRunDetail(refreshed)
             await loadTopicsAndRuns()
+            await loadFeasibleKeywords()
             setSuccess('Marked as not pursuing. You can rerun the strategy later if you want to revisit it.')
         } catch (dismissError) {
             setError(dismissError instanceof Error ? dismissError.message : 'Failed to mark this opportunity as not pursuing.')
         } finally {
             setMutatingOutcomeAction(null)
+        }
+    }
+
+    const handleOpenKeywordOpportunity = async (item: ResearchFeasibleKeywordOpportunity) => {
+        setError(null)
+        setSuccess(null)
+        if (runDetail?.run.id === item.run_id) {
+            setSelectedClusterId(item.id)
+            return
+        }
+        setIsLoading(true)
+        setLoadingLabel('Opening the source run for this keyword…')
+        try {
+            await loadRunDetail(item.run_id)
+            setSelectedClusterId(item.id)
+            applyScopeSelection({
+                topicId: item.topic_id,
+                primaryCategoryId: String(item.primary_category_id || ''),
+                secondaryCategoryId: String(item.secondary_category_id || ''),
+            })
+            syncScopeParams(item.topic_id)
+        } catch (openError) {
+            setError(openError instanceof Error ? openError.message : 'Failed to open the source run for this keyword.')
+        } finally {
+            setIsLoading(false)
         }
     }
 
@@ -782,14 +830,24 @@ export function ResearchRebuildStrategicPage() {
                                             : 'No strategy run yet for this topic.'}
                                     </div>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={() => handleRunTopic(selectedTopic.id)}
-                                    disabled={!projectId || isLoading}
-                                    className="rounded-2xl bg-sky-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                    Run Strategy For This Topic
-                                </button>
+                                <div className="flex flex-wrap gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleRemoveTopic(selectedTopic.id)}
+                                        disabled={isLoading || isRemovingTopic === selectedTopic.id}
+                                        className="rounded-2xl border border-slate-600 bg-slate-900 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-rose-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        {isRemovingTopic === selectedTopic.id ? 'Deleting seed…' : 'Delete Seed'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleRunTopic(selectedTopic.id)}
+                                        disabled={!projectId || isLoading}
+                                        className="rounded-2xl bg-sky-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        Run Strategy For This Topic
+                                    </button>
+                                </div>
                             </div>
                         ) : null}
                     </div>
@@ -992,21 +1050,21 @@ export function ResearchRebuildStrategicPage() {
                             <div className="text-xs uppercase tracking-[0.35em] text-sky-300/70">Keyword Bank</div>
                             <h2 className="mt-2 text-2xl font-semibold">Feasible keywords found</h2>
                             <p className="mt-2 text-sm text-slate-300">
-                                Keep every realistic keyword opportunity from this run visible. If you only use one keyword now, the rest stay available for future articles, together with the exact competitor URL they came from.
+                                Keep every realistic keyword opportunity from this category scope visible. Deleting a seed clears the clutter in Step 2, but the collected keyword evidence stays here for later use.
                             </p>
                         </div>
                         <div className="text-sm text-slate-400">
-                            {unusedKeywordOpportunities.length} unused keyword{unusedKeywordOpportunities.length === 1 ? '' : 's'}
+                            {feasibleKeywords.length} unused keyword{feasibleKeywords.length === 1 ? '' : 's'}
                         </div>
                     </div>
 
-                    {!runDetail ? (
+                    {!projectId ? (
                         <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-8 text-sm text-slate-400">
-                            Run the strategy first to surface feasible competitor-backed keywords.
+                            Select a project to load the feasible keyword repository.
                         </div>
-                    ) : keywordOpportunities.length === 0 ? (
+                    ) : feasibleKeywords.length === 0 ? (
                         <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-8 text-sm text-slate-400">
-                            No feasible keyword opportunities were found for this run yet.
+                            No unused feasible keyword opportunities were found for this scope yet.
                         </div>
                     ) : (
                         <div className="overflow-hidden rounded-2xl border border-slate-700 bg-[#101726]">
@@ -1020,34 +1078,35 @@ export function ResearchRebuildStrategicPage() {
                                 <div className="text-right">Action</div>
                             </div>
                             <div className="divide-y divide-slate-800">
-                                {unusedKeywordOpportunities.map((cluster) => {
-                                    const metadata = clusterMetadata(cluster)
-                                    const sourceUrl = String(metadata.source_url || cluster.supporting_competitor_urls_json?.[0] || '')
-                                    const sourceDomain = String(metadata.source_domain || 'Unknown')
-                                    const isSelected = selectedClusterId === cluster.id
+                                {feasibleKeywords.map((item) => {
+                                    const sourceUrl = String(item.source_url || item.supporting_competitor_urls?.[0] || '')
+                                    const sourceDomain = String(item.source_domain || 'Unknown')
+                                    const isSelected = selectedClusterId === item.id && runDetail?.run.id === item.run_id
 
                                     return (
-                                        <div key={cluster.id} className={`px-4 py-4 ${isSelected ? 'bg-sky-500/8' : ''}`}>
+                                        <div key={item.id} className={`px-4 py-4 ${isSelected ? 'bg-sky-500/8' : ''}`}>
                                             <div className="grid gap-3 lg:grid-cols-[minmax(0,2.2fr)_100px_80px_110px_120px_minmax(0,1.5fr)_140px] lg:items-start">
                                                 <div className="min-w-0">
-                                                    <div className="font-medium text-white">{cluster.primary_keyword_candidate || cluster.cluster_name || 'Untitled keyword'}</div>
+                                                    <div className="font-medium text-white">{item.keyword || 'Untitled keyword'}</div>
                                                     <div className="mt-1 text-xs text-slate-400">
-                                                        Score {Math.round(Number(cluster.opportunity_score || 0) * 100)}%
+                                                        {item.topic_text || 'Unknown topic'}
                                                         {' · '}
-                                                        Competitor rank {String(metadata.median_rank || cluster.median_rank || 'n/a')}
+                                                        Score {Math.round(Number(item.opportunity_score || 0) * 100)}%
+                                                        {' · '}
+                                                        Competitor rank {String(item.competitor_rank || 'n/a')}
                                                     </div>
                                                 </div>
                                                 <div className="text-sm text-slate-200">
                                                     <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">Volume</span>
-                                                    {String(metadata.search_volume || 'n/a')}
+                                                    {String(item.search_volume || 'n/a')}
                                                 </div>
                                                 <div className="text-sm text-slate-200">
                                                     <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">KD</span>
-                                                    {String(metadata.keyword_difficulty || 'n/a')}
+                                                    {String(item.keyword_difficulty || 'n/a')}
                                                 </div>
                                                 <div className="text-sm text-slate-200">
                                                     <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">Intent</span>
-                                                    {String(metadata.intent || 'n/a')}
+                                                    {String(item.intent || 'n/a')}
                                                 </div>
                                                 <div className="text-sm text-slate-200">
                                                     <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">Competitor</span>
@@ -1072,10 +1131,10 @@ export function ResearchRebuildStrategicPage() {
                                                 <div className="flex justify-end lg:justify-end">
                                                     <button
                                                         type="button"
-                                                        onClick={() => setSelectedClusterId(cluster.id)}
+                                                        onClick={() => handleOpenKeywordOpportunity(item)}
                                                         className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${isSelected ? 'border-sky-400 bg-sky-500/15 text-white' : 'border-slate-600 bg-slate-900 text-slate-100 hover:border-sky-400'}`}
                                                     >
-                                                        {isSelected ? 'Selected' : 'Use this keyword'}
+                                                        {isSelected ? 'Selected' : runDetail?.run.id === item.run_id ? 'Use this keyword' : 'Open source run'}
                                                     </button>
                                                 </div>
                                             </div>

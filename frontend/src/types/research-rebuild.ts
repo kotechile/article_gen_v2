@@ -316,3 +316,25 @@ export type ResearchStrategyRunDetail = {
         generated_outcome?: ResearchRebuildGeneratedOutcome | null
     } | null
 }
+
+export type ResearchFeasibleKeywordOpportunity = {
+    id: string
+    run_id: string
+    topic_id: string
+    topic_text: string
+    topic_status?: string | null
+    primary_category_id?: string | null
+    secondary_category_id?: string | null
+    route?: string | null
+    keyword: string
+    search_volume?: number | null
+    keyword_difficulty?: number | null
+    intent?: string | null
+    competitor_rank?: number | null
+    opportunity_score?: number | null
+    source_domain?: string | null
+    source_url?: string | null
+    supporting_competitor_urls?: string[]
+    used_in_article?: boolean
+    created_at?: string
+}

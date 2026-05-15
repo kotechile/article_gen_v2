@@ -19,6 +19,7 @@ import type {
     ResearchRebuildWorkflowContextResponse,
     ResearchRebuildWorkflowSnapshotResponse,
     ResearchRebuildWorkflowRunSummary,
+    ResearchFeasibleKeywordOpportunity,
     ResearchStrategyRun,
     ResearchStrategyRunDetail,
 } from '@/types/research-rebuild'
@@ -542,6 +543,24 @@ class ResearchRebuildService {
         } catch (error) {
             throw new Error(this.extractErrorMessage(error, 'Failed to dismiss strategy run.'))
         }
+    }
+
+    async listFeasibleKeywords(params: {
+        project_id: string
+        topic_id?: string
+        primary_category_id?: string
+        secondary_category_id?: string
+        include_used?: boolean
+        limit?: number
+    }): Promise<ResearchRebuildListResponse<ResearchFeasibleKeywordOpportunity>> {
+        const query = new URLSearchParams()
+        query.append('project_id', params.project_id)
+        if (params.topic_id) query.append('topic_id', params.topic_id)
+        if (params.primary_category_id) query.append('primary_category_id', params.primary_category_id)
+        if (params.secondary_category_id) query.append('secondary_category_id', params.secondary_category_id)
+        if (params.include_used !== undefined) query.append('include_used', String(params.include_used))
+        if (params.limit !== undefined) query.append('limit', String(params.limit))
+        return await apiClient.get(`${this.baseUrl}/strategy-keywords?${query.toString()}`)
     }
 }
 
