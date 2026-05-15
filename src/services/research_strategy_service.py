@@ -1391,11 +1391,27 @@ Bet:
         authority_count = 0
         mixed_count = 0
         titles_blob = " ".join(str(row.get("title") or "") for row in rows).lower()
+        comparison_style_terms = {
+            "vs",
+            "comparison",
+            "compare",
+            "review",
+            "reviews",
+            "alternatives",
+            "alternative",
+            "top",
+            "best",
+        }
         for row in rows[:10]:
             url = str(row.get("url") or "").lower()
             title = str(row.get("title") or "").lower()
             domain = str(row.get("domain") or urlparse(url).netloc).lower()
-            if any(token in title for token in ["how", "guide", "worth", "roi", "best", "should", "when"]) or "/blog/" in url or "/guides/" in url:
+            article_signal = (
+                any(token in title for token in ["how", "guide", "worth", "roi", "should", "when"])
+                or any(token in title for token in comparison_style_terms)
+                or any(token in url for token in ["/blog/", "/guides/", "/resources/", "/compare", "/vs-"])
+            )
+            if article_signal:
                 article_count += 1
             if any(token in url for token in ["calculator", "tool"]) or any(token in title for token in ["calculator", "tool"]):
                 tool_count += 1
@@ -1409,8 +1425,13 @@ Bet:
                 authority_count += 1
             if "vs" in title or "comparison" in title or "worth" in title:
                 mixed_count += 1
-        article_format_fit = 0.8 if any(token in titles_blob for token in article_format.replace("_", " ").split()) else (0.65 if article_count >= 4 else 0.35)
-        intent_fit = min(1.0, (article_count / 6.0) + (mixed_count / 10.0))
+        query_lower = query_text.lower()
+        comparison_query = any(token in query_lower for token in [" vs ", "compare", "comparison", "alternative", "alternatives"])
+        comparison_serp = mixed_count >= 2
+        article_format_fit = 0.8 if any(token in titles_blob for token in article_format.replace("_", " ").split()) else (0.65 if article_count >= 3 else 0.35)
+        if comparison_query and comparison_serp:
+            article_format_fit = max(article_format_fit, 0.7)
+        intent_fit = min(1.0, (article_count / 5.0) + (mixed_count / 6.0))
         serp_weakness = max(0.0, min(1.0, (weak_count + max(0, 3 - authority_count)) / 6.0))
         articleability = (
             0.45 * min(1.0, article_count / 5.0)
@@ -1420,7 +1441,17 @@ Bet:
         )
         classification = "article_friendly"
         reason_codes: List[str] = []
-        articleability_passed = article_count >= 4 and article_format_fit >= 0.55 and service_count < 5 and ecommerce_count < 5 and tool_count < 5
+        articleability_passed = (
+            (
+                article_count >= 3
+                or (article_count >= 2 and mixed_count >= 2)
+                or (comparison_query and article_count >= 2)
+            )
+            and article_format_fit >= 0.55
+            and service_count < 5
+            and ecommerce_count < 5
+            and tool_count < 5
+        )
         inferred_route_hint = route_hint
         if tool_count >= 4:
             classification = "tool_dominant"
@@ -1435,7 +1466,7 @@ Bet:
             classification = "ecommerce_dominant"
             articleability_passed = False
             reason_codes.append("ecommerce_dominant_serp")
-        elif article_count < 4:
+        elif article_count < 3 and mixed_count < 2:
             classification = "mixed"
             articleability_passed = False
             reason_codes.append("not_enough_articles")
@@ -1696,12 +1727,18 @@ Bet:
             if not keyword_tokens:
                 continue
             overlap = len(anchor_tokens & keyword_tokens)
+            source_title = str(row.get("source_title") or "")
+            source_url = str(row.get("source_url") or "")
+            source_tokens = {
+                token
+                for token in re.findall(r"[a-z0-9]+", f"{source_title} {source_url}".lower())
+                if token not in STOPWORDS and len(token) > 2
+            }
+            source_overlap = len(anchor_tokens & source_tokens)
             intent = str(row.get("intent") or "").lower()
             search_volume = float(row.get("search_volume") or 0.0)
             rank_group = float(row.get("rank_group") or 99.0)
             kd = float(row.get("keyword_difficulty") or 100.0)
-            if overlap == 0:
-                continue
             if search_volume < 20:
                 continue
             if rank_group > 25:
@@ -1712,16 +1749,23 @@ Bet:
                 continue
             if len(keyword_tokens) <= 1:
                 continue
+            if overlap == 0 and source_overlap == 0:
+                continue
+            overlap_score = min(1.0, overlap / max(1, min(len(keyword_tokens), 3)))
+            source_overlap_score = min(1.0, source_overlap / max(1, min(len(source_tokens), 4))) if source_tokens else 0.0
             relevance_score = (
-                min(1.0, overlap / max(1, min(len(keyword_tokens), 3))) * 0.15
+                overlap_score * 0.08
+                + source_overlap_score * 0.07
                 + min(1.0, search_volume / 500.0) * 0.3
                 + max(0.0, 1.0 - (rank_group / 25.0)) * 0.3
                 + max(0.0, 1.0 - (kd / 100.0)) * 0.25
+                + (0.03 if overlap == 0 and source_overlap > 0 else 0.0)
             )
             scored.append({
                 **row,
                 "relevance_score": round(relevance_score, 4),
                 "seed_overlap": overlap,
+                "source_overlap": source_overlap,
             })
         scored.sort(key=lambda item: float(item.get("relevance_score") or 0.0), reverse=True)
         return scored[: self.DEFAULT_LIMITS["max_keyword_overview_keywords"]]

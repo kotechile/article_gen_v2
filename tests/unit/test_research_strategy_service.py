@@ -161,6 +161,40 @@ def test_qualify_competitor_keywords_prefers_relevant_competitive_terms():
     assert "best pizza dough recipe" not in keywords
 
 
+def test_qualify_competitor_keywords_can_keep_high_quality_terms_without_seed_overlap():
+    service = ResearchStrategyService()
+    rows = [
+        {
+            "keyword": "best ai meeting assistants",
+            "search_volume": 1900,
+            "rank_group": 6,
+            "keyword_difficulty": 38,
+            "intent": "commercial",
+            "source_title": "9 Best AI Meeting Assistants in 2026",
+            "source_url": "https://www.read.ai/resources/best-ai-meeting-assistants-2026",
+        },
+        {
+            "keyword": "microsoft copilot pricing",
+            "search_volume": 90,
+            "rank_group": 30,
+            "keyword_difficulty": 77,
+            "intent": "commercial",
+            "source_title": "Microsoft Copilot pricing",
+            "source_url": "https://example.com/copilot-pricing",
+        },
+    ]
+
+    qualified = service._qualify_competitor_keywords(
+        topic_text="Fireflies and Granola vs ms copilot to Execute Your Meeting Action Items",
+        bet_text="Fireflies and Granola vs ms copilot",
+        rows=rows,
+    )
+
+    keywords = [row["keyword"] for row in qualified]
+    assert "best ai meeting assistants" in keywords
+    assert "microsoft copilot pricing" not in keywords
+
+
 def test_mixed_serp_can_still_survive_as_article_candidate():
     service = ResearchStrategyService()
     rows = [
@@ -180,6 +214,43 @@ def test_mixed_serp_can_still_survive_as_article_candidate():
 
     assert result["classification"] in {"mixed", "article_friendly"}
     assert result["articleability_score"] >= 0.4
+
+
+def test_comparison_serp_survives_when_article_results_are_present():
+    service = ResearchStrategyService()
+    rows = [
+        {
+            "title": "Granola vs Microsoft Copilot for Meetings",
+            "url": "https://zackproser.com/blog/granola-vs-microsoft-copilot-meetings",
+            "domain": "zackproser.com",
+        },
+        {
+            "title": "9 Best AI Meeting Assistants in 2026",
+            "url": "https://www.read.ai/resources/best-ai-meeting-assistants-2026",
+            "domain": "read.ai",
+        },
+        {
+            "title": "Top 5 AI note takers for teams: Granola, Fireflies, and more",
+            "url": "https://www.linkedin.com/posts/example-top-5-ai-note-takers",
+            "domain": "linkedin.com",
+        },
+        {
+            "title": "7 Best AI Meeting Notetakers 2026: Fathom vs Fireflies vs Granola",
+            "url": "https://get-alfred.ai/blog/best-ai-meeting-notetakers-2026",
+            "domain": "get-alfred.ai",
+        },
+    ]
+
+    result = service._classify_serp(
+        query_text="Fireflies and Granola vs ms copilot to Execute Your Meeting Action Items",
+        rows=rows,
+        article_format="tool_evaluation",
+        route_hint="article",
+    )
+
+    assert result["articleability_passed"] is True
+    assert result["classification"] == "article_friendly"
+    assert "article_friendly_serp" in result["reason_codes"]
 
 
 def test_select_attractive_competitor_targets_prefers_repeat_domains_and_excludes_large_sites():
