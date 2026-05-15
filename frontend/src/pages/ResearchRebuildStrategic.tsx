@@ -64,6 +64,7 @@ export function ResearchRebuildStrategicPage() {
     const { activeProject, projects, setActiveProject } = useProject()
     const [searchParams, setSearchParams] = useSearchParams()
     const skipNextAutoSelectRef = React.useRef(false)
+    const lastLoadedRunIdRef = React.useRef<string>('')
 
     const [categories, setCategories] = React.useState<ProjectCategory[]>([])
     const [topics, setTopics] = React.useState<ResearchRebuildJob[]>([])
@@ -177,15 +178,18 @@ export function ResearchRebuildStrategicPage() {
         const currentPrimary = searchParams.get('primary_category_id') || ''
         const currentSecondary = searchParams.get('secondary_category_id') || ''
         const currentTopic = searchParams.get('topic_id') || ''
+        const currentRun = searchParams.get('run_id') || ''
+        const selectedRun = runDetail?.run.id || ''
         if (
             currentPrimary === primaryCategoryId &&
             currentSecondary === secondaryCategoryId &&
-            currentTopic === selectedTopicId
+            currentTopic === selectedTopicId &&
+            currentRun === selectedRun
         ) {
             return
         }
-        syncScopeParams(selectedTopicId || '')
-    }, [primaryCategoryId, projectId, searchParams, secondaryCategoryId, selectedTopicId, syncScopeParams])
+        syncScopeParams(selectedTopicId || '', selectedRun)
+    }, [primaryCategoryId, projectId, runDetail?.run.id, searchParams, secondaryCategoryId, selectedTopicId, syncScopeParams])
 
     const loadTopicsAndRuns = React.useCallback(async () => {
         if (!projectId) return
@@ -209,6 +213,11 @@ export function ResearchRebuildStrategicPage() {
     }, [primaryCategoryId, projectId, secondaryCategoryId])
 
     const loadRunDetail = React.useCallback(async (runId: string) => {
+        if (!runId) return
+        if (lastLoadedRunIdRef.current === runId && runDetail?.run.id === runId) {
+            return
+        }
+        lastLoadedRunIdRef.current = runId
         const detail = await researchRebuildService.getStrategyRun(runId)
         setRunDetail(detail)
         applyScopeSelection({
@@ -218,7 +227,7 @@ export function ResearchRebuildStrategicPage() {
         })
         setSelectedClusterId(detail.run.selected_cluster_id || detail.clusters[0]?.id || '')
         syncScopeParams(detail.topic?.id || '', detail.run.id)
-    }, [applyScopeSelection, syncScopeParams])
+    }, [applyScopeSelection, runDetail?.run.id, syncScopeParams])
 
     const loadSearchHistory = React.useCallback(async () => {
         if (!projectId) return
@@ -317,6 +326,7 @@ export function ResearchRebuildStrategicPage() {
         const runId = searchParams.get('run_id')
         if (runId) {
             loadRunDetail(runId).catch((loadError: unknown) => {
+                lastLoadedRunIdRef.current = ''
                 setError(loadError instanceof Error ? loadError.message : 'Failed to load strategy run.')
             })
             return
@@ -330,6 +340,7 @@ export function ResearchRebuildStrategicPage() {
         if (latestRun) {
             loadRunDetail(latestRun.id).catch(() => undefined)
         } else {
+            lastLoadedRunIdRef.current = ''
             setRunDetail(null)
             setSelectedClusterId('')
             syncScopeParams(topicIdToLoad, '')
