@@ -99,7 +99,7 @@ export function TopicKeywordResearchPanel({
                                 ? 'A rebuild run already marked this scope as ready, so this legacy topic-keyword flow is best used for comparison, recovery, or extra seed exploration.'
                                 : topicMode === 'editorial_first'
                                 ? 'This topic is editorial-first, so keyword research is optional. Use it when you want search evidence or manual seed exploration.'
-                                : 'This topic-level pipeline turns ranked keywords into intent clusters, then turns the strongest clusters into article ideas and companion software opportunities.'}
+                                : 'This topic-level pipeline starts with 3 SERP probes, qualifies the topic from live competitors, harvests keywords from repeated weak pages, then turns the strongest clusters into article ideas.'}
                         </p>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -224,7 +224,7 @@ export function TopicKeywordResearchPanel({
                         <div className="mb-5 rounded-xl border border-border bg-muted/20 p-4">
                             <div className="text-sm font-medium text-foreground">Optional Manual Seeds</div>
                             <p className="mt-1 text-xs text-muted-foreground">
-                                Leave this empty for fully automated seed generation. Add comma-separated or line-separated seeds when you want to rescue a hard topic, steer the run more directly, or rerun from an already discovered keyword below.
+                                Leave this empty for fully automated probe generation. Add comma-separated or line-separated hints when you want to steer the 3 SERP probes more directly, rescue a hard topic, or rerun from an already discovered keyword below.
                             </p>
                             <textarea
                                 value={manualSeedInput}
@@ -239,7 +239,7 @@ export function TopicKeywordResearchPanel({
                                 <Search className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
                                 <h3 className="text-base font-semibold text-foreground mb-2">No topic keyword research run yet</h3>
                                 <p className="text-sm text-muted-foreground max-w-2xl mx-auto">
-                                    Run the new keyword pipeline to discover candidate keywords, cluster them by intent, and prepare the next generation flow for article and software ideas.
+                                    Run the topic pipeline to probe the SERP, qualify the topic, harvest proven competitor keywords, cluster them by intent, and prepare the next generation flow for article ideas.
                                 </p>
                             </div>
                         ) : keywordResearchLoading ? (
@@ -256,13 +256,13 @@ export function TopicKeywordResearchPanel({
                                 {hasReadyRebuildRoute ? (
                                     <>
                                         <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">1. Review the rebuild-ready route first</span>
-                                        <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">2. Use legacy keyword research only if you need comparison or extra seed expansion</span>
+                                        <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">2. Use legacy keyword research only if you need comparison or extra probe-based keyword harvesting</span>
                                         <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">3. Publish or refine the best idea with rebuild evidence in mind</span>
                                     </>
                                 ) : (
                                     <>
-                                        <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">1. Refresh or rerun keyword research</span>
-                                        <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">2. Select the strongest clusters</span>
+                                        <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">1. Run 3 SERP probes and qualify the topic</span>
+                                        <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">2. Review the strongest proven keyword clusters</span>
                                         <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">3. Generate article ideas plus companion software ideas when tool potential is strong</span>
                                         <span className="rounded-full border border-emerald-500/20 bg-background/40 px-2 py-1">4. Publish the best ideas to Content Studio</span>
                                     </>
@@ -276,11 +276,11 @@ export function TopicKeywordResearchPanel({
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-muted/20 border border-border rounded-xl p-5">
                                 <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm text-muted-foreground">Seeds</span>
+                                    <span className="text-sm text-muted-foreground">SERP Probes</span>
                                     <Search className="h-4 w-4 text-muted-foreground" />
                                 </div>
                                 <div className="text-2xl font-bold text-foreground">{keywordResearchSummary.seedCount.toLocaleString()}</div>
-                                <div className="text-xs text-muted-foreground mt-1">Directional keyword starting points</div>
+                                <div className="text-xs text-muted-foreground mt-1">LLM-generated topic probes used to test the SERP</div>
                             </motion.div>
 
                             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="bg-muted/20 border border-border rounded-xl p-5">

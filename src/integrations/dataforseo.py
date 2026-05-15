@@ -1215,6 +1215,118 @@ class DataForSEOAPI:
             logger.error(f"Standard SERP API error: {e}")
             return []
 
+    async def get_google_organic_standard_regular(
+        self,
+        keyword: str,
+        language_code: str = "en",
+        location_code: int = 2840,
+        device: str = "desktop",
+        depth: int = 10,
+        return_raw: bool = False,
+    ) -> Any:
+        """
+        Get Google Organic SERP results using the Standard (queued) Regular endpoint.
+        This is cheaper than Live and lighter than Advanced when we only need the
+        top organic results for qualification probes.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                base_url = f"{self.base_url}/serp/google/organic"
+                post_url = f"{base_url}/task_post"
+                headers = {
+                    "Authorization": self.auth_header,
+                    "Content-Type": "application/json",
+                }
+                payload = [{
+                    "keyword": keyword,
+                    "language_code": language_code,
+                    "location_code": location_code,
+                    "device": device,
+                    "depth": max(1, min(int(depth or 10), 20)),
+                }]
+
+                response = await client.post(post_url, json=payload, headers=headers)
+                response.raise_for_status()
+                post_data = response.json()
+
+                task_id = None
+                if "tasks" in post_data and post_data["tasks"]:
+                    task_id = post_data["tasks"][0].get("id")
+                if not task_id:
+                    raise ValueError("No Task ID returned for standard regular SERP")
+
+                max_wait = 300
+                start_time = asyncio.get_event_loop().time()
+                final_response = None
+
+                while (asyncio.get_event_loop().time() - start_time) < max_wait:
+                    await asyncio.sleep(5)
+                    get_url = f"{base_url}/task_get/regular/{task_id}"
+                    res_get = await client.get(get_url, headers=headers)
+                    res_get.raise_for_status()
+                    data = res_get.json()
+
+                    if "tasks" not in data or not data["tasks"]:
+                        continue
+
+                    task_res = data["tasks"][0]
+                    status = task_res.get("status_message")
+                    if status == "Ok.":
+                        final_response = data
+                        break
+                    if status in ["In Queue", "Task In Queue", "Active", "Running"]:
+                        continue
+                    raise ValueError(f"Standard regular SERP task failed with status: {status}")
+
+                if not final_response:
+                    raise TimeoutError("Timed out waiting for standard regular SERP results")
+
+                items: List[Dict[str, Any]] = []
+                for task in final_response.get("tasks") or []:
+                    for result in task.get("result") or []:
+                        for item in result.get("items") or []:
+                            if item.get("type") != "organic":
+                                continue
+                            url = item.get("url")
+                            domain = item.get("domain")
+                            if not domain and isinstance(url, str):
+                                try:
+                                    from urllib.parse import urlparse
+                                    domain = urlparse(url).netloc
+                                except Exception:
+                                    domain = None
+                            items.append({
+                                "rank_group": item.get("rank_group"),
+                                "rank_absolute": item.get("rank_absolute"),
+                                "domain": domain,
+                                "url": url,
+                                "title": item.get("title"),
+                                "snippet": item.get("description"),
+                                "result_type": item.get("type") or "organic",
+                            })
+
+                if return_raw:
+                    return {
+                        "items": items,
+                        "raw": {
+                            "endpoint": "serp/google/organic/task_get/regular",
+                            "request": {"post_url": post_url, "payload": payload},
+                            "response": final_response,
+                        },
+                    }
+                return items
+        except Exception as e:
+            logger.error(f"DataForSEO google organic standard regular error: {e}")
+            if return_raw:
+                return {
+                    "items": [],
+                    "raw": {
+                        "endpoint": "serp/google/organic/task_get/regular",
+                        "error": str(e),
+                    },
+                }
+            return []
+
     async def get_news_search(
         self,
         keyword: str,

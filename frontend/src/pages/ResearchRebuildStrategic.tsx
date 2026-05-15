@@ -1,117 +1,184 @@
 import * as React from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { useProject } from '@/context/project-context'
 import { supabase } from '@/lib/supabase'
-import { researchRebuildService } from '@/services/research-rebuild.service'
-import type { ProjectCategory } from '@/types/command-center'
-import type {
-    ResearchFeasibleKeywordOpportunity,
-    ResearchRebuildDataforseoSearch,
-    ResearchRebuildJob,
-    ResearchKeywordCluster,
-    ResearchStrategyRun,
-    ResearchStrategyRunDetail,
-    ResearchTopicBet,
-} from '@/types/research-rebuild'
+import { researchTopicsService } from '@/services/research-topics.service'
+import { topicKeywordResearchService } from '@/services/topic-keyword-research.service'
+import type { TopicKeywordCandidate, TopicKeywordCluster, TopicKeywordResearchRun, ResearchTopic } from '@/types/research'
 
-type LookupType = 'related_keywords' | 'keyword_overview' | 'serp'
-
-function scoreLabel(value?: number | null) {
-    const score = Number(value || 0)
-    if (score >= 0.75) return 'Strong'
-    if (score >= 0.55) return 'Promising'
-    if (score >= 0.35) return 'Mixed'
-    return 'Weak'
+type ProjectCategory = {
+    id: string
+    name: string
+    description?: string | null
+    level: number
+    parent_category_id?: string | null
 }
 
-function toneClass(value?: number | null) {
-    const score = Number(value || 0)
-    if (score >= 0.75) return 'text-emerald-300'
-    if (score >= 0.55) return 'text-sky-300'
-    if (score >= 0.35) return 'text-amber-300'
-    return 'text-rose-300'
+type CountryOption = { label: string; locationCode: number }
+type LanguageOption = { label: string; code: string }
+type DeviceOption = 'Desktop' | 'Mobile'
+
+type ProbePreview = {
+    label: 'Practical' | 'ROI' | 'Question'
+    query: string
 }
 
-function routeLabel(route?: string | null) {
-    if (!route) return 'Not decided'
-    return route.replaceAll('_', ' ')
+const COUNTRY_OPTIONS: CountryOption[] = [
+    { label: 'United States', locationCode: 2840 },
+    { label: 'United Kingdom', locationCode: 2826 },
+    { label: 'Canada', locationCode: 2124 },
+    { label: 'Australia', locationCode: 2036 },
+]
+
+const LANGUAGE_OPTIONS: LanguageOption[] = [
+    { label: 'English', code: 'en' },
+    { label: 'Spanish', code: 'es' },
+    { label: 'French', code: 'fr' },
+    { label: 'German', code: 'de' },
+]
+
+function safeNumber(value: unknown, fallback = 0) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function groupClustersByBet(clusters: ResearchKeywordCluster[]) {
-    return clusters.reduce<Record<string, ResearchKeywordCluster[]>>((acc, cluster) => {
-        const key = cluster.bet_id
-        acc[key] = acc[key] || []
-        acc[key].push(cluster)
-        return acc
-    }, {})
+function normalizeText(value: string) {
+    return value.trim().replace(/\s+/g, ' ')
 }
 
-function groupCompetitorPagesByBet(pages: ResearchStrategyRunDetail['competitor_pages']) {
-    return pages.reduce<Record<string, ResearchStrategyRunDetail['competitor_pages']>>((acc, page) => {
-        const key = page.bet_id
-        acc[key] = acc[key] || []
-        acc[key].push(page)
-        return acc
-    }, {})
+function slugTokens(value: string) {
+    return normalizeText(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(' ')
+        .filter(Boolean)
 }
 
-function clusterMetadata(cluster?: ResearchKeywordCluster | null) {
-    return (cluster?.cluster_metadata as Record<string, unknown> | undefined) || {}
+function buildProbePreview(topicIdea: string): ProbePreview[] {
+    const normalized = normalizeText(topicIdea)
+    const tokens = slugTokens(topicIdea)
+    const base = tokens.slice(0, 6).join(' ')
+    const shortBase = base || normalized.toLowerCase()
+    const practical = shortBase || 'topic opportunity'
+
+    const roiProbe =
+        /value|roi|worth|investment|resale|return/.test(shortBase)
+            ? shortBase
+            : `${shortBase} home value`
+
+    let questionProbe = `are ${shortBase} worth it`
+    if (/(increase|improve|upgrades|improvements)/.test(shortBase)) {
+        questionProbe = `are ${shortBase} worth it`
+    } else if (shortBase) {
+        questionProbe = `does ${shortBase} increase property value`
+    }
+
+    return [
+        { label: 'Practical', query: normalizeText(practical) },
+        { label: 'ROI', query: normalizeText(roiProbe) },
+        { label: 'Question', query: normalizeText(questionProbe) },
+    ]
+}
+
+function strengthLabel(domain: string) {
+    const normalized = String(domain || '').toLowerCase()
+    if (!normalized) return 'Unknown'
+    if (normalized.includes('.gov') || normalized.includes('wikipedia') || normalized.includes('forbes')) return 'Very High'
+    if (normalized.includes('bobvila') || normalized.includes('homedepot') || normalized.includes('betterhomes')) return 'Strong'
+    if (normalized.includes('reddit') || normalized.includes('medium')) return 'Medium'
+    return 'Low/Med'
+}
+
+function pageTypeLabel(url: string, domain: string) {
+    const target = `${url} ${domain}`.toLowerCase()
+    if (domain.includes('.gov')) return 'Gov'
+    if (target.includes('/blog/') || target.includes('/article') || target.includes('/guide')) return 'Article'
+    if (target.includes('/news/')) return 'Article'
+    if (target.includes('/resources/')) return 'Article'
+    return 'Blog'
+}
+
+function useLabel(entry: { domain?: string; query_hits?: number; content_gap_score?: number }) {
+    const domain = String(entry.domain || '').toLowerCase()
+    const hits = safeNumber(entry.query_hits)
+    const gaps = safeNumber(entry.content_gap_score)
+    if (domain.includes('.gov') || domain.includes('forbes') || domain.includes('wikipedia') || domain.includes('reddit')) {
+        return { label: 'No', tone: 'text-rose-300 border-rose-500/20 bg-rose-500/10' }
+    }
+    if (hits >= 2 && gaps >= 1) {
+        return { label: 'Yes', tone: 'text-emerald-300 border-emerald-500/20 bg-emerald-500/10' }
+    }
+    if (hits >= 2) {
+        return { label: 'Yes', tone: 'text-emerald-300 border-emerald-500/20 bg-emerald-500/10' }
+    }
+    return { label: 'Maybe', tone: 'text-amber-300 border-amber-500/20 bg-amber-500/10' }
+}
+
+function topicStatusLabel(score: number, passed: boolean) {
+    if (!passed || score < 45) return 'Reject Topic'
+    if (score >= 80) return 'Strong Opportunity'
+    if (score >= 65) return 'Worth Exploring'
+    if (score >= 50) return 'Weak Opportunity'
+    return 'Reject Topic'
+}
+
+function clusterRecommendation(score: number) {
+    if (score >= 80) return 'Create article now'
+    if (score >= 65) return 'Good candidate'
+    if (score >= 50) return 'Save for later'
+    return 'Reject'
+}
+
+function keywordIntentLabel(intent?: string | null) {
+    const value = String(intent || '').toLowerCase()
+    if (value.includes('commercial')) return 'Invest'
+    if (value.includes('utility')) return 'Utility'
+    if (value.includes('informational')) return 'Info'
+    return value ? value : 'Info'
 }
 
 export function ResearchRebuildStrategicPage() {
+    const navigate = useNavigate()
     const { activeProject, projects, setActiveProject } = useProject()
     const [searchParams, setSearchParams] = useSearchParams()
-    const skipNextAutoSelectRef = React.useRef(false)
-    const lastLoadedRunIdRef = React.useRef<string>('')
-    const primaryCategoryParam = searchParams.get('primary_category_id') || ''
-    const secondaryCategoryParam = searchParams.get('secondary_category_id') || ''
-    const topicIdParam = searchParams.get('topic_id') || ''
-    const runIdParam = searchParams.get('run_id') || ''
 
     const [categories, setCategories] = React.useState<ProjectCategory[]>([])
-    const [topics, setTopics] = React.useState<ResearchRebuildJob[]>([])
-    const [runs, setRuns] = React.useState<ResearchStrategyRun[]>([])
-    const [runDetail, setRunDetail] = React.useState<ResearchStrategyRunDetail | null>(null)
-    const [searchHistory, setSearchHistory] = React.useState<ResearchRebuildDataforseoSearch[]>([])
-    const [feasibleKeywords, setFeasibleKeywords] = React.useState<ResearchFeasibleKeywordOpportunity[]>([])
+    const [recentTopics, setRecentTopics] = React.useState<ResearchTopic[]>([])
+    const [currentTopic, setCurrentTopic] = React.useState<ResearchTopic | null>(null)
+    const [currentRun, setCurrentRun] = React.useState<TopicKeywordResearchRun | null>(null)
+    const [allKeywordCandidates, setAllKeywordCandidates] = React.useState<TopicKeywordCandidate[]>([])
+    const [clusters, setClusters] = React.useState<TopicKeywordCluster[]>([])
 
-    const [primaryCategoryId, setPrimaryCategoryId] = React.useState(primaryCategoryParam)
-    const [secondaryCategoryId, setSecondaryCategoryId] = React.useState(secondaryCategoryParam)
-    const [topicDraft, setTopicDraft] = React.useState('')
-    const [selectedTopicId, setSelectedTopicId] = React.useState(topicIdParam)
+    const [topicIdea, setTopicIdea] = React.useState('')
+    const [primaryCategoryId, setPrimaryCategoryId] = React.useState(searchParams.get('primary_category_id') || '')
+    const [secondaryCategoryId, setSecondaryCategoryId] = React.useState(searchParams.get('secondary_category_id') || '')
+    const [countryLabel, setCountryLabel] = React.useState<CountryOption['label']>('United States')
+    const [languageLabel, setLanguageLabel] = React.useState<LanguageOption['label']>('English')
+    const [searchEngine, setSearchEngine] = React.useState('Google')
+    const [device, setDevice] = React.useState<DeviceOption>('Desktop')
+    const [includeKeepOnly, setIncludeKeepOnly] = React.useState(true)
+    const [hideBrands, setHideBrands] = React.useState(true)
+    const [onlyLowKd, setOnlyLowKd] = React.useState(false)
+    const [onlyHighCpc, setOnlyHighCpc] = React.useState(false)
+    const [onlyArticleIntent, setOnlyArticleIntent] = React.useState(false)
+    const [seenOnMultiplePages, setSeenOnMultiplePages] = React.useState(false)
     const [selectedClusterId, setSelectedClusterId] = React.useState('')
-    const [lookupType, setLookupType] = React.useState<LookupType>('related_keywords')
-    const [lookupQuery, setLookupQuery] = React.useState('')
-    const [lookupKeywords, setLookupKeywords] = React.useState('')
-    const [topicsModalOpen, setTopicsModalOpen] = React.useState(false)
-    const [supportingToolsOpen, setSupportingToolsOpen] = React.useState(false)
     const [isLoading, setIsLoading] = React.useState(false)
-    const [loadingLabel, setLoadingLabel] = React.useState('Working through the strategic research flow…')
-    const [runningTopicId, setRunningTopicId] = React.useState<string | null>(null)
-    const [isRemovingTopic, setIsRemovingTopic] = React.useState<string | null>(null)
     const [error, setError] = React.useState<string | null>(null)
     const [success, setSuccess] = React.useState<string | null>(null)
-    const [mutatingOutcomeAction, setMutatingOutcomeAction] = React.useState<'release' | 'persist' | 'dismiss' | null>(null)
 
     const projectId = searchParams.get('project_id') || activeProject?.id || ''
 
     React.useEffect(() => {
         const incomingProjectId = searchParams.get('project_id')
-        if (!incomingProjectId || !projects.length || activeProject?.id === incomingProjectId) {
-            return
-        }
+        if (!incomingProjectId || !projects.length || activeProject?.id === incomingProjectId) return
         const match = projects.find((project) => project.id === incomingProjectId) || null
-        if (match) {
-            setActiveProject(match)
-        }
+        if (match) setActiveProject(match)
     }, [activeProject?.id, projects, searchParams, setActiveProject])
 
     React.useEffect(() => {
-        if (!projectId || searchParams.get('project_id') === projectId) {
-            return
-        }
+        if (!projectId || searchParams.get('project_id') === projectId) return
         const next = new URLSearchParams(searchParams)
         next.set('project_id', projectId)
         setSearchParams(next, { replace: true })
@@ -123,1534 +190,742 @@ export function ResearchRebuildStrategicPage() {
         const loadCategories = async () => {
             const { data, error: categoryError } = await supabase
                 .from('project_categories')
-                .select('id,project_id,user_id,name,description,slug,level,parent_category_id,sort_order,created_at,updated_at')
+                .select('id,name,description,level,parent_category_id')
                 .eq('project_id', projectId)
+                .order('level', { ascending: true })
                 .order('sort_order', { ascending: true })
+                .order('name', { ascending: true })
             if (cancelled) return
             if (categoryError) {
-                setError(categoryError.message)
                 setCategories([])
+                setError(categoryError.message)
                 return
             }
             setCategories((data as ProjectCategory[]) || [])
         }
-        loadCategories()
+        void loadCategories()
         return () => {
             cancelled = true
         }
     }, [projectId])
+
+    const loadRecentTopics = React.useCallback(async () => {
+        if (!projectId) return
+        try {
+            const response = await researchTopicsService.listResearchTopics({
+                order_by: 'created_at',
+                order_direction: 'desc',
+                page: 1,
+                size: 12,
+                project_id: projectId,
+                primary_category_id: primaryCategoryId || undefined,
+                secondary_category_id: secondaryCategoryId || undefined,
+            })
+            setRecentTopics(response.items || [])
+        } catch (loadError) {
+            console.error('Failed to load recent research topics', loadError)
+        }
+    }, [primaryCategoryId, projectId, secondaryCategoryId])
+
+    React.useEffect(() => {
+        void loadRecentTopics()
+    }, [loadRecentTopics])
 
     const primaryCategories = React.useMemo(
         () => categories.filter((category) => Number(category.level) === 1),
         [categories],
     )
     const secondaryCategories = React.useMemo(
-        () => categories.filter((category) => String(category.parent_category_id || '') === primaryCategoryId),
+        () => categories.filter((category) => Number(category.level) === 2 && String(category.parent_category_id || '') === primaryCategoryId),
         [categories, primaryCategoryId],
     )
     const primaryCategory = primaryCategories.find((category) => category.id === primaryCategoryId) || null
     const secondaryCategory = secondaryCategories.find((category) => category.id === secondaryCategoryId) || null
+    const selectedCountry = COUNTRY_OPTIONS.find((country) => country.label === countryLabel) || COUNTRY_OPTIONS[0]
+    const selectedLanguage = LANGUAGE_OPTIONS.find((language) => language.label === languageLabel) || LANGUAGE_OPTIONS[0]
+    const probePreview = React.useMemo(() => buildProbePreview(topicIdea), [topicIdea])
 
-    const applyScopeSelection = React.useCallback((payload: {
-        topicId?: string
-        primaryCategoryId?: string
-        secondaryCategoryId?: string
-    }) => {
-        const nextPrimary = payload.primaryCategoryId || ''
-        const nextSecondary = payload.secondaryCategoryId || ''
-        const nextTopic = payload.topicId || ''
-        setPrimaryCategoryId(nextPrimary)
-        setSecondaryCategoryId(nextSecondary)
-        setSelectedTopicId(nextTopic)
+    const serpGate = React.useMemo(() => {
+        return ((currentRun?.raw_data_json || {}) as Record<string, any>).serp_gate || {}
+    }, [currentRun])
+    const competitorPages = React.useMemo(() => {
+        return ((((currentRun?.raw_data_json || {}) as Record<string, any>).competitor_pages) || []) as Array<Record<string, any>>
+    }, [currentRun])
+    const controlledExpansion = React.useMemo(() => {
+        return ((((currentRun?.raw_data_json || {}) as Record<string, any>).controlled_expansion) || []) as Array<Record<string, any>>
+    }, [currentRun])
+    const runSummary = React.useMemo(() => {
+        return ((currentRun?.summary_json || {}) as Record<string, any>) || {}
+    }, [currentRun])
+
+    const opportunityScore = React.useMemo(() => {
+        const serpWeakness = safeNumber(runSummary.serp_weakness_score) * 100
+        const repeatedDomains = Array.isArray(runSummary.top_repeated_domains) ? runSummary.top_repeated_domains.length : 0
+        const signalCount = safeNumber(runSummary.serp_signal_count)
+        const clusterBoost = clusters.length ? Math.min(20, safeNumber(clusters[0]?.opportunity_score)) : 0
+        return Math.max(0, Math.min(100, Math.round(serpWeakness * 0.55 + repeatedDomains * 6 + signalCount * 6 + clusterBoost * 0.15)))
+    }, [clusters, runSummary])
+
+    const scoreStatus = topicStatusLabel(opportunityScore, Boolean(runSummary.serp_opportunity_passed))
+
+    const opportunitySignals = React.useMemo(() => {
+        const signals = serpGate.signals || {}
+        return [
+            { label: 'Small sites ranking', passed: Boolean(signals.niche_sites_present) },
+            { label: 'Article pages visible', passed: Boolean(signals.article_friendly_results) },
+            { label: 'Repeated domains found', passed: Boolean(signals.stable_competitor_set) },
+            { label: 'Search intent is consistent', passed: Boolean(signals.consistent_intent) },
+            { label: 'Some authority sites present', passed: !Boolean(signals.not_authority_dominated) },
+            { label: 'SERP has weak or outdated pages', passed: Boolean(signals.weak_pages_present) },
+        ]
+    }, [serpGate])
+
+    const filteredKeywords = React.useMemo(() => {
+        return allKeywordCandidates.filter((row) => {
+            const trend = (row.trend_json || {}) as Record<string, any>
+            const sourceUrlCount = Array.isArray(trend.source_urls) ? trend.source_urls.length : trend.source_url ? 1 : 0
+            const keepStatus = !row.is_filtered_out && safeNumber(row.opportunity_score) >= 50
+            if (includeKeepOnly && !keepStatus) return false
+            if (hideBrands && String(row.filter_reason || '').includes('brand')) return false
+            if (onlyLowKd && safeNumber(row.keyword_difficulty, 999) > 35) return false
+            if (onlyHighCpc && safeNumber(row.cpc) < 1) return false
+            if (onlyArticleIntent && !['informational', 'commercial_investigation'].includes(String(row.intent_label || ''))) return false
+            if (seenOnMultiplePages && sourceUrlCount < 2) return false
+            return true
+        })
+    }, [allKeywordCandidates, hideBrands, includeKeepOnly, onlyArticleIntent, onlyHighCpc, onlyLowKd, seenOnMultiplePages])
+
+    const selectedCluster = React.useMemo(() => {
+        return clusters.find((cluster) => cluster.id === selectedClusterId) || clusters[0] || null
+    }, [clusters, selectedClusterId])
+
+    React.useEffect(() => {
+        if (!selectedClusterId && clusters[0]?.id) {
+            setSelectedClusterId(clusters[0].id)
+        }
+    }, [clusters, selectedClusterId])
+
+    const finalArticle = React.useMemo(() => {
+        if (!selectedCluster) return null
+        const score = safeNumber(selectedCluster.opportunity_score)
+        const secondaryKeywords = (selectedCluster.secondary_keywords_json || []).slice(0, 6)
+        const primaryKeyword = String(selectedCluster.primary_keyword || selectedCluster.cluster_name || '')
+        const title = selectedCluster.article_angle
+            ? selectedCluster.article_angle.replace(/^What\s+/i, '').replace(/^Best ways to evaluate\s+/i, '').replace(/^Practical tools, workflows, and calculators built around\s+/i, '').trim()
+            : primaryKeyword
+        return {
+            title: title
+                ? title.charAt(0).toUpperCase() + title.slice(1)
+                : primaryKeyword,
+            primaryKeyword,
+            secondaryKeywords,
+            score,
+            recommendation: clusterRecommendation(score),
+        }
+    }, [selectedCluster])
+
+    const decisionSidebarScores = React.useMemo(() => {
+        const topClusterScore = safeNumber(selectedCluster?.opportunity_score)
+        const topKeyword = filteredKeywords[0]
+        const kd = topKeyword ? Math.max(0, 100 - safeNumber(topKeyword.keyword_difficulty, 100)) : 0
+        const volume = topKeyword ? Math.min(100, Math.log10(safeNumber(topKeyword.search_volume) + 1) / Math.log10(10001) * 100) : 0
+        const commercial = topKeyword ? Math.min(100, safeNumber(topKeyword.cpc) * 20) : 0
+        const topicalFit = topKeyword ? safeNumber(topKeyword.topical_fit_score) : 0
+        const serp = safeNumber(runSummary.serp_weakness_score) * 100
+        return {
+            serp: Math.round(serp),
+            kd: Math.round(kd),
+            volume: Math.round(volume),
+            commercial: Math.round(commercial),
+            topicalFit: Math.round(topicalFit),
+            final: Math.round(topClusterScore || opportunityScore),
+        }
+    }, [filteredKeywords, opportunityScore, runSummary.serp_weakness_score, selectedCluster?.opportunity_score])
+
+    const loadTopicRun = React.useCallback(async (topic: ResearchTopic) => {
+        try {
+            setIsLoading(true)
+            setError(null)
+            setCurrentTopic(topic)
+            setTopicIdea(topic.title || '')
+            const run = await topicKeywordResearchService.getLatestRun(topic.id)
+            setCurrentRun(run)
+            const [, allKeywords, clusterResponse] = await Promise.all([
+                topicKeywordResearchService.listKeywords(topic.id, run.id, false),
+                topicKeywordResearchService.listKeywords(topic.id, run.id, true),
+                topicKeywordResearchService.listClusters(topic.id, run.id),
+            ])
+            setAllKeywordCandidates(allKeywords.items || [])
+            setClusters(clusterResponse.items || [])
+            setSuccess('Loaded the latest SERP opportunity analysis for this topic.')
+        } catch (loadError) {
+            console.error('Failed to load topic run', loadError)
+            setError(loadError instanceof Error ? loadError.message : 'Failed to load the latest analysis.')
+        } finally {
+            setIsLoading(false)
+        }
     }, [])
 
-    const syncScopeParams = React.useCallback((nextTopicId?: string, nextRunId?: string) => {
-        setSearchParams((currentParams) => {
-            const next = new URLSearchParams(currentParams)
-            if (projectId) next.set('project_id', projectId)
-            if (primaryCategoryId) next.set('primary_category_id', primaryCategoryId)
-            else next.delete('primary_category_id')
-            if (secondaryCategoryId) next.set('secondary_category_id', secondaryCategoryId)
-            else next.delete('secondary_category_id')
-            if (nextTopicId) next.set('topic_id', nextTopicId)
-            else next.delete('topic_id')
-            if (nextRunId) next.set('run_id', nextRunId)
-            else next.delete('run_id')
-            return next
-        }, { replace: true })
-    }, [primaryCategoryId, projectId, secondaryCategoryId, setSearchParams])
-
-    React.useEffect(() => {
-        if (!projectId) return
-        const selectedRun = runDetail?.run.id || ''
-        if (
-            primaryCategoryParam === primaryCategoryId &&
-            secondaryCategoryParam === secondaryCategoryId &&
-            topicIdParam === selectedTopicId &&
-            runIdParam === selectedRun
-        ) {
-            return
-        }
-        syncScopeParams(selectedTopicId || '', selectedRun)
-    }, [primaryCategoryId, projectId, runDetail?.run.id, secondaryCategoryId, selectedTopicId, syncScopeParams, primaryCategoryParam, secondaryCategoryParam, topicIdParam, runIdParam])
-
-    const loadTopicsAndRuns = React.useCallback(async () => {
-        if (!projectId) return
-        setError(null)
-        setSuccess(null)
-        const [topicResponse, runResponse] = await Promise.all([
-            researchRebuildService.listJobs({
-                project_id: projectId,
-                primary_category_id: primaryCategoryId || undefined,
-                secondary_category_id: secondaryCategoryId || undefined,
-            }),
-            researchRebuildService.listStrategyRuns({
-                project_id: projectId,
-                primary_category_id: primaryCategoryId || undefined,
-                secondary_category_id: secondaryCategoryId || undefined,
-                limit: 50,
-            }),
-        ])
-        setTopics(topicResponse.items || [])
-        setRuns(runResponse.items || [])
-    }, [primaryCategoryId, projectId, secondaryCategoryId])
-
-    const loadRunDetail = React.useCallback(async (runId: string) => {
-        if (!runId) return
-        if (lastLoadedRunIdRef.current === runId && runDetail?.run.id === runId) {
-            return
-        }
-        lastLoadedRunIdRef.current = runId
-        const detail = await researchRebuildService.getStrategyRun(runId)
-        setRunDetail(detail)
-        applyScopeSelection({
-            topicId: detail.topic?.id || '',
-            primaryCategoryId: String(detail.run.primary_category_id || detail.topic?.primary_category_id || ''),
-            secondaryCategoryId: String(detail.run.secondary_category_id || detail.topic?.secondary_category_id || ''),
-        })
-        setSelectedClusterId(detail.run.selected_cluster_id || detail.clusters[0]?.id || '')
-        syncScopeParams(detail.topic?.id || '', detail.run.id)
-    }, [applyScopeSelection, runDetail?.run.id, syncScopeParams])
-
-    const loadSearchHistory = React.useCallback(async () => {
-        if (!projectId) return
-        const response = await researchRebuildService.listDataforseoSearches({
-            project_id: projectId,
-            user_job_id: selectedTopicId || undefined,
-            limit: 10,
-        })
-        setSearchHistory(response.items || [])
-    }, [projectId, selectedTopicId])
-
-    const loadFeasibleKeywords = React.useCallback(async () => {
-        if (!projectId) return
-        const response = await researchRebuildService.listFeasibleKeywords({
-            project_id: projectId,
-            primary_category_id: primaryCategoryId || undefined,
-            secondary_category_id: secondaryCategoryId || undefined,
-            include_used: false,
-            limit: 200,
-        })
-        setFeasibleKeywords(response.items || [])
-    }, [primaryCategoryId, projectId, secondaryCategoryId])
-
-    React.useEffect(() => {
-        if (!projectId) return
-        loadTopicsAndRuns().catch((loadError: unknown) => {
-            setError(loadError instanceof Error ? loadError.message : 'Failed to load strategic research state.')
-        })
-    }, [loadTopicsAndRuns, projectId])
-
-    React.useEffect(() => {
-        if (!projectId) return
-        loadFeasibleKeywords().catch((loadError: unknown) => {
-            setError(loadError instanceof Error ? loadError.message : 'Failed to load feasible keywords.')
-        })
-    }, [loadFeasibleKeywords, projectId])
-
-    React.useEffect(() => {
-        if (!topics.length) return
-        if (skipNextAutoSelectRef.current) {
-            skipNextAutoSelectRef.current = false
-            return
-        }
-        if (selectedTopicId && topics.some((topic) => topic.id === selectedTopicId)) {
-            return
-        }
-
-        if (topicIdParam && topics.some((topic) => topic.id === topicIdParam)) {
-            const matchedTopic = topics.find((topic) => topic.id === topicIdParam)
-            applyScopeSelection({
-                topicId: topicIdParam,
-                primaryCategoryId: String(matchedTopic?.primary_category_id || ''),
-                secondaryCategoryId: String(matchedTopic?.secondary_category_id || ''),
-            })
-            return
-        }
-
-        const latestRunInScope = runs[0]
-        if (latestRunInScope?.topic_id && topics.some((topic) => topic.id === latestRunInScope.topic_id)) {
-            applyScopeSelection({
-                topicId: latestRunInScope.topic_id,
-                primaryCategoryId: String(latestRunInScope.primary_category_id || ''),
-                secondaryCategoryId: String(latestRunInScope.secondary_category_id || ''),
-            })
-            return
-        }
-
-        applyScopeSelection({
-            topicId: topics[0].id,
-            primaryCategoryId: String(topics[0].primary_category_id || ''),
-            secondaryCategoryId: String(topics[0].secondary_category_id || ''),
-        })
-    }, [applyScopeSelection, runs, selectedTopicId, topics, topicIdParam])
-
-    React.useEffect(() => {
-        if (!selectedTopicId || !topics.length) return
-        const matchedTopic = topics.find((topic) => topic.id === selectedTopicId)
-        if (!matchedTopic) return
-
-        const nextPrimary = String(matchedTopic.primary_category_id || '')
-        const nextSecondary = String(matchedTopic.secondary_category_id || '')
-        if (!primaryCategoryId && nextPrimary) {
-            setPrimaryCategoryId(nextPrimary)
-        }
-        if (!secondaryCategoryId && nextSecondary) {
-            setSecondaryCategoryId(nextSecondary)
-        }
-    }, [primaryCategoryId, secondaryCategoryId, selectedTopicId, topics])
-
-    React.useEffect(() => {
-        loadSearchHistory().catch(() => undefined)
-    }, [loadSearchHistory])
-
-    React.useEffect(() => {
-        if (runIdParam) {
-            loadRunDetail(runIdParam).catch((loadError: unknown) => {
-                lastLoadedRunIdRef.current = ''
-                setError(loadError instanceof Error ? loadError.message : 'Failed to load strategy run.')
-            })
-            return
-        }
-        if (!runs.length) return
-
-        const topicIdToLoad = selectedTopicId || topicIdParam || runs[0]?.topic_id || ''
-        if (!topicIdToLoad) return
-
-        const latestRun = runs.find((run) => run.topic_id === topicIdToLoad)
-        if (latestRun) {
-            loadRunDetail(latestRun.id).catch(() => undefined)
-        } else {
-            lastLoadedRunIdRef.current = ''
-            setRunDetail(null)
-            setSelectedClusterId('')
-            syncScopeParams(topicIdToLoad, '')
-        }
-    }, [loadRunDetail, runs, selectedTopicId, syncScopeParams, runIdParam, topicIdParam])
-
-    const latestRunByTopic = React.useMemo(() => {
-        const mapping = new Map<string, ResearchStrategyRun>()
-        for (const run of runs) {
-            if (!mapping.has(run.topic_id)) {
-                mapping.set(run.topic_id, run)
-            }
-        }
-        return mapping
-    }, [runs])
-
-    const selectedTopic = React.useMemo(
-        () => topics.find((topic) => topic.id === selectedTopicId) || null,
-        [selectedTopicId, topics],
-    )
-
-    const handleCreateTopic = async () => {
-        if (!projectId || !topicDraft.trim()) return
+    const handleAnalyze = async () => {
+        if (!projectId || !topicIdea.trim() || !primaryCategoryId) return
         setIsLoading(true)
-        setLoadingLabel('Saving topic…')
         setError(null)
         setSuccess(null)
         try {
-            const job = await researchRebuildService.createJob({
+            const topic = await researchTopicsService.createResearchTopic({
+                title: normalizeText(topicIdea),
+                description: normalizeText(topicIdea),
                 project_id: projectId,
-                primary_category_id: primaryCategoryId || undefined,
-                secondary_category_id: secondaryCategoryId || undefined,
-                job_text: topicDraft.trim(),
-                job_type_hint: 'hybrid',
-                website_context_snapshot: {
-                    primary_category_name: primaryCategory?.name || null,
-                    secondary_category_name: secondaryCategory?.name || null,
+                primary_category_id: primaryCategoryId,
+                secondary_category_id: secondaryCategoryId || null,
+                topic_mode: 'keyword_first',
+                keyword_viability_label: 'medium',
+                topic_generation_metadata: {
+                    target_country: countryLabel,
+                    target_language: languageLabel,
+                    search_engine: searchEngine,
+                    device,
                 },
             })
-            setTopics((current) => [job, ...current])
-            setTopicDraft('')
-            applyScopeSelection({
-                topicId: job.id,
-                primaryCategoryId: String(job.primary_category_id || primaryCategoryId || ''),
-                secondaryCategoryId: String(job.secondary_category_id || secondaryCategoryId || ''),
-            })
-            syncScopeParams(job.id)
-            await loadFeasibleKeywords()
-        } catch (createError) {
-            setError(createError instanceof Error ? createError.message : 'Failed to save topic.')
-        } finally {
-            setIsLoading(false)
-        }
-    }
-
-    const handleRunTopic = async (topicId?: string) => {
-        const resolvedTopicId = topicId || selectedTopicId
-        if (!projectId || !resolvedTopicId) return
-        setIsLoading(true)
-        setRunningTopicId(resolvedTopicId)
-        setLoadingLabel('Generating seed queries, checking SERPs, and mining competitor URLs…')
-        setError(null)
-        setSuccess(null)
-        try {
-            const detail = await researchRebuildService.createStrategyRun({
-                project_id: projectId,
-                primary_category_id: primaryCategoryId || undefined,
-                secondary_category_id: secondaryCategoryId || undefined,
-                topic_id: resolvedTopicId,
-            })
-            setRunDetail(detail)
-            applyScopeSelection({
-                topicId: detail.topic?.id || resolvedTopicId,
-                primaryCategoryId: String(detail.run.primary_category_id || detail.topic?.primary_category_id || primaryCategoryId || ''),
-                secondaryCategoryId: String(detail.run.secondary_category_id || detail.topic?.secondary_category_id || secondaryCategoryId || ''),
-            })
-            setSelectedClusterId(detail.run.selected_cluster_id || detail.clusters[0]?.id || '')
-            await loadTopicsAndRuns()
-            await loadFeasibleKeywords()
-            syncScopeParams(detail.topic?.id || resolvedTopicId, detail.run.id)
-        } catch (runError) {
-            setError(runError instanceof Error ? runError.message : 'Failed to run strategy.')
-        } finally {
-            setRunningTopicId(null)
-            setIsLoading(false)
-        }
-    }
-
-    const handleRemoveTopic = async (topicId: string) => {
-        const previousTopics = topics
-        setIsRemovingTopic(topicId)
-        setTopics((current) => current.filter((topic) => topic.id !== topicId))
-        if (selectedTopicId === topicId) {
-            skipNextAutoSelectRef.current = true
-            applyScopeSelection({
-                topicId: '',
-                primaryCategoryId,
-                secondaryCategoryId,
-            })
-            setRunDetail(null)
-            syncScopeParams('')
-        }
-        try {
-            await researchRebuildService.archiveJob(topicId)
-            await loadTopicsAndRuns()
-            await loadFeasibleKeywords()
-        } catch (removeError) {
-            setTopics(previousTopics)
-            setError(removeError instanceof Error ? removeError.message : 'Failed to remove topic.')
-        } finally {
-            setIsRemovingTopic(null)
-        }
-    }
-
-    const handleRerunStage = async (stage: 'trends' | 'serp' | 'competitor_mining') => {
-        if (!runDetail) return
-        setIsLoading(true)
-        setLoadingLabel(`Rerunning ${stage.replace('_', ' ')}…`)
-        setError(null)
-        setSuccess(null)
-        try {
-            const detail = await researchRebuildService.rerunStrategyStage(runDetail.run.id, { stage })
-            setRunDetail(detail)
-            setSelectedClusterId(detail.run.selected_cluster_id || detail.clusters[0]?.id || '')
-            await loadTopicsAndRuns()
-            await loadFeasibleKeywords()
-        } catch (rerunError) {
-            setError(rerunError instanceof Error ? rerunError.message : 'Failed to rerun stage.')
-        } finally {
-            setIsLoading(false)
-        }
-    }
-
-    const handleSelectCluster = async (clusterId?: string) => {
-        if (!runDetail) return
-        const resolvedClusterId = clusterId || selectedClusterId
-        if (isArticleRoute && !resolvedClusterId) return
-        setIsLoading(true)
-        setLoadingLabel(
-            isSoftwareRoute
-                ? 'Generating the software output from the winning bet…'
-                : isEditorialRoute
-                    ? 'Generating the editorial output from the winning bet…'
-                    : 'Locking the cluster and generating the final output…',
-        )
-        setError(null)
-        setSuccess(null)
-        try {
-            const detail = await researchRebuildService.selectStrategyCluster(runDetail.run.id, {
-                cluster_id: resolvedClusterId || undefined,
-            })
-            setRunDetail(detail)
-            setSelectedClusterId(resolvedClusterId || detail.run.selected_cluster_id || detail.clusters[0]?.id || '')
-            await loadTopicsAndRuns()
-            await loadFeasibleKeywords()
-        } catch (selectError) {
-            setError(selectError instanceof Error ? selectError.message : 'Failed to select cluster.')
-        } finally {
-            setIsLoading(false)
-        }
-    }
-
-    const handleManualLookup = async () => {
-        if (!projectId) return
-        const keywords = lookupKeywords
-            .split('\n')
-            .map((value) => value.trim())
-            .filter(Boolean)
-        if (lookupType === 'keyword_overview' && !keywords.length) {
-            setError('Paste one keyword per line for keyword overview.')
-            return
-        }
-        if (lookupType !== 'keyword_overview' && !lookupQuery.trim()) {
-            setError('Enter a query before running the lookup.')
-            return
-        }
-        setIsLoading(true)
-        setLoadingLabel('Running and saving the supporting DataForSEO lookup…')
-        setError(null)
-        setSuccess(null)
-        try {
-            await researchRebuildService.runDataforseoSearch({
-                project_id: projectId,
-                user_job_id: selectedTopicId || undefined,
-                primary_category_id: primaryCategoryId || undefined,
-                secondary_category_id: secondaryCategoryId || undefined,
-                search_type: lookupType,
-                query_text: lookupQuery.trim() || undefined,
-                keywords: lookupType === 'keyword_overview' ? keywords : undefined,
-            })
-            await loadSearchHistory()
-        } catch (lookupError) {
-            setError(lookupError instanceof Error ? lookupError.message : 'Failed to run lookup.')
-        } finally {
-            setIsLoading(false)
-        }
-    }
-
-    const clustersByBet = React.useMemo(() => groupClustersByBet(runDetail?.clusters || []), [runDetail?.clusters])
-    const competitorPagesByBet = React.useMemo(() => groupCompetitorPagesByBet(runDetail?.competitor_pages || []), [runDetail?.competitor_pages])
-    const finalOutcome = runDetail?.final_selection?.generated_outcome?.outcome_metadata as Record<string, unknown> | undefined
-    const winningRoute = runDetail?.run.winning_route || null
-    const selectedBet = React.useMemo(
-        () => runDetail?.bets.find((bet) => bet.id === runDetail?.run.selected_bet_id) || null,
-        [runDetail],
-    )
-    const selectedCluster = React.useMemo(
-        () => runDetail?.clusters.find((cluster) => cluster.id === selectedClusterId) || runDetail?.clusters[0] || null,
-        [runDetail, selectedClusterId],
-    )
-    const selectedClusterMetadata = React.useMemo(() => clusterMetadata(selectedCluster), [selectedCluster])
-    const isArticleRoute = winningRoute === 'article_ready'
-    const isSoftwareRoute = winningRoute === 'software_ready'
-    const isEditorialRoute = winningRoute === 'editorial_only'
-    const canFinalizeSelection = Boolean(
-        runDetail && (
-            (isArticleRoute && selectedClusterId) ||
-            ((isSoftwareRoute || isEditorialRoute) && selectedBet)
-        ),
-    )
-    const finalizeLabel = isSoftwareRoute
-        ? 'Generate software output'
-        : isEditorialRoute
-            ? 'Generate editorial output'
-            : 'Lock keyword and generate output'
-    const generatedOutcome = runDetail?.final_selection?.generated_outcome || null
-    const generatedOutcomeId = generatedOutcome?.id ? String(generatedOutcome.id) : null
-    const isDismissed = String(runDetail?.run.status || '') === 'dismissed'
-    const softwareName = String(finalOutcome?.product_name || finalOutcome?.title || selectedBet?.bet_text || 'Untitled software concept')
-    const softwareSearchAngle = String(finalOutcome?.primary_keyword || '')
-    const softwareKeywords = Array.isArray(finalOutcome?.secondary_keywords) ? finalOutcome.secondary_keywords.map(String) : []
-    const softwareCoreWorkflow = Array.isArray(finalOutcome?.core_workflow) ? finalOutcome.core_workflow.map(String) : []
-    const softwareFeatures = Array.isArray(finalOutcome?.key_features) ? finalOutcome.key_features.map(String) : []
-    const softwareInputs = Array.isArray(finalOutcome?.inputs) ? finalOutcome.inputs.map(String) : []
-    const softwareOutputs = Array.isArray(finalOutcome?.outputs) ? finalOutcome.outputs.map(String) : []
-    const softwareMvpScope = Array.isArray(finalOutcome?.mvp_scope) ? finalOutcome.mvp_scope.map(String) : []
-    const hasDetailedSoftwareSpec = Boolean(
-        String(finalOutcome?.software_concept || '').trim()
-        || softwareCoreWorkflow.length
-        || softwareFeatures.length
-        || softwareInputs.length
-        || softwareOutputs.length
-        || softwareMvpScope.length,
-    )
-    const keywordOpportunities = React.useMemo(
-        () => (runDetail?.clusters || []).filter((cluster) => String(cluster.cluster_type || '') === 'keyword_opportunity'),
-        [runDetail?.clusters],
-    )
-
-    const handleReleaseSoftwareIdea = async () => {
-        if (!generatedOutcomeId) return
-        setMutatingOutcomeAction('release')
-        setError(null)
-        setSuccess(null)
-        try {
-            await researchRebuildService.releaseSoftwareOutcome(generatedOutcomeId)
-            const refreshed = await researchRebuildService.getStrategyRun(runDetail!.run.id)
-            setRunDetail(refreshed)
-            setSuccess('Software outcome sent to Software Ideas.')
-        } catch (releaseError) {
-            setError(releaseError instanceof Error ? releaseError.message : 'Failed to release software outcome.')
-        } finally {
-            setMutatingOutcomeAction(null)
-        }
-    }
-
-    const handleSendToContentStudio = async () => {
-        if (!generatedOutcomeId || !projectId) return
-        setMutatingOutcomeAction('persist')
-        setError(null)
-        setSuccess(null)
-        try {
-            await researchRebuildService.persistOutcomeToContentIdea(generatedOutcomeId, {
-                project_id: projectId,
-                topic_id: selectedTopicId || undefined,
-                category_context: {
-                    project_id: projectId,
-                    primary_category_id: primaryCategoryId || null,
-                    secondary_category_id: secondaryCategoryId || null,
-                    primary_category_name: primaryCategory?.name || null,
-                    secondary_category_name: secondaryCategory?.name || null,
-                    category_path: [primaryCategory?.name, secondaryCategory?.name].filter(Boolean).join(' / ') || null,
+            setCurrentTopic(topic)
+            const runResult = await topicKeywordResearchService.runTopicKeywordResearch(topic.id, {
+                replace_existing: true,
+                filters: {
+                    target_location_code: selectedCountry.locationCode,
+                    target_language_code: selectedLanguage.code,
+                    target_device: device.toLowerCase(),
                 },
             })
-            const refreshed = await researchRebuildService.getStrategyRun(runDetail!.run.id)
-            setRunDetail(refreshed)
-            setSuccess('Outcome sent to Content Studio.')
-        } catch (persistError) {
-            setError(persistError instanceof Error ? persistError.message : 'Failed to send outcome to Content Studio.')
-        } finally {
-            setMutatingOutcomeAction(null)
-        }
-    }
-
-    const handleDismissRun = async () => {
-        if (!runDetail) return
-        setMutatingOutcomeAction('dismiss')
-        setError(null)
-        setSuccess(null)
-        try {
-            const refreshed = await researchRebuildService.dismissStrategyRun(runDetail.run.id, {
-                reason: 'not_pursuing',
-            })
-            setRunDetail(refreshed)
-            await loadTopicsAndRuns()
-            await loadFeasibleKeywords()
-            setSuccess('Marked as not pursuing. You can rerun the strategy later if you want to revisit it.')
-        } catch (dismissError) {
-            setError(dismissError instanceof Error ? dismissError.message : 'Failed to mark this opportunity as not pursuing.')
-        } finally {
-            setMutatingOutcomeAction(null)
-        }
-    }
-
-    const handleOpenKeywordOpportunity = async (item: ResearchFeasibleKeywordOpportunity) => {
-        setError(null)
-        setSuccess(null)
-        if (runDetail?.run.id === item.run_id) {
-            setSelectedClusterId(item.id)
-            return
-        }
-        setIsLoading(true)
-        setLoadingLabel('Opening the source run for this keyword…')
-        try {
-            await loadRunDetail(item.run_id)
-            setSelectedClusterId(item.id)
-            applyScopeSelection({
-                topicId: item.topic_id,
-                primaryCategoryId: String(item.primary_category_id || ''),
-                secondaryCategoryId: String(item.secondary_category_id || ''),
-            })
-            syncScopeParams(item.topic_id, item.run_id)
-        } catch (openError) {
-            setError(openError instanceof Error ? openError.message : 'Failed to open the source run for this keyword.')
+            const run = runResult.run
+            setCurrentRun(run)
+            const [, allKeywords, clusterResponse] = await Promise.all([
+                topicKeywordResearchService.listKeywords(topic.id, run.id, false),
+                topicKeywordResearchService.listKeywords(topic.id, run.id, true),
+                topicKeywordResearchService.listClusters(topic.id, run.id),
+            ])
+            setAllKeywordCandidates(allKeywords.items || [])
+            setClusters(clusterResponse.items || [])
+            setSearchParams((currentParams) => {
+                const next = new URLSearchParams(currentParams)
+                next.set('project_id', projectId)
+                next.set('primary_category_id', primaryCategoryId)
+                if (secondaryCategoryId) next.set('secondary_category_id', secondaryCategoryId)
+                else next.delete('secondary_category_id')
+                next.set('topic_id', topic.id)
+                return next
+            }, { replace: true })
+            void loadRecentTopics()
+            setSuccess('SERP opportunity analyzed. Review the competitor evidence before deciding whether to create the article.')
+        } catch (analyzeError) {
+            console.error('Failed to analyze SERP opportunity', analyzeError)
+            setError(analyzeError instanceof Error ? analyzeError.message : 'Failed to analyze SERP opportunity.')
         } finally {
             setIsLoading(false)
         }
+    }
+
+    const openTopicDetail = () => {
+        if (!currentTopic?.id) return
+        navigate(`/research/${currentTopic.id}`)
     }
 
     return (
-        <div className="min-h-screen bg-[#05070c] text-white">
+        <div className="min-h-screen bg-[#06101a] text-white">
             <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 py-8">
-                <header className="rounded-[28px] border border-white/10 bg-[#0d1018] px-6 py-5 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                        <div>
-                            <div className="text-xs uppercase tracking-[0.35em] text-sky-300/80">Research Rebuild</div>
-                            <h1 className="mt-2 text-3xl font-semibold tracking-tight">Competitive SERP Mining</h1>
-                            <p className="mt-2 max-w-3xl text-sm text-slate-300">
-                                Start from a topic, pressure-test a few article-angle bets, and only spend keyword credits after the SERP proves the angle is worth chasing.
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setTopicsModalOpen(true)}
-                            className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-100 transition hover:border-sky-400 hover:text-white"
-                        >
-                            Manage Saved Topics
-                        </button>
-                    </div>
+                <header className="rounded-[28px] border border-slate-800 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.16),transparent_35%),linear-gradient(180deg,#0d1624_0%,#0a1019_100%)] p-6 shadow-[0_20px_80px_rgba(2,8,23,0.35)]">
+                    <div className="text-xs uppercase tracking-[0.35em] text-sky-300/80">Research</div>
+                    <h1 className="mt-3 text-3xl font-semibold tracking-tight">SERP Opportunity Keyword Finder</h1>
+                    <p className="mt-3 max-w-4xl text-sm text-slate-300">
+                        Move from topic idea to one article opportunity. The system evaluates whether the topic is worth pursuing before it spends credits on broader keyword harvesting.
+                    </p>
                 </header>
 
                 {error ? (
-                    <div className="rounded-2xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 text-sm text-rose-200">
-                        {error}
-                    </div>
+                    <div className="rounded-2xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 text-sm text-rose-200">{error}</div>
                 ) : null}
 
                 {success ? (
-                    <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-200">
-                        {success}
-                    </div>
+                    <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-200">{success}</div>
                 ) : null}
 
-                {isLoading ? (
-                    <div className="rounded-[24px] border border-sky-400/30 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_45%),#08111d] px-5 py-4 shadow-[0_0_40px_rgba(56,189,248,0.12)]">
-                        <div className="flex items-center gap-4">
-                            <div className="relative flex h-12 w-12 items-center justify-center">
-                                <div className="absolute h-12 w-12 rounded-full border border-sky-400/30 animate-ping" />
-                                <div className="absolute h-8 w-8 rounded-full border-2 border-sky-300/80 border-t-transparent animate-spin" />
-                                <div className="h-2.5 w-2.5 rounded-full bg-sky-300" />
-                            </div>
-                            <div>
-                                <div className="text-xs uppercase tracking-[0.32em] text-sky-300/80">Research engine active</div>
-                                <div className="mt-1 text-base font-medium text-white">{loadingLabel}</div>
-                                <div className="mt-1 text-sm text-slate-300">This can take a moment because the app is generating seed queries, screening SERPs, mining competitor URLs, and saving the evidence.</div>
-                            </div>
-                        </div>
-                    </div>
-                ) : null}
-
-                <section className="rounded-[28px] border border-white/10 bg-[#0f1320] p-6">
-                    <div className="mb-5 flex items-center justify-between">
-                        <div>
-                            <div className="text-xs uppercase tracking-[0.35em] text-sky-300/70">Step 1</div>
-                            <h2 className="mt-2 text-2xl font-semibold">Select category and define the topic</h2>
-                        </div>
-                    </div>
-
-                    <div className="grid gap-4 lg:grid-cols-2">
-                        <label className="flex flex-col gap-2">
-                            <span className="text-xs uppercase tracking-[0.28em] text-slate-400">Primary category</span>
-                            <select
-                                value={primaryCategoryId}
-                                onChange={(event) => {
-                                    setPrimaryCategoryId(event.target.value)
-                                    setSecondaryCategoryId('')
-                                }}
-                                className="h-14 rounded-2xl border border-slate-700 bg-[#151b2a] px-4 text-base text-white outline-none transition focus:border-sky-400"
-                            >
-                                <option value="">Select primary category</option>
-                                {primaryCategories.map((category) => (
-                                    <option key={category.id} value={category.id}>{category.name}</option>
-                                ))}
-                            </select>
-                        </label>
-                        <label className="flex flex-col gap-2">
-                            <span className="text-xs uppercase tracking-[0.28em] text-slate-400">Sub-category</span>
-                            <select
-                                value={secondaryCategoryId}
-                                onChange={(event) => setSecondaryCategoryId(event.target.value)}
-                                className="h-14 rounded-2xl border border-slate-700 bg-[#151b2a] px-4 text-base text-white outline-none transition focus:border-sky-400"
-                            >
-                                <option value="">Select sub-category</option>
-                                {secondaryCategories.map((category) => (
-                                    <option key={category.id} value={category.id}>{category.name}</option>
-                                ))}
-                            </select>
-                        </label>
-                    </div>
-
-                    <div className="mt-4 rounded-2xl border border-slate-700 bg-[#131827]">
-                        <div className="border-b border-slate-700 px-4 py-3 text-xs uppercase tracking-[0.3em] text-slate-400">
-                            Category context
-                        </div>
-                        <div className="max-h-52 overflow-y-auto px-4 py-4 text-sm text-slate-300">
-                            <div className="font-medium text-white">{primaryCategory?.name || 'No primary category selected'}</div>
-                            <p className="mt-1 whitespace-pre-wrap text-slate-400">{primaryCategory?.description || 'Choose a primary category to anchor the strategic research run.'}</p>
-                            <div className="mt-4 font-medium text-white">{secondaryCategory?.name || 'No sub-category selected'}</div>
-                            <p className="mt-1 whitespace-pre-wrap text-slate-400">{secondaryCategory?.description || 'Optional: select a sub-category to narrow the seed queries and competitor mining.'}</p>
-                        </div>
-                    </div>
-
-                    <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto]">
-                        <textarea
-                            value={topicDraft}
-                            onChange={(event) => setTopicDraft(event.target.value)}
-                            rows={3}
-                            placeholder="Example: Eco-friendly home improvements and property value"
-                            className="min-h-[112px] rounded-2xl border border-slate-700 bg-[#151b2a] px-4 py-3 text-base text-white outline-none transition placeholder:text-slate-500 focus:border-sky-400"
-                        />
-                        <button
-                            type="button"
-                            onClick={handleCreateTopic}
-                            disabled={!projectId || !topicDraft.trim() || isLoading}
-                            className="rounded-2xl border border-slate-600 bg-slate-900 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            Save Topic
-                        </button>
-                    </div>
-
-                    <div className="mt-5 rounded-2xl border border-slate-700 bg-[#121826] px-4 py-4">
-                        <div className="flex items-center justify-between gap-4">
-                            <div>
-                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Saved topics</div>
-                                <div className="mt-2 text-sm text-slate-300">Choose one topic at a time, then run the seed-query, SERP, and competitor-keyword workflow.</div>
-                            </div>
-                            <div className="text-sm text-slate-400">{topics.length} topic{topics.length === 1 ? '' : 's'}</div>
-                        </div>
-                        <div className="mt-4 flex flex-wrap gap-2">
-                            {topics.slice(0, 8).map((topic) => {
-                                const latestRun = latestRunByTopic.get(topic.id)
-                                const selected = selectedTopicId === topic.id
-                                return (
-                                    <button
-                                        type="button"
-                                        key={topic.id}
-                                        onClick={() => {
-                                            applyScopeSelection({
-                                                topicId: topic.id,
-                                                primaryCategoryId: String(latestRun?.primary_category_id || topic.primary_category_id || ''),
-                                                secondaryCategoryId: String(latestRun?.secondary_category_id || topic.secondary_category_id || ''),
-                                            })
-                                            syncScopeParams(topic.id)
-                                            if (latestRun) {
-                                                loadRunDetail(latestRun.id).catch(() => undefined)
-                                            } else {
-                                                setRunDetail(null)
-                                            }
-                                        }}
-                                        className={`rounded-full border px-4 py-2 text-left text-sm transition ${selected ? 'border-sky-400 bg-sky-500/15 text-white' : 'border-slate-700 bg-[#171d2c] text-slate-300 hover:border-slate-500'}`}
-                                    >
-                                        {topic.job_text}
-                                        {latestRun ? <span className="ml-2 text-xs text-slate-400">• {routeLabel(latestRun.winning_route)}</span> : null}
-                                    </button>
-                                )
-                            })}
-                        </div>
-                        {selectedTopic ? (
-                            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+                    <div className="flex flex-col gap-6">
+                        <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                            <div className="mb-5 flex items-center justify-between">
                                 <div>
-                                    <div className="text-xs uppercase tracking-[0.28em] text-sky-300/80">Selected topic</div>
-                                    <div className="mt-2 text-base font-medium text-white">{selectedTopic.job_text}</div>
-                                    <div className="mt-1 text-sm text-slate-300">
-                                        {latestRunByTopic.get(selectedTopic.id)
-                                            ? `Latest route: ${routeLabel(latestRunByTopic.get(selectedTopic.id)?.winning_route)}`
-                                            : 'No strategy run yet for this topic.'}
+                                    <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">Step 1</div>
+                                    <h2 className="mt-2 text-2xl font-semibold">Topic Input Panel</h2>
+                                </div>
+                                <div className="text-sm text-slate-400">{activeProject?.domain || activeProject?.app_name || 'Select a project'}</div>
+                            </div>
+
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <label className="flex flex-col gap-2">
+                                    <span className="text-sm text-slate-300">Website Category</span>
+                                    <select
+                                        value={primaryCategoryId}
+                                        onChange={(event) => {
+                                            setPrimaryCategoryId(event.target.value)
+                                            setSecondaryCategoryId('')
+                                        }}
+                                        className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition focus:border-sky-400"
+                                    >
+                                        <option value="">Select category</option>
+                                        {primaryCategories.map((category) => (
+                                            <option key={category.id} value={category.id}>{category.name}</option>
+                                        ))}
+                                    </select>
+                                </label>
+
+                                <label className="flex flex-col gap-2">
+                                    <span className="text-sm text-slate-300">Subcategory</span>
+                                    <select
+                                        value={secondaryCategoryId}
+                                        onChange={(event) => setSecondaryCategoryId(event.target.value)}
+                                        className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition focus:border-sky-400"
+                                    >
+                                        <option value="">Select subcategory</option>
+                                        {secondaryCategories.map((category) => (
+                                            <option key={category.id} value={category.id}>{category.name}</option>
+                                        ))}
+                                    </select>
+                                </label>
+
+                                <label className="flex flex-col gap-2 md:col-span-2">
+                                    <span className="text-sm text-slate-300">Topic Idea</span>
+                                    <textarea
+                                        value={topicIdea}
+                                        onChange={(event) => setTopicIdea(event.target.value)}
+                                        rows={3}
+                                        placeholder="Eco-friendly upgrades that increase property value"
+                                        className="min-h-[96px] rounded-2xl border border-slate-700 bg-[#141d2c] px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-sky-400"
+                                    />
+                                </label>
+
+                                <label className="flex flex-col gap-2">
+                                    <span className="text-sm text-slate-300">Target Country</span>
+                                    <select value={countryLabel} onChange={(event) => setCountryLabel(event.target.value)} className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition focus:border-sky-400">
+                                        {COUNTRY_OPTIONS.map((country) => (
+                                            <option key={country.label} value={country.label}>{country.label}</option>
+                                        ))}
+                                    </select>
+                                </label>
+
+                                <label className="flex flex-col gap-2">
+                                    <span className="text-sm text-slate-300">Language</span>
+                                    <select value={languageLabel} onChange={(event) => setLanguageLabel(event.target.value)} className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition focus:border-sky-400">
+                                        {LANGUAGE_OPTIONS.map((language) => (
+                                            <option key={language.label} value={language.label}>{language.label}</option>
+                                        ))}
+                                    </select>
+                                </label>
+
+                                <label className="flex flex-col gap-2">
+                                    <span className="text-sm text-slate-300">Search Engine</span>
+                                    <select value={searchEngine} onChange={(event) => setSearchEngine(event.target.value)} className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition focus:border-sky-400">
+                                        <option value="Google">Google</option>
+                                    </select>
+                                </label>
+
+                                <label className="flex flex-col gap-2">
+                                    <span className="text-sm text-slate-300">Device</span>
+                                    <select value={device} onChange={(event) => setDevice(event.target.value as DeviceOption)} className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition focus:border-sky-400">
+                                        <option value="Desktop">Desktop</option>
+                                        <option value="Mobile">Mobile</option>
+                                    </select>
+                                </label>
+                            </div>
+
+                            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <button
+                                    type="button"
+                                    onClick={handleAnalyze}
+                                    disabled={!projectId || !primaryCategoryId || !topicIdea.trim() || isLoading}
+                                    className="inline-flex items-center justify-center rounded-2xl bg-sky-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {isLoading ? 'Analyzing…' : 'Analyze SERP Opportunity'}
+                                </button>
+                                <div className="text-sm text-slate-400">
+                                    This will run 3 SERP probe searches before spending credits on keyword expansion.
+                                </div>
+                            </div>
+
+                            <div className="mt-5 rounded-2xl border border-slate-700 bg-[#111a28] p-4 text-sm text-slate-300">
+                                <div className="font-medium text-white">Category context</div>
+                                <div className="mt-2">{primaryCategory?.name || 'No category selected'}</div>
+                                <div className="mt-1 text-slate-400">{primaryCategory?.description || 'Choose a category to anchor the topic.'}</div>
+                                <div className="mt-3">{secondaryCategory?.name || 'No subcategory selected'}</div>
+                                <div className="mt-1 text-slate-400">{secondaryCategory?.description || 'Optional: add a subcategory to tighten the probe intent.'}</div>
+                            </div>
+                        </section>
+
+                        <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                            <div className="mb-4 flex items-center justify-between">
+                                <div>
+                                    <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">Step 2</div>
+                                    <h2 className="mt-2 text-2xl font-semibold">SERP Probe Preview</h2>
+                                </div>
+                                <div className="rounded-full border border-slate-700 bg-[#141d2c] px-3 py-1 text-xs text-slate-300">
+                                    Estimated API calls: 3
+                                </div>
+                            </div>
+
+                            <div className="grid gap-3">
+                                {probePreview.map((probe, index) => (
+                                    <div key={`${probe.label}-${index}`} className="rounded-2xl border border-slate-700 bg-[#111a28] p-4">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="text-sm font-medium text-white">{index + 1}. {probe.label} intent</div>
+                                            <span className="rounded-full border border-sky-500/20 bg-sky-500/10 px-3 py-1 text-xs text-sky-200">{probe.label}</span>
+                                        </div>
+                                        <div className="mt-2 text-base text-slate-200">{probe.query}</div>
                                     </div>
-                                </div>
-                                <div className="flex flex-wrap gap-3">
-                                    <button
-                                        type="button"
-                                        onClick={() => handleRemoveTopic(selectedTopic.id)}
-                                        disabled={isLoading || isRemovingTopic === selectedTopic.id}
-                                        className="rounded-2xl border border-slate-600 bg-slate-900 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-rose-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                        {isRemovingTopic === selectedTopic.id ? 'Deleting seed…' : 'Delete Seed'}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleRunTopic(selectedTopic.id)}
-                                        disabled={!projectId || isLoading}
-                                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-sky-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                        {runningTopicId === selectedTopic.id ? (
-                                            <>
-                                                <span className="inline-block h-4 w-4 rounded-full border-2 border-slate-950/30 border-t-slate-950 animate-spin" />
-                                                Screening seed queries…
-                                            </>
-                                        ) : (
-                                            'Run Strategy For This Topic'
-                                        )}
-                                    </button>
-                                </div>
+                                ))}
                             </div>
-                        ) : null}
-                    </div>
-                </section>
+                        </section>
 
-                <section className="rounded-[28px] border border-white/10 bg-[#0f1320] p-6">
-                    <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div>
-                            <div className="text-xs uppercase tracking-[0.35em] text-sky-300/70">Step 2</div>
-                            <h2 className="mt-2 text-2xl font-semibold">Review seed queries and SERP screening</h2>
-                            <p className="mt-2 text-sm text-slate-300">The engine now starts from simple search seeds, runs SERPs directly, picks the best competitor URLs, and lets competitor-ranked keywords drive article discovery.</p>
-                        </div>
-                        {runDetail ? (
-                            <div className="flex flex-wrap gap-2">
-                                <button type="button" onClick={() => handleRerunStage('trends')} className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-sm text-slate-100 hover:border-sky-400">Rerun trends</button>
-                                <button type="button" onClick={() => handleRerunStage('serp')} className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-sm text-slate-100 hover:border-sky-400">Rerun SERP</button>
-                                <button type="button" onClick={() => handleRerunStage('competitor_mining')} className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-sm text-slate-100 hover:border-sky-400">Rerun mining</button>
+                        <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                            <div className="mb-4">
+                                <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">Step 3</div>
+                                <h2 className="mt-2 text-2xl font-semibold">SERP Opportunity Score Card</h2>
                             </div>
-                        ) : null}
-                    </div>
 
-                    <div className="mb-5 rounded-2xl border border-slate-700 bg-[#111827] px-4 py-4">
-                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">How Step 2 works</div>
-                        <div className="mt-3 grid gap-3 text-sm text-slate-300 lg:grid-cols-3">
-                            <div>
-                                <div className="font-medium text-white">1. The app generates seed queries</div>
-                                <p className="mt-1">From your saved topic, the app creates a handful of simple Google-style search seeds. The topic is only the starting point, not the final keyword target.</p>
-                            </div>
-                            <div>
-                                <div className="font-medium text-white">2. Each seed goes straight to SERP</div>
-                                <p className="mt-1">Each seed is tested directly in Google-style SERPs. The goal is to surface strong competitor article URLs first, then mine those URLs for ranked keywords.</p>
-                            </div>
-                            <div>
-                                <div className="font-medium text-white">3. Mining-first screening</div>
-                                <p className="mt-1"><span className="text-emerald-300">Most seeds</span> now continue into competitor mining if the SERP returns usable article or comparison pages. <span className="text-rose-300">Killed seeds</span> only appear when the SERP looks overwhelmingly unusable, such as service-, ecommerce-, or pure product-dominant results.</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {!runDetail ? (
-                        <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-10 text-sm text-slate-400">
-                            Save a topic and run the strategy to generate seed queries, SERP results, recurring competitor domains, and keyword opportunities.
-                        </div>
-                    ) : (
-                        <div className="grid gap-4">
-                            {runDetail.bets.map((bet: ResearchTopicBet) => {
-                                const betClusters = clustersByBet[bet.id] || []
-                                const betCompetitors = competitorPagesByBet[bet.id] || []
-                                const reasonCodes = bet.reason_codes || []
-                                const probes = runDetail.probe_queries.filter((probe) => probe.bet_id === bet.id)
-                                return (
-                                    <article key={bet.id} className={`rounded-3xl border p-5 ${bet.status === 'survived' ? 'border-emerald-500/30 bg-[#101a18]' : 'border-slate-700 bg-[#121826]'}`}>
-                                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                            <div className="max-w-3xl">
-                                                <div className="text-xs uppercase tracking-[0.3em] text-slate-400">{bet.status === 'survived' ? 'Survived' : 'Killed'} seed</div>
-                                                <h3 className="mt-2 text-xl font-semibold text-white">{bet.bet_text}</h3>
-                                                <p className="mt-2 text-sm text-slate-300">{bet.searcher_problem || 'No searcher problem captured.'}</p>
-                                                <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-300">
-                                                    <span className="rounded-full border border-slate-600 px-3 py-1">{bet.article_format || 'format pending'}</span>
-                                                    <span className="rounded-full border border-slate-600 px-3 py-1">{bet.commercial_angle || 'commercial angle pending'}</span>
-                                                    <span className="rounded-full border border-slate-600 px-3 py-1">{bet.route_hint || 'route pending'}</span>
-                                                </div>
-                                            </div>
-                                            <div className="grid min-w-[220px] gap-2 rounded-2xl border border-slate-700 bg-[#0b111d] p-4 text-sm">
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-slate-400">Trend</span>
-                                                    <span className={toneClass(bet.trend_score)}>{scoreLabel(bet.trend_score)}</span>
-                                                </div>
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-slate-400">Articleability</span>
-                                                    <span className={toneClass(bet.serp_articleability_score)}>{scoreLabel(bet.serp_articleability_score)}</span>
-                                                </div>
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-slate-400">SERP weakness</span>
-                                                    <span className={toneClass(bet.serp_weakness_score)}>{scoreLabel(bet.serp_weakness_score)}</span>
-                                                </div>
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-slate-400">Article fit</span>
-                                                    <span className={toneClass(bet.article_fit_score)}>{scoreLabel(bet.article_fit_score)}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="mt-5 grid gap-4 xl:grid-cols-[0.9fr_0.8fr_1.05fr]">
-                                            <div className="rounded-2xl border border-slate-700 bg-[#0e1421] p-4">
-                                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Probe queries</div>
-                                                <div className="mt-3 grid gap-2">
-                                                    {probes.map((probe) => (
-                                                        <div key={probe.id} className="rounded-xl border border-slate-700 bg-[#141a29] px-3 py-3 text-sm text-slate-200">
-                                                            <div className="font-medium text-white">{probe.query_text}</div>
-                                                            <div className="mt-2 text-xs text-slate-400">
-                                                                {probe.serp_classification || 'SERP not classified yet'}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                                {reasonCodes.length ? (
-                                                    <div className="mt-4 flex flex-wrap gap-2">
-                                                        {reasonCodes.map((code) => (
-                                                            <span key={code} className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-300">
-                                                                {code.replaceAll('_', ' ')}
-                                                            </span>
-                                                        ))}
-                                                    </div>
-                                                ) : null}
-                                            </div>
-
-                                            <div className="rounded-2xl border border-slate-700 bg-[#0e1421] p-4">
-                                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Competitor domains</div>
-                                                {betCompetitors.length ? (
-                                                    <div className="mt-3 grid gap-3">
-                                                        {betCompetitors.map((page) => {
-                                                            const metadata = (page.page_metadata || {}) as Record<string, unknown>
-                                                            const analysisTarget = String(metadata.analysis_target || page.domain || page.url || '')
-                                                            const domainHits = Number(metadata.domain_hits || 0)
-                                                            return (
-                                                                <div key={page.id} className="rounded-2xl border border-slate-700 bg-[#141a29] p-4">
-                                                                    <div className="flex items-start justify-between gap-4">
-                                                                        <div>
-                                                                            <div className="font-medium text-white">{analysisTarget}</div>
-                                                                            <div className="mt-1 text-sm text-slate-300">{page.title || page.url}</div>
-                                                                        </div>
-                                                                        <div className="text-xs text-slate-400">
-                                                                            {domainHits > 1 ? `${domainHits} SERP appearances` : '1 SERP appearance'}
-                                                                        </div>
-                                                                    </div>
-                                                                    {page.url ? (
-                                                                        <a href={page.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex max-w-full truncate rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:border-sky-400">
-                                                                            {page.url}
-                                                                        </a>
-                                                                    ) : null}
-                                                                </div>
-                                                            )
-                                                        })}
-                                                    </div>
-                                                ) : (
-                                                    <div className="mt-3 text-sm text-slate-400">
-                                                        {bet.status === 'survived' ? 'The seed survived, but no beatable recurring competitor domain was selected yet.' : 'This seed was rejected before mining because the SERP looked overwhelmingly unusable.'}
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            <div className="rounded-2xl border border-slate-700 bg-[#0e1421] p-4">
-                                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Keyword opportunities</div>
-                                                {betClusters.length ? (
-                                                    <div className="mt-3 grid gap-3">
-                                                        {betClusters.map((cluster) => (
-                                                            <button
-                                                                type="button"
-                                                                key={cluster.id}
-                                                                onClick={() => setSelectedClusterId(cluster.id)}
-                                                                className={`rounded-2xl border p-4 text-left transition ${selectedClusterId === cluster.id ? 'border-sky-400 bg-sky-500/10' : 'border-slate-700 bg-[#141a29] hover:border-slate-500'}`}
-                                                            >
-                                                                <div className="flex items-start justify-between gap-4">
-                                                                    <div>
-                                                                        <div className="font-medium text-white">{cluster.primary_keyword_candidate || cluster.cluster_name || 'No primary keyword yet'}</div>
-                                                                        <div className="mt-1 text-sm text-slate-300">
-                                                                            {String((cluster.cluster_metadata as Record<string, unknown> | undefined)?.source_domain || 'Unknown competitor domain')}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className={`text-sm font-medium ${toneClass(cluster.opportunity_score)}`}>
-                                                                        {Math.round(Number(cluster.opportunity_score || 0) * 100)}%
-                                                                    </div>
-                                                                </div>
-                                                                <div className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
-                                                                    <div>Volume: {String((cluster.cluster_metadata as Record<string, unknown> | undefined)?.search_volume || 'n/a')}</div>
-                                                                    <div>KD: {String((cluster.cluster_metadata as Record<string, unknown> | undefined)?.keyword_difficulty || 'n/a')}</div>
-                                                                    <div>Intent: {String((cluster.cluster_metadata as Record<string, unknown> | undefined)?.intent || 'n/a')}</div>
-                                                                    <div>Competitor rank: {String((cluster.cluster_metadata as Record<string, unknown> | undefined)?.median_rank || cluster.median_rank || 'n/a')}</div>
-                                                                </div>
-                                                                {cluster.supporting_competitor_urls_json?.length ? (
-                                                                    <div className="mt-3 flex flex-wrap gap-2">
-                                                                        {cluster.supporting_competitor_urls_json.slice(0, 2).map((url) => (
-                                                                            <a key={url} href={url} target="_blank" rel="noreferrer" className="truncate rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:border-sky-400">
-                                                                                {url}
-                                                                            </a>
-                                                                        ))}
-                                                                    </div>
-                                                                ) : null}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                ) : (
-                                                    <div className="mt-3 text-sm text-slate-400">
-                                                        {bet.status === 'survived' ? 'This seed reached competitor mining, but no feasible keyword opportunity was surfaced yet.' : 'This seed was rejected before keyword mining because the SERP looked overwhelmingly unusable.'}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </article>
-                                )
-                            })}
-                        </div>
-                    )}
-                </section>
-
-                <section className="rounded-[28px] border border-white/10 bg-[#0f1320] p-6">
-                    <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                        <div>
-                            <div className="text-xs uppercase tracking-[0.35em] text-sky-300/70">Keyword Bank</div>
-                            <h2 className="mt-2 text-2xl font-semibold">Feasible keywords found</h2>
-                            <p className="mt-2 text-sm text-slate-300">
-                                Keep every realistic keyword opportunity from this category scope visible. Deleting a seed clears the clutter in Step 2, but the collected keyword evidence stays here for later use.
-                            </p>
-                        </div>
-                        <div className="text-sm text-slate-400">
-                            {feasibleKeywords.length} unused keyword{feasibleKeywords.length === 1 ? '' : 's'}
-                        </div>
-                    </div>
-
-                    {!projectId ? (
-                        <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-8 text-sm text-slate-400">
-                            Select a project to load the feasible keyword repository.
-                        </div>
-                    ) : feasibleKeywords.length === 0 ? (
-                        <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-8 text-sm text-slate-400">
-                            No unused feasible keyword opportunities were found for this scope yet.
-                        </div>
-                    ) : (
-                        <div className="overflow-hidden rounded-2xl border border-slate-700 bg-[#101726]">
-                            <div className="hidden grid-cols-[minmax(0,2.2fr)_100px_80px_110px_120px_minmax(0,1.5fr)_140px] gap-3 border-b border-slate-700 px-4 py-3 text-[11px] uppercase tracking-[0.26em] text-slate-400 lg:grid">
-                                <div>Keyword</div>
-                                <div>Volume</div>
-                                <div>KD</div>
-                                <div>Intent</div>
-                                <div>Competitor</div>
-                                <div>Source URL</div>
-                                <div className="text-right">Action</div>
-                            </div>
-                            <div className="divide-y divide-slate-800">
-                                {feasibleKeywords.map((item) => {
-                                    const sourceUrl = String(item.source_url || item.supporting_competitor_urls?.[0] || '')
-                                    const sourceDomain = String(item.source_domain || 'Unknown')
-                                    const isSelected = selectedClusterId === item.id && runDetail?.run.id === item.run_id
-
-                                    return (
-                                        <div key={item.id} className={`px-4 py-4 ${isSelected ? 'bg-sky-500/8' : ''}`}>
-                                            <div className="grid gap-3 lg:grid-cols-[minmax(0,2.2fr)_100px_80px_110px_120px_minmax(0,1.5fr)_140px] lg:items-start">
-                                                <div className="min-w-0">
-                                                    <div className="font-medium text-white">{item.keyword || 'Untitled keyword'}</div>
-                                                    <div className="mt-1 text-xs text-slate-400">
-                                                        {item.topic_text || 'Unknown topic'}
-                                                        {' · '}
-                                                        Score {Math.round(Number(item.opportunity_score || 0) * 100)}%
-                                                        {' · '}
-                                                        Competitor rank {String(item.competitor_rank || 'n/a')}
-                                                    </div>
-                                                </div>
-                                                <div className="text-sm text-slate-200">
-                                                    <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">Volume</span>
-                                                    {String(item.search_volume || 'n/a')}
-                                                </div>
-                                                <div className="text-sm text-slate-200">
-                                                    <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">KD</span>
-                                                    {String(item.keyword_difficulty || 'n/a')}
-                                                </div>
-                                                <div className="text-sm text-slate-200">
-                                                    <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">Intent</span>
-                                                    {String(item.intent || 'n/a')}
-                                                </div>
-                                                <div className="text-sm text-slate-200">
-                                                    <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">Competitor</span>
-                                                    {sourceDomain}
-                                                </div>
-                                                <div className="min-w-0 text-sm">
-                                                    <span className="mr-2 text-xs uppercase tracking-[0.2em] text-slate-500 lg:hidden">Source URL</span>
-                                                    {sourceUrl ? (
-                                                        <a
-                                                            href={sourceUrl}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            className="block truncate text-sky-300 transition hover:text-sky-200"
-                                                            title={sourceUrl}
-                                                        >
-                                                            {sourceUrl}
-                                                        </a>
-                                                    ) : (
-                                                        <span className="text-slate-500">No source URL</span>
-                                                    )}
-                                                </div>
-                                                <div className="flex justify-end lg:justify-end">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleOpenKeywordOpportunity(item)}
-                                                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${isSelected ? 'border-sky-400 bg-sky-500/15 text-white' : 'border-slate-600 bg-slate-900 text-slate-100 hover:border-sky-400'}`}
-                                                    >
-                                                        {isSelected ? 'Selected' : runDetail?.run.id === item.run_id ? 'Use this keyword' : 'Open source run'}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        </div>
-                    )}
-                </section>
-
-                <section className="rounded-[28px] border border-white/10 bg-[#0f1320] p-6">
-                    <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div>
-                            <div className="text-xs uppercase tracking-[0.35em] text-sky-300/70">Step 3</div>
-                            <h2 className="mt-2 text-2xl font-semibold">
-                                {isSoftwareRoute
-                                    ? 'Finalize the winning software opportunity'
-                                    : isEditorialRoute
-                                        ? 'Finalize the winning editorial angle'
-                                        : 'Choose the winning keyword and define the article'}
-                            </h2>
-                            <p className="mt-2 text-sm text-slate-300">
-                                {isSoftwareRoute
-                                    ? 'This run looks more like a software-first opportunity, so Step 3 finalizes the winning bet instead of asking for an article cluster.'
-                                    : isEditorialRoute
-                                        ? 'This run looks more like an editorial opportunity, so Step 3 finalizes the winning angle directly.'
-                                        : 'Pick the strongest individual keyword you can realistically beat, using the competitor domain, page, and metric evidence surfaced above.'}
-                            </p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-3">
-                            <button
-                                type="button"
-                                onClick={handleDismissRun}
-                                disabled={!runDetail || mutatingOutcomeAction !== null}
-                                className="rounded-2xl border border-slate-600 bg-slate-900 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-rose-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                {mutatingOutcomeAction === 'dismiss' ? 'Marking as not pursuing…' : 'Not pursuing this'}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleSelectCluster()}
-                                disabled={!canFinalizeSelection || isLoading || isDismissed}
-                                className="rounded-2xl bg-emerald-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                {finalizeLabel}
-                            </button>
-                        </div>
-                    </div>
-
-                    {runDetail ? (
-                        <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
-                            <div className="rounded-3xl border border-slate-700 bg-[#101726] p-5">
-                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Winning route</div>
-                                <div className="mt-2 text-2xl font-semibold text-white">{routeLabel(runDetail.run.winning_route)}</div>
-                                <div className="mt-2 text-sm text-slate-300">
-                                    Confidence {Math.round(Number(runDetail.run.confidence_score || 0) * 100)}%
-                                </div>
-                                {isArticleRoute ? (
-                                    <div className="mt-5 grid gap-3">
-                                        {keywordOpportunities.map((cluster) => (
-                                            <div key={cluster.id} className={`rounded-2xl border p-4 ${selectedClusterId === cluster.id ? 'border-sky-400 bg-sky-500/10' : 'border-slate-700 bg-[#141a29]'}`}>
-                                                <div className="flex items-start justify-between gap-4">
-                                                    <div>
-                                                        <div className="font-medium text-white">{cluster.primary_keyword_candidate || cluster.cluster_name}</div>
-                                                        <div className="mt-1 text-sm text-slate-300">
-                                                            {String(clusterMetadata(cluster).source_domain || 'Unknown competitor domain')}
-                                                        </div>
-                                                    </div>
-                                                    <div className={`text-sm ${toneClass(cluster.opportunity_score)}`}>
-                                                        {Math.round(Number(cluster.opportunity_score || 0) * 100)}%
-                                                    </div>
-                                                </div>
-                                                <div className="mt-3 grid gap-2 text-xs text-slate-400">
-                                                    <div>SERP weakness: {Math.round(Number(cluster.serp_weakness_score || 0) * 100)}%</div>
-                                                    <div>Competitor support: {Math.round(Number(cluster.competitor_support_score || 0) * 100)}%</div>
-                                                    <div>Commercial value: {Math.round(Number(cluster.commercial_value_score || 0) * 100)}%</div>
-                                                    <div>Volume: {String(clusterMetadata(cluster).search_volume || 'n/a')}</div>
-                                                    <div>KD: {String(clusterMetadata(cluster).keyword_difficulty || 'n/a')}</div>
-                                                    <div>Intent: {String(clusterMetadata(cluster).intent || 'n/a')}</div>
-                                                </div>
-                                                {cluster.supporting_competitor_urls_json?.length ? (
-                                                    <div className="mt-3 flex flex-wrap gap-2">
-                                                        {cluster.supporting_competitor_urls_json.slice(0, 3).map((url) => (
-                                                            <a key={url} href={url} target="_blank" rel="noreferrer" className="truncate rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:border-sky-400">
-                                                                {url}
-                                                            </a>
-                                                        ))}
-                                                    </div>
-                                                ) : null}
+                            <div className="rounded-[24px] border border-slate-700 bg-[linear-gradient(135deg,rgba(56,189,248,0.12),rgba(15,23,42,0.75))] p-5">
+                                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                    <div>
+                                        <div className="text-sm text-slate-300">SERP Opportunity Score</div>
+                                        <div className="mt-2 text-4xl font-semibold text-white">{opportunityScore} / 100</div>
+                                        <div className="mt-2 text-lg text-sky-200">Status: {scoreStatus}</div>
+                                    </div>
+                                    <div className="grid gap-2 text-sm">
+                                        {opportunitySignals.map((signal) => (
+                                            <div key={signal.label} className="text-slate-200">
+                                                {signal.label === 'Some authority sites present'
+                                                    ? signal.passed ? '⚠️' : '✅'
+                                                    : signal.passed ? '✅' : '❌'} {signal.label}
                                             </div>
                                         ))}
                                     </div>
-                                ) : selectedBet ? (
-                                    <div className="mt-5 rounded-2xl border border-emerald-500/30 bg-[#141a29] p-4">
-                                        <div className="text-xs uppercase tracking-[0.28em] text-emerald-300/80">
-                                            {isSoftwareRoute ? 'Winning software bet' : 'Winning editorial bet'}
-                                        </div>
-                                        <div className="mt-2 text-xl font-semibold text-white">{selectedBet.bet_text}</div>
-                                        <p className="mt-2 text-sm text-slate-300">{selectedBet.searcher_problem || 'No searcher problem captured.'}</p>
-                                        <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-300">
-                                            <span className="rounded-full border border-slate-600 px-3 py-1">{selectedBet.article_format || 'format pending'}</span>
-                                            <span className="rounded-full border border-slate-600 px-3 py-1">{selectedBet.commercial_angle || 'commercial angle pending'}</span>
-                                            <span className="rounded-full border border-slate-600 px-3 py-1">{selectedBet.route_hint || 'route pending'}</span>
-                                        </div>
-                                        <div className="mt-4 grid gap-2 text-xs text-slate-400">
-                                            <div>Articleability: {Math.round(Number(selectedBet.serp_articleability_score || 0) * 100)}%</div>
-                                            <div>SERP weakness: {Math.round(Number(selectedBet.serp_weakness_score || 0) * 100)}%</div>
-                                            <div>Article fit: {Math.round(Number(selectedBet.article_fit_score || 0) * 100)}%</div>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="mt-5 rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-4 py-8 text-sm text-slate-400">
-                                        No winning selection is available for this route yet.
-                                    </div>
-                                )}
+                                </div>
                             </div>
+                        </section>
 
-                            <div className="rounded-3xl border border-slate-700 bg-[#101726] p-5">
-                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Final output</div>
-                                {finalOutcome ? (
-                                    <div className="mt-4">
-                                        <h3 className="text-2xl font-semibold text-white">{isSoftwareRoute ? softwareName : String(finalOutcome.title || 'Untitled output')}</h3>
-                                        {isSoftwareRoute ? (
-                                            <>
-                                                {isDismissed ? (
-                                                    <div className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
-                                                        This opportunity is marked as not pursuing right now. You can still review it here or rerun the strategy later.
-                                                    </div>
-                                                ) : null}
-                                                <div className="mt-3 text-base text-slate-200">
-                                                    {String(finalOutcome.software_concept || finalOutcome.description || finalOutcome.rationale || '')}
-                                                </div>
-                                                <div className="mt-4 grid gap-3 text-sm text-slate-300 lg:grid-cols-2">
+                        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+                            <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                                <div className="mb-4">
+                                    <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">Step 4</div>
+                                    <h2 className="mt-2 text-2xl font-semibold">SERP Competitor Overlap</h2>
+                                </div>
+
+                                <div className="overflow-hidden rounded-2xl border border-slate-700 bg-[#111a28]">
+                                    <div className="hidden grid-cols-[minmax(0,1.5fr)_100px_100px_110px_110px_90px] gap-3 border-b border-slate-700 px-4 py-3 text-[11px] uppercase tracking-[0.26em] text-slate-400 lg:grid">
+                                        <div>Domain</div>
+                                        <div>Times Seen</div>
+                                        <div>Best Rank</div>
+                                        <div>Page Type</div>
+                                        <div>Strength</div>
+                                        <div>Use?</div>
+                                    </div>
+                                    <div className="divide-y divide-slate-800">
+                                        {competitorPages.length ? competitorPages.map((entry) => {
+                                            const useState = useLabel(entry)
+                                            const domain = String(entry.domain || '')
+                                            return (
+                                                <div key={`${domain}-${entry.url}`} className="grid gap-2 px-4 py-4 lg:grid-cols-[minmax(0,1.5fr)_100px_100px_110px_110px_90px] lg:items-center">
+                                                    <div className="font-medium text-white">{domain || 'Unknown domain'}</div>
+                                                    <div className="text-sm text-slate-300">{safeNumber(entry.query_hits || entry.domain_hits || 0)}</div>
+                                                    <div className="text-sm text-slate-300">{safeNumber(entry.best_rank || 0) || 'n/a'}</div>
+                                                    <div className="text-sm text-slate-300">{pageTypeLabel(String(entry.url || ''), domain)}</div>
+                                                    <div className="text-sm text-slate-300">{strengthLabel(domain)}</div>
                                                     <div>
-                                                        Target user: <span className="font-medium text-white">{String(finalOutcome.target_user || 'Not specified')}</span>
-                                                    </div>
-                                                    <div>
-                                                        Slug: <span className="font-mono text-slate-100">{String(finalOutcome.slug || '')}</span>
+                                                        <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${useState.tone}`}>{useState.label}</span>
                                                     </div>
                                                 </div>
-                                                {softwareSearchAngle ? (
-                                                    <div className="mt-3 text-sm text-slate-300">
-                                                        Search angle: <span className="font-medium text-white">{softwareSearchAngle}</span>
-                                                    </div>
-                                                ) : null}
-                                                <div className="mt-3 text-sm text-slate-300">
-                                                    User problem: <span className="text-white">{String(finalOutcome.user_problem || '')}</span>
-                                                </div>
-                                                <div className="mt-4 flex flex-wrap gap-2">
-                                                    {softwareKeywords.map((keyword) => (
-                                                        <span key={String(keyword)} className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200">
-                                                            {String(keyword)}
-                                                        </span>
-                                                    ))}
-                                                </div>
-                                                {!hasDetailedSoftwareSpec ? (
-                                                    <div className="mt-5 rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-4 py-4 text-sm text-slate-400">
-                                                        This software result is still too thin. Regenerate the software output to get a fuller product workflow, feature set, inputs, outputs, and MVP scope.
-                                                    </div>
-                                                ) : null}
-                                                {softwareCoreWorkflow.length || softwareFeatures.length ? (
-                                                    <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                                                        {softwareCoreWorkflow.length ? (
-                                                            <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
-                                                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Core workflow</div>
-                                                                <ul className="mt-3 grid gap-2 text-sm text-slate-200">
-                                                                    {softwareCoreWorkflow.map((item) => (
-                                                                        <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
-                                                                            {String(item)}
-                                                                        </li>
-                                                                    ))}
-                                                                </ul>
-                                                            </div>
-                                                        ) : null}
-                                                        {softwareFeatures.length ? (
-                                                            <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
-                                                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Key features</div>
-                                                                <ul className="mt-3 grid gap-2 text-sm text-slate-200">
-                                                                    {softwareFeatures.map((item) => (
-                                                                        <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
-                                                                            {String(item)}
-                                                                        </li>
-                                                                    ))}
-                                                                </ul>
-                                                            </div>
-                                                        ) : null}
-                                                    </div>
-                                                ) : null}
-                                                {softwareInputs.length || softwareOutputs.length ? (
-                                                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                                                        {softwareInputs.length ? (
-                                                            <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
-                                                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Inputs</div>
-                                                                <ul className="mt-3 grid gap-2 text-sm text-slate-200">
-                                                                    {softwareInputs.map((item) => (
-                                                                        <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
-                                                                            {String(item)}
-                                                                        </li>
-                                                                    ))}
-                                                                </ul>
-                                                            </div>
-                                                        ) : null}
-                                                        {softwareOutputs.length ? (
-                                                            <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
-                                                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Outputs</div>
-                                                                <ul className="mt-3 grid gap-2 text-sm text-slate-200">
-                                                                    {softwareOutputs.map((item) => (
-                                                                        <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
-                                                                            {String(item)}
-                                                                        </li>
-                                                                    ))}
-                                                                </ul>
-                                                            </div>
-                                                        ) : null}
-                                                    </div>
-                                                ) : null}
-                                                {softwareMvpScope.length ? (
-                                                    <div className="mt-4 rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
-                                                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">MVP scope</div>
-                                                        <ul className="mt-3 grid gap-2 text-sm text-slate-200">
-                                                            {softwareMvpScope.map((item) => (
-                                                                <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
-                                                                    {String(item)}
-                                                                </li>
-                                                            ))}
-                                                        </ul>
-                                                    </div>
-                                                ) : null}
-                                                <div className="mt-4 rounded-2xl border border-slate-700 bg-[#0d1320] p-4 text-sm text-slate-300">
-                                                    <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Build notes</div>
-                                                    <div className="mt-2">{String(finalOutcome.build_notes || finalOutcome.rationale || '')}</div>
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <div className="mt-2 text-sm text-slate-300">
-                                                    Primary keyword: <span className="font-medium text-white">{String(finalOutcome.primary_keyword || '')}</span>
-                                                </div>
-                                                <div className="mt-2 text-sm text-slate-300">
-                                                    Competitor domain: <span className="font-medium text-white">{String(finalOutcome.source_competitor_domain || 'Not captured')}</span>
-                                                </div>
-                                                {String(finalOutcome.source_competitor_url || '').trim() ? (
-                                                    <div className="mt-2 text-sm text-slate-300">
-                                                        Competitor URL:{' '}
-                                                        <a
-                                                            href={String(finalOutcome.source_competitor_url)}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            className="font-medium text-sky-300 underline-offset-2 hover:underline"
-                                                        >
-                                                            {String(finalOutcome.source_competitor_url)}
-                                                        </a>
-                                                    </div>
-                                                ) : null}
-                                                <div className="mt-2 text-sm text-slate-300">
-                                                    Slug: <span className="font-mono text-slate-100">{String(finalOutcome.slug || '')}</span>
-                                                </div>
-                                                <div className="mt-4 flex flex-wrap gap-2">
-                                                    {Array.isArray(finalOutcome.secondary_keywords) ? finalOutcome.secondary_keywords.map((keyword) => (
-                                                        <span key={String(keyword)} className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200">
-                                                            {String(keyword)}
-                                                        </span>
-                                                    )) : null}
-                                                </div>
-                                                <div className="mt-5 rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
-                                                    <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Outline</div>
-                                                    <ul className="mt-3 grid gap-2 text-sm text-slate-200">
-                                                        {Array.isArray(finalOutcome.outline) ? finalOutcome.outline.map((item) => (
-                                                            <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
-                                                                {String(item)}
-                                                            </li>
-                                                        )) : null}
-                                                    </ul>
-                                                </div>
-                                                <div className="mt-4 text-sm text-slate-300">
-                                                    {String(finalOutcome.rationale || '')}
-                                                </div>
-                                                {Array.isArray(finalOutcome.competitor_urls_used) && finalOutcome.competitor_urls_used.length ? (
-                                                    <div className="mt-4 rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
-                                                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Competitor URLs used</div>
-                                                        <div className="mt-3 flex flex-wrap gap-2">
-                                                            {finalOutcome.competitor_urls_used.map((url) => (
-                                                                <a
-                                                                    key={String(url)}
-                                                                    href={String(url)}
-                                                                    target="_blank"
-                                                                    rel="noreferrer"
-                                                                    className="truncate rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:border-sky-400"
-                                                                >
-                                                                    {String(url)}
-                                                                </a>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                ) : null}
-                                            </>
+                                            )
+                                        }) : (
+                                            <div className="px-4 py-6 text-sm text-slate-400">
+                                                Run an analysis to see repeated competitors across the 3 probe searches.
+                                            </div>
                                         )}
-
-                                        <div className="mt-5 flex flex-wrap gap-3">
-                                            {isSoftwareRoute ? (
-                                                <>
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleReleaseSoftwareIdea}
-                                                        disabled={!generatedOutcomeId || mutatingOutcomeAction !== null || isDismissed}
-                                                        className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-                                                    >
-                                                        {mutatingOutcomeAction === 'release' ? 'Sending to Software Ideas…' : 'Send to Software Ideas'}
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleSendToContentStudio}
-                                                        disabled={!generatedOutcomeId || mutatingOutcomeAction !== null || isDismissed}
-                                                        className="rounded-2xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-                                                    >
-                                                        {mutatingOutcomeAction === 'persist' ? 'Sending to Content Studio…' : 'Send to Content Studio'}
-                                                    </button>
-                                                </>
-                                            ) : (
-                                                <button
-                                                    type="button"
-                                                    onClick={handleSendToContentStudio}
-                                                    disabled={!generatedOutcomeId || mutatingOutcomeAction !== null}
-                                                    className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-                                                >
-                                                    {mutatingOutcomeAction === 'persist' ? 'Sending to Content Studio…' : 'Send to Content Studio'}
-                                                </button>
-                                            )}
-                                        </div>
                                     </div>
-                                ) : (
-                                    <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-4 py-8 text-sm text-slate-400">
-                                        {isSoftwareRoute
-                                            ? 'This run is software-first. Generate the software output to create the title, slug, workflow framing, and rationale from the winning bet.'
-                                                : isEditorialRoute
-                                                    ? 'This run is editorial-first. Generate the editorial output to create the title, angle, and rationale from the winning bet.'
-                                                    : selectedCluster
-                                                        ? (
-                                                            <div className="space-y-3">
-                                                                <div>Lock the selected keyword opportunity to generate the title, slug, keyword map, and outline.</div>
-                                                                <div className="rounded-2xl border border-sky-400/20 bg-sky-500/5 px-4 py-3 text-slate-300">
-                                                                    <div className="text-xs uppercase tracking-[0.24em] text-sky-300/80">Selected keyword</div>
-                                                                    <div className="mt-2 font-medium text-white">
-                                                                        {selectedCluster.primary_keyword_candidate || selectedCluster.cluster_name}
-                                                                    </div>
-                                                                    <div className="mt-1 text-sm">
-                                                                        Competitor domain: <span className="text-white">{String(selectedClusterMetadata.source_domain || 'Unknown')}</span>
-                                                                    </div>
-                                                                    {String(selectedClusterMetadata.source_url || selectedCluster.supporting_competitor_urls_json?.[0] || '').trim() ? (
-                                                                        <a
-                                                                            href={String(selectedClusterMetadata.source_url || selectedCluster.supporting_competitor_urls_json?.[0] || '')}
-                                                                            target="_blank"
-                                                                            rel="noreferrer"
-                                                                            className="mt-2 inline-flex max-w-full truncate text-sky-300 hover:text-sky-200"
-                                                                        >
-                                                                            {String(selectedClusterMetadata.source_url || selectedCluster.supporting_competitor_urls_json?.[0] || '')}
-                                                                        </a>
-                                                                    ) : null}
-                                                                </div>
-                                                            </div>
-                                                        )
-                                                    : 'No feasible keyword opportunity is available yet for this run.'}
+                                </div>
+                            </section>
+
+                            <aside className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6 xl:sticky xl:top-6 xl:self-start">
+                                <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">API Usage Plan</div>
+                                <h2 className="mt-2 text-xl font-semibold">Credit control</h2>
+                                <div className="mt-4 grid gap-3 text-sm text-slate-300">
+                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">
+                                        <div className="font-medium text-white">Step 1: SERP probes</div>
+                                        <div className="mt-1">Used: 3 calls</div>
                                     </div>
-                                )}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-10 text-sm text-slate-400">
-                            No strategic run loaded yet.
-                        </div>
-                    )}
-                </section>
-
-                <section className="rounded-[28px] border border-white/10 bg-[#0f1320] p-6">
-                    <button
-                        type="button"
-                        onClick={() => setSupportingToolsOpen((current) => !current)}
-                        className="flex w-full items-center justify-between text-left"
-                    >
-                        <div>
-                            <div className="text-xs uppercase tracking-[0.35em] text-slate-400">Supporting tools</div>
-                            <div className="mt-2 text-lg font-semibold text-white">Manual DataForSEO lookups</div>
-                        </div>
-                        <div className="text-sm text-slate-400">{supportingToolsOpen ? 'Hide' : 'Show'}</div>
-                    </button>
-
-                    {supportingToolsOpen ? (
-                        <div className="mt-5 grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-                            <div className="rounded-2xl border border-slate-700 bg-[#111826] p-4">
-                                <div className="grid gap-3">
-                                    <label className="flex flex-col gap-2">
-                                        <span className="text-xs uppercase tracking-[0.28em] text-slate-400">Lookup type</span>
-                                        <select value={lookupType} onChange={(event) => setLookupType(event.target.value as LookupType)} className="h-12 rounded-xl border border-slate-700 bg-[#151b2a] px-3 text-white outline-none focus:border-sky-400">
-                                            <option value="related_keywords">Related keywords</option>
-                                            <option value="keyword_overview">Keyword overview</option>
-                                            <option value="serp">SERP snapshot</option>
-                                        </select>
-                                    </label>
-                                    <label className="flex flex-col gap-2">
-                                        <span className="text-xs uppercase tracking-[0.28em] text-slate-400">Query</span>
-                                        <input value={lookupQuery} onChange={(event) => setLookupQuery(event.target.value)} className="h-12 rounded-xl border border-slate-700 bg-[#151b2a] px-3 text-white outline-none focus:border-sky-400" placeholder="Exact seed or probe query" />
-                                    </label>
-                                    {lookupType === 'keyword_overview' ? (
-                                        <label className="flex flex-col gap-2">
-                                            <span className="text-xs uppercase tracking-[0.28em] text-slate-400">Keywords</span>
-                                            <textarea value={lookupKeywords} onChange={(event) => setLookupKeywords(event.target.value)} rows={5} className="rounded-xl border border-slate-700 bg-[#151b2a] px-3 py-3 text-white outline-none focus:border-sky-400" placeholder="One keyword per line" />
-                                        </label>
-                                    ) : null}
-                                    <button type="button" onClick={handleManualLookup} className="rounded-xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-white">
-                                        Run and save lookup
-                                    </button>
+                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">
+                                        <div className="font-medium text-white">Step 2: Competitor keyword harvesting</div>
+                                        <div className="mt-1">Planned: {Math.max(0, competitorPages.length)} URL-level Ranked Keywords calls</div>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">
+                                        <div className="font-medium text-white">Step 3: Keyword expansion</div>
+                                        <div className="mt-1">Planned: {Math.max(0, controlledExpansion.length || Math.min(5, competitorPages.length))} Keyword Suggestions calls</div>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">
+                                        <div className="font-medium text-white">Step 4: Keyword metrics</div>
+                                        <div className="mt-1">Planned: 1 Bulk KD call</div>
+                                        <div>Planned: 1 Keyword Overview batch</div>
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="rounded-2xl border border-slate-700 bg-[#111826] p-4">
-                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Recent lookup history</div>
-                                <div className="mt-3 grid gap-3">
-                                    {searchHistory.map((row) => (
-                                        <div key={row.id} className="rounded-xl border border-slate-700 bg-[#151b2a] p-4">
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div>
-                                                    <div className="font-medium text-white">{row.query_text || row.search_type}</div>
-                                                    <div className="mt-1 text-xs uppercase tracking-[0.24em] text-slate-400">{row.search_type.replaceAll('_', ' ')}</div>
-                                                </div>
-                                                <div className="text-xs text-slate-500">{row.searched_at ? new Date(row.searched_at).toLocaleDateString() : ''}</div>
-                                            </div>
-                                            <div className="mt-3 text-sm text-slate-300">
-                                                {(row.result_summary_json as Record<string, unknown> | undefined)?.result_count ? `${String((row.result_summary_json as Record<string, unknown>).result_count)} results captured` : 'Saved for later mining'}
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {!searchHistory.length ? (
-                                        <div className="rounded-xl border border-dashed border-slate-700 bg-[#151b2a] px-4 py-6 text-sm text-slate-400">
-                                            No saved supporting lookups yet.
-                                        </div>
-                                    ) : null}
+                                <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+                                    Estimated total: {3 + competitorPages.length + Math.max(controlledExpansion.length || Math.min(5, competitorPages.length), 0) + 2} calls
+                                    <div className="mt-2 text-emerald-200/90">Avoided broad keyword expansion: 300+ possible wasted keyword checks</div>
                                 </div>
-                            </div>
+                            </aside>
                         </div>
-                    ) : null}
-                </section>
-            </div>
 
-            {topicsModalOpen ? (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-                    <div className="max-h-[80vh] w-full max-w-3xl overflow-hidden rounded-[28px] border border-slate-700 bg-[#0f1320] shadow-2xl">
-                        <div className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
-                            <div>
-                                <div className="text-xs uppercase tracking-[0.3em] text-slate-400">Saved topics</div>
-                                <div className="mt-2 text-xl font-semibold text-white">Manage topics in scope</div>
+                        <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                            <div className="mb-4">
+                                <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">Step 5</div>
+                                <h2 className="mt-2 text-2xl font-semibold">Selected Competitor Pages</h2>
                             </div>
-                            <button type="button" onClick={() => setTopicsModalOpen(false)} className="rounded-full border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:border-slate-400">Close</button>
-                        </div>
-                        <div className="max-h-[60vh] overflow-y-auto px-6 py-5">
                             <div className="grid gap-3">
-                                {topics.map((topic) => {
-                                    const latestRun = latestRunByTopic.get(topic.id)
+                                {competitorPages.length ? competitorPages.map((entry) => {
+                                    const useState = useLabel(entry)
+                                        const reason =
+                                            useState.label === 'Yes'
+                                                ? 'Niche site, article format, and repeated across probe searches.'
+                                            : useState.label === 'Maybe'
+                                                ? 'Topical match is good, but the domain still needs manual review.'
+                                                : 'Too strong, too broad, or not a realistic competitor for harvesting.'
                                     return (
-                                        <div key={topic.id} className="rounded-2xl border border-slate-700 bg-[#131827] p-4">
-                                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                        <div key={`page-${entry.url}`} className="rounded-2xl border border-slate-700 bg-[#111a28] p-4">
+                                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                                                 <div>
-                                                    <div className="font-medium text-white">{topic.job_text}</div>
-                                                    <div className="mt-1 text-sm text-slate-400">
-                                                        {latestRun ? `Latest route: ${routeLabel(latestRun.winning_route)}` : 'No strategy run yet'}
+                                                    <div className="text-sm font-medium text-white">{entry.url}</div>
+                                                    <div className="mt-2 text-sm text-slate-300">
+                                                        {useState.label === 'Yes' ? '✅' : useState.label === 'Maybe' ? '⚠️' : '❌'} {reason}
                                                     </div>
                                                 </div>
-                                                <div className="flex gap-2">
-                                                    <button type="button" onClick={() => {
-                                                        applyScopeSelection({
-                                                            topicId: topic.id,
-                                                            primaryCategoryId: String(latestRun?.primary_category_id || topic.primary_category_id || ''),
-                                                            secondaryCategoryId: String(latestRun?.secondary_category_id || topic.secondary_category_id || ''),
-                                                        })
-                                                        setTopicsModalOpen(false)
-                                                        syncScopeParams(topic.id)
-                                                    }} className="rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-100 hover:border-sky-400">Use topic</button>
-                                                    <button type="button" onClick={() => handleRemoveTopic(topic.id)} disabled={isRemovingTopic === topic.id} className="rounded-full border border-rose-500/40 px-4 py-2 text-sm text-rose-200 hover:border-rose-400 disabled:opacity-50">
-                                                        {isRemovingTopic === topic.id ? 'Removing…' : 'Remove'}
-                                                    </button>
-                                                </div>
+                                                <span className={`inline-flex rounded-full border px-3 py-1 text-xs ${useState.tone}`}>{useState.label}</span>
                                             </div>
                                         </div>
                                     )
-                                })}
+                                }) : (
+                                    <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-8 text-sm text-slate-400">
+                                        No competitor pages selected yet.
+                                    </div>
+                                )}
                             </div>
-                        </div>
+                        </section>
+
+                        <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                    <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">Step 6</div>
+                                    <h2 className="mt-2 text-2xl font-semibold">Harvested Keyword Candidates</h2>
+                                </div>
+                                <div className="flex flex-wrap gap-2 text-xs">
+                                    <button type="button" onClick={() => setIncludeKeepOnly((value) => !value)} className={`rounded-full border px-3 py-1 ${includeKeepOnly ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200' : 'border-slate-700 text-slate-300'}`}>Only Keep</button>
+                                    <button type="button" onClick={() => setOnlyLowKd((value) => !value)} className={`rounded-full border px-3 py-1 ${onlyLowKd ? 'border-sky-500/20 bg-sky-500/10 text-sky-200' : 'border-slate-700 text-slate-300'}`}>Low KD</button>
+                                    <button type="button" onClick={() => setOnlyHighCpc((value) => !value)} className={`rounded-full border px-3 py-1 ${onlyHighCpc ? 'border-amber-500/20 bg-amber-500/10 text-amber-200' : 'border-slate-700 text-slate-300'}`}>High CPC</button>
+                                    <button type="button" onClick={() => setOnlyArticleIntent((value) => !value)} className={`rounded-full border px-3 py-1 ${onlyArticleIntent ? 'border-violet-500/20 bg-violet-500/10 text-violet-200' : 'border-slate-700 text-slate-300'}`}>Article Intent</button>
+                                    <button type="button" onClick={() => setSeenOnMultiplePages((value) => !value)} className={`rounded-full border px-3 py-1 ${seenOnMultiplePages ? 'border-cyan-500/20 bg-cyan-500/10 text-cyan-200' : 'border-slate-700 text-slate-300'}`}>Seen on 2+ pages</button>
+                                    <button type="button" onClick={() => setHideBrands((value) => !value)} className={`rounded-full border px-3 py-1 ${hideBrands ? 'border-rose-500/20 bg-rose-500/10 text-rose-200' : 'border-slate-700 text-slate-300'}`}>Hide Brands</button>
+                                </div>
+                            </div>
+
+                            <div className="overflow-hidden rounded-2xl border border-slate-700 bg-[#111a28]">
+                                <div className="hidden grid-cols-[minmax(0,2fr)_90px_110px_90px_70px_70px_90px_90px] gap-3 border-b border-slate-700 px-4 py-3 text-[11px] uppercase tracking-[0.26em] text-slate-400 lg:grid">
+                                    <div>Keyword</div>
+                                    <div>Source Pages</div>
+                                    <div>Best Rank</div>
+                                    <div>Volume</div>
+                                    <div>KD</div>
+                                    <div>CPC</div>
+                                    <div>Intent</div>
+                                    <div>Status</div>
+                                </div>
+                                <div className="divide-y divide-slate-800">
+                                    {filteredKeywords.slice(0, 40).map((row) => {
+                                        const trend = (row.trend_json || {}) as Record<string, any>
+                                        const sourcePages = Array.isArray(trend.source_urls) ? trend.source_urls.length : trend.source_url ? 1 : 0
+                                        const bestRank = sourcePages ? Math.max(1, Math.round(20 - safeNumber(trend.competitor_support_score) * 10)) : 'n/a'
+                                        const status = row.is_filtered_out ? 'Reject' : safeNumber(row.opportunity_score) >= 65 ? 'Keep' : 'Review'
+                                        return (
+                                            <div key={row.id} className="grid gap-2 px-4 py-4 lg:grid-cols-[minmax(0,2fr)_90px_110px_90px_70px_70px_90px_90px] lg:items-center">
+                                                <div className="font-medium text-white">{row.keyword}</div>
+                                                <div className="text-sm text-slate-300">{sourcePages}</div>
+                                                <div className="text-sm text-slate-300">{bestRank}</div>
+                                                <div className="text-sm text-slate-300">{safeNumber(row.search_volume) || 'n/a'}</div>
+                                                <div className="text-sm text-slate-300">{row.keyword_difficulty != null ? Math.round(safeNumber(row.keyword_difficulty)) : 'n/a'}</div>
+                                                <div className="text-sm text-slate-300">{row.cpc != null ? Number(row.cpc).toFixed(2) : 'n/a'}</div>
+                                                <div className="text-sm text-slate-300">{keywordIntentLabel(row.intent_label)}</div>
+                                                <div className="text-sm text-slate-300">{status}</div>
+                                            </div>
+                                        )
+                                    })}
+                                    {!filteredKeywords.length ? (
+                                        <div className="px-4 py-6 text-sm text-slate-400">No curated keywords match the current filters yet.</div>
+                                    ) : null}
+                                </div>
+                            </div>
+                        </section>
+
+                        <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                            <div className="mb-4">
+                                <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">Step 7</div>
+                                <h2 className="mt-2 text-2xl font-semibold">Keyword Cluster Cards</h2>
+                            </div>
+                            <div className="grid gap-4">
+                                {clusters.length ? clusters.map((cluster, index) => {
+                                    const score = Math.round(safeNumber(cluster.opportunity_score))
+                                    const recommendation = clusterRecommendation(score)
+                                    return (
+                                        <button
+                                            type="button"
+                                            key={cluster.id}
+                                            onClick={() => setSelectedClusterId(cluster.id)}
+                                            className={`rounded-3xl border p-5 text-left transition ${selectedClusterId === cluster.id ? 'border-sky-400 bg-sky-500/10' : 'border-slate-700 bg-[#111a28] hover:border-slate-500'}`}
+                                        >
+                                            <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Cluster {index + 1}</div>
+                                            <h3 className="mt-2 text-xl font-semibold text-white">{cluster.cluster_name}</h3>
+                                            <div className="mt-4 text-sm text-slate-300">
+                                                Primary keyword: <span className="font-medium text-white">{cluster.primary_keyword || cluster.cluster_name}</span>
+                                            </div>
+                                            <div className="mt-4 flex flex-wrap gap-2">
+                                                {(cluster.secondary_keywords_json || []).slice(0, 4).map((keyword) => (
+                                                    <span key={`${cluster.id}-${keyword}`} className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200">{keyword}</span>
+                                                ))}
+                                            </div>
+                                            <div className="mt-4 grid gap-2 md:grid-cols-[160px_1fr_180px] md:items-center">
+                                                <div className="text-sm text-slate-300">Opportunity Score: <span className="font-medium text-white">{score} / 100</span></div>
+                                                <div className="text-sm text-slate-300">Recommendation: <span className="font-medium text-white">{recommendation}</span></div>
+                                                <div className="text-right">
+                                                    <span className="inline-flex rounded-full border border-slate-700 bg-[#162132] px-3 py-1 text-xs text-slate-200">
+                                                        {recommendation === 'Create article now' ? 'Generate Article Brief' : recommendation === 'Good candidate' ? 'Review SERP' : 'Save Candidate'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    )
+                                }) : (
+                                    <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-8 text-sm text-slate-400">
+                                        No keyword clusters yet. If the topic fails the gate, the page stops before cluster creation.
+                                    </div>
+                                )}
+                            </div>
+                        </section>
+
+                        <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                            <div className="mb-4">
+                                <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">Step 8</div>
+                                <h2 className="mt-2 text-2xl font-semibold">Final Article Recommendation</h2>
+                            </div>
+
+                            {finalArticle ? (
+                                <div className="rounded-[24px] border border-emerald-500/20 bg-[linear-gradient(135deg,rgba(16,185,129,0.12),rgba(17,24,39,0.82))] p-5">
+                                    <div className="text-sm text-slate-300">Recommended Article</div>
+                                    <h3 className="mt-2 text-3xl font-semibold text-white">{finalArticle.title}</h3>
+                                    <div className="mt-4 text-sm text-slate-300">
+                                        Primary Keyword: <span className="font-medium text-white">{finalArticle.primaryKeyword}</span>
+                                    </div>
+                                    <div className="mt-4 flex flex-wrap gap-2">
+                                        {finalArticle.secondaryKeywords.map((keyword) => (
+                                            <span key={keyword} className="rounded-full border border-slate-700 bg-[#102235] px-3 py-1 text-xs text-slate-100">{keyword}</span>
+                                        ))}
+                                    </div>
+                                    <div className="mt-5 grid gap-2 text-sm text-slate-200">
+                                        <div>- Small niche sites already rank in the top 10</div>
+                                        <div>- SERP has multiple article-style pages</div>
+                                        <div>- Keyword difficulty looks achievable for this cluster</div>
+                                        <div>- CPC suggests commercial value</div>
+                                        <div>- Search intent matches your website category</div>
+                                        <div>- One article can cover several closely related queries</div>
+                                    </div>
+                                    <div className="mt-5 rounded-2xl border border-slate-700 bg-[#0f1928] p-4 text-sm text-slate-200">
+                                        <div className="font-medium text-white">Recommended Content Angle</div>
+                                        <div className="mt-2">
+                                            {selectedCluster?.article_angle || 'Focus on practical buyer value, achievable ROI, and a tight angle that matches the proven competitor cluster.'}
+                                        </div>
+                                    </div>
+                                    <div className="mt-5 flex flex-wrap gap-3">
+                                        <button type="button" onClick={openTopicDetail} className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300">
+                                            Generate Full SEO Brief
+                                        </button>
+                                        <button type="button" onClick={openTopicDetail} className="rounded-2xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-sky-400">
+                                            Save Opportunity
+                                        </button>
+                                        <button type="button" onClick={() => { setTopicIdea(''); setCurrentRun(null); setAllKeywordCandidates([]); setClusters([]); setCurrentTopic(null); }} className="rounded-2xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-rose-400">
+                                            Reject and Analyze Another Topic
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-8 text-sm text-slate-400">
+                                    Analyze a topic and surface at least one viable cluster to get a final article recommendation.
+                                </div>
+                            )}
+                        </section>
+
+                        <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                            <div className="mb-4">
+                                <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">Recent Analyses</div>
+                                <h2 className="mt-2 text-2xl font-semibold">Load a previous topic</h2>
+                            </div>
+                            <div className="flex flex-wrap gap-3">
+                                {recentTopics.map((topic) => (
+                                    <button
+                                        type="button"
+                                        key={topic.id}
+                                        onClick={() => void loadTopicRun(topic)}
+                                        className={`rounded-full border px-4 py-2 text-left text-sm transition ${currentTopic?.id === topic.id ? 'border-sky-400 bg-sky-500/10 text-white' : 'border-slate-700 bg-[#111a28] text-slate-300 hover:border-slate-500'}`}
+                                    >
+                                        {topic.title}
+                                    </button>
+                                ))}
+                                {!recentTopics.length ? (
+                                    <div className="text-sm text-slate-400">No saved analyses yet for this scope.</div>
+                                ) : null}
+                            </div>
+                        </section>
                     </div>
+
+                    <aside className="flex flex-col gap-6 xl:sticky xl:top-6 xl:self-start">
+                        <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                            <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">Decision Logic</div>
+                            <h2 className="mt-2 text-xl font-semibold">Why this topic passed</h2>
+                            <div className="mt-4 grid gap-3 text-sm text-slate-300">
+                                <div className="flex items-center justify-between rounded-2xl border border-slate-700 bg-[#111a28] px-4 py-3">
+                                    <span>SERP Weakness</span>
+                                    <span className="font-medium text-white">{decisionSidebarScores.serp} / 100</span>
+                                </div>
+                                <div className="flex items-center justify-between rounded-2xl border border-slate-700 bg-[#111a28] px-4 py-3">
+                                    <span>Keyword Difficulty</span>
+                                    <span className="font-medium text-white">{decisionSidebarScores.kd} / 100</span>
+                                </div>
+                                <div className="flex items-center justify-between rounded-2xl border border-slate-700 bg-[#111a28] px-4 py-3">
+                                    <span>Search Volume</span>
+                                    <span className="font-medium text-white">{decisionSidebarScores.volume} / 100</span>
+                                </div>
+                                <div className="flex items-center justify-between rounded-2xl border border-slate-700 bg-[#111a28] px-4 py-3">
+                                    <span>Commercial Value</span>
+                                    <span className="font-medium text-white">{decisionSidebarScores.commercial} / 100</span>
+                                </div>
+                                <div className="flex items-center justify-between rounded-2xl border border-slate-700 bg-[#111a28] px-4 py-3">
+                                    <span>Topical Fit</span>
+                                    <span className="font-medium text-white">{decisionSidebarScores.topicalFit} / 100</span>
+                                </div>
+                            </div>
+                            <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-4">
+                                <div className="text-sm text-slate-300">Final Score</div>
+                                <div className="mt-1 text-3xl font-semibold text-white">{decisionSidebarScores.final} / 100</div>
+                            </div>
+                            <div className="mt-4 rounded-2xl border border-slate-700 bg-[#111a28] p-4 text-sm text-slate-300">
+                                <div className="font-medium text-white">Formula</div>
+                                <div className="mt-2">
+                                    Final Score = SERP Weakness + Keyword Difficulty + Volume + CPC / Ad Competition + Topical Fit
+                                </div>
+                            </div>
+                        </section>
+                    </aside>
                 </div>
-            ) : null}
+            </div>
         </div>
     )
 }

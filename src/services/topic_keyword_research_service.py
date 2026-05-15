@@ -15,6 +15,7 @@ import re
 from collections import defaultdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from src.integrations.dataforseo import dataforseo_api
 from src.services.llm.llm_service import llm_service
@@ -25,6 +26,23 @@ logger = logging.getLogger(__name__)
 
 class TopicKeywordResearchService:
     """Orchestrates topic-level keyword research runs and persistence."""
+
+    EXCLUDED_AUTHORITY_DOMAINS = {
+        "forbes.com",
+        "www.forbes.com",
+        "wikipedia.org",
+        "www.wikipedia.org",
+        "reddit.com",
+        "www.reddit.com",
+        "investopedia.com",
+        "www.investopedia.com",
+        "nerdwallet.com",
+        "www.nerdwallet.com",
+        "homedepot.com",
+        "www.homedepot.com",
+        "amazon.com",
+        "www.amazon.com",
+    }
 
     QUERY_STOPWORDS = {
         "a", "an", "the", "to", "for", "of", "in", "on", "at", "with", "without",
@@ -84,20 +102,26 @@ class TopicKeywordResearchService:
     }
 
     DEFAULT_FILTERS = {
-        "min_search_volume": 10,
-        "max_keyword_difficulty": 60,
-        "min_competition_index": 15,
-        "max_candidates_to_enrich": 250,
+        "min_search_volume": 30,
+        "max_keyword_difficulty": 55,
+        "min_competition_index": 0,
+        "max_candidates_to_enrich": 150,
         "max_clusters": 12,
+        "target_device": "desktop",
+        "target_language_code": "en",
+        "target_location_code": 2840,
+        "competitor_page_limit": 6,
+        "ranked_keywords_per_page": 35,
+        "expansion_seed_limit": 8,
+        "expansion_keywords_per_seed": 20,
     }
 
     DEFAULT_SCORE_CONFIG = {
-        "kd_weight": 0.35,
-        "competition_weight": 0.25,
-        "volume_weight": 0.15,
-        "cpc_weight": 0.10,
-        "trend_weight": 0.10,
-        "fit_weight": 0.05,
+        "serp_weight": 0.30,
+        "kd_weight": 0.25,
+        "volume_weight": 0.20,
+        "commercial_weight": 0.15,
+        "fit_weight": 0.10,
     }
 
     def __init__(self, supabase, supabase_admin):
@@ -143,9 +167,60 @@ class TopicKeywordResearchService:
         seeds: List[str] = []
 
         try:
-            seed_package = await self._build_seed_keywords(topic_context, manual_seed_keywords=manual_seed_keywords)
+            seed_package = await self._build_probe_queries(topic_context, manual_seed_keywords=manual_seed_keywords)
             seeds = seed_package["seed_keywords"]
-            discovered_rows, raw_data = await self._discover_keyword_candidates(seeds=seeds)
+            probe_results, probe_raw_data = await self._run_serp_probe_searches(
+                probe_queries=seed_package.get("probe_queries") or [],
+                filters=filters,
+            )
+            serp_gate = self._evaluate_serp_opportunity_gate(
+                probe_queries=seed_package.get("probe_queries") or [],
+                probe_results=probe_results,
+                topic_context=topic_context,
+            )
+            if not serp_gate.get("passed"):
+                summary = self._build_run_summary(
+                    topic_context=topic_context,
+                    seed_keywords=seeds,
+                    candidate_rows=[],
+                    clusters=[],
+                    seed_package=seed_package,
+                    serp_gate=serp_gate,
+                )
+                self._update_run(
+                    run_id=run_id,
+                    topic_id=topic_id,
+                    user_id=user_id,
+                    status="completed",
+                    summary_json=summary,
+                    raw_data_json={
+                        "serp_probes": probe_raw_data,
+                        "serp_gate": serp_gate,
+                        "seed_generation": seed_package,
+                    },
+                    error_message=None,
+                )
+                run = self.get_run(run_id=run_id, topic_id=topic_id, user_id=user_id)
+                return {
+                    "run": run,
+                    "keywords": [],
+                    "clusters": [],
+                    "summary": summary,
+                }
+
+            competitor_pages = self._select_competitor_pages_from_probe_results(
+                probe_results=probe_results,
+                serp_gate=serp_gate,
+                topic_context=topic_context,
+                limit=int(filters.get("competitor_page_limit") or 6),
+            )
+            discovered_rows, raw_data = await self._discover_keyword_candidates_from_competitors(
+                competitors=competitor_pages,
+                probe_queries=seed_package.get("probe_queries") or [],
+                serp_gate=serp_gate,
+                topic_context=topic_context,
+                filters=filters,
+            )
             enriched_rows = await self._enrich_and_score_candidates(
                 candidates=discovered_rows,
                 topic_context=topic_context,
@@ -168,6 +243,7 @@ class TopicKeywordResearchService:
                 candidate_rows=enriched_rows,
                 clusters=clusters,
                 seed_package=seed_package,
+                serp_gate=serp_gate,
             )
             self._update_run(
                 run_id=run_id,
@@ -175,7 +251,13 @@ class TopicKeywordResearchService:
                 user_id=user_id,
                 status="completed",
                 summary_json=summary,
-                raw_data_json={**raw_data, "seed_generation": seed_package},
+                raw_data_json={
+                    **probe_raw_data,
+                    **raw_data,
+                    "serp_gate": serp_gate,
+                    "competitor_pages": competitor_pages,
+                    "seed_generation": seed_package,
+                },
                 error_message=None,
             )
             run = self.get_run(run_id=run_id, topic_id=topic_id, user_id=user_id)
@@ -449,6 +531,421 @@ class TopicKeywordResearchService:
             .execute()
         )
 
+    async def _build_probe_queries(
+        self,
+        topic_context: Dict[str, Any],
+        manual_seed_keywords: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        manual_hints = [
+            self._clean_seed_phrase(seed)
+            for seed in (manual_seed_keywords or [])
+            if self._clean_seed_phrase(seed)
+        ]
+        topic = topic_context.get("topic") or {}
+        project = topic_context.get("project") or {}
+        primary_category = topic_context.get("primary_category") or {}
+        secondary_category = topic_context.get("secondary_category") or {}
+
+        topic_title = str(topic.get("title") or "").strip()
+        topic_description = str(topic.get("description") or "").strip()
+        category_path = topic_context.get("category_path") or ""
+        audience = str(topic.get("target_audience") or project.get("targetaudiencedescription") or "").strip()
+        decision_focus = str(topic.get("decision_focus") or "").strip()
+        angle_question = str(topic.get("angle_question") or "").strip()
+        hint_text = ", ".join(manual_hints[:8]) or "None"
+
+        prompt = f"""
+Role: You are an SEO strategist. Generate exactly 3 Google search probes for a topic.
+
+Topic: {topic_title}
+Description: {topic_description}
+Category Path: {category_path}
+Primary Category: {primary_category.get("name") or ""}
+Secondary Category: {secondary_category.get("name") or ""}
+Target Audience: {audience}
+Decision Focus: {decision_focus}
+Angle Question: {angle_question}
+Manual Hints: {hint_text}
+
+Rules:
+- Output exactly 3 search probes.
+- Probe 1 must be a broad practical query.
+- Probe 2 must be an ROI, value, comparison, or investment-oriented query.
+- Probe 3 must be a question or article-intent query.
+- Keep each probe natural and between 3 and 10 words.
+- These are SERP probes, not a large keyword list.
+- Preserve the topic's concrete subject. Do not drift into adjacent industries.
+
+Return only:
+PRACTICAL:: query text
+ROI:: query text
+QUESTION:: query text
+"""
+        raw_output = ""
+        probe_queries: List[str] = []
+        try:
+            response = await asyncio.wait_for(
+                llm_service.generate_text(
+                    prompt=prompt,
+                    max_tokens=120,
+                    temperature=0.2,
+                    task_role=LLM_ROLE_RESEARCH,
+                ),
+                timeout=20.0,
+            )
+            raw_output = response.content or ""
+            for marker in ("PRACTICAL::", "ROI::", "QUESTION::"):
+                match = re.search(rf"{marker}\s*(.+)", raw_output, re.IGNORECASE)
+                if match:
+                    candidate = self._clean_seed_phrase(match.group(1))
+                    if candidate:
+                        probe_queries.append(candidate)
+        except Exception:
+            logger.warning("LLM probe generation failed topic=%r", topic_title, exc_info=True)
+
+        if len(probe_queries) < 3:
+            base = self._clean_seed_phrase(topic_title) or self._queryish_fragment(topic_title, max_words=6)
+            base = base or self._clean_seed_phrase(topic_description)
+            base = base or " ".join(self._meaningful_tokens(topic_title)[:4])
+            practical = base
+            roi = self._clean_seed_phrase(f"{base} property value") or self._clean_seed_phrase(f"{base} roi")
+            question = self._clean_seed_phrase(f"is {base} worth it") or self._clean_seed_phrase(f"are {base} worth it")
+            probe_queries = [item for item in [practical, roi, question] if item][:3]
+
+        final_queries: List[str] = []
+        seen = set()
+        for candidate in probe_queries + manual_hints[:3]:
+            cleaned = self._clean_seed_phrase(candidate)
+            if not cleaned:
+                continue
+            key = cleaned.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            final_queries.append(cleaned)
+            if len(final_queries) >= 3:
+                break
+
+        if len(final_queries) < 3:
+            raise ValueError("Topic keyword research could not generate 3 SERP probes for this topic.")
+
+        return {
+            "generation_mode": "serp_probe_v2",
+            "seed_keywords": final_queries,
+            "probe_queries": final_queries,
+            "deterministic_seeds": final_queries,
+            "llm_seeds": final_queries,
+            "topic_components": [],
+            "seed_sources": {query: "serp_probe" for query in final_queries},
+            "llm_raw_output": raw_output,
+        }
+
+    async def _run_serp_probe_searches(
+        self,
+        *,
+        probe_queries: List[str],
+        filters: Dict[str, Any],
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        probe_results: List[Dict[str, Any]] = []
+        raw_payloads: List[Dict[str, Any]] = []
+        language_code = str(filters.get("target_language_code") or "en")
+        location_code = int(filters.get("target_location_code") or 2840)
+        device = str(filters.get("target_device") or "desktop")
+
+        for query in probe_queries[:3]:
+            serp_result = await dataforseo_api.get_google_organic_standard_regular(
+                query,
+                language_code=language_code,
+                location_code=location_code,
+                device=device,
+                depth=10,
+                return_raw=True,
+            )
+            items = (serp_result or {}).get("items") or []
+            if not items:
+                serp_result = await dataforseo_api.get_google_organic_live_advanced(
+                    query,
+                    language_code=language_code,
+                    location_code=location_code,
+                    device=device,
+                    depth=10,
+                    return_raw=True,
+                )
+                items = (serp_result or {}).get("items") or []
+
+            normalized_rows = []
+            for row in items[:10]:
+                url = str(row.get("url") or "").strip()
+                domain = str(row.get("domain") or urlparse(url).netloc).lower()
+                normalized_rows.append({
+                    "query": query,
+                    "rank": int(row.get("rank_group") or row.get("rank_absolute") or 0) or None,
+                    "domain": domain,
+                    "url": url,
+                    "title": str(row.get("title") or "").strip(),
+                    "snippet": str(row.get("snippet") or "").strip(),
+                    "result_type": str(row.get("result_type") or "organic").strip() or "organic",
+                })
+            probe_results.append({"query": query, "rows": normalized_rows})
+            raw_payloads.append({
+                "query": query,
+                "raw": self._sanitize_for_json((serp_result or {}).get("raw") or {}),
+            })
+
+        return probe_results, {"serp_probes": raw_payloads}
+
+    def _evaluate_serp_opportunity_gate(
+        self,
+        *,
+        probe_queries: List[str],
+        probe_results: List[Dict[str, Any]],
+        topic_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        domain_hits: Dict[str, int] = defaultdict(int)
+        article_page_count = 0
+        niche_page_count = 0
+        weak_page_count = 0
+        authority_like_count = 0
+        ecommerce_or_service_count = 0
+        probe_intents: List[str] = []
+        repeated_urls: Dict[str, int] = defaultdict(int)
+
+        for probe in probe_results:
+            rows = probe.get("rows") or []
+            probe_intents.append(self._classify_probe_intent(rows))
+            seen_domains = set()
+            seen_urls = set()
+            for row in rows[:10]:
+                url = str(row.get("url") or "").strip()
+                domain = str(row.get("domain") or "").strip().lower()
+                title = str(row.get("title") or "")
+                snippet = str(row.get("snippet") or "")
+                if url and url not in seen_urls:
+                    repeated_urls[url] += 1
+                    seen_urls.add(url)
+                if domain and domain not in seen_domains:
+                    domain_hits[domain] += 1
+                    seen_domains.add(domain)
+                if self._is_article_like_page(url, title):
+                    article_page_count += 1
+                if self._is_niche_competitor(domain, url):
+                    niche_page_count += 1
+                if self._is_weak_content_page(title, snippet, url):
+                    weak_page_count += 1
+                if self._is_authority_domain(domain):
+                    authority_like_count += 1
+                if self._is_service_or_ecommerce_page(url, title):
+                    ecommerce_or_service_count += 1
+
+        repeated_domains = sorted(
+            [{"domain": domain, "hits": hits} for domain, hits in domain_hits.items() if hits >= 2],
+            key=lambda item: item["hits"],
+            reverse=True,
+        )
+        repeated_url_rows = sorted(
+            [{"url": url, "hits": hits} for url, hits in repeated_urls.items() if hits >= 2],
+            key=lambda item: item["hits"],
+            reverse=True,
+        )
+        dominant_intent = max(set(probe_intents), key=probe_intents.count) if probe_intents else "mixed"
+        consistent_intent = probe_intents.count(dominant_intent) >= 2
+
+        signals = {
+            "stable_competitor_set": bool(repeated_domains),
+            "article_friendly_results": article_page_count >= 2,
+            "niche_sites_present": niche_page_count >= 2,
+            "consistent_intent": consistent_intent,
+            "weak_pages_present": weak_page_count >= 2,
+            "not_authority_dominated": authority_like_count <= 12,
+        }
+        pass_count = sum(1 for passed in signals.values() if passed)
+
+        killer_reasons: List[str] = []
+        if authority_like_count >= 18:
+            killer_reasons.append("authority_dominated_serp")
+        if not consistent_intent:
+            killer_reasons.append("intent_mismatch_across_probes")
+        if ecommerce_or_service_count >= 18:
+            killer_reasons.append("service_or_ecommerce_dominant_serp")
+        if article_page_count == 0:
+            killer_reasons.append("no_article_pages_ranking")
+        if not repeated_domains:
+            killer_reasons.append("no_repeated_competitor_domains")
+
+        serp_weakness_score = round(
+            max(
+                0.0,
+                min(
+                    1.0,
+                    (
+                        min(1.0, niche_page_count / 6.0) * 0.25
+                        + min(1.0, weak_page_count / 6.0) * 0.30
+                        + (0.20 if article_page_count >= 2 else 0.0)
+                        + (0.15 if repeated_domains else 0.0)
+                        + (0.10 if authority_like_count <= 12 else 0.0)
+                    ),
+                ),
+            ),
+            4,
+        )
+
+        return {
+            "passed": pass_count >= 3 and not killer_reasons,
+            "signal_count": pass_count,
+            "signals": signals,
+            "killer_reasons": killer_reasons,
+            "intent_classification": dominant_intent,
+            "serp_weakness_score": serp_weakness_score,
+            "repeated_domains": repeated_domains[:10],
+            "repeated_urls": repeated_url_rows[:10],
+            "probe_queries": probe_queries[:3],
+        }
+
+    def _select_competitor_pages_from_probe_results(
+        self,
+        *,
+        probe_results: List[Dict[str, Any]],
+        serp_gate: Dict[str, Any],
+        topic_context: Dict[str, Any],
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        candidate_map: Dict[str, Dict[str, Any]] = {}
+        repeated_domain_lookup = {
+            str(item.get("domain") or "").lower(): int(item.get("hits") or 0)
+            for item in (serp_gate.get("repeated_domains") or [])
+        }
+        for probe in probe_results:
+            for row in probe.get("rows") or []:
+                url = str(row.get("url") or "").strip()
+                domain = str(row.get("domain") or urlparse(url).netloc).lower()
+                title = str(row.get("title") or "").strip()
+                if not url or not domain:
+                    continue
+                if self._is_authority_domain(domain):
+                    continue
+                if not self._is_article_like_page(url, title):
+                    continue
+                if self._is_service_or_ecommerce_page(url, title):
+                    continue
+                entry = candidate_map.setdefault(
+                    url,
+                    {
+                        "url": url,
+                        "domain": domain,
+                        "title": title,
+                        "best_rank": 99,
+                        "query_hits": 0,
+                        "domain_hits": repeated_domain_lookup.get(domain, 0),
+                        "content_gap_score": 0,
+                    },
+                )
+                entry["query_hits"] += 1
+                entry["best_rank"] = min(int(row.get("rank") or 99), entry["best_rank"])
+                if self._is_weak_content_page(title, str(row.get("snippet") or ""), url):
+                    entry["content_gap_score"] += 1
+
+        competitors = sorted(
+            candidate_map.values(),
+            key=lambda item: (
+                int(item.get("query_hits") or 0),
+                int(item.get("domain_hits") or 0),
+                int(item.get("content_gap_score") or 0),
+                -int(item.get("best_rank") or 99),
+            ),
+            reverse=True,
+        )
+        return competitors[: max(3, min(limit, 8))]
+
+    async def _discover_keyword_candidates_from_competitors(
+        self,
+        *,
+        competitors: List[Dict[str, Any]],
+        probe_queries: List[str],
+        serp_gate: Dict[str, Any],
+        topic_context: Dict[str, Any],
+        filters: Dict[str, Any],
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        language_code = str(filters.get("target_language_code") or "en")
+        location_code = int(filters.get("target_location_code") or 2840)
+        limit_per_page = int(filters.get("ranked_keywords_per_page") or 35)
+        harvested_rows: List[Dict[str, Any]] = []
+        raw_data: Dict[str, Any] = {
+            "selected_competitors": competitors,
+            "ranked_keyword_searches": [],
+            "controlled_expansion": [],
+        }
+
+        for competitor in competitors:
+            target_url = str(competitor.get("url") or "").strip()
+            if not target_url:
+                continue
+            ranked_result = await dataforseo_api.get_ranked_keywords_live(
+                target_url,
+                language_code=language_code,
+                location_code=location_code,
+                limit=limit_per_page,
+                return_raw=True,
+            )
+            raw_data["ranked_keyword_searches"].append({
+                "target": target_url,
+                "raw": self._sanitize_for_json((ranked_result or {}).get("raw") or {}),
+            })
+            for row in (ranked_result or {}).get("items") or []:
+                candidate = self._normalize_candidate_row(row)
+                candidate["source_endpoints"] = ["dataforseo_labs/google/ranked_keywords/live:url"]
+                candidate["trend_json"] = {
+                    "source_url": target_url,
+                    "source_urls": [target_url],
+                    "source_domain": competitor.get("domain"),
+                    "source_domains": [competitor.get("domain")] if competitor.get("domain") else [],
+                    "serp_weakness_score": serp_gate.get("serp_weakness_score"),
+                    "competitor_support_score": min(
+                        1.0,
+                        0.45
+                        + 0.20 * min(2, int(competitor.get("query_hits") or 1))
+                        + 0.10 * min(2, int(competitor.get("content_gap_score") or 0)),
+                    ),
+                    "probe_queries": probe_queries[:3],
+                }
+                if self._passes_keyword_harvest_filters(candidate, topic_context=topic_context):
+                    harvested_rows.append(candidate)
+
+        expansion_seed_rows = self._select_expansion_seed_rows(
+            harvested_rows,
+            limit=int(filters.get("expansion_seed_limit") or 8),
+        )
+        for seed_row in expansion_seed_rows:
+            seed_keyword = str(seed_row.get("keyword") or "").strip()
+            if not seed_keyword:
+                continue
+            expansion_result = await dataforseo_api.get_related_keywords_standard(
+                [seed_keyword],
+                language_code=language_code,
+                location_code=location_code,
+                limit_per_seed=int(filters.get("expansion_keywords_per_seed") or 20),
+                return_raw=True,
+            )
+            raw_data["controlled_expansion"].append({
+                "seed_keyword": seed_keyword,
+                "raw": self._sanitize_for_json((expansion_result or {}).get("raw") or {}),
+            })
+            for row in (expansion_result or {}).get("items") or []:
+                candidate = self._normalize_candidate_row(row)
+                candidate["source_endpoints"] = ["keywords_data/google_ads/keywords_for_keywords:controlled"]
+                candidate["trend_json"] = {
+                    "seed_keyword": seed_keyword,
+                    "source_type": "controlled_expansion",
+                    "serp_weakness_score": serp_gate.get("serp_weakness_score"),
+                    "competitor_support_score": 0.55,
+                    "probe_queries": probe_queries[:3],
+                    "source_urls": list((seed_row.get("trend_json") or {}).get("source_urls") or []),
+                    "source_domains": list((seed_row.get("trend_json") or {}).get("source_domains") or []),
+                }
+                if self._passes_keyword_harvest_filters(candidate, topic_context=topic_context):
+                    harvested_rows.append(candidate)
+
+        return harvested_rows, raw_data
+
     async def _discover_keyword_candidates(self, seeds: List[str]) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
         primary_seeds = seeds[:4]
         expansion_seeds = seeds[:8]
@@ -534,6 +1031,7 @@ class TopicKeywordResearchService:
                     "competition": row.get("competition"),
                     "competition_index": self._coerce_competition_index(row),
                     "keyword_difficulty": row.get("keyword_difficulty"),
+                    "trend_json": dict(row.get("trend_json") or {}),
                 }
                 continue
 
@@ -548,6 +1046,18 @@ class TopicKeywordResearchService:
                 int(existing.get("competition_index") or 0),
                 int(self._coerce_competition_index(row) or 0),
             ) or None
+            existing["trend_json"] = {
+                **dict(existing.get("trend_json") or {}),
+                **dict(row.get("trend_json") or {}),
+                "source_urls": self._merge_strings(
+                    list((existing.get("trend_json") or {}).get("source_urls") or []),
+                    list((row.get("trend_json") or {}).get("source_urls") or []),
+                ),
+                "source_domains": self._merge_strings(
+                    list((existing.get("trend_json") or {}).get("source_domains") or []),
+                    list((row.get("trend_json") or {}).get("source_domains") or []),
+                ),
+            }
 
         candidate_keywords = list(merged.keys())[: int(filters.get("max_candidates_to_enrich") or 250)]
         bulk_metrics = await dataforseo_api.get_bulk_metrics_standard(candidate_keywords, return_raw=False)
@@ -585,8 +1095,8 @@ class TopicKeywordResearchService:
                 topic_components=topic_components,
             )
             row["trend_json"] = {
-                "validation_mode": "not_fetched_yet",
-                "trend_score": 50,
+                "validation_mode": "serp_probe_competitor_v2",
+                **dict(row.get("trend_json") or {}),
             }
 
             is_filtered_out, filter_reason = self._filter_candidate_row(
@@ -605,6 +1115,53 @@ class TopicKeywordResearchService:
 
         scored_rows.sort(key=lambda item: (item.get("opportunity_score") or 0), reverse=True)
         return scored_rows
+
+    def _passes_keyword_harvest_filters(
+        self,
+        row: Dict[str, Any],
+        *,
+        topic_context: Dict[str, Any],
+    ) -> bool:
+        keyword = str(row.get("keyword") or "").strip()
+        canonical = self._normalize_keyword_key(keyword)
+        if not canonical:
+            return False
+        tokens = canonical.split()
+        if len(tokens) < 2 or len(tokens) > 8:
+            return False
+        if int(row.get("rank_group") or 99) > 20:
+            return False
+        if (row.get("search_volume") or 0) and int(row.get("search_volume") or 0) < 30:
+            return False
+        if self._keyword_contains_brand(keyword, topic_context):
+            return False
+        if self._anchor_overlap_count(canonical, self._topic_anchor_terms(topic_context)) <= 0:
+            return False
+        if self._is_service_or_ecommerce_page(str(row.get("url") or ""), str(row.get("title") or "")):
+            return False
+        return True
+
+    def _select_expansion_seed_rows(self, rows: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
+        ordered = sorted(
+            rows,
+            key=lambda item: (
+                float((item.get("trend_json") or {}).get("competitor_support_score") or 0.0),
+                float(item.get("search_volume") or 0.0),
+                -float(item.get("keyword_difficulty") or 100.0),
+            ),
+            reverse=True,
+        )
+        selected: List[Dict[str, Any]] = []
+        seen = set()
+        for row in ordered:
+            keyword = self._normalize_keyword_key(row.get("keyword"))
+            if not keyword or keyword in seen:
+                continue
+            seen.add(keyword)
+            selected.append(row)
+            if len(selected) >= limit:
+                break
+        return selected
 
     def _cluster_candidates(
         self,
@@ -912,6 +1469,7 @@ class TopicKeywordResearchService:
         candidate_rows: List[Dict[str, Any]],
         clusters: List[Dict[str, Any]],
         seed_package: Optional[Dict[str, Any]] = None,
+        serp_gate: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         filtered_out = [row for row in candidate_rows if row.get("is_filtered_out")]
         active = [row for row in candidate_rows if not row.get("is_filtered_out")]
@@ -935,12 +1493,13 @@ class TopicKeywordResearchService:
             for row in clusters[:8]
         ]
         return {
-            "pipeline_version": "topic_keyword_pipeline_v1",
+            "pipeline_version": "topic_keyword_pipeline_v2",
             "status": "completed",
             "topic_title": ((topic_context.get("topic") or {}).get("title") or ""),
             "category_path": topic_context.get("category_path"),
             "seed_count": len(seed_keywords),
-            "seed_generation_mode": (seed_package or {}).get("generation_mode") or "llm_only_v2",
+            "probe_count": len((seed_package or {}).get("probe_queries") or seed_keywords),
+            "seed_generation_mode": (seed_package or {}).get("generation_mode") or "serp_probe_v2",
             "llm_seed_count": len((seed_package or {}).get("llm_seeds") or []),
             "deterministic_seed_count": len((seed_package or {}).get("deterministic_seeds") or []),
             "llm_parse_strategy": (seed_package or {}).get("llm_parse_strategy"),
@@ -948,9 +1507,16 @@ class TopicKeywordResearchService:
             "active_candidate_count": len(active),
             "filtered_candidate_count": len(filtered_out),
             "cluster_count": len(clusters),
+            "serp_opportunity_passed": bool((serp_gate or {}).get("passed")),
+            "serp_signal_count": int((serp_gate or {}).get("signal_count") or 0),
+            "serp_intent_classification": (serp_gate or {}).get("intent_classification"),
+            "serp_weakness_score": (serp_gate or {}).get("serp_weakness_score"),
+            "top_repeated_domains": (serp_gate or {}).get("repeated_domains") or [],
+            "top_repeated_urls": (serp_gate or {}).get("repeated_urls") or [],
+            "gate_killer_reasons": (serp_gate or {}).get("killer_reasons") or [],
             "top_keywords": top_keywords,
             "top_clusters": top_clusters,
-            "validation_mode": "heuristic_v1",
+            "validation_mode": "serp_probe_competitor_v2",
             "generated_at": datetime.utcnow().isoformat(),
         }
 
@@ -1034,19 +1600,20 @@ class TopicKeywordResearchService:
         keyword_difficulty = min(100.0, max(0.0, float(row.get("keyword_difficulty") or 45.0)))
         competition_index = min(100.0, max(0.0, float(row.get("competition_index") or 0.0)))
         topical_fit_score = min(100.0, max(0.0, float(row.get("topical_fit_score") or 0.0)))
-        trend_score = min(100.0, max(0.0, float(((row.get("trend_json") or {}).get("trend_score") or 50))))
+        serp_weakness_score = min(100.0, max(0.0, float(((row.get("trend_json") or {}).get("serp_weakness_score") or 0.35) * 100.0)))
+        competitor_support_score = min(100.0, max(0.0, float(((row.get("trend_json") or {}).get("competitor_support_score") or 0.4) * 100.0)))
 
         kd_score = 100.0 - keyword_difficulty
         volume_score = min(100.0, math.log10(search_volume + 1) / math.log10(10001) * 100.0) if search_volume > 0 else 0.0
-        cpc_score = min(100.0, cpc * 12.0)
+        commercial_score = min(100.0, min(100.0, cpc * 15.0) * 0.55 + competition_index * 0.45)
+        serp_score = min(100.0, serp_weakness_score * 0.7 + competitor_support_score * 0.3)
 
         score = (
-            kd_score * float(score_config.get("kd_weight") or 0.35)
-            + competition_index * float(score_config.get("competition_weight") or 0.25)
-            + volume_score * float(score_config.get("volume_weight") or 0.15)
-            + cpc_score * float(score_config.get("cpc_weight") or 0.10)
-            + trend_score * float(score_config.get("trend_weight") or 0.10)
-            + topical_fit_score * float(score_config.get("fit_weight") or 0.05)
+            serp_score * float(score_config.get("serp_weight") or 0.30)
+            + kd_score * float(score_config.get("kd_weight") or 0.25)
+            + volume_score * float(score_config.get("volume_weight") or 0.20)
+            + commercial_score * float(score_config.get("commercial_weight") or 0.15)
+            + topical_fit_score * float(score_config.get("fit_weight") or 0.10)
         )
         return round(max(0.0, min(100.0, score)), 2)
 
@@ -1142,16 +1709,21 @@ class TopicKeywordResearchService:
         keyword = str(primary_keyword or "").lower()
         blocked = any(stop_term in keyword for stop_term in self.FILTER_STOP_TERMS)
         article_friendly = not blocked and intent_label in {"informational", "commercial_investigation", "utility"}
+        first_row = rows[0] if rows else {}
+        serp_weakness = float(((first_row.get("trend_json") or {}).get("serp_weakness_score") or 0.0))
+        competitor_support = float(((first_row.get("trend_json") or {}).get("competitor_support_score") or 0.0))
         confidence = 80 if article_friendly else 35
         if intent_label == "utility":
             confidence = 70
         if "near me" in keyword or "jobs" in keyword:
             confidence = 20
         return {
-            "status": "heuristic_only",
-            "validation_mode": "heuristic_v1",
+            "status": "competitor_proven",
+            "validation_mode": "serp_probe_competitor_v2",
             "article_friendly": article_friendly,
-            "article_intent_confidence": confidence,
+            "article_intent_confidence": round(min(100.0, confidence + serp_weakness * 12.0 + competitor_support * 8.0), 1),
+            "serp_weakness_score": round(serp_weakness, 4),
+            "competitor_support_score": round(competitor_support, 4),
             "observations": [
                 f"Primary keyword: {primary_keyword}",
                 f"Detected intent: {intent_label}",
@@ -1166,6 +1738,110 @@ class TopicKeywordResearchService:
             f"Cluster anchored on '{primary_keyword}' with {len(rows)} related keywords. "
             f"It stays aligned to {category_path} and currently surfaces a top opportunity score of {best_score}."
         )
+
+    def _classify_probe_intent(self, rows: List[Dict[str, Any]]) -> str:
+        article_count = 0
+        service_count = 0
+        ecommerce_count = 0
+        tool_count = 0
+        for row in rows[:10]:
+            url = str(row.get("url") or "")
+            title = str(row.get("title") or "")
+            if self._is_article_like_page(url, title):
+                article_count += 1
+            if self._is_service_or_ecommerce_page(url, title):
+                if any(token in f"{url} {title}".lower() for token in ["/product/", "/category/", "/shop/", "buy now", "price"]):
+                    ecommerce_count += 1
+                else:
+                    service_count += 1
+            if any(token in f"{url} {title}".lower() for token in ["calculator", "tool", "/tool/", "/tools/"]):
+                tool_count += 1
+        if tool_count >= 4:
+            return "tool"
+        if ecommerce_count >= 4:
+            return "ecommerce"
+        if service_count >= 4:
+            return "service"
+        if article_count >= 3:
+            return "article"
+        return "mixed"
+
+    def _is_article_like_page(self, url: str, title: str) -> bool:
+        normalized = f"{url} {title}".lower()
+        if not url:
+            return False
+        if self._is_service_or_ecommerce_page(url, title):
+            return False
+        if normalized.count("/") <= 2:
+            return False
+        if any(token in normalized for token in ["/blog/", "/guide", "/guides/", "/resources/", "/article", "/learn/", "/news/"]):
+            return True
+        if any(token in normalized for token in [" how ", " worth ", " roi ", " should ", " best ", " compare ", " vs "]):
+            return True
+        path = urlparse(url).path.strip("/")
+        return len(path.split("/")) >= 1 and "-" in path
+
+    def _is_service_or_ecommerce_page(self, url: str, title: str) -> bool:
+        normalized = f"{url} {title}".lower()
+        return any(
+            token in normalized
+            for token in [
+                "/services/",
+                "/service/",
+                "/product/",
+                "/products/",
+                "/category/",
+                "/collections/",
+                "/shop/",
+                "near me",
+                "book now",
+                "buy now",
+                "request a quote",
+            ]
+        )
+
+    def _is_authority_domain(self, domain: str) -> bool:
+        normalized = str(domain or "").lower().strip()
+        if not normalized:
+            return True
+        if normalized in self.EXCLUDED_AUTHORITY_DOMAINS:
+            return True
+        return any(
+            token in normalized
+            for token in [".gov", "wikipedia.", "reddit.", "forbes.", "amazon.", "investopedia.", "nerdwallet."]
+        )
+
+    def _is_niche_competitor(self, domain: str, url: str) -> bool:
+        normalized = str(domain or urlparse(str(url or "")).netloc).lower().strip()
+        if not normalized or self._is_authority_domain(normalized):
+            return False
+        return normalized.count(".") >= 1 and not any(
+            token in normalized for token in ["youtube.", "facebook.", "instagram.", "linkedin."]
+        )
+
+    def _is_weak_content_page(self, title: str, snippet: str, url: str) -> bool:
+        normalized_title = str(title or "").strip().lower()
+        normalized_snippet = str(snippet or "").strip().lower()
+        path = urlparse(str(url or "")).path.strip("/").lower()
+        generic_title = len(normalized_title.split()) <= 5 or any(
+            token in normalized_title for token in ["guide", "overview", "tips", "basics"]
+        )
+        shallow_path = path.count("/") == 0
+        thin_snippet = len(normalized_snippet.split()) < 12
+        return generic_title or shallow_path or thin_snippet
+
+    def _keyword_contains_brand(self, keyword: str, topic_context: Dict[str, Any]) -> bool:
+        normalized = self._normalize_keyword_key(keyword)
+        project = topic_context.get("project") or {}
+        brand_candidates = [
+            str(project.get("domain") or "").split(".")[0],
+            str(project.get("app_name") or ""),
+        ]
+        for brand in brand_candidates:
+            brand_key = self._normalize_keyword_key(brand)
+            if brand_key and brand_key in normalized:
+                return True
+        return False
 
     def _cluster_overlap(self, left_tokens: set[str], right_tokens: set[str]) -> float:
         if not left_tokens or not right_tokens:
