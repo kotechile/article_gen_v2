@@ -343,7 +343,7 @@ export function ResearchRebuildStrategicPage() {
         const resolvedTopicId = topicId || selectedTopicId
         if (!projectId || !resolvedTopicId) return
         setIsLoading(true)
-        setLoadingLabel('Generating angle bets, checking trends, and screening SERPs…')
+        setLoadingLabel('Generating seed queries, checking SERPs, and mining competitor URLs…')
         setError(null)
         setSuccess(null)
         try {
@@ -629,7 +629,7 @@ export function ResearchRebuildStrategicPage() {
                             <div>
                                 <div className="text-xs uppercase tracking-[0.32em] text-sky-300/80">Research engine active</div>
                                 <div className="mt-1 text-base font-medium text-white">{loadingLabel}</div>
-                                <div className="mt-1 text-sm text-slate-300">This can take a moment because the app is generating bets, screening SERPs, and saving the evidence.</div>
+                                <div className="mt-1 text-sm text-slate-300">This can take a moment because the app is generating seed queries, screening SERPs, mining competitor URLs, and saving the evidence.</div>
                             </div>
                         </div>
                     </div>
@@ -683,7 +683,7 @@ export function ResearchRebuildStrategicPage() {
                             <div className="font-medium text-white">{primaryCategory?.name || 'No primary category selected'}</div>
                             <p className="mt-1 whitespace-pre-wrap text-slate-400">{primaryCategory?.description || 'Choose a primary category to anchor the strategic research run.'}</p>
                             <div className="mt-4 font-medium text-white">{secondaryCategory?.name || 'No sub-category selected'}</div>
-                            <p className="mt-1 whitespace-pre-wrap text-slate-400">{secondaryCategory?.description || 'Optional: select a sub-category to narrow the angle bets and competitor mining.'}</p>
+                            <p className="mt-1 whitespace-pre-wrap text-slate-400">{secondaryCategory?.description || 'Optional: select a sub-category to narrow the seed queries and competitor mining.'}</p>
                         </div>
                     </div>
 
@@ -709,7 +709,7 @@ export function ResearchRebuildStrategicPage() {
                         <div className="flex items-center justify-between gap-4">
                             <div>
                                 <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Saved topics</div>
-                                <div className="mt-2 text-sm text-slate-300">Choose one topic at a time, then run the full article-angle screening workflow.</div>
+                                <div className="mt-2 text-sm text-slate-300">Choose one topic at a time, then run the seed-query, SERP, and competitor-keyword workflow.</div>
                             </div>
                             <div className="text-sm text-slate-400">{topics.length} topic{topics.length === 1 ? '' : 's'}</div>
                         </div>
@@ -770,8 +770,8 @@ export function ResearchRebuildStrategicPage() {
                     <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
                             <div className="text-xs uppercase tracking-[0.35em] text-sky-300/70">Step 2</div>
-                            <h2 className="mt-2 text-2xl font-semibold">Review article-angle bets and screening</h2>
-                            <p className="mt-2 text-sm text-slate-300">The engine now tries to reach article opportunities faster by probing SERPs, picking the best competitor URLs, and qualifying their ranked keywords before final cluster selection.</p>
+                            <h2 className="mt-2 text-2xl font-semibold">Review seed queries and SERP screening</h2>
+                            <p className="mt-2 text-sm text-slate-300">The engine now starts from simple search seeds, runs SERPs directly, picks the best competitor URLs, and lets competitor-ranked keywords drive article discovery.</p>
                         </div>
                         {runDetail ? (
                             <div className="flex flex-wrap gap-2">
@@ -786,23 +786,23 @@ export function ResearchRebuildStrategicPage() {
                         <div className="text-xs uppercase tracking-[0.28em] text-slate-400">How Step 2 works</div>
                         <div className="mt-3 grid gap-3 text-sm text-slate-300 lg:grid-cols-3">
                             <div>
-                                <div className="font-medium text-white">1. The app generates bets</div>
-                                <p className="mt-1">From your saved topic, the LLM creates 6 to 10 narrower article-angle bets. Each bet is a possible direction the article could take, not a final keyword.</p>
+                                <div className="font-medium text-white">1. The app generates seed queries</div>
+                                <p className="mt-1">From your saved topic, the app creates a handful of simple Google-style search seeds. The topic is only the starting point, not the final keyword target.</p>
                             </div>
                             <div>
-                                <div className="font-medium text-white">2. Each bet gets probe queries</div>
-                                <p className="mt-1">The app creates 1 to 2 literal probe queries for each angle, checks the SERP, and then pulls the top competitor article URLs instead of expanding a giant keyword list first.</p>
+                                <div className="font-medium text-white">2. Each seed goes straight to SERP</div>
+                                <p className="mt-1">Each seed is tested directly in Google-style SERPs. The goal is to surface strong competitor article URLs first, then mine those URLs for ranked keywords.</p>
                             </div>
                             <div>
                                 <div className="font-medium text-white">3. Survived vs. killed</div>
-                                <p className="mt-1"><span className="text-emerald-300">Survived bets</span> earned competitor URL mining and keyword qualification. <span className="text-rose-300">Killed bets</span> looked too weak, too tool-heavy, or too mismatched for an article, so they stop here.</p>
+                                <p className="mt-1"><span className="text-emerald-300">Survived seeds</span> earned competitor URL mining and keyword qualification. <span className="text-rose-300">Killed seeds</span> looked too weak, too tool-heavy, or too mismatched for an article, so they stop here.</p>
                             </div>
                         </div>
                     </div>
 
                     {!runDetail ? (
                         <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-10 text-sm text-slate-400">
-                            Save a topic and run the strategy to generate angle bets, probe queries, and cluster candidates.
+                            Save a topic and run the strategy to generate seed queries, SERP results, competitor URLs, and article clusters.
                         </div>
                     ) : (
                         <div className="grid gap-4">
@@ -814,7 +814,7 @@ export function ResearchRebuildStrategicPage() {
                                     <article key={bet.id} className={`rounded-3xl border p-5 ${bet.status === 'survived' ? 'border-emerald-500/30 bg-[#101a18]' : 'border-slate-700 bg-[#121826]'}`}>
                                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                             <div className="max-w-3xl">
-                                                <div className="text-xs uppercase tracking-[0.3em] text-slate-400">{bet.status === 'survived' ? 'Survived' : 'Killed'} bet</div>
+                                                <div className="text-xs uppercase tracking-[0.3em] text-slate-400">{bet.status === 'survived' ? 'Survived' : 'Killed'} seed</div>
                                                 <h3 className="mt-2 text-xl font-semibold text-white">{bet.bet_text}</h3>
                                                 <p className="mt-2 text-sm text-slate-300">{bet.searcher_problem || 'No searcher problem captured.'}</p>
                                                 <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-300">
@@ -895,7 +895,7 @@ export function ResearchRebuildStrategicPage() {
                                                     </div>
                                                 ) : (
                                                     <div className="mt-3 text-sm text-slate-400">
-                                                        {bet.status === 'survived' ? 'This bet survived, but competitor mining has not produced a strong cluster yet.' : 'Killed bets do not proceed into cluster mining.'}
+                                                        {bet.status === 'survived' ? 'This seed survived, but competitor mining has not produced a strong cluster yet.' : 'Killed seeds do not proceed into cluster mining.'}
                                                     </div>
                                                 )}
                                             </div>

@@ -47,7 +47,7 @@ class ResearchStrategyService(ResearchRebuildBaseService):
     keyword_clusters_table = "research_keyword_clusters"
 
     DEFAULT_LIMITS = {
-        "max_bets": 5,
+        "max_bets": 6,
         "max_trend_batches": 2,
         "max_probe_queries_per_bet": 2,
         "max_surviving_bets": 3,
@@ -640,10 +640,11 @@ Return valid JSON:
 }}
 
 Rules:
-- Generate 3-5 non-duplicate SERP test angles.
-- Each bet should feel like a realistic article or guide angle someone would search for.
-- Bets must be narrower than the original topic.
-- Prefer article-angle phrasing first. Only mark software when the topic clearly implies a repeated workflow or tool.
+- Generate 4-6 non-duplicate simple Google-style search seeds.
+- Each bet_text should be a literal search phrase, not a headline.
+- Use the topic only as a seed into the market; do not overfit tightly to the topic wording.
+- Prefer broad but realistic article-search phrasing that can surface strong competitor content.
+- Only mark software when the search seed clearly implies a repeated workflow or tool.
 - Keep bet_text short, concrete, and searchable.
 
 Website context:
@@ -699,6 +700,7 @@ Topic:
     ) -> List[Dict[str, Any]]:
         payloads: List[Dict[str, Any]] = []
         for bet in bets:
+            base_query = " ".join(str(bet.get("bet_text") or "").strip().split())
             prompt = f"""
 Return valid JSON:
 {{
@@ -708,20 +710,29 @@ Return valid JSON:
 }}
 
 Rules:
-- Generate 1 or 2 Google-like probe queries.
-- Queries must test whether a SERP would support an article around the bet.
-- Make them literal search phrases, not creative headlines.
-- Prefer direct query formulations that would surface strong competitor article URLs quickly.
+- The primary query should stay very close to the base seed query.
+- You may add one alternate variant if it would surface a meaningfully different SERP.
+- Keep both queries literal, short, and article-discovery focused.
 
 Bet:
-- {bet.get("bet_text")}
+- base seed query: {base_query}
 - format: {bet.get("article_format")}
 - commercial angle: {bet.get("commercial_angle")}
 """
             response = await llm_service.generate_json(prompt, task_role=LLM_ROLE_RESEARCH_TOPIC_GENERATION, max_tokens=800)
             raw_queries = response.get("probe_queries") if isinstance(response, dict) else []
-            seen = set()
+            seen = {base_query.lower()} if base_query else set()
             added = 0
+            if base_query:
+                payloads.append({
+                    "project_id": str(project_id),
+                    "run_id": str(run_id),
+                    "bet_id": str(bet["id"]),
+                    "query_text": base_query,
+                    "query_role": "primary_probe",
+                    "probe_metadata": {"topic_id": str(topic_id), "source": "seed_query"},
+                })
+                added = 1
             for item in raw_queries or []:
                 if not isinstance(item, dict):
                     continue
@@ -738,7 +749,7 @@ Bet:
                     "bet_id": str(bet["id"]),
                     "query_text": query_text,
                     "query_role": item.get("query_role") if item.get("query_role") in {"primary_probe", "secondary_probe"} else ("primary_probe" if added == 0 else "secondary_probe"),
-                    "probe_metadata": {"topic_id": str(topic_id)},
+                    "probe_metadata": {"topic_id": str(topic_id), "source": "serp_variant"},
                 })
                 added += 1
                 if added >= self.DEFAULT_LIMITS["max_probe_queries_per_bet"]:
@@ -1447,15 +1458,18 @@ Bet:
                 continue
             if kd > 70:
                 continue
+            if len(keyword_tokens) <= 1:
+                continue
             relevance_score = (
-                min(1.0, overlap / max(1, min(len(keyword_tokens), 3))) * 0.45
-                + min(1.0, search_volume / 500.0) * 0.2
-                + max(0.0, 1.0 - (rank_group / 25.0)) * 0.2
-                + max(0.0, 1.0 - (kd / 100.0)) * 0.15
+                min(1.0, overlap / max(1, min(len(keyword_tokens), 3))) * 0.15
+                + min(1.0, search_volume / 500.0) * 0.3
+                + max(0.0, 1.0 - (rank_group / 25.0)) * 0.3
+                + max(0.0, 1.0 - (kd / 100.0)) * 0.25
             )
             scored.append({
                 **row,
                 "relevance_score": round(relevance_score, 4),
+                "seed_overlap": overlap,
             })
         scored.sort(key=lambda item: float(item.get("relevance_score") or 0.0), reverse=True)
         return scored[: self.DEFAULT_LIMITS["max_keyword_overview_keywords"]]
