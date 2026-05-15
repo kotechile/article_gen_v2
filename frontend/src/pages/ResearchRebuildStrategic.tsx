@@ -771,7 +771,7 @@ export function ResearchRebuildStrategicPage() {
                         <div>
                             <div className="text-xs uppercase tracking-[0.35em] text-sky-300/70">Step 2</div>
                             <h2 className="mt-2 text-2xl font-semibold">Review article-angle bets and screening</h2>
-                            <p className="mt-2 text-sm text-slate-300">Only the most article-friendly bets should survive into competitor mining and cluster selection.</p>
+                            <p className="mt-2 text-sm text-slate-300">The engine now tries to reach article opportunities faster by probing SERPs, picking the best competitor URLs, and qualifying their ranked keywords before final cluster selection.</p>
                         </div>
                         {runDetail ? (
                             <div className="flex flex-wrap gap-2">
@@ -791,11 +791,11 @@ export function ResearchRebuildStrategicPage() {
                             </div>
                             <div>
                                 <div className="font-medium text-white">2. Each bet gets probe queries</div>
-                                <p className="mt-1">The app creates 1 to 2 Google-style probe queries for each bet, then checks Trends and the top SERP to see whether Google rewards article-style content for that angle.</p>
+                                <p className="mt-1">The app creates 1 to 2 literal probe queries for each angle, checks the SERP, and then pulls the top competitor article URLs instead of expanding a giant keyword list first.</p>
                             </div>
                             <div>
                                 <div className="font-medium text-white">3. Survived vs. killed</div>
-                                <p className="mt-1"><span className="text-emerald-300">Survived bets</span> passed the articleability screen and can move to competitor mining. <span className="text-rose-300">Killed bets</span> looked too weak, too tool-heavy, or too mismatched for an article, so they stop here.</p>
+                                <p className="mt-1"><span className="text-emerald-300">Survived bets</span> earned competitor URL mining and keyword qualification. <span className="text-rose-300">Killed bets</span> looked too weak, too tool-heavy, or too mismatched for an article, so they stop here.</p>
                             </div>
                         </div>
                     </div>

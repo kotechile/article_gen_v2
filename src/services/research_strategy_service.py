@@ -47,13 +47,13 @@ class ResearchStrategyService(ResearchRebuildBaseService):
     keyword_clusters_table = "research_keyword_clusters"
 
     DEFAULT_LIMITS = {
-        "max_bets": 10,
+        "max_bets": 5,
         "max_trend_batches": 2,
         "max_probe_queries_per_bet": 2,
         "max_surviving_bets": 3,
-        "max_competitor_urls_per_bet": 3,
+        "max_competitor_urls_per_bet": 2,
         "max_ranked_keywords_calls": 15,
-        "max_keyword_overview_keywords": 100,
+        "max_keyword_overview_keywords": 40,
     }
 
     def __init__(
@@ -199,8 +199,10 @@ class ResearchStrategyService(ResearchRebuildBaseService):
             user_id=user_id,
             project_id=project_id,
             run_id=UUID(run["id"]),
+            topic=topic,
             article_bets=article_bets,
             competitor_pages=competitor_pages,
+            force_refresh=force_refresh,
         )
 
         winning_route = "rejected_low_achievability"
@@ -218,14 +220,14 @@ class ResearchStrategyService(ResearchRebuildBaseService):
             selected_cluster_id = best_cluster.get("id")
             current_stage = "cluster_review"
             status = "clustered"
-        elif software_bets:
+        elif software_bets and not article_bets:
             best_bet = max(software_bets, key=lambda item: float(item.get("serp_articleability_score") or 0.0))
             winning_route = "software_ready"
             confidence_score = float(best_bet.get("serp_articleability_score") or 0.55)
             selected_bet_id = best_bet.get("id")
             current_stage = "cluster_review"
             status = "clustered"
-        elif editorial_bets:
+        elif editorial_bets and not article_bets:
             best_bet = max(editorial_bets, key=lambda item: float(item.get("trend_score") or 0.0))
             winning_route = "editorial_only"
             confidence_score = float(best_bet.get("trend_score") or 0.55)
@@ -638,9 +640,10 @@ Return valid JSON:
 }}
 
 Rules:
-- Generate 6-10 non-duplicate angle bets.
+- Generate 3-5 non-duplicate SERP test angles.
+- Each bet should feel like a realistic article or guide angle someone would search for.
 - Bets must be narrower than the original topic.
-- Prefer article-angle phrasing, but mark software or editorial when the SERP is likely to want a tool or strategic commentary.
+- Prefer article-angle phrasing first. Only mark software when the topic clearly implies a repeated workflow or tool.
 - Keep bet_text short, concrete, and searchable.
 
 Website context:
@@ -707,7 +710,8 @@ Return valid JSON:
 Rules:
 - Generate 1 or 2 Google-like probe queries.
 - Queries must test whether a SERP would support an article around the bet.
-- Keep each query short and literal.
+- Make them literal search phrases, not creative headlines.
+- Prefer direct query formulations that would surface strong competitor article URLs quickly.
 
 Bet:
 - {bet.get("bet_text")}
@@ -856,8 +860,15 @@ Bet:
             route_hint = str(bet.get("route_hint") or "article")
             bet_status = "killed"
             reason_codes = list(best_classification.get("reason_codes") or [])
-            if best_classification.get("articleability_passed"):
+            article_score = float(best_classification.get("articleability_score") or 0.0)
+            if best_classification.get("articleability_passed") or (
+                best_classification.get("classification") == "mixed"
+                and article_score >= 0.4
+                and float(best_classification.get("serp_weakness_score") or 0.0) >= 0.3
+            ):
                 bet_status = "survived"
+                if not reason_codes:
+                    reason_codes = ["article_candidate"]
             elif best_classification.get("classification") == "tool_dominant" or route_hint == "software":
                 bet_status = "survived"
                 reason_codes = ["software_serp"]
@@ -881,7 +892,11 @@ Bet:
             )
             if not updated:
                 continue
-            if best_classification.get("articleability_passed"):
+            if best_classification.get("articleability_passed") or (
+                best_classification.get("classification") == "mixed"
+                and article_score >= 0.4
+                and float(best_classification.get("serp_weakness_score") or 0.0) >= 0.3
+            ):
                 article_bets.append(updated)
             elif best_classification.get("classification") == "tool_dominant" or route_hint == "software":
                 software_bets.append(updated)
@@ -993,8 +1008,10 @@ Bet:
         user_id: UUID,
         project_id: UUID,
         run_id: UUID,
+        topic: Dict[str, Any],
         article_bets: List[Dict[str, Any]],
         competitor_pages: List[Dict[str, Any]],
+        force_refresh: bool,
     ) -> List[Dict[str, Any]]:
         pages_by_bet: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         for page in competitor_pages:
@@ -1019,7 +1036,28 @@ Bet:
                     if not isinstance(item, dict):
                         continue
                     harvested_keywords.append({**item, "source_url": page.get("url")})
-            clusters = self._cluster_keywords(harvested_keywords)
+            shortlisted_keywords = self._qualify_competitor_keywords(
+                topic_text=str(topic.get("job_text") or ""),
+                bet_text=str(bet.get("bet_text") or ""),
+                rows=harvested_keywords,
+            )
+            if not shortlisted_keywords:
+                continue
+            overview_search = await self.dataforseo_search_service.run_search(
+                user_id=user_id,
+                project_id=project_id,
+                user_job_id=UUID(str(topic["id"])),
+                primary_category_id=None,
+                secondary_category_id=None,
+                search_type="keyword_overview",
+                keywords=[str(row.get("keyword") or "").strip() for row in shortlisted_keywords[: self.DEFAULT_LIMITS["max_keyword_overview_keywords"]] if str(row.get("keyword") or "").strip()],
+                cache_ttl_days=30,
+                force_refresh=force_refresh,
+            )
+            overview_items = (overview_search.get("result_summary_json") or {}).get("top_items") or []
+            qualified_rows = self._merge_keyword_overview_metrics(shortlisted_keywords, overview_items)
+            qualified_rows = self._filter_really_competitive_keywords(qualified_rows)
+            clusters = self._cluster_keywords(qualified_rows)
             for cluster in clusters:
                 row = await self.supabase_service.create(
                     self.keyword_clusters_table,
@@ -1051,6 +1089,8 @@ Bet:
                         "cluster_metadata": {
                             "keyword_count": cluster["keyword_count"],
                             "median_rank": cluster["median_rank"],
+                            "qualified_keyword_count": len(qualified_rows),
+                            "overview_search_id": overview_search.get("id") if overview_search else None,
                         },
                     },
                     user_id=user_id,
@@ -1302,7 +1342,12 @@ Bet:
                 "competition_values": [],
                 "ranks": [],
             })
-            bucket["keywords"].append(keyword)
+            bucket["keywords"].append({
+                "keyword": keyword,
+                "search_volume": row.get("search_volume"),
+                "keyword_difficulty": row.get("keyword_difficulty"),
+                "rank_group": row.get("rank_group"),
+            })
             if row.get("source_url"):
                 bucket["supporting_urls"].add(str(row.get("source_url")))
             if row.get("keyword_difficulty") is not None:
@@ -1327,10 +1372,28 @@ Bet:
                     pass
         clusters: List[Dict[str, Any]] = []
         for bucket_key, bucket in buckets.items():
-            keywords = list(dict.fromkeys(bucket["keywords"]))
-            if len(keywords) < 2:
+            keyword_entries: List[Dict[str, Any]] = []
+            seen_keywords = set()
+            for item in bucket["keywords"]:
+                key = str(item.get("keyword") or "").lower()
+                if not key or key in seen_keywords:
+                    continue
+                seen_keywords.add(key)
+                keyword_entries.append(item)
+            if len(keyword_entries) < 2:
                 continue
-            primary = sorted(keywords, key=len)[0]
+            keyword_entries = sorted(
+                keyword_entries,
+                key=lambda item: (
+                    float(item.get("search_volume") or 0.0),
+                    -float(item.get("keyword_difficulty") or 100.0),
+                    -float(item.get("rank_group") or 99.0),
+                    -len(str(item.get("keyword") or "")),
+                ),
+                reverse=True,
+            )
+            primary = str(keyword_entries[0].get("keyword") or "")
+            keywords = [str(item.get("keyword") or "") for item in keyword_entries if str(item.get("keyword") or "")]
             support_count = len(bucket["supporting_urls"])
             competitor_support_score = max(0.0, min(1.0, (support_count / 3.0) * 0.7 + (min(len(keywords), 10) / 10.0) * 0.3))
             kd_median = median(bucket["kd_values"]) if bucket["kd_values"] else 45.0
@@ -1350,6 +1413,102 @@ Bet:
                 "median_rank": round(median(bucket["ranks"]), 2) if bucket["ranks"] else None,
             })
         return sorted(clusters, key=lambda item: (item["competitor_support_score"], item["commercial_value_score"]), reverse=True)
+
+    def _qualify_competitor_keywords(
+        self,
+        *,
+        topic_text: str,
+        bet_text: str,
+        rows: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        scored: List[Dict[str, Any]] = []
+        topic_tokens = {token for token in re.findall(r"[a-z0-9]+", topic_text.lower()) if token not in STOPWORDS and len(token) > 2}
+        bet_tokens = {token for token in re.findall(r"[a-z0-9]+", bet_text.lower()) if token not in STOPWORDS and len(token) > 2}
+        anchor_tokens = topic_tokens | bet_tokens
+        for row in rows:
+            keyword = str(row.get("keyword") or "").strip()
+            if not keyword:
+                continue
+            keyword_tokens = {token for token in re.findall(r"[a-z0-9]+", keyword.lower()) if token not in STOPWORDS and len(token) > 2}
+            if not keyword_tokens:
+                continue
+            overlap = len(anchor_tokens & keyword_tokens)
+            intent = str(row.get("intent") or "").lower()
+            search_volume = float(row.get("search_volume") or 0.0)
+            rank_group = float(row.get("rank_group") or 99.0)
+            kd = float(row.get("keyword_difficulty") or 100.0)
+            if overlap == 0:
+                continue
+            if search_volume < 20:
+                continue
+            if rank_group > 25:
+                continue
+            if intent in {"navigational"}:
+                continue
+            if kd > 70:
+                continue
+            relevance_score = (
+                min(1.0, overlap / max(1, min(len(keyword_tokens), 3))) * 0.45
+                + min(1.0, search_volume / 500.0) * 0.2
+                + max(0.0, 1.0 - (rank_group / 25.0)) * 0.2
+                + max(0.0, 1.0 - (kd / 100.0)) * 0.15
+            )
+            scored.append({
+                **row,
+                "relevance_score": round(relevance_score, 4),
+            })
+        scored.sort(key=lambda item: float(item.get("relevance_score") or 0.0), reverse=True)
+        return scored[: self.DEFAULT_LIMITS["max_keyword_overview_keywords"]]
+
+    def _merge_keyword_overview_metrics(
+        self,
+        ranked_rows: List[Dict[str, Any]],
+        overview_rows: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        overview_map = {
+            str(item.get("keyword") or "").strip().lower(): item
+            for item in (overview_rows or [])
+            if str(item.get("keyword") or "").strip()
+        }
+        merged: List[Dict[str, Any]] = []
+        for row in ranked_rows:
+            keyword = str(row.get("keyword") or "").strip()
+            if not keyword:
+                continue
+            overview = overview_map.get(keyword.lower(), {})
+            merged.append({
+                **row,
+                "search_volume": overview.get("search_volume", row.get("search_volume")),
+                "cpc": overview.get("cpc", row.get("cpc")),
+                "competition": overview.get("competition", row.get("competition")),
+                "competition_index": overview.get("competition_index", row.get("competition_index")),
+                "keyword_difficulty": overview.get("keyword_difficulty", row.get("keyword_difficulty")),
+                "intent": overview.get("intent", row.get("intent")),
+            })
+        return merged
+
+    def _filter_really_competitive_keywords(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        qualified: List[Dict[str, Any]] = []
+        for row in rows:
+            search_volume = float(row.get("search_volume") or 0.0)
+            kd = float(row.get("keyword_difficulty") or 100.0)
+            competition_index = float(row.get("competition_index") or 0.0)
+            intent = str(row.get("intent") or "").lower()
+            if search_volume < 30:
+                continue
+            if kd > 55:
+                continue
+            if intent not in {"informational", "commercial", "transactional", "commercial_investigation", ""}:
+                continue
+            score = (
+                max(0.0, 1.0 - (kd / 100.0)) * 0.45
+                + min(1.0, search_volume / 500.0) * 0.3
+                + min(1.0, competition_index) * 0.1
+                + float(row.get("relevance_score") or 0.0) * 0.15
+            )
+            qualified.append({**row, "qualification_score": round(score, 4)})
+        qualified.sort(key=lambda item: float(item.get("qualification_score") or 0.0), reverse=True)
+        return qualified[:25]
 
     def _compute_cluster_opportunity_score(
         self,
