@@ -533,6 +533,16 @@ class ResearchRebuildService {
             throw new Error(this.extractErrorMessage(error, 'Failed to select cluster.'))
         }
     }
+
+    async dismissStrategyRun(runId: string, payload?: {
+        reason?: string
+    }): Promise<ResearchStrategyRunDetail> {
+        try {
+            return await apiClient.post(`${this.baseUrl}/strategy-runs/${runId}/dismiss`, payload || {})
+        } catch (error) {
+            throw new Error(this.extractErrorMessage(error, 'Failed to dismiss strategy run.'))
+        }
+    }
 }
 
 export const researchRebuildService = new ResearchRebuildService()

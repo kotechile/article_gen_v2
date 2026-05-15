@@ -1475,6 +1475,34 @@ def rerun_strategy_stage(run_id: str):
         return jsonify({"error": f"Failed to rerun strategy stage: {exc}"}), 500
 
 
+@research_rebuild_bp.route("/strategy-runs/<run_id>/dismiss", methods=["POST"])
+@require_api_key
+def dismiss_strategy_run(run_id: str):
+    """Mark a strategic opportunity as not worth pursuing right now."""
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 400
+
+    data = request.get_json() or {}
+    user_id = _get_user_id_from_request()
+    if not user_id:
+        return jsonify({"error": "Authentication required"}), 401
+
+    try:
+        item = asyncio.run(
+            strategy_service.dismiss_run(
+                user_id=UUID(user_id),
+                run_id=_parse_uuid(run_id, "run_id"),
+                reason=str(data.get("reason") or "").strip() or None,
+            )
+        )
+        return jsonify(item), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("research-rebuild dismiss strategy run failed: %s", exc, exc_info=True)
+        return jsonify({"error": f"Failed to dismiss strategy run: {exc}"}), 500
+
+
 @research_rebuild_bp.route("/validation-runs", methods=["GET"])
 @require_api_key
 def list_validation_runs():

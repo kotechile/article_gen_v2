@@ -71,7 +71,7 @@ export function ResearchRebuildStrategicPage() {
     const [isRemovingTopic, setIsRemovingTopic] = React.useState<string | null>(null)
     const [error, setError] = React.useState<string | null>(null)
     const [success, setSuccess] = React.useState<string | null>(null)
-    const [mutatingOutcomeAction, setMutatingOutcomeAction] = React.useState<'release' | 'persist' | null>(null)
+    const [mutatingOutcomeAction, setMutatingOutcomeAction] = React.useState<'release' | 'persist' | 'dismiss' | null>(null)
 
     const projectId = searchParams.get('project_id') || activeProject?.id || ''
 
@@ -445,6 +445,23 @@ export function ResearchRebuildStrategicPage() {
             : 'Lock cluster and generate output'
     const generatedOutcome = runDetail?.final_selection?.generated_outcome || null
     const generatedOutcomeId = generatedOutcome?.id ? String(generatedOutcome.id) : null
+    const isDismissed = String(runDetail?.run.status || '') === 'dismissed'
+    const softwareName = String(finalOutcome?.product_name || finalOutcome?.title || selectedBet?.bet_text || 'Untitled software concept')
+    const softwareSearchAngle = String(finalOutcome?.primary_keyword || '')
+    const softwareKeywords = Array.isArray(finalOutcome?.secondary_keywords) ? finalOutcome.secondary_keywords.map(String) : []
+    const softwareCoreWorkflow = Array.isArray(finalOutcome?.core_workflow) ? finalOutcome.core_workflow.map(String) : []
+    const softwareFeatures = Array.isArray(finalOutcome?.key_features) ? finalOutcome.key_features.map(String) : []
+    const softwareInputs = Array.isArray(finalOutcome?.inputs) ? finalOutcome.inputs.map(String) : []
+    const softwareOutputs = Array.isArray(finalOutcome?.outputs) ? finalOutcome.outputs.map(String) : []
+    const softwareMvpScope = Array.isArray(finalOutcome?.mvp_scope) ? finalOutcome.mvp_scope.map(String) : []
+    const hasDetailedSoftwareSpec = Boolean(
+        String(finalOutcome?.software_concept || '').trim()
+        || softwareCoreWorkflow.length
+        || softwareFeatures.length
+        || softwareInputs.length
+        || softwareOutputs.length
+        || softwareMvpScope.length,
+    )
 
     const handleReleaseSoftwareIdea = async () => {
         if (!generatedOutcomeId) return
@@ -486,6 +503,25 @@ export function ResearchRebuildStrategicPage() {
             setSuccess('Outcome sent to Content Studio.')
         } catch (persistError) {
             setError(persistError instanceof Error ? persistError.message : 'Failed to send outcome to Content Studio.')
+        } finally {
+            setMutatingOutcomeAction(null)
+        }
+    }
+
+    const handleDismissRun = async () => {
+        if (!runDetail) return
+        setMutatingOutcomeAction('dismiss')
+        setError(null)
+        setSuccess(null)
+        try {
+            const refreshed = await researchRebuildService.dismissStrategyRun(runDetail.run.id, {
+                reason: 'not_pursuing',
+            })
+            setRunDetail(refreshed)
+            await loadTopicsAndRuns()
+            setSuccess('Marked as not pursuing. You can rerun the strategy later if you want to revisit it.')
+        } catch (dismissError) {
+            setError(dismissError instanceof Error ? dismissError.message : 'Failed to mark this opportunity as not pursuing.')
         } finally {
             setMutatingOutcomeAction(null)
         }
@@ -829,14 +865,24 @@ export function ResearchRebuildStrategicPage() {
                                         : 'The final decision is cluster-first: choose the angle with the best SERP fit, competitor support, and commercial depth.'}
                             </p>
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => handleSelectCluster()}
-                            disabled={!canFinalizeSelection || isLoading}
-                            className="rounded-2xl bg-emerald-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            {finalizeLabel}
-                        </button>
+                        <div className="flex flex-wrap items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={handleDismissRun}
+                                disabled={!runDetail || mutatingOutcomeAction !== null}
+                                className="rounded-2xl border border-slate-600 bg-slate-900 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-rose-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {mutatingOutcomeAction === 'dismiss' ? 'Marking as not pursuing…' : 'Not pursuing this'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSelectCluster()}
+                                disabled={!canFinalizeSelection || isLoading || isDismissed}
+                                className="rounded-2xl bg-emerald-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {finalizeLabel}
+                            </button>
+                        </div>
                     </div>
 
                     {runDetail ? (
@@ -906,11 +952,16 @@ export function ResearchRebuildStrategicPage() {
                                 <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Final output</div>
                                 {finalOutcome ? (
                                     <div className="mt-4">
-                                        <h3 className="text-2xl font-semibold text-white">{String(finalOutcome.title || 'Untitled output')}</h3>
+                                        <h3 className="text-2xl font-semibold text-white">{isSoftwareRoute ? softwareName : String(finalOutcome.title || 'Untitled output')}</h3>
                                         {isSoftwareRoute ? (
                                             <>
+                                                {isDismissed ? (
+                                                    <div className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
+                                                        This opportunity is marked as not pursuing right now. You can still review it here or rerun the strategy later.
+                                                    </div>
+                                                ) : null}
                                                 <div className="mt-3 text-base text-slate-200">
-                                                    {String(finalOutcome.software_concept || finalOutcome.description || '')}
+                                                    {String(finalOutcome.software_concept || finalOutcome.description || finalOutcome.rationale || '')}
                                                 </div>
                                                 <div className="mt-4 grid gap-3 text-sm text-slate-300 lg:grid-cols-2">
                                                     <div>
@@ -920,70 +971,94 @@ export function ResearchRebuildStrategicPage() {
                                                         Slug: <span className="font-mono text-slate-100">{String(finalOutcome.slug || '')}</span>
                                                     </div>
                                                 </div>
+                                                {softwareSearchAngle ? (
+                                                    <div className="mt-3 text-sm text-slate-300">
+                                                        Search angle: <span className="font-medium text-white">{softwareSearchAngle}</span>
+                                                    </div>
+                                                ) : null}
                                                 <div className="mt-3 text-sm text-slate-300">
                                                     User problem: <span className="text-white">{String(finalOutcome.user_problem || '')}</span>
                                                 </div>
                                                 <div className="mt-4 flex flex-wrap gap-2">
-                                                    {Array.isArray(finalOutcome.secondary_keywords) ? finalOutcome.secondary_keywords.map((keyword) => (
+                                                    {softwareKeywords.map((keyword) => (
                                                         <span key={String(keyword)} className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200">
                                                             {String(keyword)}
                                                         </span>
-                                                    )) : null}
+                                                    ))}
                                                 </div>
-                                                <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                                                    <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
-                                                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Core workflow</div>
+                                                {!hasDetailedSoftwareSpec ? (
+                                                    <div className="mt-5 rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-4 py-4 text-sm text-slate-400">
+                                                        This software result is still too thin. Regenerate the software output to get a fuller product workflow, feature set, inputs, outputs, and MVP scope.
+                                                    </div>
+                                                ) : null}
+                                                {softwareCoreWorkflow.length || softwareFeatures.length ? (
+                                                    <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                                                        {softwareCoreWorkflow.length ? (
+                                                            <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
+                                                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Core workflow</div>
+                                                                <ul className="mt-3 grid gap-2 text-sm text-slate-200">
+                                                                    {softwareCoreWorkflow.map((item) => (
+                                                                        <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
+                                                                            {String(item)}
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            </div>
+                                                        ) : null}
+                                                        {softwareFeatures.length ? (
+                                                            <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
+                                                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Key features</div>
+                                                                <ul className="mt-3 grid gap-2 text-sm text-slate-200">
+                                                                    {softwareFeatures.map((item) => (
+                                                                        <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
+                                                                            {String(item)}
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                ) : null}
+                                                {softwareInputs.length || softwareOutputs.length ? (
+                                                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                                                        {softwareInputs.length ? (
+                                                            <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
+                                                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Inputs</div>
+                                                                <ul className="mt-3 grid gap-2 text-sm text-slate-200">
+                                                                    {softwareInputs.map((item) => (
+                                                                        <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
+                                                                            {String(item)}
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            </div>
+                                                        ) : null}
+                                                        {softwareOutputs.length ? (
+                                                            <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
+                                                                <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Outputs</div>
+                                                                <ul className="mt-3 grid gap-2 text-sm text-slate-200">
+                                                                    {softwareOutputs.map((item) => (
+                                                                        <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
+                                                                            {String(item)}
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                ) : null}
+                                                {softwareMvpScope.length ? (
+                                                    <div className="mt-4 rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
+                                                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">MVP scope</div>
                                                         <ul className="mt-3 grid gap-2 text-sm text-slate-200">
-                                                            {Array.isArray(finalOutcome.core_workflow) ? finalOutcome.core_workflow.map((item) => (
+                                                            {softwareMvpScope.map((item) => (
                                                                 <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
                                                                     {String(item)}
                                                                 </li>
-                                                            )) : null}
+                                                            ))}
                                                         </ul>
                                                     </div>
-                                                    <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
-                                                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Key features</div>
-                                                        <ul className="mt-3 grid gap-2 text-sm text-slate-200">
-                                                            {Array.isArray(finalOutcome.key_features) ? finalOutcome.key_features.map((item) => (
-                                                                <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
-                                                                    {String(item)}
-                                                                </li>
-                                                            )) : null}
-                                                        </ul>
-                                                    </div>
-                                                </div>
-                                                <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                                                    <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
-                                                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Inputs</div>
-                                                        <ul className="mt-3 grid gap-2 text-sm text-slate-200">
-                                                            {Array.isArray(finalOutcome.inputs) ? finalOutcome.inputs.map((item) => (
-                                                                <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
-                                                                    {String(item)}
-                                                                </li>
-                                                            )) : null}
-                                                        </ul>
-                                                    </div>
-                                                    <div className="rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
-                                                        <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Outputs</div>
-                                                        <ul className="mt-3 grid gap-2 text-sm text-slate-200">
-                                                            {Array.isArray(finalOutcome.outputs) ? finalOutcome.outputs.map((item) => (
-                                                                <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
-                                                                    {String(item)}
-                                                                </li>
-                                                            )) : null}
-                                                        </ul>
-                                                    </div>
-                                                </div>
-                                                <div className="mt-4 rounded-2xl border border-slate-700 bg-[#0d1320] p-4">
-                                                    <div className="text-xs uppercase tracking-[0.28em] text-slate-400">MVP scope</div>
-                                                    <ul className="mt-3 grid gap-2 text-sm text-slate-200">
-                                                        {Array.isArray(finalOutcome.mvp_scope) ? finalOutcome.mvp_scope.map((item) => (
-                                                            <li key={String(item)} className="rounded-xl border border-slate-700 bg-[#131a29] px-3 py-2">
-                                                                {String(item)}
-                                                            </li>
-                                                        )) : null}
-                                                    </ul>
-                                                </div>
+                                                ) : null}
                                                 <div className="mt-4 rounded-2xl border border-slate-700 bg-[#0d1320] p-4 text-sm text-slate-300">
                                                     <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Build notes</div>
                                                     <div className="mt-2">{String(finalOutcome.build_notes || finalOutcome.rationale || '')}</div>
@@ -1026,7 +1101,7 @@ export function ResearchRebuildStrategicPage() {
                                                     <button
                                                         type="button"
                                                         onClick={handleReleaseSoftwareIdea}
-                                                        disabled={!generatedOutcomeId || mutatingOutcomeAction !== null}
+                                                        disabled={!generatedOutcomeId || mutatingOutcomeAction !== null || isDismissed}
                                                         className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
                                                     >
                                                         {mutatingOutcomeAction === 'release' ? 'Sending to Software Ideas…' : 'Send to Software Ideas'}
@@ -1034,7 +1109,7 @@ export function ResearchRebuildStrategicPage() {
                                                     <button
                                                         type="button"
                                                         onClick={handleSendToContentStudio}
-                                                        disabled={!generatedOutcomeId || mutatingOutcomeAction !== null}
+                                                        disabled={!generatedOutcomeId || mutatingOutcomeAction !== null || isDismissed}
                                                         className="rounded-2xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
                                                     >
                                                         {mutatingOutcomeAction === 'persist' ? 'Sending to Content Studio…' : 'Send to Content Studio'}

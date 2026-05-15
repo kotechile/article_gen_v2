@@ -292,6 +292,36 @@ class ResearchStrategyService(ResearchRebuildBaseService):
             force_refresh=force_refresh,
         )
 
+    async def dismiss_run(
+        self,
+        *,
+        user_id: UUID,
+        run_id: UUID,
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        run = await self.get_record(record_id=run_id, user_id=user_id)
+        if not run:
+            raise ValueError("Run not found")
+
+        metadata = dict(run.get("run_metadata") or {})
+        metadata["user_decision"] = "not_pursuing"
+        metadata["dismissed_at"] = datetime.now(timezone.utc).isoformat()
+        if reason:
+            metadata["dismissal_reason"] = reason
+
+        updated_run = await self.update_record(
+            record_id=run_id,
+            user_id=user_id,
+            data={
+                "status": "dismissed",
+                "current_stage": "dismissed",
+                "run_metadata": metadata,
+            },
+        )
+        if not updated_run:
+            raise ValueError("Failed to dismiss strategy run")
+        return await self._assemble_run_detail(user_id=user_id, run=updated_run)
+
     async def select_cluster(
         self,
         *,
@@ -384,6 +414,13 @@ class ResearchStrategyService(ResearchRebuildBaseService):
             cluster=selected_cluster,
             route=route,
             competitor_urls=selected_cluster.get("supporting_competitor_urls_json") if selected_cluster else [],
+        )
+        final_output = self._normalize_final_output(
+            route=route,
+            output=final_output,
+            topic=topic,
+            bet=bet,
+            cluster=selected_cluster,
         )
 
         candidate_type = "seo_article"
@@ -1088,13 +1125,38 @@ Bet:
             project_id=project_id,
             candidate_id=candidate_id,
         )
+        generated_outcome = generated_outcomes[0] if generated_outcomes else None
+        routing_decision = routing_decisions[0] if routing_decisions else None
+        route = str((routing_decision or {}).get("route") or "")
+        if generated_outcome:
+            metadata = dict(generated_outcome.get("outcome_metadata") or {})
+            strategy_bet_id = str((candidate.get("candidate_metadata") or {}).get("bet_id") or "")
+            related_bet = None
+            if strategy_bet_id:
+                matching_bets = await self.supabase_service.get_by_filters(
+                    self.topic_bets_table,
+                    filters={"id": strategy_bet_id},
+                    user_id=user_id,
+                    limit=1,
+                )
+                related_bet = matching_bets[0] if matching_bets else None
+            generated_outcome = {
+                **generated_outcome,
+                "outcome_metadata": self._normalize_final_output(
+                    route=route,
+                    output=metadata,
+                    topic={},
+                    bet=related_bet,
+                    cluster=None,
+                ),
+            }
 
         return {
             "candidate": candidate,
             "validation_run": validation_runs[0] if validation_runs else None,
-            "routing_decision": routing_decisions[0] if routing_decisions else None,
+            "routing_decision": routing_decision,
             "keyword_pack": keyword_packs[0] if keyword_packs else None,
-            "generated_outcome": generated_outcomes[0] if generated_outcomes else None,
+            "generated_outcome": generated_outcome,
         }
 
     async def _delete_run_artifacts(self, *, user_id: UUID, run_id: UUID, tables: List[str]) -> None:
@@ -1405,6 +1467,125 @@ Competitor URLs: {competitor_urls}
         if not isinstance(response, dict):
             response = {}
         return response
+
+    def _normalize_final_output(
+        self,
+        *,
+        route: str,
+        output: Dict[str, Any],
+        topic: Dict[str, Any],
+        bet: Optional[Dict[str, Any]],
+        cluster: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        if route != "software_ready":
+            return output
+
+        normalized = dict(output or {})
+        product_name = str(normalized.get("product_name") or normalized.get("title") or "").strip()
+        if not product_name or self._is_article_like_title(product_name):
+            product_name = self._derive_software_product_name(
+                bet_text=str((bet or {}).get("bet_text") or ""),
+                topic_text=str((topic or {}).get("job_text") or ""),
+            )
+        if product_name:
+            normalized["product_name"] = product_name
+            normalized["title"] = product_name
+
+        if not str(normalized.get("software_concept") or "").strip():
+            fallback_problem = str((bet or {}).get("searcher_problem") or "").strip()
+            fallback_rationale = str(normalized.get("rationale") or "").strip()
+            normalized["software_concept"] = fallback_problem or fallback_rationale or (
+                "A focused software concept derived from the winning workflow-oriented research bet."
+            )
+
+        if not str(normalized.get("target_user") or "").strip():
+            normalized["target_user"] = "Operators or solo creators managing repeatable multi-step workflows."
+
+        if not str(normalized.get("user_problem") or "").strip():
+            normalized["user_problem"] = str((bet or {}).get("searcher_problem") or "").strip() or str(normalized.get("software_concept") or "").strip()
+
+        if not isinstance(normalized.get("core_workflow"), list):
+            normalized["core_workflow"] = []
+        if not isinstance(normalized.get("key_features"), list):
+            normalized["key_features"] = []
+        if not isinstance(normalized.get("inputs"), list):
+            normalized["inputs"] = []
+        if not isinstance(normalized.get("outputs"), list):
+            normalized["outputs"] = []
+        if not isinstance(normalized.get("mvp_scope"), list):
+            normalized["mvp_scope"] = []
+
+        if not normalized["core_workflow"]:
+            normalized["core_workflow"] = [
+                "Connect the source content or workflow trigger.",
+                "Choose the channels or downstream apps to target.",
+                "Generate or transform the outputs with an agentic automation layer.",
+                "Review, approve, and publish the results without repetitive manual steps.",
+            ]
+        if not normalized["key_features"]:
+            normalized["key_features"] = [
+                "Cross-app workflow orchestration",
+                "Template-driven output generation",
+                "Human approval before publishing",
+                "Reusable automation presets by use case",
+            ]
+        if not normalized["inputs"]:
+            normalized["inputs"] = [
+                "Source asset or workflow payload",
+                "Distribution targets and user preferences",
+            ]
+        if not normalized["outputs"]:
+            normalized["outputs"] = [
+                "Ready-to-publish transformed outputs",
+                "A reusable workflow run with status and revision trail",
+            ]
+        if not normalized["mvp_scope"]:
+            normalized["mvp_scope"] = [
+                "One core workflow with 2-3 downstream destinations",
+                "Simple approval and edit layer",
+                "Reusable prompt and transformation templates",
+            ]
+
+        if not str(normalized.get("build_notes") or "").strip():
+            normalized["build_notes"] = (
+                "Start with a narrow MVP that handles one high-frequency workflow end to end, "
+                "then expand destination support and automation templates after validating repeat usage."
+            )
+
+        if not str(normalized.get("slug") or "").strip() and product_name:
+            normalized["slug"] = re.sub(r"[^a-z0-9]+", "-", product_name.lower()).strip("-")
+
+        primary_keyword = str(normalized.get("primary_keyword") or "").strip()
+        if not primary_keyword:
+            primary_keyword = str((cluster or {}).get("primary_keyword_candidate") or "").strip()
+        if not primary_keyword:
+            primary_keyword = str((bet or {}).get("bet_text") or "").strip().lower()
+        normalized["primary_keyword"] = primary_keyword
+
+        secondary_keywords = normalized.get("secondary_keywords")
+        if not isinstance(secondary_keywords, list):
+            secondary_keywords = []
+        normalized["secondary_keywords"] = [str(item).strip() for item in secondary_keywords if str(item).strip()]
+        return normalized
+
+    def _is_article_like_title(self, value: str) -> bool:
+        lowered = value.lower()
+        return any(
+            token in lowered
+            for token in [" vs. ", " vs ", "guide", "choosing", "should ", "best ", "how ", ":"]
+        )
+
+    def _derive_software_product_name(self, *, bet_text: str, topic_text: str) -> str:
+        source = bet_text or topic_text or "Workflow Opportunity"
+        lowered = source.lower()
+        if "repurpos" in lowered:
+            return "RepurposeFlow AI"
+        if "crm" in lowered:
+            return "FollowUp Agent"
+        if "domain" in lowered:
+            return "DomainSignal AI"
+        tokens = [token.capitalize() for token in re.findall(r"[A-Za-z0-9]+", source) if token.lower() not in STOPWORDS]
+        return "".join(tokens[:2]) + (" AI" if tokens else "Workflow AI")
 
     def _build_serp_rationale(self, bet: Optional[Dict[str, Any]], cluster: Optional[Dict[str, Any]]) -> str:
         if not bet:
