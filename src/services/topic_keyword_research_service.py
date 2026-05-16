@@ -114,6 +114,7 @@ class TopicKeywordResearchService:
         "ranked_keywords_per_page": 35,
         "expansion_seed_limit": 8,
         "expansion_keywords_per_seed": 20,
+        "research_scope": "focused",
     }
 
     DEFAULT_SCORE_CONFIG = {
@@ -186,6 +187,7 @@ class TopicKeywordResearchService:
                     clusters=[],
                     seed_package=seed_package,
                     serp_gate=serp_gate,
+                    filters=filters,
                 )
                 self._update_run(
                     run_id=run_id,
@@ -244,6 +246,7 @@ class TopicKeywordResearchService:
                 clusters=clusters,
                 seed_package=seed_package,
                 serp_gate=serp_gate,
+                filters=filters,
             )
             self._update_run(
                 run_id=run_id,
@@ -978,7 +981,7 @@ QUESTION:: query text
                     ),
                     "probe_queries": probe_queries[:3],
                 }
-                if self._passes_keyword_harvest_filters(candidate, topic_context=topic_context):
+                if self._passes_keyword_harvest_filters(candidate, topic_context=topic_context, filters=filters):
                     harvested_rows.append(candidate)
 
         expansion_seed_rows = self._select_expansion_seed_rows(
@@ -1012,7 +1015,7 @@ QUESTION:: query text
                     "source_urls": list((seed_row.get("trend_json") or {}).get("source_urls") or []),
                     "source_domains": list((seed_row.get("trend_json") or {}).get("source_domains") or []),
                 }
-                if self._passes_keyword_harvest_filters(candidate, topic_context=topic_context):
+                if self._passes_keyword_harvest_filters(candidate, topic_context=topic_context, filters=filters):
                     harvested_rows.append(candidate)
 
         return harvested_rows, raw_data
@@ -1164,6 +1167,7 @@ QUESTION:: query text
                 canonical,
                 topic_context,
                 topic_components=topic_components,
+                research_scope=str(filters.get("research_scope") or "focused"),
             )
             row["trend_json"] = {
                 "validation_mode": "serp_probe_competitor_v2",
@@ -1192,11 +1196,13 @@ QUESTION:: query text
         row: Dict[str, Any],
         *,
         topic_context: Dict[str, Any],
+        filters: Optional[Dict[str, Any]] = None,
     ) -> bool:
         keyword = str(row.get("keyword") or "").strip()
         canonical = self._normalize_keyword_key(keyword)
         if not canonical:
             return False
+        research_scope = str((filters or {}).get("research_scope") or "focused").lower().strip()
         tokens = canonical.split()
         if len(tokens) < 2 or len(tokens) > 8:
             return False
@@ -1206,7 +1212,11 @@ QUESTION:: query text
             return False
         if self._keyword_contains_brand(keyword, topic_context):
             return False
-        if self._anchor_overlap_count(canonical, self._topic_anchor_terms(topic_context)) <= 0:
+        anchor_overlap = self._anchor_overlap_count(canonical, self._topic_anchor_terms(topic_context))
+        if research_scope == "expanded":
+            if anchor_overlap <= 0 and self._category_neighborhood_overlap_count(canonical, topic_context) <= 0:
+                return False
+        elif anchor_overlap <= 0:
             return False
         if self._is_service_or_ecommerce_page(str(row.get("url") or ""), str(row.get("title") or "")):
             return False
@@ -1541,6 +1551,7 @@ QUESTION:: query text
         clusters: List[Dict[str, Any]],
         seed_package: Optional[Dict[str, Any]] = None,
         serp_gate: Optional[Dict[str, Any]] = None,
+        filters: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         filtered_out = [row for row in candidate_rows if row.get("is_filtered_out")]
         active = [row for row in candidate_rows if not row.get("is_filtered_out")]
@@ -1571,6 +1582,7 @@ QUESTION:: query text
             "seed_count": len(seed_keywords),
             "probe_count": len((seed_package or {}).get("probe_queries") or seed_keywords),
             "seed_generation_mode": (seed_package or {}).get("generation_mode") or "serp_probe_v2",
+            "research_scope": str((filters or {}).get("research_scope") or "focused"),
             "llm_seed_count": len((seed_package or {}).get("llm_seeds") or []),
             "deterministic_seed_count": len((seed_package or {}).get("deterministic_seeds") or []),
             "llm_parse_strategy": (seed_package or {}).get("llm_parse_strategy"),
@@ -1610,6 +1622,7 @@ QUESTION:: query text
     ) -> tuple[bool, Optional[str]]:
         keyword = (row.get("keyword") or "").lower().strip()
         canonical = row.get("canonical_keyword") or ""
+        research_scope = str(filters.get("research_scope") or "focused").lower().strip()
         if not canonical or len(self._token_set(canonical)) < 2:
             return True, "not_specific_enough"
 
@@ -1624,20 +1637,24 @@ QUESTION:: query text
         core_anchor_terms = self._core_topic_anchor_terms(topic_context)
         expanded_anchor_terms = self._topic_anchor_terms(topic_context, topic_components=topic_components)
         anchor_overlap = self._anchor_overlap_count(canonical, core_anchor_terms)
+        neighborhood_overlap = self._category_neighborhood_overlap_count(canonical, topic_context)
         if core_anchor_terms and anchor_overlap <= 0:
-            return True, "missing_topic_anchor"
+            if research_scope != "expanded" or neighborhood_overlap <= 0:
+                return True, "missing_topic_anchor"
         anchor_coverage = self._anchor_coverage_ratio(canonical, core_anchor_terms)
         keyword_token_count = max(1, len(self._token_set(canonical)))
         if core_anchor_terms and (
             anchor_coverage < 0.34
             or (anchor_overlap <= 1 and keyword_token_count >= 4)
         ):
-            return True, "weak_topic_anchor"
+            if research_scope != "expanded" or neighborhood_overlap <= 0:
+                return True, "weak_topic_anchor"
         if (
             expanded_anchor_terms
             and self._anchor_overlap_count(canonical, expanded_anchor_terms) <= 0
         ):
-            return True, "missing_expanded_topic_anchor"
+            if research_scope != "expanded" or neighborhood_overlap <= 0:
+                return True, "missing_expanded_topic_anchor"
 
         if (
             self._audience_mode(topic_context) == "consumer"
@@ -1693,6 +1710,7 @@ QUESTION:: query text
         keyword: str,
         topic_context: Dict[str, Any],
         topic_components: Optional[List[Dict[str, Any]]] = None,
+        research_scope: str = "focused",
     ) -> float:
         topic = topic_context.get("topic") or {}
         topic_tokens = self._token_set(
@@ -1714,6 +1732,10 @@ QUESTION:: query text
         anchor_coverage = self._anchor_coverage_ratio(keyword, core_anchor_terms)
         expanded_overlap = self._anchor_overlap_count(keyword, expanded_anchor_terms)
         expanded_coverage = self._anchor_coverage_ratio(keyword, expanded_anchor_terms)
+        neighborhood_overlap = self._category_neighborhood_overlap_count(keyword, topic_context)
+        if research_scope == "expanded" and neighborhood_overlap > 0 and anchor_overlap <= 0:
+            anchor_overlap = 1
+            anchor_coverage = max(anchor_coverage, 0.28)
         if core_anchor_terms and anchor_overlap <= 0:
             return 5.0
         if overlap <= 0:
@@ -2558,6 +2580,21 @@ Requirements:
         if not audience_tokens:
             return False
         return len(audience_tokens & context_tokens) >= 2
+
+    def _category_neighborhood_overlap_count(self, keyword: str, topic_context: Dict[str, Any]) -> int:
+        category_terms = self._token_set(
+            " ".join(
+                [
+                    str((topic_context.get("primary_category") or {}).get("name") or ""),
+                    str((topic_context.get("secondary_category") or {}).get("name") or ""),
+                    str((topic_context.get("primary_category") or {}).get("description") or ""),
+                    str((topic_context.get("secondary_category") or {}).get("description") or ""),
+                ]
+            )
+        )
+        if not category_terms:
+            return 0
+        return len(self._token_set(keyword) & category_terms)
 
     def _queryish_fragment(self, text: str, max_words: int = 5) -> str:
         normalized = self._normalize_keyword_key(text)

@@ -35,6 +35,7 @@ type ProjectCategory = {
 type CountryOption = { label: string; locationCode: number }
 type LanguageOption = { label: string; code: string }
 type DeviceOption = 'Desktop' | 'Mobile'
+type ResearchScope = 'focused' | 'expanded'
 
 type ProbePreview = {
     label: 'Practical' | 'ROI' | 'Question'
@@ -231,6 +232,7 @@ export function ResearchRebuildStrategicPage() {
     const [languageLabel, setLanguageLabel] = React.useState<LanguageOption['label']>('English')
     const [searchEngine, setSearchEngine] = React.useState('Google')
     const [device, setDevice] = React.useState<DeviceOption>('Desktop')
+    const [researchScope, setResearchScope] = React.useState<ResearchScope>('focused')
     const [competitorDomain, setCompetitorDomain] = React.useState(searchParams.get('competitor_domain') || '')
     const [allowedTopicsInput, setAllowedTopicsInput] = React.useState(
         'green homes, energy efficiency, resale value, renovation ROI, smart home, solar, insulation, heat pumps',
@@ -497,6 +499,7 @@ export function ResearchRebuildStrategicPage() {
                     target_language: languageLabel,
                     search_engine: searchEngine,
                     device,
+                    research_scope: researchScope,
                 },
             })
             setCurrentTopic(topic)
@@ -506,6 +509,7 @@ export function ResearchRebuildStrategicPage() {
                     target_location_code: selectedCountry.locationCode,
                     target_language_code: selectedLanguage.code,
                     target_device: device.toLowerCase(),
+                    research_scope: researchScope,
                 },
             })
             const run = runResult.run
@@ -1207,6 +1211,23 @@ export function ResearchRebuildStrategicPage() {
                                         <option value="Desktop">Desktop</option>
                                         <option value="Mobile">Mobile</option>
                                     </select>
+                                </label>
+
+                                <label className="flex flex-col gap-2 md:col-span-2">
+                                    <span className="text-sm text-slate-300">Research Mode</span>
+                                    <select
+                                        value={researchScope}
+                                        onChange={(event) => setResearchScope(event.target.value as ResearchScope)}
+                                        className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition focus:border-sky-400"
+                                    >
+                                        <option value="focused">Focused: stay close to this topic</option>
+                                        <option value="expanded">Expanded nearby: find easier adjacent opportunities</option>
+                                    </select>
+                                    <div className="text-xs text-slate-400">
+                                        {researchScope === 'focused'
+                                            ? 'Keeps the article opportunity tightly tied to your input topic.'
+                                            : 'Uses the topic as a starting point and allows nearby category-relevant keyword clusters if they look easier to rank.'}
+                                    </div>
                                 </label>
                             </div>
 
