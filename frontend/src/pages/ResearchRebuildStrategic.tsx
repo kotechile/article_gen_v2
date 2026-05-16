@@ -386,7 +386,7 @@ export function ResearchRebuildStrategicPage() {
         const signals = serpGate.signals || {}
         return [
             { label: 'Small sites ranking', passed: Boolean(signals.niche_sites_present) },
-            { label: 'Article pages visible', passed: Boolean(signals.article_friendly_results) },
+            { label: 'Usable content pages visible', passed: Boolean(signals.article_friendly_results) },
             { label: 'Repeated domains found', passed: Boolean(signals.stable_competitor_set) },
             { label: 'Search intent is consistent', passed: Boolean(signals.consistent_intent) },
             { label: 'Some authority sites present', passed: !Boolean(signals.not_authority_dominated) },

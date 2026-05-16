@@ -769,7 +769,7 @@ QUESTION:: query text
         topic_context: Dict[str, Any],
     ) -> Dict[str, Any]:
         domain_hits: Dict[str, int] = defaultdict(int)
-        article_page_count = 0
+        content_page_count = 0
         niche_page_count = 0
         weak_page_count = 0
         authority_like_count = 0
@@ -793,8 +793,8 @@ QUESTION:: query text
                 if domain and domain not in seen_domains:
                     domain_hits[domain] += 1
                     seen_domains.add(domain)
-                if self._is_article_like_page(url, title):
-                    article_page_count += 1
+                if self._is_usable_content_page(url, title):
+                    content_page_count += 1
                 if self._is_niche_competitor(domain, url):
                     niche_page_count += 1
                 if self._is_weak_content_page(title, snippet, url):
@@ -819,7 +819,7 @@ QUESTION:: query text
 
         signals = {
             "stable_competitor_set": bool(repeated_domains),
-            "article_friendly_results": article_page_count >= 2,
+            "article_friendly_results": content_page_count >= 2,
             "niche_sites_present": niche_page_count >= 2,
             "consistent_intent": consistent_intent,
             "weak_pages_present": weak_page_count >= 2,
@@ -834,12 +834,12 @@ QUESTION:: query text
             killer_reasons.append("intent_mismatch_across_probes")
         if ecommerce_or_service_count >= 18:
             killer_reasons.append("service_or_ecommerce_dominant_serp")
-        if article_page_count == 0:
-            killer_reasons.append("no_article_pages_ranking")
+        if content_page_count == 0:
+            killer_reasons.append("no_usable_content_pages_ranking")
 
         minimum_viable_opportunity = (
             consistent_intent
-            and article_page_count >= 2
+            and content_page_count >= 2
             and (
                 niche_page_count >= 2
                 or weak_page_count >= 2
@@ -854,7 +854,7 @@ QUESTION:: query text
                     (
                         min(1.0, niche_page_count / 6.0) * 0.25
                         + min(1.0, weak_page_count / 6.0) * 0.30
-                        + (0.20 if article_page_count >= 2 else 0.0)
+                        + (0.20 if content_page_count >= 2 else 0.0)
                         + (0.15 if repeated_domains else 0.0)
                         + (0.10 if authority_like_count <= 12 else 0.0)
                     ),
@@ -897,7 +897,7 @@ QUESTION:: query text
                     continue
                 if self._is_authority_domain(domain):
                     continue
-                if not self._is_article_like_page(url, title):
+                if not self._is_usable_content_page(url, title):
                     continue
                 if self._is_service_or_ecommerce_page(url, title):
                     continue
@@ -1833,15 +1833,15 @@ QUESTION:: query text
         )
 
     def _classify_probe_intent(self, rows: List[Dict[str, Any]]) -> str:
-        article_count = 0
+        content_count = 0
         service_count = 0
         ecommerce_count = 0
         tool_count = 0
         for row in rows[:10]:
             url = str(row.get("url") or "")
             title = str(row.get("title") or "")
-            if self._is_article_like_page(url, title):
-                article_count += 1
+            if self._is_usable_content_page(url, title):
+                content_count += 1
             if self._is_service_or_ecommerce_page(url, title):
                 if any(token in f"{url} {title}".lower() for token in ["/product/", "/category/", "/shop/", "buy now", "price"]):
                     ecommerce_count += 1
@@ -1855,24 +1855,41 @@ QUESTION:: query text
             return "ecommerce"
         if service_count >= 4:
             return "service"
-        if article_count >= 3:
+        if content_count >= 3:
             return "article"
         return "mixed"
 
-    def _is_article_like_page(self, url: str, title: str) -> bool:
+    def _is_usable_content_page(self, url: str, title: str) -> bool:
         normalized = f"{url} {title}".lower()
         if not url:
             return False
         if self._is_service_or_ecommerce_page(url, title):
-            return False
-        if normalized.count("/") <= 2:
             return False
         if any(token in normalized for token in ["/blog/", "/guide", "/guides/", "/resources/", "/article", "/learn/", "/news/"]):
             return True
         if any(token in normalized for token in [" how ", " worth ", " roi ", " should ", " best ", " compare ", " vs "]):
             return True
         path = urlparse(url).path.strip("/")
-        return len(path.split("/")) >= 1 and "-" in path
+        title_starts_with_number = bool(re.match(r"^\d+\b", str(title or "").strip().lower()))
+        editorial_terms = any(
+            token in normalized
+            for token in [
+                "simplify",
+                "tips",
+                "ways",
+                "ideas",
+                "habits",
+                "routine",
+                "routines",
+                "technology tools",
+                "productivity tools",
+                "smart home",
+                "life",
+            ]
+        )
+        has_slug = bool(path and "-" in path)
+        deepish_path = len([part for part in path.split("/") if part]) >= 1
+        return title_starts_with_number or editorial_terms or (has_slug and deepish_path)
 
     def _is_service_or_ecommerce_page(self, url: str, title: str) -> bool:
         normalized = f"{url} {title}".lower()
