@@ -42,6 +42,11 @@ type ProbePreview = {
     query: string
 }
 
+type SerpProbeRow = {
+    query?: string
+    rows?: Array<Record<string, any>>
+}
+
 type WorkflowMode = 'article_serp' | 'domain_warehouse'
 
 const COUNTRY_OPTIONS: CountryOption[] = [
@@ -149,10 +154,66 @@ function strengthLabel(domain: string) {
 function pageTypeLabel(url: string, domain: string) {
     const target = `${url} ${domain}`.toLowerCase()
     if (domain.includes('.gov')) return 'Gov'
+    if (target.includes('reddit.com') || target.includes('/forum') || target.includes('/forums/') || target.includes('discussion') || target.includes('community')) return 'Discussion'
+    if (target.includes('/tools/') || target.includes('/tool/') || target.includes('calculator') || target.includes('checker')) return 'Tool'
+    if (target.includes('/product/') || target.includes('/shop/') || target.includes('/category/')) return 'Product'
     if (target.includes('/blog/') || target.includes('/article') || target.includes('/guide')) return 'Article'
     if (target.includes('/news/')) return 'Article'
     if (target.includes('/resources/')) return 'Article'
     return 'Blog'
+}
+
+function isAuthorityLike(domain: string) {
+    const normalized = domain.toLowerCase()
+    return normalized.includes('.gov')
+        || normalized.includes('forbes')
+        || normalized.includes('wikipedia')
+        || normalized.includes('investopedia')
+        || normalized.includes('nerdwallet')
+        || normalized.includes('amazon')
+        || normalized.includes('homedepot')
+}
+
+function isDiscussionLike(url: string, title: string) {
+    const target = `${url} ${title}`.toLowerCase()
+    return target.includes('reddit.com')
+        || target.includes('/forum')
+        || target.includes('/forums/')
+        || target.includes('discussion')
+        || target.includes('community')
+        || target.includes('thread')
+}
+
+function isServiceOrProductLike(url: string, title: string) {
+    const target = `${url} ${title}`.toLowerCase()
+    return target.includes('/services/')
+        || target.includes('/service/')
+        || target.includes('/product/')
+        || target.includes('/products/')
+        || target.includes('/shop/')
+        || target.includes('/category/')
+        || target.includes('near me')
+        || target.includes('buy now')
+        || target.includes('price')
+}
+
+function evidenceUseState(entry: { domain?: string; url?: string; title?: string }) {
+    const domain = String(entry.domain || '').toLowerCase()
+    const url = String(entry.url || '')
+    const title = String(entry.title || '')
+    if (!domain) {
+        return { label: 'Review', tone: 'text-slate-200 border-slate-600/40 bg-slate-500/10', reason: 'Missing domain metadata.' }
+    }
+    if (isAuthorityLike(domain)) {
+        return { label: 'No', tone: 'text-rose-300 border-rose-500/20 bg-rose-500/10', reason: 'Authority domain; not a realistic first harvesting target.' }
+    }
+    if (isServiceOrProductLike(url, title)) {
+        return { label: 'No', tone: 'text-rose-300 border-rose-500/20 bg-rose-500/10', reason: 'Looks transactional or service-led rather than content-led.' }
+    }
+    if (isDiscussionLike(url, title)) {
+        return { label: 'Maybe', tone: 'text-amber-300 border-amber-500/20 bg-amber-500/10', reason: 'Useful intent evidence, but better for validation than keyword harvesting.' }
+    }
+    return { label: 'Yes', tone: 'text-emerald-300 border-emerald-500/20 bg-emerald-500/10', reason: 'Content-like page that could be useful for nearby opportunity discovery.' }
 }
 
 function useLabel(entry: { domain?: string; query_hits?: number; content_gap_score?: number }) {
@@ -171,7 +232,12 @@ function useLabel(entry: { domain?: string; query_hits?: number; content_gap_sco
     return { label: 'Maybe', tone: 'text-amber-300 border-amber-500/20 bg-amber-500/10' }
 }
 
-function topicStatusLabel(score: number, passed: boolean) {
+function topicStatusLabel(score: number, passed: boolean, route: string, activeCandidateCount: number) {
+    if (route === 'expanded_nearby_scan' && activeCandidateCount > 0) {
+        if (score >= 80) return 'Nearby Opportunity Found'
+        if (score >= 50) return 'Explore Nearby'
+        return 'Weak Nearby Opportunity'
+    }
     if (!passed || score < 45) return 'Reject Topic'
     if (score >= 80) return 'Strong Opportunity'
     if (score >= 65) return 'Worth Exploring'
@@ -365,6 +431,12 @@ export function ResearchRebuildStrategicPage() {
     const competitorPages = React.useMemo(() => {
         return ((((currentRun?.raw_data_json || {}) as Record<string, any>).competitor_pages) || []) as Array<Record<string, any>>
     }, [currentRun])
+    const serpProbeRows = React.useMemo(() => {
+        return ((((currentRun?.raw_data_json || {}) as Record<string, any>).serp_probe_rows) || []) as SerpProbeRow[]
+    }, [currentRun])
+    const adjacentScan = React.useMemo(() => {
+        return ((((currentRun?.raw_data_json || {}) as Record<string, any>).adjacent_scan) || {}) as Record<string, any>
+    }, [currentRun])
     const controlledExpansion = React.useMemo(() => {
         return ((((currentRun?.raw_data_json || {}) as Record<string, any>).controlled_expansion) || []) as Array<Record<string, any>>
     }, [currentRun])
@@ -380,19 +452,52 @@ export function ResearchRebuildStrategicPage() {
         return Math.max(0, Math.min(100, Math.round(serpWeakness * 0.55 + repeatedDomains * 6 + signalCount * 6 + clusterBoost * 0.15)))
     }, [clusters, runSummary])
 
-    const scoreStatus = topicStatusLabel(opportunityScore, Boolean(runSummary.serp_opportunity_passed))
+    const scoreStatus = topicStatusLabel(
+        opportunityScore,
+        Boolean(runSummary.serp_opportunity_passed),
+        String(runSummary.serp_route || ''),
+        safeNumber(runSummary.active_candidate_count),
+    )
+
+    const displayedTargetPages = React.useMemo(() => {
+        if (competitorPages.length) return competitorPages
+        return (adjacentScan.selected_targets || []) as Array<Record<string, any>>
+    }, [adjacentScan.selected_targets, competitorPages])
 
     const opportunitySignals = React.useMemo(() => {
         const signals = serpGate.signals || {}
+        const counts = serpGate.counts || {}
+        const usableContentCount = safeNumber(counts.usable_content_pages)
+        const discussionCount = safeNumber(counts.discussion_pages)
+        const nicheCount = safeNumber(counts.niche_pages)
+        const repeatedDomainCount = Array.isArray(serpGate.repeated_domains) ? serpGate.repeated_domains.length : 0
+        const weakCount = safeNumber(counts.weak_pages)
+        const authorityCount = safeNumber(counts.authority_pages)
         return [
-            { label: 'Small sites ranking', passed: Boolean(signals.niche_sites_present) },
-            { label: 'Usable content pages visible', passed: Boolean(signals.article_friendly_results) },
-            { label: 'Repeated domains found', passed: Boolean(signals.stable_competitor_set) },
+            { label: `Small sites ranking (${nicheCount})`, passed: Boolean(signals.niche_sites_present) },
+            { label: `Usable content pages visible (${usableContentCount})`, passed: Boolean(signals.article_friendly_results) },
+            { label: `Repeated domains found (${repeatedDomainCount})`, passed: Boolean(signals.stable_competitor_set) },
             { label: 'Search intent is consistent', passed: Boolean(signals.consistent_intent) },
-            { label: 'Some authority sites present', passed: !Boolean(signals.not_authority_dominated) },
-            { label: 'SERP has weak or outdated pages', passed: Boolean(signals.weak_pages_present) },
+            { label: `Discussion/forum results present (${discussionCount})`, passed: Boolean(signals.discussion_results_present) },
+            { label: `Some authority sites present (${authorityCount})`, passed: !Boolean(signals.not_authority_dominated) },
+            { label: `SERP has weak or outdated pages (${weakCount})`, passed: Boolean(signals.weak_pages_present) },
         ]
     }, [serpGate])
+
+    const serpEvidenceRows = React.useMemo(() => {
+        return serpProbeRows.flatMap((probe) =>
+            ((probe.rows || []) as Array<Record<string, any>>).map((row) => ({
+                query: String(probe.query || row.query || ''),
+                rank: safeNumber(row.rank || 0),
+                domain: String(row.domain || ''),
+                url: String(row.url || ''),
+                title: String(row.title || ''),
+                snippet: String(row.snippet || ''),
+                resultType: String(row.result_type || 'organic'),
+                source: String(row.source || 'regular'),
+            })),
+        )
+    }, [serpProbeRows])
 
     const filteredKeywords = React.useMemo(() => {
         return allKeywordCandidates.filter((row) => {
@@ -1290,11 +1395,16 @@ export function ResearchRebuildStrategicPage() {
                                         <div className="text-sm text-slate-300">SERP Opportunity Score</div>
                                         <div className="mt-2 text-4xl font-semibold text-white">{opportunityScore} / 100</div>
                                         <div className="mt-2 text-lg text-sky-200">Status: {scoreStatus}</div>
+                                        {String(runSummary.serp_route || '') === 'expanded_nearby_scan' ? (
+                                            <div className="mt-2 max-w-2xl text-sm text-slate-300">
+                                                Exact-topic SERP was weak, so expanded mode continued with a small nearby opportunity scan instead of stopping.
+                                            </div>
+                                        ) : null}
                                     </div>
                                     <div className="grid gap-2 text-sm">
                                         {opportunitySignals.map((signal) => (
                                             <div key={signal.label} className="text-slate-200">
-                                                {signal.label === 'Some authority sites present'
+                                                {signal.label.startsWith('Some authority sites present')
                                                     ? signal.passed ? '⚠️' : '✅'
                                                     : signal.passed ? '✅' : '❌'} {signal.label}
                                             </div>
@@ -1338,9 +1448,51 @@ export function ResearchRebuildStrategicPage() {
                                             )
                                         }) : (
                                             <div className="px-4 py-6 text-sm text-slate-400">
-                                                Run an analysis to see repeated competitors across the 3 probe searches.
+                                                No repeated competitors were selected. The evidence table below shows the actual pages returned across the probe searches.
                                             </div>
                                         )}
+                                    </div>
+                                </div>
+
+                                <div className="mt-5">
+                                    <div className="text-xs uppercase tracking-[0.3em] text-slate-400">SERP Evidence</div>
+                                    <div className="mt-3 overflow-hidden rounded-2xl border border-slate-700 bg-[#111a28]">
+                                        <div className="hidden xl:grid xl:grid-cols-[minmax(0,1.2fr)_70px_120px_90px_minmax(0,1.8fr)_90px_180px] gap-3 border-b border-slate-700 px-4 py-3 text-[11px] uppercase tracking-[0.26em] text-slate-400">
+                                            <div>Query / Domain</div>
+                                            <div>Rank</div>
+                                            <div>Page Type</div>
+                                            <div>Source</div>
+                                            <div>Title</div>
+                                            <div>Use / Why</div>
+                                        </div>
+                                        <div className="divide-y divide-slate-800">
+                                            {serpEvidenceRows.length ? serpEvidenceRows.slice(0, 18).map((row, index) => {
+                                                const useState = evidenceUseState(row)
+                                                return (
+                                                    <div key={`${row.query}-${row.url}-${index}`} className="grid gap-2 px-4 py-4 xl:grid-cols-[minmax(0,1.2fr)_70px_120px_90px_minmax(0,1.8fr)_90px_180px] xl:items-start">
+                                                        <div>
+                                                            <div className="text-sm text-slate-400">{row.query}</div>
+                                                            <div className="mt-1 font-medium text-white">{row.domain || 'Unknown domain'}</div>
+                                                        </div>
+                                                        <div className="text-sm text-slate-300">{row.rank || 'n/a'}</div>
+                                                        <div className="text-sm text-slate-300">{pageTypeLabel(row.url, row.domain)}</div>
+                                                        <div className="text-sm uppercase text-slate-300">{row.source}</div>
+                                                        <div>
+                                                            <div className="font-medium text-white">{row.title || 'Untitled result'}</div>
+                                                            {row.snippet ? <div className="mt-1 text-sm text-slate-400">{row.snippet}</div> : null}
+                                                        </div>
+                                                        <div>
+                                                            <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${useState.tone}`}>{useState.label}</span>
+                                                            <div className="mt-2 text-sm text-slate-400">{useState.reason}</div>
+                                                        </div>
+                                                    </div>
+                                                )
+                                            }) : (
+                                                <div className="px-4 py-6 text-sm text-slate-400">
+                                                    Run an analysis to inspect the raw SERP evidence behind the score card.
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </section>
@@ -1355,11 +1507,11 @@ export function ResearchRebuildStrategicPage() {
                                     </div>
                                     <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">
                                         <div className="font-medium text-white">Step 2: Competitor keyword harvesting</div>
-                                        <div className="mt-1">Planned: {Math.max(0, competitorPages.length)} URL-level Ranked Keywords calls</div>
+                                        <div className="mt-1">Planned: {Math.max(0, displayedTargetPages.length)} URL-level Ranked Keywords calls</div>
                                     </div>
                                     <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">
                                         <div className="font-medium text-white">Step 3: Keyword expansion</div>
-                                        <div className="mt-1">Planned: {Math.max(0, controlledExpansion.length || Math.min(5, competitorPages.length))} Keyword Suggestions calls</div>
+                                        <div className="mt-1">Planned: {Math.max(0, controlledExpansion.length || Math.min(5, displayedTargetPages.length))} Keyword Suggestions calls</div>
                                     </div>
                                     <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">
                                         <div className="font-medium text-white">Step 4: Keyword metrics</div>
@@ -1368,26 +1520,38 @@ export function ResearchRebuildStrategicPage() {
                                     </div>
                                 </div>
                                 <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
-                                    Estimated total: {3 + competitorPages.length + Math.max(controlledExpansion.length || Math.min(5, competitorPages.length), 0) + 2} calls
+                                    Estimated total: {3 + displayedTargetPages.length + Math.max(controlledExpansion.length || Math.min(5, displayedTargetPages.length), 0) + 2} calls
                                     <div className="mt-2 text-emerald-200/90">Avoided broad keyword expansion: 300+ possible wasted keyword checks</div>
                                 </div>
                             </aside>
                         </div>
 
                         <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
-                            <div className="mb-4">
-                                <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">Step 5</div>
-                                <h2 className="mt-2 text-2xl font-semibold">Selected Competitor Pages</h2>
-                            </div>
+                                <div className="mb-4">
+                                    <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">Step 5</div>
+                                    <h2 className="mt-2 text-2xl font-semibold">
+                                        {String(runSummary.serp_route || '') === 'expanded_nearby_scan' ? 'Nearby Opportunity Pages' : 'Selected Competitor Pages'}
+                                    </h2>
+                                </div>
                             <div className="grid gap-3">
-                                {competitorPages.length ? competitorPages.map((entry) => {
+                                {displayedTargetPages.length ? displayedTargetPages.map((entry) => {
                                     const useState = useLabel(entry)
                                         const reason =
-                                            useState.label === 'Yes'
-                                                ? 'Niche site, article format, and repeated across probe searches.'
-                                            : useState.label === 'Maybe'
-                                                ? 'Topical match is good, but the domain still needs manual review.'
-                                                : 'Too strong, too broad, or not a realistic competitor for harvesting.'
+                                            String(runSummary.serp_route || '') === 'expanded_nearby_scan'
+                                                ? (
+                                                    useState.label === 'Yes'
+                                                        ? 'Useful nearby content page chosen after the exact-topic SERP looked too rigid.'
+                                                        : useState.label === 'Maybe'
+                                                            ? 'Mixed but relevant page used to scan adjacent opportunities.'
+                                                            : 'Not ideal for harvesting, but still helpful as SERP evidence.'
+                                                )
+                                                : (
+                                                    useState.label === 'Yes'
+                                                        ? 'Niche site, article format, and repeated across probe searches.'
+                                                        : useState.label === 'Maybe'
+                                                            ? 'Topical match is good, but the domain still needs manual review.'
+                                                            : 'Too strong, too broad, or not a realistic competitor for harvesting.'
+                                                )
                                     return (
                                         <div key={`page-${entry.url}`} className="rounded-2xl border border-slate-700 bg-[#111a28] p-4">
                                             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -1403,7 +1567,9 @@ export function ResearchRebuildStrategicPage() {
                                     )
                                 }) : (
                                     <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-8 text-sm text-slate-400">
-                                        No competitor pages selected yet.
+                                        {String(runSummary.serp_route || '') === 'expanded_nearby_scan'
+                                            ? 'Expanded nearby did not find enough content-like pages to continue scanning.'
+                                            : 'No competitor pages selected yet.'}
                                     </div>
                                 )}
                             </div>

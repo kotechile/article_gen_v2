@@ -166,6 +166,7 @@ class TopicKeywordResearchService:
         run_id = run_row["id"]
         seed_package = pending_seed_package
         seeds: List[str] = []
+        research_scope = str(filters.get("research_scope") or "focused").lower().strip()
 
         try:
             seed_package = await self._build_probe_queries(topic_context, manual_seed_keywords=manual_seed_keywords)
@@ -180,6 +181,69 @@ class TopicKeywordResearchService:
                 topic_context=topic_context,
             )
             if not serp_gate.get("passed"):
+                if research_scope == "expanded":
+                    adjacent_targets = self._select_adjacent_scan_targets_from_probe_results(
+                        probe_results=probe_results,
+                        topic_context=topic_context,
+                        limit=min(4, int(filters.get("competitor_page_limit") or 6)),
+                    )
+                    discovered_rows, raw_data = await self._discover_keyword_candidates_from_adjacent_scan(
+                        adjacent_targets=adjacent_targets,
+                        probe_queries=seed_package.get("probe_queries") or [],
+                        serp_gate=serp_gate,
+                        topic_context=topic_context,
+                        filters=filters,
+                    )
+                    enriched_rows = await self._enrich_and_score_candidates(
+                        candidates=discovered_rows,
+                        topic_context=topic_context,
+                        filters=filters,
+                        score_config=score_config,
+                        topic_components=(seed_package or {}).get("topic_components") or [],
+                    )
+                    clusters = self._cluster_candidates(
+                        candidates=enriched_rows,
+                        topic_context=topic_context,
+                        filters=filters,
+                    )
+                    if enriched_rows or clusters:
+                        self._replace_candidates(run_id=run_id, topic_id=topic_id, user_id=user_id, rows=enriched_rows)
+                        self._replace_clusters(run_id=run_id, topic_id=topic_id, user_id=user_id, rows=clusters)
+                        summary = self._build_run_summary(
+                            topic_context=topic_context,
+                            seed_keywords=seeds,
+                            candidate_rows=enriched_rows,
+                            clusters=clusters,
+                            seed_package=seed_package,
+                            serp_gate=serp_gate,
+                            filters=filters,
+                            scan_context={
+                                "route": "expanded_nearby_scan",
+                                "adjacent_target_count": len(adjacent_targets),
+                                "adjacent_candidate_count": len(enriched_rows),
+                            },
+                        )
+                        self._update_run(
+                            run_id=run_id,
+                            topic_id=topic_id,
+                            user_id=user_id,
+                            status="completed",
+                            summary_json=summary,
+                            raw_data_json={
+                                **probe_raw_data,
+                                **raw_data,
+                                "serp_gate": serp_gate,
+                                "seed_generation": seed_package,
+                            },
+                            error_message=None,
+                        )
+                        run = self.get_run(run_id=run_id, topic_id=topic_id, user_id=user_id)
+                        return {
+                            "run": run,
+                            "keywords": enriched_rows,
+                            "clusters": clusters,
+                            "summary": summary,
+                        }
                 summary = self._build_run_summary(
                     topic_context=topic_context,
                     seed_keywords=seeds,
@@ -188,6 +252,9 @@ class TopicKeywordResearchService:
                     seed_package=seed_package,
                     serp_gate=serp_gate,
                     filters=filters,
+                    scan_context={
+                        "route": "rejected",
+                    },
                 )
                 self._update_run(
                     run_id=run_id,
@@ -196,7 +263,7 @@ class TopicKeywordResearchService:
                     status="completed",
                     summary_json=summary,
                     raw_data_json={
-                        "serp_probes": probe_raw_data,
+                        **probe_raw_data,
                         "serp_gate": serp_gate,
                         "seed_generation": seed_package,
                     },
@@ -222,6 +289,11 @@ class TopicKeywordResearchService:
                 serp_gate=serp_gate,
                 topic_context=topic_context,
                 filters=filters,
+                scan_context={
+                    "route": "exact_topic",
+                    "adjacent_target_count": 0,
+                    "adjacent_candidate_count": 0,
+                },
             )
             enriched_rows = await self._enrich_and_score_candidates(
                 candidates=discovered_rows,
@@ -752,14 +824,64 @@ QUESTION:: query text
                     "title": str(row.get("title") or "").strip(),
                     "snippet": str(row.get("snippet") or "").strip(),
                     "result_type": str(row.get("result_type") or "organic").strip() or "organic",
+                    "source": "regular",
                 })
+
+            should_use_advanced = (
+                len(normalized_rows) < 5
+                or self._count_usable_content_rows(normalized_rows) < 2
+            )
+
+            if should_use_advanced:
+                advanced_result = await dataforseo_api.get_google_organic_live_advanced(
+                    query,
+                    language_code=language_code,
+                    location_code=location_code,
+                    device=device,
+                    depth=10,
+                    return_raw=True,
+                )
+                advanced_items = (advanced_result or {}).get("items") or []
+                advanced_rows = []
+                for row in advanced_items[:10]:
+                    url = str(row.get("url") or "").strip()
+                    domain = str(row.get("domain") or urlparse(url).netloc).lower()
+                    advanced_rows.append({
+                        "query": query,
+                        "rank": int(row.get("rank_group") or row.get("rank_absolute") or 0) or None,
+                        "domain": domain,
+                        "url": url,
+                        "title": str(row.get("title") or "").strip(),
+                        "snippet": str(row.get("snippet") or "").strip(),
+                        "result_type": str(row.get("result_type") or "organic").strip() or "organic",
+                        "source": "advanced",
+                    })
+                if self._count_usable_content_rows(advanced_rows) >= self._count_usable_content_rows(normalized_rows):
+                    merged = []
+                    seen_urls = set()
+                    for row in advanced_rows + normalized_rows:
+                        url = str(row.get("url") or "").strip()
+                        key = url or f"{row.get('domain')}::{row.get('title')}"
+                        if key in seen_urls:
+                            continue
+                        seen_urls.add(key)
+                        merged.append(row)
+                    normalized_rows = merged[:10]
+                raw_payloads.append({
+                    "query": query,
+                    "raw_advanced": self._sanitize_for_json((advanced_result or {}).get("raw") or {}),
+                })
+
             probe_results.append({"query": query, "rows": normalized_rows})
             raw_payloads.append({
                 "query": query,
                 "raw": self._sanitize_for_json((serp_result or {}).get("raw") or {}),
             })
 
-        return probe_results, {"serp_probes": raw_payloads}
+        return probe_results, {
+            "serp_probes": raw_payloads,
+            "serp_probe_rows": self._sanitize_for_json(probe_results),
+        }
 
     def _evaluate_serp_opportunity_gate(
         self,
@@ -770,6 +892,7 @@ QUESTION:: query text
     ) -> Dict[str, Any]:
         domain_hits: Dict[str, int] = defaultdict(int)
         content_page_count = 0
+        discussion_page_count = 0
         niche_page_count = 0
         weak_page_count = 0
         authority_like_count = 0
@@ -795,6 +918,8 @@ QUESTION:: query text
                     seen_domains.add(domain)
                 if self._is_usable_content_page(url, title):
                     content_page_count += 1
+                if self._is_discussion_or_forum_page(url, title):
+                    discussion_page_count += 1
                 if self._is_niche_competitor(domain, url):
                     niche_page_count += 1
                 if self._is_weak_content_page(title, snippet, url):
@@ -820,6 +945,7 @@ QUESTION:: query text
         signals = {
             "stable_competitor_set": bool(repeated_domains),
             "article_friendly_results": content_page_count >= 2,
+            "discussion_results_present": discussion_page_count >= 1,
             "niche_sites_present": niche_page_count >= 2,
             "consistent_intent": consistent_intent,
             "weak_pages_present": weak_page_count >= 2,
@@ -839,10 +965,11 @@ QUESTION:: query text
 
         minimum_viable_opportunity = (
             consistent_intent
-            and content_page_count >= 2
+            and (content_page_count >= 2 or (content_page_count >= 1 and discussion_page_count >= 1))
             and (
                 niche_page_count >= 2
                 or weak_page_count >= 2
+                or discussion_page_count >= 2
             )
         )
 
@@ -867,6 +994,14 @@ QUESTION:: query text
             "passed": minimum_viable_opportunity and not killer_reasons,
             "signal_count": pass_count,
             "signals": signals,
+            "counts": {
+                "usable_content_pages": content_page_count,
+                "discussion_pages": discussion_page_count,
+                "niche_pages": niche_page_count,
+                "weak_pages": weak_page_count,
+                "authority_pages": authority_like_count,
+                "service_or_ecommerce_pages": ecommerce_or_service_count,
+            },
             "killer_reasons": killer_reasons,
             "intent_classification": dominant_intent,
             "serp_weakness_score": serp_weakness_score,
@@ -929,6 +1064,53 @@ QUESTION:: query text
             reverse=True,
         )
         return competitors[: max(3, min(limit, 8))]
+
+    def _select_adjacent_scan_targets_from_probe_results(
+        self,
+        *,
+        probe_results: List[Dict[str, Any]],
+        topic_context: Dict[str, Any],
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        target_map: Dict[str, Dict[str, Any]] = {}
+        for probe in probe_results:
+            for row in probe.get("rows") or []:
+                url = str(row.get("url") or "").strip()
+                domain = str(row.get("domain") or urlparse(url).netloc).lower()
+                title = str(row.get("title") or "").strip()
+                if not url or not domain:
+                    continue
+                if self._is_authority_domain(domain):
+                    continue
+                if self._is_service_or_ecommerce_page(url, title):
+                    continue
+                if not self._is_usable_content_page(url, title):
+                    continue
+                entry = target_map.setdefault(
+                    url,
+                    {
+                        "url": url,
+                        "domain": domain,
+                        "title": title,
+                        "best_rank": 99,
+                        "query_hits": 0,
+                        "discussion": self._is_discussion_or_forum_page(url, title),
+                    },
+                )
+                entry["query_hits"] += 1
+                entry["best_rank"] = min(int(row.get("rank") or 99), entry["best_rank"])
+                if self._is_discussion_or_forum_page(url, title):
+                    entry["discussion"] = True
+
+        targets = sorted(
+            target_map.values(),
+            key=lambda item: (
+                0 if not item.get("discussion") else 1,
+                int(item.get("best_rank") or 99),
+                -int(item.get("query_hits") or 0),
+            ),
+        )
+        return targets[: max(2, min(limit, 5))]
 
     async def _discover_keyword_candidates_from_competitors(
         self,
@@ -1014,6 +1196,94 @@ QUESTION:: query text
                     "probe_queries": probe_queries[:3],
                     "source_urls": list((seed_row.get("trend_json") or {}).get("source_urls") or []),
                     "source_domains": list((seed_row.get("trend_json") or {}).get("source_domains") or []),
+                }
+                if self._passes_keyword_harvest_filters(candidate, topic_context=topic_context, filters=filters):
+                    harvested_rows.append(candidate)
+
+        return harvested_rows, raw_data
+
+    async def _discover_keyword_candidates_from_adjacent_scan(
+        self,
+        *,
+        adjacent_targets: List[Dict[str, Any]],
+        probe_queries: List[str],
+        serp_gate: Dict[str, Any],
+        topic_context: Dict[str, Any],
+        filters: Dict[str, Any],
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        language_code = str(filters.get("target_language_code") or "en")
+        location_code = int(filters.get("target_location_code") or 2840)
+        harvested_rows: List[Dict[str, Any]] = []
+        raw_data: Dict[str, Any] = {
+            "adjacent_scan": {
+                "selected_targets": adjacent_targets,
+                "seed_queries": [],
+                "ranked_keyword_searches": [],
+                "related_keyword_searches": [],
+            },
+            "controlled_expansion": [],
+        }
+
+        for target in adjacent_targets[:3]:
+            target_url = str(target.get("url") or "").strip()
+            if not target_url:
+                continue
+            ranked_result = await dataforseo_api.get_ranked_keywords_live(
+                target_url,
+                language_code=language_code,
+                location_code=location_code,
+                limit=min(20, int(filters.get("ranked_keywords_per_page") or 35)),
+                return_raw=True,
+            )
+            raw_data["adjacent_scan"]["ranked_keyword_searches"].append({
+                "target": target_url,
+                "raw": self._sanitize_for_json((ranked_result or {}).get("raw") or {}),
+            })
+            for row in (ranked_result or {}).get("items") or []:
+                candidate = self._normalize_candidate_row(row)
+                candidate["source_endpoints"] = ["dataforseo_labs/google/ranked_keywords/live:url:adjacent"]
+                candidate["trend_json"] = {
+                    "source_url": target_url,
+                    "source_urls": [target_url],
+                    "source_domain": target.get("domain"),
+                    "source_domains": [target.get("domain")] if target.get("domain") else [],
+                    "source_type": "expanded_nearby_scan",
+                    "serp_weakness_score": max(0.45, float(serp_gate.get("serp_weakness_score") or 0.0)),
+                    "competitor_support_score": 0.45 if not target.get("discussion") else 0.30,
+                    "probe_queries": probe_queries[:3],
+                }
+                if self._passes_keyword_harvest_filters(candidate, topic_context=topic_context, filters=filters):
+                    harvested_rows.append(candidate)
+
+        adjacent_seeds = self._build_adjacent_seed_queries(
+            adjacent_targets=adjacent_targets,
+            probe_queries=probe_queries,
+            topic_context=topic_context,
+        )
+        raw_data["adjacent_scan"]["seed_queries"] = adjacent_seeds
+        for seed_query in adjacent_seeds[:5]:
+            related_result = await dataforseo_api.get_related_keywords_standard(
+                [seed_query],
+                language_code=language_code,
+                location_code=location_code,
+                limit_per_seed=15,
+                return_raw=True,
+            )
+            raw_data["adjacent_scan"]["related_keyword_searches"].append({
+                "seed_query": seed_query,
+                "raw": self._sanitize_for_json((related_result or {}).get("raw") or {}),
+            })
+            for row in (related_result or {}).get("items") or []:
+                candidate = self._normalize_candidate_row(row)
+                candidate["source_endpoints"] = ["keywords_data/google_ads/keywords_for_keywords:adjacent"]
+                candidate["trend_json"] = {
+                    "seed_keyword": seed_query,
+                    "source_type": "expanded_nearby_scan",
+                    "serp_weakness_score": max(0.40, float(serp_gate.get("serp_weakness_score") or 0.0)),
+                    "competitor_support_score": 0.35,
+                    "probe_queries": probe_queries[:3],
+                    "source_urls": [str(target.get("url") or "") for target in adjacent_targets[:3] if str(target.get("url") or "")],
+                    "source_domains": [str(target.get("domain") or "") for target in adjacent_targets[:3] if str(target.get("domain") or "")],
                 }
                 if self._passes_keyword_harvest_filters(candidate, topic_context=topic_context, filters=filters):
                     harvested_rows.append(candidate)
@@ -1206,7 +1476,8 @@ QUESTION:: query text
         tokens = canonical.split()
         if len(tokens) < 2 or len(tokens) > 8:
             return False
-        if int(row.get("rank_group") or 99) > 20:
+        rank_group = row.get("rank_group")
+        if rank_group is not None and int(rank_group or 0) > 20:
             return False
         if (row.get("search_volume") or 0) and int(row.get("search_volume") or 0) < 30:
             return False
@@ -1552,6 +1823,7 @@ QUESTION:: query text
         seed_package: Optional[Dict[str, Any]] = None,
         serp_gate: Optional[Dict[str, Any]] = None,
         filters: Optional[Dict[str, Any]] = None,
+        scan_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         filtered_out = [row for row in candidate_rows if row.get("is_filtered_out")]
         active = [row for row in candidate_rows if not row.get("is_filtered_out")]
@@ -1591,6 +1863,10 @@ QUESTION:: query text
             "filtered_candidate_count": len(filtered_out),
             "cluster_count": len(clusters),
             "serp_opportunity_passed": bool((serp_gate or {}).get("passed")),
+            "serp_route": (scan_context or {}).get("route") or ("exact_topic" if (serp_gate or {}).get("passed") else "rejected"),
+            "expanded_nearby_scan_used": (scan_context or {}).get("route") == "expanded_nearby_scan",
+            "adjacent_target_count": int((scan_context or {}).get("adjacent_target_count") or 0),
+            "adjacent_candidate_count": int((scan_context or {}).get("adjacent_candidate_count") or 0),
             "serp_signal_count": int((serp_gate or {}).get("signal_count") or 0),
             "serp_intent_classification": (serp_gate or {}).get("intent_classification"),
             "serp_weakness_score": (serp_gate or {}).get("serp_weakness_score"),
@@ -1611,6 +1887,9 @@ QUESTION:: query text
             "competition": row.get("competition"),
             "competition_level": self._safe_int(row.get("competition_level")),
             "keyword_difficulty": self._safe_float(row.get("keyword_difficulty")),
+            "rank_group": self._safe_int(row.get("rank_group") or row.get("rank_absolute") or row.get("position")),
+            "url": str(row.get("url") or "").strip(),
+            "title": str(row.get("title") or "").strip(),
         }
 
     def _filter_candidate_row(
@@ -1834,6 +2113,7 @@ QUESTION:: query text
 
     def _classify_probe_intent(self, rows: List[Dict[str, Any]]) -> str:
         content_count = 0
+        discussion_count = 0
         service_count = 0
         ecommerce_count = 0
         tool_count = 0
@@ -1842,6 +2122,8 @@ QUESTION:: query text
             title = str(row.get("title") or "")
             if self._is_usable_content_page(url, title):
                 content_count += 1
+            if self._is_discussion_or_forum_page(url, title):
+                discussion_count += 1
             if self._is_service_or_ecommerce_page(url, title):
                 if any(token in f"{url} {title}".lower() for token in ["/product/", "/category/", "/shop/", "buy now", "price"]):
                     ecommerce_count += 1
@@ -1855,14 +2137,28 @@ QUESTION:: query text
             return "ecommerce"
         if service_count >= 4:
             return "service"
+        if discussion_count >= 3 and content_count == 0:
+            return "discussion"
         if content_count >= 3:
             return "article"
         return "mixed"
+
+    def _count_usable_content_rows(self, rows: List[Dict[str, Any]]) -> int:
+        return sum(
+            1
+            for row in rows[:10]
+            if self._is_usable_content_page(
+                str(row.get("url") or ""),
+                str(row.get("title") or ""),
+            )
+        )
 
     def _is_usable_content_page(self, url: str, title: str) -> bool:
         normalized = f"{url} {title}".lower()
         if not url:
             return False
+        if self._is_discussion_or_forum_page(url, title):
+            return True
         if self._is_service_or_ecommerce_page(url, title):
             return False
         if any(token in normalized for token in ["/blog/", "/guide", "/guides/", "/resources/", "/article", "/learn/", "/news/"]):
@@ -1890,6 +2186,23 @@ QUESTION:: query text
         has_slug = bool(path and "-" in path)
         deepish_path = len([part for part in path.split("/") if part]) >= 1
         return title_starts_with_number or editorial_terms or (has_slug and deepish_path)
+
+    def _is_discussion_or_forum_page(self, url: str, title: str) -> bool:
+        normalized = f"{url} {title}".lower()
+        return any(
+            token in normalized
+            for token in [
+                "reddit.com/r/",
+                "/forum",
+                "/forums/",
+                "discussion",
+                "discussions",
+                "thread",
+                "community",
+                "stackexchange",
+                "quora.com",
+            ]
+        )
 
     def _is_service_or_ecommerce_page(self, url: str, title: str) -> bool:
         normalized = f"{url} {title}".lower()
@@ -2045,6 +2358,41 @@ QUESTION:: query text
         if self._has_repeated_halves(phrase):
             return ""
         return phrase
+
+    def _build_adjacent_seed_queries(
+        self,
+        *,
+        adjacent_targets: List[Dict[str, Any]],
+        probe_queries: List[str],
+        topic_context: Dict[str, Any],
+    ) -> List[str]:
+        topic = topic_context.get("topic") or {}
+        primary_category = topic_context.get("primary_category") or {}
+        secondary_category = topic_context.get("secondary_category") or {}
+        raw_candidates = [
+            *probe_queries[:3],
+            str(topic.get("title") or ""),
+            self._queryish_fragment(str(topic.get("description") or ""), max_words=6),
+            self._queryish_fragment(str(primary_category.get("name") or ""), max_words=4),
+            self._queryish_fragment(str(secondary_category.get("name") or ""), max_words=4),
+        ]
+        for target in adjacent_targets[:4]:
+            raw_candidates.append(self._queryish_fragment(str(target.get("title") or ""), max_words=6))
+
+        seeds: List[str] = []
+        seen = set()
+        for candidate in raw_candidates:
+            cleaned = self._clean_probe_query(candidate)
+            if not cleaned:
+                continue
+            key = cleaned.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            seeds.append(cleaned)
+            if len(seeds) >= 6:
+                break
+        return seeds
 
     async def _generate_llm_seed_keywords(
         self,
