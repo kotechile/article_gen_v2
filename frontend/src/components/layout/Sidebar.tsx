@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator"
 import { useAuth } from "@/context/auth-context"
 import { Link, useLocation } from "react-router-dom"
 import { ZenithLogo } from "./ZenithLogo"
+import { ProjectSwitcher } from "./ProjectSwitcher"
 
 const SIDEBAR_STORAGE_KEY = "zenith_sidebar_collapsed"
 
@@ -87,7 +88,12 @@ export function Sidebar({ className }: SidebarProps) {
                     <Separator className="bg-border" />
 
                     <ScrollArea className="flex-1 px-3 py-5">
-                        <div className="space-y-2">
+                        <div className="space-y-4">
+                            <div className={cn(isCollapsed ? "px-1" : "px-1")}>
+                                <ProjectSwitcher collapsed={isCollapsed} />
+                            </div>
+
+                            <div className="space-y-2">
                             <NavItem
                                 href="/"
                                 icon={<FlaskConical className="h-5 w-5" />}
@@ -116,6 +122,7 @@ export function Sidebar({ className }: SidebarProps) {
                                 isCollapsed={isCollapsed}
                                 active={pathname?.startsWith("/settings")}
                             />
+                            </div>
                         </div>
 
                     </ScrollArea>

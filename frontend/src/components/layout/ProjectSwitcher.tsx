@@ -5,7 +5,11 @@ import { useProject } from '@/context/project-context';
 import { Link } from 'react-router-dom';
 import type { Project } from '@/types';
 
-export function ProjectSwitcher() {
+type ProjectSwitcherProps = {
+    collapsed?: boolean
+}
+
+export function ProjectSwitcher({ collapsed = false }: ProjectSwitcherProps) {
     const { projects, activeProject, setActiveProject, isLoading } = useProject();
     const [open, setOpen] = React.useState(false);
     const ref = React.useRef<HTMLDivElement>(null);
@@ -40,14 +44,19 @@ export function ProjectSwitcher() {
                 id="project-switcher-btn"
                 onClick={() => setOpen(o => !o)}
                 className={`
-                    group flex items-center gap-3 px-4 py-2.5 rounded-2xl border transition-all duration-200
+                    group flex items-center gap-3 rounded-2xl border transition-all duration-200
                     ${activeProject
                         ? 'bg-background/80 border-border hover:border-ring/50'
                         : 'bg-accent/40 border-border hover:border-ring/50 animate-pulse-subtle'
                     }
-                    backdrop-blur-sm cursor-pointer min-w-[260px] max-w-[420px]
+                    ${collapsed
+                        ? 'h-11 w-full justify-center px-0'
+                        : 'min-w-0 w-full max-w-full px-4 py-2.5'
+                    }
+                    backdrop-blur-sm cursor-pointer
                 `}
                 aria-label="Switch active project"
+                title={collapsed ? getDisplayName(activeProject) : undefined}
             >
                 {/* Icon */}
                 <div className={`flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center
@@ -59,26 +68,28 @@ export function ProjectSwitcher() {
                 </div>
 
                 {/* Text */}
-                <div className="flex-1 text-left overflow-hidden">
-                    <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground leading-none mb-0.5">
-                        Active Project
-                    </p>
-                    {isLoading ? (
-                        <div className="h-4 w-32 bg-muted/50 rounded animate-pulse" />
-                    ) : (
-                        <p className={`text-sm font-semibold truncate leading-tight
-                            text-foreground`}>
-                            {getDisplayName(activeProject)}
+                {!collapsed && (
+                    <div className="flex-1 text-left overflow-hidden">
+                        <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground leading-none mb-0.5">
+                            Active Project
                         </p>
-                    )}
-                    {activeProject && getNicheLabel(activeProject) && (
-                        <p className="text-[11px] text-muted-foreground truncate leading-tight mt-0.5">
-                            {getNicheLabel(activeProject)}
-                        </p>
-                    )}
-                </div>
+                        {isLoading ? (
+                            <div className="h-4 w-32 bg-muted/50 rounded animate-pulse" />
+                        ) : (
+                            <p className={`text-sm font-semibold truncate leading-tight
+                                text-foreground`}>
+                                {getDisplayName(activeProject)}
+                            </p>
+                        )}
+                        {activeProject && getNicheLabel(activeProject) && (
+                            <p className="text-[11px] text-muted-foreground truncate leading-tight mt-0.5">
+                                {getNicheLabel(activeProject)}
+                            </p>
+                        )}
+                    </div>
+                )}
 
-                <ChevronDown className={`w-4 h-4 text-muted-foreground flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+                {!collapsed && <ChevronDown className={`w-4 h-4 text-muted-foreground flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />}
             </button>
 
             {/* Dropdown */}
@@ -89,7 +100,9 @@ export function ProjectSwitcher() {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -8, scale: 0.97 }}
                         transition={{ duration: 0.15 }}
-                        className="absolute top-full mt-2 left-0 w-full min-w-[300px] z-50 bg-popover/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl overflow-hidden"
+                        className={`absolute top-full mt-2 z-50 bg-popover/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl overflow-hidden ${
+                            collapsed ? 'left-full ml-3 w-[320px]' : 'left-0 w-full min-w-[300px]'
+                        }`}
                     >
                         {/* Header */}
                         <div className="px-4 py-3 border-b border-border">
