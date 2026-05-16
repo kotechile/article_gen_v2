@@ -88,7 +88,7 @@ function dedupePreviewQueries(queries: string[]) {
 function buildProbePreview(topicIdea: string): ProbePreview[] {
     const normalized = normalizeText(topicIdea)
     const tokens = slugTokens(topicIdea)
-    const base = tokens.slice(0, 6).join(' ')
+    const base = tokens.slice(0, 10).join(' ')
     const shortBase = base || normalized.toLowerCase()
     const practical = shortBase || 'topic opportunity'
 

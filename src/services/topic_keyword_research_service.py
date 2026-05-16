@@ -600,7 +600,7 @@ QUESTION:: query text
             for marker in ("PRACTICAL::", "ROI::", "QUESTION::"):
                 match = re.search(rf"{marker}\s*(.+)", raw_output, re.IGNORECASE)
                 if match:
-                    candidate = self._clean_seed_phrase(match.group(1))
+                    candidate = self._clean_probe_query(match.group(1))
                     if candidate:
                         probe_queries.append(candidate)
         except Exception:
@@ -641,7 +641,7 @@ QUESTION:: query text
         final_queries: List[str] = []
         seen = set()
         for candidate in probe_queries + manual_hints[:3]:
-            cleaned = self._clean_seed_phrase(candidate)
+            cleaned = self._clean_probe_query(candidate)
             if not cleaned:
                 continue
             key = cleaned.lower()
@@ -1979,6 +1979,28 @@ QUESTION:: query text
             return ""
         if len(tokens) > 6:
             tokens = tokens[:6]
+        phrase = " ".join(tokens)
+        if self._has_repeated_halves(phrase):
+            return ""
+        return phrase
+
+    def _clean_probe_query(self, text: str) -> str:
+        normalized = self._normalize_keyword_key(text)
+        if not normalized:
+            return ""
+        tokens = [token for token in normalized.split(" ") if token]
+        if not tokens:
+            return ""
+        significant_tokens = [token for token in tokens if token not in self.QUERY_STOPWORDS]
+        trimmed_tokens = [token for token in significant_tokens if token not in self.GENERIC_TOPIC_TERMS]
+        if len(trimmed_tokens) >= 2:
+            tokens = trimmed_tokens
+        elif len(significant_tokens) >= 2:
+            tokens = significant_tokens
+        if len(tokens) < 2:
+            return ""
+        if len(tokens) > 10:
+            tokens = tokens[:10]
         phrase = " ".join(tokens)
         if self._has_repeated_halves(phrase):
             return ""
