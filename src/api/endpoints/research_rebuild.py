@@ -67,6 +67,8 @@ ALLOWED_DATAFORSEO_SEARCH_TYPES = {
     "serp_probe",
     "ranked_keywords",
     "relevant_pages",
+    "categories_for_domain",
+    "category_index",
 }
 PROMOTABLE_ROUTES = {"article_ready", "software_ready", "article_plus_software", "editorial_only"}
 ALLOWED_STRATEGY_RERUN_STAGES = {"trends", "serp", "competitor_mining"}
@@ -1312,6 +1314,7 @@ def create_dataforseo_search():
                 location_code=int(data.get("location_code") or 2840),
                 limit=int(data.get("limit") or 25),
                 force_refresh=bool(data.get("force_refresh")),
+                extra=data.get("extra") if isinstance(data.get("extra"), dict) else None,
             )
         )
         return jsonify(item), 201

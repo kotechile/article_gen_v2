@@ -150,7 +150,7 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
         return {
             "query_text": target,
             "result_count": len(items or []),
-            "top_items": (items or [])[:50],
+            "top_items": (items or [])[:100],
         }
 
     @staticmethod
@@ -158,7 +158,23 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
         return {
             "query_text": query_text,
             "result_count": len(items or []),
+            "top_items": (items or [])[:50],
+        }
+
+    @staticmethod
+    def _summarize_categories_for_domain(items: List[Dict[str, Any]], target: str) -> Dict[str, Any]:
+        return {
+            "query_text": target,
+            "result_count": len(items or []),
             "top_items": (items or [])[:20],
+        }
+
+    @staticmethod
+    def _summarize_category_index(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        return {
+            "query_text": "dataforseo_labs/categories",
+            "result_count": len(items or []),
+            "top_items": (items or [])[:100],
         }
 
     async def find_cached_search(
@@ -214,6 +230,7 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
         extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         search_type_normalized = str(search_type or "").strip().lower()
+        extra = extra if isinstance(extra, dict) else {}
         now_iso = datetime.now(timezone.utc).isoformat()
         normalized_query = self._build_cache_key(
             search_type=search_type_normalized,
@@ -372,6 +389,12 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
                 language_code=language_code,
                 location_code=int(location_code),
                 limit=max(1, min(int(limit or 100), 100)),
+                offset=max(0, int(extra.get("offset") or 0)),
+                ignore_synonyms=bool(extra.get("ignore_synonyms", True)),
+                item_types=extra.get("item_types") if isinstance(extra.get("item_types"), list) else ["organic"],
+                historical_serp_mode=str(extra.get("historical_serp_mode") or "live"),
+                filters=extra.get("filters") if isinstance(extra.get("filters"), list) else None,
+                order_by=extra.get("order_by") if isinstance(extra.get("order_by"), list) else None,
                 return_raw=True,
             )
             items = (ranked_result or {}).get("items") or []
@@ -383,31 +406,88 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
                 "language_code": language_code,
                 "location_code": int(location_code),
                 "limit": max(1, min(int(limit or 100), 100)),
+                "offset": max(0, int(extra.get("offset") or 0)),
+                "ignore_synonyms": bool(extra.get("ignore_synonyms", True)),
+                "historical_serp_mode": str(extra.get("historical_serp_mode") or "live"),
+                "item_types": extra.get("item_types") if isinstance(extra.get("item_types"), list) else ["organic"],
+                "filters": extra.get("filters") if isinstance(extra.get("filters"), list) else None,
+                "order_by": extra.get("order_by") if isinstance(extra.get("order_by"), list) else None,
             }
             query_text = page_target
         elif search_type_normalized == "relevant_pages":
-            seed = str(query_text or "").strip()
-            if not seed:
-                raise ValueError("query_text is required for relevant_pages searches")
+            page_target = str(target or query_text or "").strip()
+            if not page_target:
+                raise ValueError("target is required for relevant_pages searches")
             relevant_result = await dataforseo_api.get_relevant_pages_live(
-                seed,
+                page_target,
                 language_code=language_code,
                 location_code=int(location_code),
-                limit=max(1, min(int(limit or 20), 20)),
+                limit=max(1, min(int(limit or 20), 1000)),
+                offset=max(0, int(extra.get("offset") or 0)),
+                item_types=extra.get("item_types") if isinstance(extra.get("item_types"), list) else ["organic"],
+                historical_serp_mode=str(extra.get("historical_serp_mode") or "live"),
+                ignore_synonyms=bool(extra.get("ignore_synonyms", False)),
+                filters=extra.get("filters") if isinstance(extra.get("filters"), list) else None,
+                order_by=extra.get("order_by") if isinstance(extra.get("order_by"), list) else None,
                 return_raw=True,
             )
             items = (relevant_result or {}).get("items") or []
             response_payload = self._sanitize_for_json((relevant_result or {}).get("raw") or relevant_result)
-            result_summary_json = self._summarize_relevant_pages(items, seed)
+            result_summary_json = self._summarize_relevant_pages(items, page_target)
             endpoint = "dataforseo_labs/google/relevant_pages/live"
             request_payload = {
-                "keyword": seed,
+                "target": page_target,
                 "language_code": language_code,
                 "location_code": int(location_code),
-                "limit": max(1, min(int(limit or 20), 20)),
+                "limit": max(1, min(int(limit or 20), 1000)),
+                "offset": max(0, int(extra.get("offset") or 0)),
+                "historical_serp_mode": str(extra.get("historical_serp_mode") or "live"),
+                "ignore_synonyms": bool(extra.get("ignore_synonyms", False)),
+                "item_types": extra.get("item_types") if isinstance(extra.get("item_types"), list) else ["organic"],
+                "filters": extra.get("filters") if isinstance(extra.get("filters"), list) else None,
+                "order_by": extra.get("order_by") if isinstance(extra.get("order_by"), list) else None,
             }
+            query_text = page_target
+        elif search_type_normalized == "categories_for_domain":
+            page_target = str(target or query_text or "").strip()
+            if not page_target:
+                raise ValueError("target is required for categories_for_domain searches")
+            categories_result = await dataforseo_api.get_categories_for_domain_live(
+                page_target,
+                language_code=language_code,
+                location_code=int(location_code),
+                limit=max(1, min(int(limit or 20), 1000)),
+                include_subcategories=bool(extra.get("include_subcategories", False)),
+                item_types=extra.get("item_types") if isinstance(extra.get("item_types"), list) else ["organic"],
+                filters=extra.get("filters") if isinstance(extra.get("filters"), list) else None,
+                order_by=extra.get("order_by") if isinstance(extra.get("order_by"), list) else None,
+                return_raw=True,
+            )
+            items = (categories_result or {}).get("items") or []
+            response_payload = self._sanitize_for_json((categories_result or {}).get("raw") or categories_result)
+            result_summary_json = self._summarize_categories_for_domain(items, page_target)
+            endpoint = "dataforseo_labs/google/categories_for_domain/live"
+            request_payload = {
+                "target": page_target,
+                "language_code": language_code,
+                "location_code": int(location_code),
+                "limit": max(1, min(int(limit or 20), 1000)),
+                "include_subcategories": bool(extra.get("include_subcategories", False)),
+                "item_types": extra.get("item_types") if isinstance(extra.get("item_types"), list) else ["organic"],
+                "filters": extra.get("filters") if isinstance(extra.get("filters"), list) else None,
+                "order_by": extra.get("order_by") if isinstance(extra.get("order_by"), list) else None,
+            }
+            query_text = page_target
+        elif search_type_normalized == "category_index":
+            category_index_result = await dataforseo_api.get_labs_categories(return_raw=True)
+            items = (category_index_result or {}).get("items") or []
+            response_payload = self._sanitize_for_json((category_index_result or {}).get("raw") or category_index_result)
+            result_summary_json = self._summarize_category_index(items)
+            endpoint = "dataforseo_labs/categories"
+            request_payload = {}
+            query_text = "dataforseo_labs/categories"
         else:
-            raise ValueError("search_type must be one of related_keywords, keyword_overview, serp, google_trends, serp_probe, ranked_keywords, relevant_pages")
+            raise ValueError("search_type must be one of related_keywords, keyword_overview, serp, google_trends, serp_probe, ranked_keywords, relevant_pages, categories_for_domain, category_index")
 
         item = await self.create_record(
             user_id=user_id,

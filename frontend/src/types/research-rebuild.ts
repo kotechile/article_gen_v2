@@ -103,6 +103,8 @@ export type ResearchRebuildDataforseoSearch = {
         | 'serp_probe'
         | 'ranked_keywords'
         | 'relevant_pages'
+        | 'categories_for_domain'
+        | 'category_index'
     endpoint: string
     query_text: string
     normalized_query_text?: string | null

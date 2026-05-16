@@ -2,7 +2,24 @@ import * as React from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { useProject } from '@/context/project-context'
+import {
+    buildRelevantPages,
+    buildWarehouseKeywordCandidates,
+    clusterWarehouseKeywords,
+    mapDomainCategories,
+    mergeOverviewMetrics,
+    normalizeDomainInput,
+    recommendWarehouseScope,
+    scoreDomainFit,
+    splitTopicInput,
+    type CategoryIndexRow,
+    type DomainCategoryRow,
+    type WarehouseCluster,
+    type WarehouseRelevantPage,
+    type WarehouseScope,
+} from '@/lib/domainKeywordWarehouse'
 import { supabase } from '@/lib/supabase'
+import { researchRebuildService } from '@/services/research-rebuild.service'
 import { researchTopicsService } from '@/services/research-topics.service'
 import { topicKeywordResearchService } from '@/services/topic-keyword-research.service'
 import type { TopicKeywordCandidate, TopicKeywordCluster, TopicKeywordResearchRun, ResearchTopic } from '@/types/research'
@@ -23,6 +40,8 @@ type ProbePreview = {
     label: 'Practical' | 'ROI' | 'Question'
     query: string
 }
+
+type WorkflowMode = 'article_serp' | 'domain_warehouse'
 
 const COUNTRY_OPTIONS: CountryOption[] = [
     { label: 'United States', locationCode: 2840 },
@@ -174,10 +193,29 @@ function keywordIntentLabel(intent?: string | null) {
     return value ? value : 'Info'
 }
 
+function categoryPathLabel(primary: ProjectCategory | null, secondary: ProjectCategory | null) {
+    return [primary?.name, secondary?.name].filter(Boolean).join(' / ')
+}
+
+function parseCategoryIndexRows(search: { response_payload?: Record<string, any> | null; result_summary_json?: Record<string, any> | null } | null | undefined): CategoryIndexRow[] {
+    const responseRows = (((search?.response_payload || {}) as Record<string, any>).response?.tasks?.[0]?.result || []) as CategoryIndexRow[]
+    if (Array.isArray(responseRows) && responseRows.length) return responseRows
+    const summaryRows = (((search?.result_summary_json || {}) as Record<string, any>).top_items || []) as CategoryIndexRow[]
+    return Array.isArray(summaryRows) ? summaryRows : []
+}
+
+function parseSummaryRows<T extends Record<string, any>>(search: { result_summary_json?: Record<string, any> | null } | null | undefined): T[] {
+    const rows = (((search?.result_summary_json || {}) as Record<string, any>).top_items || []) as T[]
+    return Array.isArray(rows) ? rows : []
+}
+
 export function ResearchRebuildStrategicPage() {
     const navigate = useNavigate()
     const { activeProject, projects, setActiveProject } = useProject()
     const [searchParams, setSearchParams] = useSearchParams()
+    const [workflowMode, setWorkflowMode] = React.useState<WorkflowMode>(
+        searchParams.get('workflow') === 'domain_warehouse' ? 'domain_warehouse' : 'article_serp',
+    )
 
     const [categories, setCategories] = React.useState<ProjectCategory[]>([])
     const [recentTopics, setRecentTopics] = React.useState<ResearchTopic[]>([])
@@ -193,6 +231,33 @@ export function ResearchRebuildStrategicPage() {
     const [languageLabel, setLanguageLabel] = React.useState<LanguageOption['label']>('English')
     const [searchEngine, setSearchEngine] = React.useState('Google')
     const [device, setDevice] = React.useState<DeviceOption>('Desktop')
+    const [competitorDomain, setCompetitorDomain] = React.useState(searchParams.get('competitor_domain') || '')
+    const [allowedTopicsInput, setAllowedTopicsInput] = React.useState(
+        'green homes, energy efficiency, resale value, renovation ROI, smart home, solar, insulation, heat pumps',
+    )
+    const [excludedTopicsInput, setExcludedTopicsInput] = React.useState(
+        'jobs, coupons, tools, unrelated product reviews, brand terms, local contractors',
+    )
+    const [warehouseCategories, setWarehouseCategories] = React.useState<DomainCategoryRow[]>([])
+    const [warehousePages, setWarehousePages] = React.useState<WarehouseRelevantPage[]>([])
+    const [warehouseClusters, setWarehouseClusters] = React.useState<WarehouseCluster[]>([])
+    const [warehouseScope, setWarehouseScope] = React.useState<WarehouseScope>('reject')
+    const [warehouseFit, setWarehouseFit] = React.useState<{
+        fitScore: number
+        categoryMatch: number
+        contentTypeMatch: number
+        repeatedCompetitorSignal: number
+        lowNoise: number
+        passed: boolean
+    } | null>(null)
+    const [warehouseSummary, setWarehouseSummary] = React.useState<{
+        rawKeywordCount: number
+        shortlistedKeywordCount: number
+        usefulKeywordRate: number
+        apiCalls: number
+        savedTopicId?: string | null
+        selectedTargets: string[]
+    } | null>(null)
     const [includeKeepOnly, setIncludeKeepOnly] = React.useState(true)
     const [hideBrands, setHideBrands] = React.useState(true)
     const [onlyLowKd, setOnlyLowKd] = React.useState(false)
@@ -219,6 +284,17 @@ export function ResearchRebuildStrategicPage() {
         next.set('project_id', projectId)
         setSearchParams(next, { replace: true })
     }, [projectId, searchParams, setSearchParams])
+
+    React.useEffect(() => {
+        const next = new URLSearchParams(searchParams)
+        if (workflowMode === 'domain_warehouse') next.set('workflow', 'domain_warehouse')
+        else next.delete('workflow')
+        if (competitorDomain.trim()) next.set('competitor_domain', normalizeDomainInput(competitorDomain))
+        else next.delete('competitor_domain')
+        if (next.toString() !== searchParams.toString()) {
+            setSearchParams(next, { replace: true })
+        }
+    }, [competitorDomain, searchParams, setSearchParams, workflowMode])
 
     React.useEffect(() => {
         if (!projectId) return
@@ -465,6 +541,566 @@ export function ResearchRebuildStrategicPage() {
         navigate(`/research/${currentTopic.id}`)
     }
 
+    const handleRunWarehouse = async () => {
+        if (!projectId || !primaryCategoryId || !competitorDomain.trim()) return
+        const normalizedDomain = normalizeDomainInput(competitorDomain)
+        const allowedTopics = splitTopicInput(allowedTopicsInput)
+        const excludedTopics = splitTopicInput(excludedTopicsInput)
+        const siteCategory = categoryPathLabel(primaryCategory, secondaryCategory) || primaryCategory?.name || ''
+
+        setIsLoading(true)
+        setError(null)
+        setSuccess(null)
+        setWarehouseCategories([])
+        setWarehousePages([])
+        setWarehouseClusters([])
+        setWarehouseSummary(null)
+
+        try {
+            const [categoryIndexSearch, domainCategorySearch, relevantPagesSearch] = await Promise.all([
+                researchRebuildService.runDataforseoSearch({
+                    project_id: projectId,
+                    primary_category_id: primaryCategoryId,
+                    secondary_category_id: secondaryCategoryId || undefined,
+                    search_type: 'category_index',
+                    force_refresh: false,
+                }),
+                researchRebuildService.runDataforseoSearch({
+                    project_id: projectId,
+                    primary_category_id: primaryCategoryId,
+                    secondary_category_id: secondaryCategoryId || undefined,
+                    search_type: 'categories_for_domain',
+                    target: normalizedDomain,
+                    language_code: selectedLanguage.code,
+                    location_code: selectedCountry.locationCode,
+                    limit: 12,
+                    extra: {
+                        include_subcategories: false,
+                        item_types: ['organic'],
+                        order_by: ['metrics.organic.count,desc'],
+                    },
+                }),
+                researchRebuildService.runDataforseoSearch({
+                    project_id: projectId,
+                    primary_category_id: primaryCategoryId,
+                    secondary_category_id: secondaryCategoryId || undefined,
+                    search_type: 'relevant_pages',
+                    target: normalizedDomain,
+                    language_code: selectedLanguage.code,
+                    location_code: selectedCountry.locationCode,
+                    limit: 20,
+                    extra: {
+                        item_types: ['organic'],
+                        historical_serp_mode: 'live',
+                        ignore_synonyms: true,
+                        filters: [['metrics.organic.count', '>=', 5]],
+                        order_by: ['metrics.organic.etv,desc'],
+                    },
+                }),
+            ])
+
+            const categoryIndexRows = parseCategoryIndexRows(categoryIndexSearch)
+            const domainCategoryRows = mapDomainCategories(parseSummaryRows(domainCategorySearch), categoryIndexRows)
+            const relevantPages = buildRelevantPages(parseSummaryRows(relevantPagesSearch), [siteCategory, ...allowedTopics], excludedTopics)
+            const fit = scoreDomainFit({
+                domainCategories: domainCategoryRows,
+                relevantPages,
+                siteCategory,
+                allowedTopics,
+                excludedTopics,
+            })
+            const scopeRecommendation = recommendWarehouseScope(fit.fitScore, relevantPages)
+
+            setWarehouseCategories(domainCategoryRows)
+            setWarehousePages(relevantPages)
+            setWarehouseFit(fit)
+            setWarehouseScope(scopeRecommendation)
+
+            if (!fit.passed) {
+                setWarehouseSummary({
+                    rawKeywordCount: 0,
+                    shortlistedKeywordCount: 0,
+                    usefulKeywordRate: 0,
+                    apiCalls: 2,
+                    selectedTargets: [],
+                })
+                setSuccess(`Domain fit score ${fit.fitScore}/100. This domain was rejected before keyword harvesting to save credits.`)
+                return
+            }
+
+            const includedPages = relevantPages.filter((page) => page.include)
+            const selectedTargets =
+                scopeRecommendation === 'whole_domain'
+                    ? [normalizedDomain]
+                    : includedPages.slice(0, scopeRecommendation === 'exact_pages' ? 3 : 4).map((page) => page.url)
+
+            const rankedRows: Array<Record<string, unknown>> = []
+            let apiCalls = 2
+
+            if (scopeRecommendation === 'whole_domain') {
+                const offsets = [0, 100, 200]
+                for (const offset of offsets) {
+                    const rankedSearch = await researchRebuildService.runDataforseoSearch({
+                        project_id: projectId,
+                        primary_category_id: primaryCategoryId,
+                        secondary_category_id: secondaryCategoryId || undefined,
+                        search_type: 'ranked_keywords',
+                        target: normalizedDomain,
+                        language_code: selectedLanguage.code,
+                        location_code: selectedCountry.locationCode,
+                        limit: 100,
+                        extra: {
+                            offset,
+                            item_types: ['organic'],
+                            historical_serp_mode: 'live',
+                            ignore_synonyms: true,
+                            filters: [
+                                ['ranked_serp_element.serp_item.rank_group', '<=', 30],
+                                'and',
+                                ['keyword_data.keyword_info.search_volume', '>=', 30],
+                            ],
+                            order_by: [
+                                'ranked_serp_element.serp_item.rank_group,asc',
+                                'keyword_data.keyword_info.search_volume,desc',
+                            ],
+                        },
+                    })
+                    apiCalls += 1
+                    const batchRows = parseSummaryRows<Record<string, unknown>>(rankedSearch)
+                    rankedRows.push(...batchRows)
+                    const batchCandidates = buildWarehouseKeywordCandidates({
+                        rows: batchRows,
+                        siteCategory,
+                        allowedTopics,
+                        excludedTopics,
+                        sourceDomain: normalizedDomain,
+                    })
+                    const usefulRate = batchCandidates.length
+                        ? (batchCandidates.filter((item) => !item.rejected).length / batchCandidates.length) * 100
+                        : 0
+                    if ((offset > 0 && usefulRate < 20) || rankedRows.length >= 500) break
+                }
+            } else {
+                for (const target of selectedTargets) {
+                    const rankedSearch = await researchRebuildService.runDataforseoSearch({
+                        project_id: projectId,
+                        primary_category_id: primaryCategoryId,
+                        secondary_category_id: secondaryCategoryId || undefined,
+                        search_type: 'ranked_keywords',
+                        target,
+                        language_code: selectedLanguage.code,
+                        location_code: selectedCountry.locationCode,
+                        limit: 100,
+                        extra: {
+                            offset: 0,
+                            item_types: ['organic'],
+                            historical_serp_mode: 'live',
+                            ignore_synonyms: true,
+                            filters: [
+                                ['ranked_serp_element.serp_item.rank_group', '<=', 30],
+                                'and',
+                                ['keyword_data.keyword_info.search_volume', '>=', 30],
+                            ],
+                            order_by: [
+                                'ranked_serp_element.serp_item.rank_group,asc',
+                                'keyword_data.keyword_info.search_volume,desc',
+                            ],
+                        },
+                    })
+                    apiCalls += 1
+                    rankedRows.push(...parseSummaryRows<Record<string, unknown>>(rankedSearch))
+                }
+            }
+
+            const dedupedRows = Array.from(
+                new Map(
+                    rankedRows.map((row) => {
+                        const key = `${String(row.keyword || '').toLowerCase()}::${String(row.url || '')}`
+                        return [key, row]
+                    }),
+                ).values(),
+            )
+
+            const rawCandidates = buildWarehouseKeywordCandidates({
+                rows: dedupedRows,
+                siteCategory,
+                allowedTopics,
+                excludedTopics,
+                sourceDomain: normalizedDomain,
+            })
+            const shortlisted = rawCandidates
+                .filter((item) => !item.rejected)
+                .sort((a, b) => b.warehouseScore - a.warehouseScore || b.searchVolume - a.searchVolume)
+
+            let enrichedCandidates = shortlisted
+            if (shortlisted.length) {
+                const overviewSearch = await researchRebuildService.runDataforseoSearch({
+                    project_id: projectId,
+                    primary_category_id: primaryCategoryId,
+                    secondary_category_id: secondaryCategoryId || undefined,
+                    search_type: 'keyword_overview',
+                    keywords: shortlisted.slice(0, 120).map((item) => item.keyword),
+                    language_code: selectedLanguage.code,
+                    location_code: selectedCountry.locationCode,
+                })
+                apiCalls += 1
+                enrichedCandidates = mergeOverviewMetrics(shortlisted, parseSummaryRows<Record<string, unknown>>(overviewSearch))
+                    .sort((a, b) => b.warehouseScore - a.warehouseScore || b.searchVolume - a.searchVolume)
+            }
+
+            const clusters = clusterWarehouseKeywords(enrichedCandidates.slice(0, 150))
+            const usefulKeywordRate = rawCandidates.length
+                ? Math.round((shortlisted.length / rawCandidates.length) * 100)
+                : 0
+
+            const savedTopic = await researchTopicsService.createResearchTopic({
+                title: `Warehouse: ${normalizedDomain}`,
+                description: `Competitor domain keyword warehouse for ${normalizedDomain}`,
+                project_id: projectId,
+                primary_category_id: primaryCategoryId,
+                secondary_category_id: secondaryCategoryId || null,
+                topic_mode: 'keyword_first',
+                keyword_viability_label: 'medium',
+                topic_source: 'competitor_domain_warehouse',
+                topic_generation_metadata: {
+                    workflow_type: 'domain_keyword_warehouse',
+                    competitor_domain: normalizedDomain,
+                    target_country: countryLabel,
+                    target_language: languageLabel,
+                    site_category: siteCategory,
+                    allowed_topics: allowedTopics,
+                    excluded_topics: excludedTopics,
+                    fit_summary: fit,
+                    scope_recommendation: scopeRecommendation,
+                    selected_targets: selectedTargets,
+                    domain_categories: domainCategoryRows,
+                    relevant_pages: relevantPages,
+                    keyword_candidates: enrichedCandidates.slice(0, 150),
+                    clusters,
+                    useful_keyword_rate: usefulKeywordRate,
+                },
+            })
+
+            setWarehouseClusters(clusters)
+            setWarehouseSummary({
+                rawKeywordCount: rawCandidates.length,
+                shortlistedKeywordCount: enrichedCandidates.length,
+                usefulKeywordRate,
+                apiCalls,
+                savedTopicId: savedTopic.id,
+                selectedTargets,
+            })
+            setSuccess(`Stored ${clusters.length} future article clusters from ${normalizedDomain}. These are warehouse opportunities, not final article approvals.`)
+        } catch (warehouseError) {
+            console.error('Failed to run domain keyword warehouse', warehouseError)
+            setError(warehouseError instanceof Error ? warehouseError.message : 'Failed to run domain keyword warehouse.')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const workflowToggle = (
+        <div className="grid gap-3 md:grid-cols-2">
+            <button
+                type="button"
+                onClick={() => setWorkflowMode('article_serp')}
+                className={`rounded-[24px] border p-5 text-left transition ${workflowMode === 'article_serp' ? 'border-sky-400 bg-sky-500/10' : 'border-slate-700 bg-[#111a28] hover:border-slate-500'}`}
+            >
+                <div className="text-xs uppercase tracking-[0.28em] text-sky-300/75">Workflow A</div>
+                <div className="mt-2 text-xl font-semibold text-white">Find Article Keyword from SERP</div>
+                <p className="mt-2 text-sm text-slate-300">Use the current topic-first flow to test one article opportunity and decide whether it deserves a full SEO brief.</p>
+            </button>
+            <button
+                type="button"
+                onClick={() => setWorkflowMode('domain_warehouse')}
+                className={`rounded-[24px] border p-5 text-left transition ${workflowMode === 'domain_warehouse' ? 'border-emerald-400 bg-emerald-500/10' : 'border-slate-700 bg-[#111a28] hover:border-slate-500'}`}
+            >
+                <div className="text-xs uppercase tracking-[0.28em] text-emerald-300/75">Workflow B</div>
+                <div className="mt-2 text-xl font-semibold text-white">Harvest Future Keywords from Competitor Domain</div>
+                <p className="mt-2 text-sm text-slate-300">Mine a relevant niche competitor, cluster the useful keywords, and save them as future opportunities ready for later SERP validation.</p>
+            </button>
+        </div>
+    )
+
+    if (workflowMode === 'domain_warehouse') {
+        const categoryPath = categoryPathLabel(primaryCategory, secondaryCategory)
+        return (
+            <div className="min-h-screen bg-[#06101a] text-white">
+                <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 py-8">
+                    <header className="rounded-[28px] border border-slate-800 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.16),transparent_35%),linear-gradient(180deg,#0d1624_0%,#0a1019_100%)] p-6 shadow-[0_20px_80px_rgba(2,8,23,0.35)]">
+                        <div className="text-xs uppercase tracking-[0.35em] text-emerald-300/80">Research</div>
+                        <h1 className="mt-3 text-3xl font-semibold tracking-tight">Domain Keyword Warehouse</h1>
+                        <p className="mt-3 max-w-4xl text-sm text-slate-300">
+                            Build a future opportunity database from a competitor domain. This flow does not approve articles directly; it stores clusters that should go through SERP validation later.
+                        </p>
+                    </header>
+
+                    {workflowToggle}
+
+                    {error ? (
+                        <div className="rounded-2xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 text-sm text-rose-200">{error}</div>
+                    ) : null}
+
+                    {success ? (
+                        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-200">{success}</div>
+                    ) : null}
+
+                    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+                        <div className="flex flex-col gap-6">
+                            <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                                <div className="mb-5">
+                                    <div className="text-xs uppercase tracking-[0.3em] text-emerald-300/75">Step 1</div>
+                                    <h2 className="mt-2 text-2xl font-semibold">Input Screen</h2>
+                                </div>
+
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <label className="flex flex-col gap-2 md:col-span-2">
+                                        <span className="text-sm text-slate-300">Competitor Domain</span>
+                                        <input
+                                            value={competitorDomain}
+                                            onChange={(event) => setCompetitorDomain(event.target.value)}
+                                            placeholder="attainablehome.com"
+                                            className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-emerald-400"
+                                        />
+                                    </label>
+
+                                    <label className="flex flex-col gap-2">
+                                        <span className="text-sm text-slate-300">Website Category</span>
+                                        <select
+                                            value={primaryCategoryId}
+                                            onChange={(event) => {
+                                                setPrimaryCategoryId(event.target.value)
+                                                setSecondaryCategoryId('')
+                                            }}
+                                            className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition focus:border-emerald-400"
+                                        >
+                                            <option value="">Select category</option>
+                                            {primaryCategories.map((category) => (
+                                                <option key={category.id} value={category.id}>{category.name}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+
+                                    <label className="flex flex-col gap-2">
+                                        <span className="text-sm text-slate-300">Subcategory</span>
+                                        <select
+                                            value={secondaryCategoryId}
+                                            onChange={(event) => setSecondaryCategoryId(event.target.value)}
+                                            className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition focus:border-emerald-400"
+                                        >
+                                            <option value="">Select subcategory</option>
+                                            {secondaryCategories.map((category) => (
+                                                <option key={category.id} value={category.id}>{category.name}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+
+                                    <label className="flex flex-col gap-2">
+                                        <span className="text-sm text-slate-300">Target Country</span>
+                                        <select value={countryLabel} onChange={(event) => setCountryLabel(event.target.value)} className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition focus:border-emerald-400">
+                                            {COUNTRY_OPTIONS.map((country) => (
+                                                <option key={country.label} value={country.label}>{country.label}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+
+                                    <label className="flex flex-col gap-2">
+                                        <span className="text-sm text-slate-300">Language</span>
+                                        <select value={languageLabel} onChange={(event) => setLanguageLabel(event.target.value)} className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition focus:border-emerald-400">
+                                            {LANGUAGE_OPTIONS.map((language) => (
+                                                <option key={language.label} value={language.label}>{language.label}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+
+                                    <label className="flex flex-col gap-2 md:col-span-2">
+                                        <span className="text-sm text-slate-300">Allowed Topics</span>
+                                        <textarea
+                                            value={allowedTopicsInput}
+                                            onChange={(event) => setAllowedTopicsInput(event.target.value)}
+                                            rows={2}
+                                            className="rounded-2xl border border-slate-700 bg-[#141d2c] px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400"
+                                        />
+                                    </label>
+
+                                    <label className="flex flex-col gap-2 md:col-span-2">
+                                        <span className="text-sm text-slate-300">Excluded Topics</span>
+                                        <textarea
+                                            value={excludedTopicsInput}
+                                            onChange={(event) => setExcludedTopicsInput(event.target.value)}
+                                            rows={2}
+                                            className="rounded-2xl border border-slate-700 bg-[#141d2c] px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400"
+                                        />
+                                    </label>
+                                </div>
+
+                                <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <button
+                                        type="button"
+                                        onClick={handleRunWarehouse}
+                                        disabled={!projectId || !primaryCategoryId || !competitorDomain.trim() || isLoading}
+                                        className="inline-flex items-center justify-center rounded-2xl bg-emerald-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        {isLoading ? 'Harvesting…' : 'Harvest Future Keywords'}
+                                    </button>
+                                    <div className="text-sm text-slate-400">Keyword mode: Future content discovery</div>
+                                </div>
+                            </section>
+
+                            <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                                <div className="mb-4">
+                                    <div className="text-xs uppercase tracking-[0.3em] text-emerald-300/75">Step 2</div>
+                                    <h2 className="mt-2 text-2xl font-semibold">Domain Fit Test</h2>
+                                </div>
+
+                                <div className="rounded-[24px] border border-slate-700 bg-[#111a28] p-5">
+                                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                        <div>
+                                            <div className="text-sm text-slate-300">Domain Fit Score</div>
+                                            <div className="mt-2 text-4xl font-semibold text-white">{warehouseFit?.fitScore ?? 0} / 100</div>
+                                            <div className="mt-2 text-lg text-emerald-200">
+                                                {warehouseFit ? (warehouseFit.passed ? 'Harvest domain' : 'Reject before harvesting') : 'Run the fit test'}
+                                            </div>
+                                        </div>
+                                        <div className="grid gap-2 text-sm text-slate-300">
+                                            <div>Topical category match: {warehouseFit?.categoryMatch ?? 0}</div>
+                                            <div>Content-type match: {warehouseFit?.contentTypeMatch ?? 0}</div>
+                                            <div>Repeated competitor signal: {warehouseFit?.repeatedCompetitorSignal ?? 0}</div>
+                                            <div>Niche focus / low noise: {warehouseFit?.lowNoise ?? 0}</div>
+                                        </div>
+                                    </div>
+                                    <div className="mt-4 rounded-2xl border border-slate-700 bg-[#0f1928] p-4 text-sm text-slate-300">
+                                        Recommended scope: <span className="font-medium text-white">{warehouseScope.replace('_', ' ')}</span>
+                                        <div className="mt-2">Site category: {categoryPath || primaryCategory?.name || 'Select a category'}</div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                                <div className="mb-4">
+                                    <div className="text-xs uppercase tracking-[0.3em] text-emerald-300/75">Step 3</div>
+                                    <h2 className="mt-2 text-2xl font-semibold">Relevant Pages and Categories</h2>
+                                </div>
+
+                                <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-4">
+                                        <div className="text-sm font-medium text-white">Top domain categories</div>
+                                        <div className="mt-3 grid gap-3">
+                                            {warehouseCategories.slice(0, 6).map((row, index) => (
+                                                <div key={`${row.category_names.join('-')}-${index}`} className="rounded-2xl border border-slate-700 bg-[#0f1928] p-3">
+                                                    <div className="text-sm font-medium text-white">{row.category_names.join(' / ')}</div>
+                                                    <div className="mt-2 text-xs text-slate-300">Keywords: {row.organic_count || 0} • Top 30: {(row.pos_4_10 || 0) + (row.pos_11_20 || 0) + (row.pos_21_30 || 0)}</div>
+                                                </div>
+                                            ))}
+                                            {!warehouseCategories.length ? <div className="text-sm text-slate-400">No category fit data yet.</div> : null}
+                                        </div>
+                                    </div>
+
+                                    <div className="overflow-hidden rounded-2xl border border-slate-700 bg-[#111a28]">
+                                        <div className="hidden grid-cols-[minmax(0,2fr)_100px_100px_110px_90px] gap-3 border-b border-slate-700 px-4 py-3 text-[11px] uppercase tracking-[0.26em] text-slate-400 lg:grid">
+                                            <div>Page</div>
+                                            <div>Traffic</div>
+                                            <div>Keywords</div>
+                                            <div>Topic Match</div>
+                                            <div>Use?</div>
+                                        </div>
+                                        <div className="divide-y divide-slate-800">
+                                            {warehousePages.slice(0, 12).map((page) => (
+                                                <div key={page.url} className="grid gap-2 px-4 py-4 lg:grid-cols-[minmax(0,2fr)_100px_100px_110px_90px] lg:items-center">
+                                                    <div>
+                                                        <div className="font-medium text-white">{page.title || page.url}</div>
+                                                        <div className="mt-1 text-xs text-slate-400">{page.url}</div>
+                                                    </div>
+                                                    <div className="text-sm text-slate-300">{Math.round(page.traffic || 0)}</div>
+                                                    <div className="text-sm text-slate-300">{page.organicCount}</div>
+                                                    <div className="text-sm text-slate-300">{page.topicMatchLabel}</div>
+                                                    <div className="text-sm text-slate-300">{page.include ? 'Yes' : 'No'}</div>
+                                                </div>
+                                            ))}
+                                            {!warehousePages.length ? <div className="px-4 py-6 text-sm text-slate-400">Relevant pages will appear after the domain fit step.</div> : null}
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                                <div className="mb-4">
+                                    <div className="text-xs uppercase tracking-[0.3em] text-emerald-300/75">Step 4</div>
+                                    <h2 className="mt-2 text-2xl font-semibold">Stored Warehouse Opportunities</h2>
+                                </div>
+
+                                <div className="grid gap-4 md:grid-cols-3">
+                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-4">
+                                        <div className="text-sm text-slate-300">Future article clusters</div>
+                                        <div className="mt-2 text-3xl font-semibold text-white">{warehouseClusters.length}</div>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-4">
+                                        <div className="text-sm text-slate-300">Useful keyword rate</div>
+                                        <div className="mt-2 text-3xl font-semibold text-white">{warehouseSummary?.usefulKeywordRate ?? 0}%</div>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-4">
+                                        <div className="text-sm text-slate-300">Estimated API calls used</div>
+                                        <div className="mt-2 text-3xl font-semibold text-white">{warehouseSummary?.apiCalls ?? 0}</div>
+                                    </div>
+                                </div>
+
+                                <div className="mt-5 grid gap-4">
+                                    {warehouseClusters.slice(0, 12).map((cluster) => (
+                                        <div key={cluster.id} className="rounded-3xl border border-slate-700 bg-[#111a28] p-5">
+                                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                                <div>
+                                                    <div className="text-xs uppercase tracking-[0.24em] text-slate-400">{cluster.priority} Priority</div>
+                                                    <h3 className="mt-2 text-xl font-semibold text-white">{cluster.clusterName}</h3>
+                                                    <div className="mt-2 text-sm text-slate-300">
+                                                        Primary keyword: <span className="font-medium text-white">{cluster.primaryKeyword}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
+                                                    {cluster.status}
+                                                </div>
+                                            </div>
+                                            <div className="mt-4 flex flex-wrap gap-2">
+                                                {cluster.supportingKeywords.slice(0, 6).map((keyword) => (
+                                                    <span key={`${cluster.id}-${keyword}`} className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200">{keyword}</span>
+                                                ))}
+                                            </div>
+                                            <div className="mt-4 grid gap-2 text-sm text-slate-300 md:grid-cols-4">
+                                                <div>Keywords: <span className="font-medium text-white">{1 + cluster.supportingKeywords.length}</span></div>
+                                                <div>Avg KD: <span className="font-medium text-white">{cluster.avgKd ?? 'n/a'}</span></div>
+                                                <div>Volume Potential: <span className="font-medium text-white">{cluster.volumePotential}</span></div>
+                                                <div>Warehouse Score: <span className="font-medium text-white">{cluster.warehouseScore}</span></div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {!warehouseClusters.length ? (
+                                        <div className="rounded-2xl border border-dashed border-slate-700 bg-[#111725] px-5 py-8 text-sm text-slate-400">
+                                            Run a competitor harvest to create clustered future opportunities for later SERP validation.
+                                        </div>
+                                    ) : null}
+                                </div>
+                            </section>
+                        </div>
+
+                        <aside className="flex flex-col gap-6 xl:sticky xl:top-6 xl:self-start">
+                            <section className="rounded-[28px] border border-slate-800 bg-[#0c1420] p-6">
+                                <div className="text-xs uppercase tracking-[0.3em] text-emerald-300/75">Warehouse Rules</div>
+                                <h2 className="mt-2 text-xl font-semibold">What gets stored</h2>
+                                <div className="mt-4 grid gap-3 text-sm text-slate-300">
+                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">Keep keywords when topical fit, article intent, rank 4–30, and volume thresholds line up.</div>
+                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">Reject branded, local-service, ecommerce, or off-topic phrases before enrichment.</div>
+                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">Clusters stay as <span className="font-medium text-white">Ready for SERP validation</span> or <span className="font-medium text-white">Future opportunity</span>.</div>
+                                </div>
+                                <div className="mt-4 rounded-2xl border border-slate-700 bg-[#111a28] p-4 text-sm text-slate-300">
+                                    Saved topic id: <span className="font-medium text-white">{warehouseSummary?.savedTopicId || 'Not saved yet'}</span>
+                                </div>
+                            </section>
+                        </aside>
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div className="min-h-screen bg-[#06101a] text-white">
             <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 py-8">
@@ -475,6 +1111,8 @@ export function ResearchRebuildStrategicPage() {
                         Move from topic idea to one article opportunity. The system evaluates whether the topic is worth pursuing before it spends credits on broader keyword harvesting.
                     </p>
                 </header>
+
+                {workflowToggle}
 
                 {error ? (
                     <div className="rounded-2xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 text-sm text-rose-200">{error}</div>
@@ -905,7 +1543,9 @@ export function ResearchRebuildStrategicPage() {
                                 <h2 className="mt-2 text-2xl font-semibold">Load a previous topic</h2>
                             </div>
                             <div className="flex flex-wrap gap-3">
-                                {recentTopics.map((topic) => (
+                                {recentTopics
+                                    .filter((topic) => topic.topic_generation_metadata?.workflow_type !== 'domain_keyword_warehouse')
+                                    .map((topic) => (
                                     <button
                                         type="button"
                                         key={topic.id}

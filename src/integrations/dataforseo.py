@@ -104,7 +104,7 @@ class DataForSEOAPI:
         except Exception:
             return None
 
-    async def _make_request_with_retry(self, client, url, payload, headers, max_retries=5):
+    async def _make_request_with_retry(self, client, url, payload, headers, max_retries=5, method="POST"):
         """
         Make API request with retry logic for Rate Limits (40202)
         Uses exponential backoff with jitter.
@@ -117,7 +117,11 @@ class DataForSEOAPI:
             await asyncio.sleep(jitter)
             
             try:
-                response = await client.post(url, json=payload, headers=headers)
+                request_method = str(method or "POST").upper()
+                if request_method == "GET":
+                    response = await client.get(url, headers=headers)
+                else:
+                    response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
                 
@@ -987,7 +991,10 @@ class DataForSEOAPI:
         language_code: str = "en",
         location_code: int = 2840,
         limit: int = 100,
+        offset: int = 0,
         ignore_synonyms: bool = True,
+        item_types: Optional[List[str]] = None,
+        historical_serp_mode: str = "live",
         filters: Optional[List[Any]] = None,
         order_by: Optional[List[str]] = None,
         return_raw: bool = False,
@@ -1001,7 +1008,10 @@ class DataForSEOAPI:
                     "language_code": language_code,
                     "location_code": location_code,
                     "ignore_synonyms": ignore_synonyms,
+                    "item_types": item_types or ["organic", "paid"],
                     "limit": max(1, min(int(limit or 100), 1000)),
+                    "offset": max(0, int(offset or 0)),
+                    "historical_serp_mode": historical_serp_mode or "live",
                     "filters": filters or [
                         ["keyword_data.keyword_info.search_volume", ">", 10],
                         "and",
@@ -1080,21 +1090,33 @@ class DataForSEOAPI:
 
     async def get_relevant_pages_live(
         self,
-        keyword: str,
+        target: str,
         language_code: str = "en",
         location_code: int = 2840,
         limit: int = 20,
+        offset: int = 0,
+        item_types: Optional[List[str]] = None,
+        historical_serp_mode: str = "live",
+        ignore_synonyms: bool = False,
+        filters: Optional[List[Any]] = None,
+        order_by: Optional[List[str]] = None,
         return_raw: bool = False,
     ) -> Any:
-        """Get relevant pages for a keyword from DataForSEO Labs."""
+        """Get relevant pages for a target domain from DataForSEO Labs."""
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 url = f"{self.base_url}/dataforseo_labs/google/relevant_pages/live"
                 payload = [{
-                    "keyword": keyword,
+                    "target": target,
                     "language_code": language_code,
                     "location_code": location_code,
-                    "limit": max(1, min(int(limit or 20), 100)),
+                    "item_types": item_types or ["organic", "paid"],
+                    "limit": max(1, min(int(limit or 20), 1000)),
+                    "offset": max(0, int(offset or 0)),
+                    "historical_serp_mode": historical_serp_mode or "live",
+                    "ignore_synonyms": bool(ignore_synonyms),
+                    "filters": filters or [],
+                    "order_by": order_by or ["metrics.organic.count,desc"],
                 }]
                 headers = {
                     "Authorization": self.auth_header,
@@ -1118,6 +1140,87 @@ class DataForSEOAPI:
                 return {
                     "items": [],
                     "raw": {"endpoint": "dataforseo_labs/google/relevant_pages/live", "error": str(e)},
+                }
+            return []
+
+    async def get_categories_for_domain_live(
+        self,
+        target: str,
+        language_code: str = "en",
+        location_code: int = 2840,
+        limit: int = 20,
+        include_subcategories: bool = False,
+        item_types: Optional[List[str]] = None,
+        filters: Optional[List[Any]] = None,
+        order_by: Optional[List[str]] = None,
+        return_raw: bool = False,
+    ) -> Any:
+        """Get ranking categories for a target domain from DataForSEO Labs."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                url = f"{self.base_url}/dataforseo_labs/google/categories_for_domain/live"
+                payload = [{
+                    "target": target,
+                    "language_code": language_code,
+                    "location_code": location_code,
+                    "include_subcategories": bool(include_subcategories),
+                    "item_types": item_types or ["organic"],
+                    "limit": max(1, min(int(limit or 20), 1000)),
+                    "filters": filters or [],
+                    "order_by": order_by or ["metrics.organic.count,desc"],
+                }]
+                headers = {
+                    "Authorization": self.auth_header,
+                    "Content-Type": "application/json",
+                }
+                data = await self._make_request_with_retry(client, url, payload, headers)
+                items = self._process_categories_for_domain(data)
+                if return_raw:
+                    return {
+                        "items": items,
+                        "raw": {
+                            "endpoint": "dataforseo_labs/google/categories_for_domain/live",
+                            "request": {"url": url, "payload": payload},
+                            "response": data,
+                        },
+                    }
+                return items
+        except Exception as e:
+            logger.error(f"DataForSEO categories for domain live error: {e}")
+            if return_raw:
+                return {
+                    "items": [],
+                    "raw": {"endpoint": "dataforseo_labs/google/categories_for_domain/live", "error": str(e)},
+                }
+            return []
+
+    async def get_labs_categories(self, return_raw: bool = False) -> Any:
+        """Get the free category index for DataForSEO Labs."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                url = f"{self.base_url}/dataforseo_labs/categories"
+                headers = {
+                    "Authorization": self.auth_header,
+                    "Content-Type": "application/json",
+                }
+                data = await self._make_request_with_retry(client, url, None, headers, method="GET")
+                items = self._process_labs_categories(data)
+                if return_raw:
+                    return {
+                        "items": items,
+                        "raw": {
+                            "endpoint": "dataforseo_labs/categories",
+                            "request": {"url": url},
+                            "response": data,
+                        },
+                    }
+                return items
+        except Exception as e:
+            logger.error(f"DataForSEO labs categories error: {e}")
+            if return_raw:
+                return {
+                    "items": [],
+                    "raw": {"endpoint": "dataforseo_labs/categories", "error": str(e)},
                 }
             return []
 
@@ -1618,15 +1721,53 @@ class DataForSEOAPI:
         for result_entry in task.get("result") or []:
             for item in result_entry.get("items") or []:
                 metrics = item.get("metrics") or {}
+                organic = metrics.get("organic") or {}
                 rows.append({
-                    "url": item.get("url"),
+                    "url": item.get("page_address") or item.get("url"),
                     "title": item.get("title"),
                     "domain": item.get("domain"),
                     "main_domain": item.get("main_domain"),
-                    "rank_group": metrics.get("rank_group") or item.get("rank_group"),
-                    "traffic": metrics.get("etv") or item.get("etv"),
+                    "rank_group": metrics.get("rank_group") or organic.get("rank_group") or item.get("rank_group"),
+                    "traffic": organic.get("etv") or metrics.get("etv") or item.get("etv"),
+                    "organic_count": organic.get("count"),
+                    "pos_1": organic.get("pos_1"),
+                    "pos_2_3": organic.get("pos_2_3"),
+                    "pos_4_10": organic.get("pos_4_10"),
+                    "pos_11_20": organic.get("pos_11_20"),
+                    "pos_21_30": organic.get("pos_21_30"),
+                    "estimated_paid_traffic_cost": organic.get("estimated_paid_traffic_cost"),
                 })
         return rows
+
+    def _process_categories_for_domain(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Process categories for domain response."""
+        rows: List[Dict[str, Any]] = []
+        if "tasks" not in data or not data["tasks"]:
+            return rows
+        task = data["tasks"][0]
+        for result_entry in task.get("result") or []:
+            for item in result_entry.get("items") or []:
+                metrics = item.get("metrics") or {}
+                organic = metrics.get("organic") or {}
+                rows.append({
+                    "category_codes": item.get("categories") or [],
+                    "organic_count": organic.get("count"),
+                    "organic_etv": organic.get("etv"),
+                    "pos_1": organic.get("pos_1"),
+                    "pos_2_3": organic.get("pos_2_3"),
+                    "pos_4_10": organic.get("pos_4_10"),
+                    "pos_11_20": organic.get("pos_11_20"),
+                    "pos_21_30": organic.get("pos_21_30"),
+                    "estimated_paid_traffic_cost": organic.get("estimated_paid_traffic_cost"),
+                })
+        return rows
+
+    def _process_labs_categories(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Process the DataForSEO Labs categories index response."""
+        if "tasks" not in data or not data["tasks"]:
+            return []
+        task = data["tasks"][0]
+        return list(task.get("result") or [])
     
     def _process_keyword_ideas(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Process keyword ideas response"""
