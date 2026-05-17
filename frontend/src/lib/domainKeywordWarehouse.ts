@@ -169,6 +169,7 @@ function keywordVolumeScore(volume: number) {
 
 function keywordRankSignal(rank: number) {
     if (rank <= 0) return 0
+    if (rank <= 3) return 82
     if (rank <= 10) return 95
     if (rank <= 20) return 78
     if (rank <= 30) return 62
@@ -364,7 +365,7 @@ export function buildWarehouseKeywordCandidates(params: {
         const rejectionReasons: string[] = []
         if (!keyword) rejectionReasons.push('missing_keyword')
         if (searchVolume < 30) rejectionReasons.push('low_volume')
-        if (rank < 4 || rank > 30) rejectionReasons.push('rank_outside_target')
+        if (rank < 1 || rank > 30) rejectionReasons.push('rank_outside_target')
         if (topicalScore < 50) rejectionReasons.push('low_topical_fit')
         if (articlePotentialScore < 45) rejectionReasons.push('weak_article_intent')
         if (NEGATIVE_TERMS.some((term) => keyword.includes(term))) rejectionReasons.push('negative_term')
