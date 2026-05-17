@@ -207,6 +207,12 @@ function detectPageType(url: string, title: string): WarehouseRelevantPage['page
     return 'Mixed'
 }
 
+function topicMatchLabel(score: number): WarehouseRelevantPage['topicMatchLabel'] {
+    if (score >= 55) return 'High'
+    if (score >= 25) return 'Medium'
+    return 'Low'
+}
+
 function topicMatchScore(text: string, topicVocabulary: string[], excludedVocabulary: string[]) {
     const haystack = tokenize(text).map(normalizeToken).filter(Boolean)
     if (!haystack.length) return 0
@@ -226,7 +232,7 @@ function topicMatchScore(text: string, topicVocabulary: string[], excludedVocabu
     const tokenHits = haystack.filter((token) => expandedVocabulary.has(token)).length
     const uniqueTokenHits = new Set(haystack.filter((token) => expandedVocabulary.has(token))).size
     const negativeTokenHits = new Set(haystack.filter((token) => expandedExcludedVocabulary.has(token))).size
-    const raw = Math.min(100, positiveHits * 18 + tokenHits * 5 + uniqueTokenHits * 8 - negativeHits * 20 - negativeTokenHits * 10)
+    const raw = Math.min(100, positiveHits * 20 + tokenHits * 8 + uniqueTokenHits * 14 - negativeHits * 20 - negativeTokenHits * 10)
     return Math.max(0, raw)
 }
 
@@ -254,7 +260,7 @@ export function buildRelevantPages(items: Array<Record<string, unknown>>, topicV
         const url = String(item.url || '')
         const title = String(item.title || '')
         const score = topicMatchScore(`${url} ${title}`, topicVocabulary, excludedVocabulary)
-        const label: WarehouseRelevantPage['topicMatchLabel'] = score >= 75 ? 'High' : score >= 50 ? 'Medium' : 'Low'
+        const label = topicMatchLabel(score)
         const pageType = detectPageType(url, title)
         const organicCount = Number(item.organic_count || 0)
         const positionOpportunityCount = Number(item.pos_4_10 || 0) + Number(item.pos_11_20 || 0) + Number(item.pos_21_30 || 0)
@@ -283,13 +289,20 @@ export function scoreDomainFit(params: {
     const topicVocabulary = [params.siteCategory, ...params.allowedTopics].filter(Boolean)
     const excludedVocabulary = params.excludedTopics.filter(Boolean)
     const categoryRows = params.domainCategories.slice(0, 8)
-    const categoryMatch = categoryRows.length
+    const categoryMatchFromRows = categoryRows.length
         ? categoryRows.reduce((sum, row) => {
             const rowScore = topicMatchScore(row.category_names.join(' '), topicVocabulary, excludedVocabulary)
             const weight = Math.max(1, row.organic_count)
             return sum + rowScore * weight
         }, 0) / categoryRows.reduce((sum, row) => sum + Math.max(1, row.organic_count), 0)
         : 0
+    const categoryMatchFromPages = params.relevantPages.length
+        ? params.relevantPages.reduce((sum, page) => {
+            const weight = Math.max(1, page.organicCount)
+            return sum + page.topicMatchScore * weight
+        }, 0) / params.relevantPages.reduce((sum, page) => sum + Math.max(1, page.organicCount), 0)
+        : 0
+    const categoryMatch = categoryRows.length ? categoryMatchFromRows : categoryMatchFromPages
     const contentTypeMatch = params.relevantPages.length
         ? (params.relevantPages.filter((page) => page.include || page.topicMatchScore >= 35).length / params.relevantPages.length) * 100
         : 0
