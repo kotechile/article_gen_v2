@@ -364,11 +364,6 @@ export function buildWarehouseKeywordCandidates(params: {
         const cpc = row.cpc == null ? null : Number(row.cpc)
         const rejectionReasons: string[] = []
         if (!keyword) rejectionReasons.push('missing_keyword')
-        if (searchVolume < 30) rejectionReasons.push('low_volume')
-        if (rank < 1 || rank > 30) rejectionReasons.push('rank_outside_target')
-        if (topicalScore < 50) rejectionReasons.push('low_topical_fit')
-        if (articlePotentialScore < 45) rejectionReasons.push('weak_article_intent')
-        if (NEGATIVE_TERMS.some((term) => keyword.includes(term))) rejectionReasons.push('negative_term')
         if (LOCAL_TERMS.some((term) => keyword.includes(term))) rejectionReasons.push('local_service_intent')
         if (BRAND_TERMS.some((term) => keyword.includes(term))) rejectionReasons.push('brand_or_nav')
         if (ECOMMERCE_TERMS.some((term) => keyword.includes(term)) && !ARTICLE_TERMS.some((term) => keyword.includes(term))) {

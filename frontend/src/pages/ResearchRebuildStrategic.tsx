@@ -1190,8 +1190,8 @@ export function ResearchRebuildStrategicPage() {
                                 <div className="text-xs uppercase tracking-[0.3em] text-emerald-300/75">Warehouse Rules</div>
                                 <h2 className="mt-2 text-xl font-semibold">What gets stored</h2>
                                 <div className="mt-4 grid gap-3 text-sm text-slate-300">
-                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">Keep keywords when topical fit, article intent, rank 1–30, and volume thresholds line up.</div>
-                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">Reject branded, local-service, ecommerce, or off-topic phrases before enrichment.</div>
+                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">Store feasible keywords broadly; volume, rank, topical fit, and article intent influence priority instead of blocking storage.</div>
+                                    <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">Reject only local-service, brand/navigation, or ecommerce-only phrases before enrichment.</div>
                                     <div className="rounded-2xl border border-slate-700 bg-[#111a28] p-3">Clusters stay as <span className="font-medium text-white">Ready for SERP validation</span> or <span className="font-medium text-white">Future opportunity</span>.</div>
                                 </div>
                                 <div className="mt-4 rounded-2xl border border-slate-700 bg-[#111a28] p-4 text-sm text-slate-300">
