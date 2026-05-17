@@ -237,9 +237,10 @@ function validateSEOReadiness(article: ArticleData): SEOValidation {
 
 function deriveSEOValidation(
     article: ArticleData | null,
-    seoShiftEnabled: boolean
+    seoShiftEnabled: boolean,
+    keywordValidationEnabled: boolean
 ): SEOValidation | null {
-    if (!seoShiftEnabled || !article) {
+    if (!seoShiftEnabled || !keywordValidationEnabled || !article) {
         return null;
     }
     return validateSEOReadiness(article);
@@ -362,6 +363,7 @@ export const ContentStudio: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [taskId, setTaskId] = useState<string | null>(null);
     const [seoShiftEnabled, setSeoShiftEnabled] = useState(true);
+    const [keywordValidationEnabled, setKeywordValidationEnabled] = useState(false);
     const [seoValidation, setSeoValidation] = useState<SEOValidation | null>(null);
     const [showKeywordModal, setShowKeywordModal] = useState(false);
     const [showRefinementGate, setShowRefinementGate] = useState(false);
@@ -398,8 +400,8 @@ export const ContentStudio: React.FC = () => {
     });
 
     useEffect(() => {
-        setSeoValidation(deriveSEOValidation(article, seoShiftEnabled));
-    }, [article, seoShiftEnabled]);
+        setSeoValidation(deriveSEOValidation(article, seoShiftEnabled, keywordValidationEnabled));
+    }, [article, seoShiftEnabled, keywordValidationEnabled]);
 
     // Fetch Data
     useEffect(() => {
@@ -918,7 +920,7 @@ export const ContentStudio: React.FC = () => {
             }
 
             // ── Phase 2: Validate SEO readiness ──────────────────────────────────
-            if (article && seoShiftEnabled) {
+            if (article && seoShiftEnabled && keywordValidationEnabled) {
                 const validation = validateSEOReadiness(article);
                 setSeoValidation(validation);
                 if (!validation.isValid) {
@@ -939,6 +941,7 @@ export const ContentStudio: React.FC = () => {
 
             if (
                 seoShiftEnabled &&
+                keywordValidationEnabled &&
                 primaryKw &&
                 !options?.skipApprovalGate &&
                 approvedRefinementSignature !== buildRefinementSignature(
@@ -1160,7 +1163,7 @@ export const ContentStudio: React.FC = () => {
                 </div>
             )}
             {/* SEO Pre-Flight Panel */}
-            {seoShiftEnabled && seoValidation && (seoValidation.errors.length > 0 || seoValidation.warnings.length > 0) && (
+            {seoShiftEnabled && keywordValidationEnabled && seoValidation && (seoValidation.errors.length > 0 || seoValidation.warnings.length > 0) && (
                 <div className="rounded-xl border overflow-hidden">
                     {seoValidation.errors.length > 0 && (
                         <div className="bg-destructive/10 border-b border-destructive/20 px-4 py-3">
@@ -1218,9 +1221,9 @@ export const ContentStudio: React.FC = () => {
                     </button>
                     <button
                         onClick={handleGenerate}
-                        disabled={generating || requestingRefinement || (seoShiftEnabled && seoValidation !== null && !seoValidation.isValid)}
+                        disabled={generating || requestingRefinement || (seoShiftEnabled && keywordValidationEnabled && seoValidation !== null && !seoValidation.isValid)}
                         className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                        title={seoShiftEnabled && seoValidation && !seoValidation.isValid ? seoValidation.errors[0] : undefined}
+                        title={seoShiftEnabled && keywordValidationEnabled && seoValidation && !seoValidation.isValid ? seoValidation.errors[0] : undefined}
                     >
                         {(generating || requestingRefinement) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                         {requestingRefinement ? 'Preparing Approval Gate...' : 'Generate Article'}
@@ -1307,6 +1310,28 @@ export const ContentStudio: React.FC = () => {
                                 </label>
                                 <p className="text-xs text-muted-foreground mt-0.5">
                                     Enrich the generation with a strict GEO-SEO directive. Optimizes for Google search rankings and Generative AI engines (ChatGPT, Gemini, Perplexity) by surfacing citations, entities, and direct answers.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className={`flex items-start gap-3 p-3 rounded-xl border transition ${
+                            keywordValidationEnabled
+                                ? 'border-primary/30 bg-primary/5'
+                                : 'border-border bg-muted/30'
+                        }`}>
+                            <input
+                                id="keyword-validation-toggle"
+                                type="checkbox"
+                                className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                                checked={keywordValidationEnabled}
+                                onChange={(e) => setKeywordValidationEnabled(e.target.checked)}
+                            />
+                            <div className="flex-1">
+                                <label htmlFor="keyword-validation-toggle" className="text-sm font-medium text-foreground cursor-pointer">
+                                    Require keyword validation before generation
+                                </label>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    Off by default for strategic articles. Turn this on only when you want Content Studio to block generation until primary and secondary keywords are fully defined.
                                 </p>
                             </div>
                         </div>
@@ -1577,7 +1602,7 @@ export const ContentStudio: React.FC = () => {
                         <div className="flex items-center gap-2 mb-4">
                             <ShieldCheck className="w-5 h-5 text-primary" />
                             <h3 className="font-semibold text-foreground">SEO Data</h3>
-                            {seoShiftEnabled && seoValidation && (
+                            {seoShiftEnabled && keywordValidationEnabled && seoValidation && (
                                 <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${
                                     seoValidation.isValid
                                         ? 'bg-emerald-500/15 text-emerald-400'
