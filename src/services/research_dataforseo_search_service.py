@@ -20,6 +20,7 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
     """Persist and execute user-driven DataForSEO lookups."""
 
     table_name = "research_dataforseo_searches"
+    NON_BLOCKING_SEARCH_TYPES = {"categories_for_domain", "category_index"}
 
     def __init__(self, supabase_service: Optional[SupabaseService] = None):
         super().__init__(supabase_service=supabase_service)
@@ -489,27 +490,43 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
         else:
             raise ValueError("search_type must be one of related_keywords, keyword_overview, serp, google_trends, serp_probe, ranked_keywords, relevant_pages, categories_for_domain, category_index")
 
-        item = await self.create_record(
-            user_id=user_id,
-            data={
-                "project_id": str(project_id),
-                "user_job_id": str(user_job_id) if user_job_id else None,
-                "primary_category_id": primary_category_id,
-                "secondary_category_id": secondary_category_id,
-                "search_type": search_type_normalized,
-                "endpoint": endpoint,
-                "query_text": str(query_text or "").strip(),
-                "normalized_query_text": normalized_query,
-                "request_payload": self._sanitize_for_json(request_payload),
-                "response_payload": response_payload,
-                "result_summary_json": self._sanitize_for_json(result_summary_json),
-                "searched_at": now_iso,
-                "updated_at": now_iso,
-            },
-        )
-        if not item:
-            raise ValueError("Failed to persist DataForSEO search")
-        return item
+        payload = {
+            "project_id": str(project_id),
+            "user_job_id": str(user_job_id) if user_job_id else None,
+            "primary_category_id": primary_category_id,
+            "secondary_category_id": secondary_category_id,
+            "search_type": search_type_normalized,
+            "endpoint": endpoint,
+            "query_text": str(query_text or "").strip(),
+            "normalized_query_text": normalized_query,
+            "request_payload": self._sanitize_for_json(request_payload),
+            "response_payload": response_payload,
+            "result_summary_json": self._sanitize_for_json(result_summary_json),
+            "searched_at": now_iso,
+            "updated_at": now_iso,
+        }
+
+        try:
+            item = await self.create_record(
+                user_id=user_id,
+                data=payload,
+            )
+            if not item:
+                raise ValueError("Failed to persist DataForSEO search")
+            return item
+        except Exception:
+            if search_type_normalized not in self.NON_BLOCKING_SEARCH_TYPES:
+                raise
+
+            # Domain-fit helpers should still return usable results even when the
+            # production DB has not yet been migrated to allow the new search types.
+            return {
+                "id": None,
+                "user_id": str(user_id),
+                **payload,
+                "created_at": now_iso,
+                "persistence_state": "ephemeral_unpersisted",
+            }
 
     async def list_searches(
         self,
