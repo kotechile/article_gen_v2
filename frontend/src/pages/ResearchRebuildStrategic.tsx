@@ -90,6 +90,10 @@ function dedupePreviewQueries(queries: string[]) {
     })
 }
 
+function sameNormalizedText(left: string, right: string) {
+    return normalizeText(left).toLowerCase() === normalizeText(right).toLowerCase()
+}
+
 function buildProbePreview(topicIdea: string): ProbePreview[] {
     const normalized = normalizeText(topicIdea)
     const tokens = slugTokens(topicIdea)
@@ -443,6 +447,28 @@ export function ResearchRebuildStrategicPage() {
     const runSummary = React.useMemo(() => {
         return ((currentRun?.summary_json || {}) as Record<string, any>) || {}
     }, [currentRun])
+
+    const displayedProbeQueries = React.useMemo(() => {
+        const rawData = ((currentRun?.raw_data_json || {}) as Record<string, any>)
+        const seedGeneration = (rawData.seed_generation || {}) as Record<string, any>
+        const actualQueries = ((seedGeneration.probe_queries || serpGate.probe_queries || []) as Array<unknown>)
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+
+        const canUseActualRun =
+            Boolean(currentRun)
+            && Boolean(currentTopic)
+            && sameNormalizedText(String(currentTopic?.title || ''), topicIdea)
+
+        const sourceQueries = canUseActualRun && actualQueries.length ? actualQueries.slice(0, 3) : probePreview.map((probe) => probe.query)
+        const labels: Array<'Practical' | 'ROI' | 'Question'> = ['Practical', 'ROI', 'Question']
+
+        return sourceQueries.map((query, index) => ({
+            label: labels[index] || 'Practical',
+            query,
+            isActual: canUseActualRun && actualQueries.length > 0,
+        }))
+    }, [currentRun, currentTopic, probePreview, serpGate.probe_queries, topicIdea])
 
     const opportunityScore = React.useMemo(() => {
         const serpWeakness = safeNumber(runSummary.serp_weakness_score) * 100
@@ -1363,7 +1389,14 @@ export function ResearchRebuildStrategicPage() {
                             <div className="mb-4 flex items-center justify-between">
                                 <div>
                                     <div className="text-xs uppercase tracking-[0.3em] text-sky-300/75">Step 2</div>
-                                    <h2 className="mt-2 text-2xl font-semibold">SERP Probe Preview</h2>
+                                    <h2 className="mt-2 text-2xl font-semibold">
+                                        {displayedProbeQueries[0]?.isActual ? 'SERP Probes Used' : 'SERP Probe Preview'}
+                                    </h2>
+                                    <div className="mt-1 text-sm text-slate-400">
+                                        {displayedProbeQueries[0]?.isActual
+                                            ? 'These are the actual backend probes used for the latest run of this topic.'
+                                            : 'This is a draft preview. The final backend probes may differ once you run the analysis.'}
+                                    </div>
                                 </div>
                                 <div className="rounded-full border border-slate-700 bg-[#141d2c] px-3 py-1 text-xs text-slate-300">
                                     Estimated API calls: 3
@@ -1371,11 +1404,18 @@ export function ResearchRebuildStrategicPage() {
                             </div>
 
                             <div className="grid gap-3">
-                                {probePreview.map((probe, index) => (
+                                {displayedProbeQueries.map((probe, index) => (
                                     <div key={`${probe.label}-${index}`} className="rounded-2xl border border-slate-700 bg-[#111a28] p-4">
                                         <div className="flex items-center justify-between gap-3">
                                             <div className="text-sm font-medium text-white">{index + 1}. {probe.label} intent</div>
-                                            <span className="rounded-full border border-sky-500/20 bg-sky-500/10 px-3 py-1 text-xs text-sky-200">{probe.label}</span>
+                                            <div className="flex items-center gap-2">
+                                                {probe.isActual ? (
+                                                    <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">Actual</span>
+                                                ) : (
+                                                    <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs text-amber-200">Draft</span>
+                                                )}
+                                                <span className="rounded-full border border-sky-500/20 bg-sky-500/10 px-3 py-1 text-xs text-sky-200">{probe.label}</span>
+                                            </div>
                                         </div>
                                         <div className="mt-2 text-base text-slate-200">{probe.query}</div>
                                     </div>
