@@ -686,7 +686,8 @@ export function ResearchRebuildStrategicPage() {
         const normalizedDomain = normalizeDomainInput(competitorDomain)
         const allowedTopics = splitTopicInput(allowedTopicsInput)
         const excludedTopics = splitTopicInput(excludedTopicsInput)
-        const siteCategory = buildWarehouseSiteContext(activeProject, allowedTopics)
+        const warehouseContext = buildWarehouseSiteContext(activeProject, allowedTopics)
+        const topicFilterContext = allowedTopics.join(' / ')
 
         setIsLoading(true)
         setError(null)
@@ -735,12 +736,12 @@ export function ResearchRebuildStrategicPage() {
 
             const categoryIndexRows = parseCategoryIndexRows(categoryIndexSearch)
             const domainCategoryRows = mapDomainCategories(parseSummaryRows(domainCategorySearch), categoryIndexRows)
-            const relevantPages = buildRelevantPages(parseSummaryRows(relevantPagesSearch), [siteCategory, ...allowedTopics], excludedTopics)
+            const relevantPages = buildRelevantPages(parseSummaryRows(relevantPagesSearch), allowedTopics, excludedTopics)
             const fit = scoreDomainFit({
                 domainCategories: domainCategoryRows,
                 relevantPages,
-                siteCategory,
-                allowedTopics,
+                siteCategory: topicFilterContext,
+                allowedTopics: [],
                 excludedTopics,
             })
             const scopeRecommendation = recommendWarehouseScope(fit.fitScore, relevantPages)
@@ -802,7 +803,7 @@ export function ResearchRebuildStrategicPage() {
                     rankedRows.push(...batchRows)
                     const batchCandidates = buildWarehouseKeywordCandidates({
                         rows: batchRows,
-                        siteCategory,
+                        siteCategory: topicFilterContext,
                         allowedTopics,
                         excludedTopics,
                         sourceDomain: normalizedDomain,
@@ -853,7 +854,7 @@ export function ResearchRebuildStrategicPage() {
 
             const rawCandidates = buildWarehouseKeywordCandidates({
                 rows: dedupedRows,
-                siteCategory,
+                siteCategory: topicFilterContext,
                 allowedTopics,
                 excludedTopics,
                 sourceDomain: normalizedDomain,
@@ -893,7 +894,8 @@ export function ResearchRebuildStrategicPage() {
                     competitor_domain: normalizedDomain,
                     target_country: countryLabel,
                     target_language: languageLabel,
-                    site_category: siteCategory,
+                    site_category: warehouseContext,
+                    topic_filter_context: topicFilterContext,
                     category_mode: 'workflow_b_uncategorized',
                     allowed_topics: allowedTopics,
                     excluded_topics: excludedTopics,

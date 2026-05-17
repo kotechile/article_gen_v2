@@ -232,6 +232,9 @@ function topicMatchScore(text: string, topicVocabulary: string[], excludedVocabu
     const tokenHits = haystack.filter((token) => expandedVocabulary.has(token)).length
     const uniqueTokenHits = new Set(haystack.filter((token) => expandedVocabulary.has(token))).size
     const negativeTokenHits = new Set(haystack.filter((token) => expandedExcludedVocabulary.has(token))).size
+    if (expandedVocabulary.size === 0) {
+        return Math.max(0, Math.min(100, 100 - negativeHits * 20 - negativeTokenHits * 10))
+    }
     const raw = Math.min(100, positiveHits * 20 + tokenHits * 8 + uniqueTokenHits * 14 - negativeHits * 20 - negativeTokenHits * 10)
     return Math.max(0, raw)
 }
