@@ -264,10 +264,6 @@ function keywordIntentLabel(intent?: string | null) {
     return value ? value : 'Info'
 }
 
-function categoryPathLabel(primary: ProjectCategory | null, secondary: ProjectCategory | null) {
-    return [primary?.name, secondary?.name].filter(Boolean).join(' / ')
-}
-
 function parseCategoryIndexRows(search: { response_payload?: Record<string, any> | null; result_summary_json?: Record<string, any> | null } | null | undefined): CategoryIndexRow[] {
     const responseRows = (((search?.response_payload || {}) as Record<string, any>).response?.tasks?.[0]?.result || []) as CategoryIndexRow[]
     if (Array.isArray(responseRows) && responseRows.length) return responseRows
@@ -278,6 +274,15 @@ function parseCategoryIndexRows(search: { response_payload?: Record<string, any>
 function parseSummaryRows<T extends Record<string, any>>(search: { result_summary_json?: Record<string, any> | null } | null | undefined): T[] {
     const rows = (((search?.result_summary_json || {}) as Record<string, any>).top_items || []) as T[]
     return Array.isArray(rows) ? rows : []
+}
+
+function buildWarehouseSiteContext(project: { app_name?: string | null; domain?: string | null } | null | undefined, allowedTopics: string[]) {
+    const parts = [
+        ...allowedTopics,
+        String(project?.app_name || '').trim(),
+        String(project?.domain || '').trim(),
+    ].filter(Boolean)
+    return parts.join(' / ')
 }
 
 export function ResearchRebuildStrategicPage() {
@@ -677,11 +682,11 @@ export function ResearchRebuildStrategicPage() {
     }
 
     const handleRunWarehouse = async () => {
-        if (!projectId || !primaryCategoryId || !competitorDomain.trim()) return
+        if (!projectId || !competitorDomain.trim()) return
         const normalizedDomain = normalizeDomainInput(competitorDomain)
         const allowedTopics = splitTopicInput(allowedTopicsInput)
         const excludedTopics = splitTopicInput(excludedTopicsInput)
-        const siteCategory = categoryPathLabel(primaryCategory, secondaryCategory) || primaryCategory?.name || ''
+        const siteCategory = buildWarehouseSiteContext(activeProject, allowedTopics)
 
         setIsLoading(true)
         setError(null)
@@ -695,15 +700,11 @@ export function ResearchRebuildStrategicPage() {
             const [categoryIndexSearch, domainCategorySearch, relevantPagesSearch] = await Promise.all([
                 researchRebuildService.runDataforseoSearch({
                     project_id: projectId,
-                    primary_category_id: primaryCategoryId,
-                    secondary_category_id: secondaryCategoryId || undefined,
                     search_type: 'category_index',
                     force_refresh: false,
                 }),
                 researchRebuildService.runDataforseoSearch({
                     project_id: projectId,
-                    primary_category_id: primaryCategoryId,
-                    secondary_category_id: secondaryCategoryId || undefined,
                     search_type: 'categories_for_domain',
                     target: normalizedDomain,
                     language_code: selectedLanguage.code,
@@ -717,8 +718,6 @@ export function ResearchRebuildStrategicPage() {
                 }),
                 researchRebuildService.runDataforseoSearch({
                     project_id: projectId,
-                    primary_category_id: primaryCategoryId,
-                    secondary_category_id: secondaryCategoryId || undefined,
                     search_type: 'relevant_pages',
                     target: normalizedDomain,
                     language_code: selectedLanguage.code,
@@ -777,8 +776,6 @@ export function ResearchRebuildStrategicPage() {
                 for (const offset of offsets) {
                     const rankedSearch = await researchRebuildService.runDataforseoSearch({
                         project_id: projectId,
-                        primary_category_id: primaryCategoryId,
-                        secondary_category_id: secondaryCategoryId || undefined,
                         search_type: 'ranked_keywords',
                         target: normalizedDomain,
                         language_code: selectedLanguage.code,
@@ -819,8 +816,6 @@ export function ResearchRebuildStrategicPage() {
                 for (const target of selectedTargets) {
                     const rankedSearch = await researchRebuildService.runDataforseoSearch({
                         project_id: projectId,
-                        primary_category_id: primaryCategoryId,
-                        secondary_category_id: secondaryCategoryId || undefined,
                         search_type: 'ranked_keywords',
                         target,
                         language_code: selectedLanguage.code,
@@ -871,8 +866,6 @@ export function ResearchRebuildStrategicPage() {
             if (shortlisted.length) {
                 const overviewSearch = await researchRebuildService.runDataforseoSearch({
                     project_id: projectId,
-                    primary_category_id: primaryCategoryId,
-                    secondary_category_id: secondaryCategoryId || undefined,
                     search_type: 'keyword_overview',
                     keywords: shortlisted.slice(0, 120).map((item) => item.keyword),
                     language_code: selectedLanguage.code,
@@ -892,8 +885,6 @@ export function ResearchRebuildStrategicPage() {
                 title: `Warehouse: ${normalizedDomain}`,
                 description: `Competitor domain keyword warehouse for ${normalizedDomain}`,
                 project_id: projectId,
-                primary_category_id: primaryCategoryId,
-                secondary_category_id: secondaryCategoryId || null,
                 topic_mode: 'keyword_first',
                 keyword_viability_label: 'medium',
                 topic_source: 'competitor_domain_warehouse',
@@ -903,6 +894,7 @@ export function ResearchRebuildStrategicPage() {
                     target_country: countryLabel,
                     target_language: languageLabel,
                     site_category: siteCategory,
+                    category_mode: 'workflow_b_uncategorized',
                     allowed_topics: allowedTopics,
                     excluded_topics: excludedTopics,
                     fit_summary: fit,
@@ -958,7 +950,7 @@ export function ResearchRebuildStrategicPage() {
     )
 
     if (workflowMode === 'domain_warehouse') {
-        const categoryPath = categoryPathLabel(primaryCategory, secondaryCategory)
+        const warehouseSiteContext = buildWarehouseSiteContext(activeProject, splitTopicInput(allowedTopicsInput))
         return (
             <div className="min-h-screen bg-[#06101a] text-white">
                 <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 py-8">
@@ -997,37 +989,6 @@ export function ResearchRebuildStrategicPage() {
                                             placeholder="attainablehome.com"
                                             className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-emerald-400"
                                         />
-                                    </label>
-
-                                    <label className="flex flex-col gap-2">
-                                        <span className="text-sm text-slate-300">Website Category</span>
-                                        <select
-                                            value={primaryCategoryId}
-                                            onChange={(event) => {
-                                                setPrimaryCategoryId(event.target.value)
-                                                setSecondaryCategoryId('')
-                                            }}
-                                            className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition focus:border-emerald-400"
-                                        >
-                                            <option value="">Select category</option>
-                                            {primaryCategories.map((category) => (
-                                                <option key={category.id} value={category.id}>{category.name}</option>
-                                            ))}
-                                        </select>
-                                    </label>
-
-                                    <label className="flex flex-col gap-2">
-                                        <span className="text-sm text-slate-300">Subcategory</span>
-                                        <select
-                                            value={secondaryCategoryId}
-                                            onChange={(event) => setSecondaryCategoryId(event.target.value)}
-                                            className="h-12 rounded-2xl border border-slate-700 bg-[#141d2c] px-4 text-sm text-white outline-none transition focus:border-emerald-400"
-                                        >
-                                            <option value="">Select subcategory</option>
-                                            {secondaryCategories.map((category) => (
-                                                <option key={category.id} value={category.id}>{category.name}</option>
-                                            ))}
-                                        </select>
                                     </label>
 
                                     <label className="flex flex-col gap-2">
@@ -1073,12 +1034,18 @@ export function ResearchRebuildStrategicPage() {
                                     <button
                                         type="button"
                                         onClick={handleRunWarehouse}
-                                        disabled={!projectId || !primaryCategoryId || !competitorDomain.trim() || isLoading}
+                                        disabled={!projectId || !competitorDomain.trim() || isLoading}
                                         className="inline-flex items-center justify-center rounded-2xl bg-emerald-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                         {isLoading ? 'Harvesting…' : 'Harvest Future Keywords'}
                                     </button>
                                     <div className="text-sm text-slate-400">Keyword mode: Future content discovery</div>
+                                </div>
+
+                                <div className="mt-5 rounded-2xl border border-slate-700 bg-[#111a28] p-4 text-sm text-slate-300">
+                                    <div className="font-medium text-white">Workflow B context</div>
+                                    <div className="mt-2">This warehouse flow uses your project plus allowed topics instead of category/subcategory routing.</div>
+                                    <div className="mt-2 text-slate-400">{warehouseSiteContext || activeProject?.domain || activeProject?.app_name || 'Select a project'}</div>
                                 </div>
                             </section>
 
@@ -1106,7 +1073,7 @@ export function ResearchRebuildStrategicPage() {
                                     </div>
                                     <div className="mt-4 rounded-2xl border border-slate-700 bg-[#0f1928] p-4 text-sm text-slate-300">
                                         Recommended scope: <span className="font-medium text-white">{warehouseScope.replace('_', ' ')}</span>
-                                        <div className="mt-2">Site category: {categoryPath || primaryCategory?.name || 'Select a category'}</div>
+                                        <div className="mt-2">Warehouse context: {warehouseSiteContext || activeProject?.domain || activeProject?.app_name || 'No project context'}</div>
                                     </div>
                                 </div>
                             </section>
