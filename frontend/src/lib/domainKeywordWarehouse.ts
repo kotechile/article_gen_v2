@@ -87,6 +87,20 @@ const CLUSTER_SYNONYMS: Record<string, string> = {
     panels: 'panel',
 }
 
+const TOPIC_ALIASES: Record<string, string[]> = {
+    productivity: ['focus', 'workflow', 'routine', 'routines', 'habit', 'habits', 'planning', 'task', 'tasks', 'output'],
+    efficiency: ['focus', 'workflow', 'system', 'systems', 'optimize', 'optimization', 'faster'],
+    automation: ['automate', 'automated', 'workflow', 'zapier', 'integration', 'integrations'],
+    ai: ['artificial', 'intelligence', 'assistant', 'assistants', 'llm', 'agents', 'agentic'],
+    agent: ['agents', 'assistant', 'assistants', 'automation', 'workflow'],
+    agents: ['agent', 'assistant', 'assistants', 'automation', 'workflow'],
+    wellness: ['health', 'sleep', 'mindfulness', 'energy', 'stress'],
+    lifestyle: ['routine', 'routines', 'life', 'habits', 'wellbeing', 'wellness'],
+    thinking: ['decision', 'decisions', 'clarity', 'mindset', 'focus'],
+    work: ['career', 'team', 'office', 'productivity', 'workflow'],
+    daily: ['routine', 'routines', 'habit', 'habits', 'everyday'],
+}
+
 function normalizeText(value: string) {
     return String(value || '').trim().replace(/\s+/g, ' ')
 }
@@ -112,6 +126,32 @@ function tokenize(value: string) {
         .replace(/[^a-z0-9\s]/g, ' ')
         .split(/\s+/)
         .filter(Boolean)
+}
+
+function normalizeToken(token: string) {
+    const cleaned = token.toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (!cleaned) return ''
+    const synonym = CLUSTER_SYNONYMS[cleaned]
+    if (synonym) return synonym
+    if (cleaned.endsWith('ies')) return `${cleaned.slice(0, -3)}y`
+    if (cleaned.endsWith('s') && cleaned.length > 4) return cleaned.slice(0, -1)
+    return cleaned
+}
+
+function expandTopicVocabulary(topics: string[]) {
+    const expanded = new Set<string>()
+    for (const topic of topics) {
+        for (const token of tokenize(topic)) {
+            const normalized = normalizeToken(token)
+            if (!normalized) continue
+            expanded.add(normalized)
+            for (const alias of TOPIC_ALIASES[normalized] || []) {
+                const normalizedAlias = normalizeToken(alias)
+                if (normalizedAlias) expanded.add(normalizedAlias)
+            }
+        }
+    }
+    return expanded
 }
 
 function titleCase(value: string) {
@@ -163,13 +203,16 @@ function detectPageType(url: string, title: string): WarehouseRelevantPage['page
     if (target.includes('faq') || target.includes('questions')) return 'FAQ'
     if (target.includes('guide') || target.includes('/guide')) return 'Guide'
     if (ARTICLE_TERMS.some((term) => target.includes(term))) return 'Article'
+    if (title.trim()) return 'Mixed'
     return 'Mixed'
 }
 
 function topicMatchScore(text: string, topicVocabulary: string[], excludedVocabulary: string[]) {
-    const haystack = tokenize(text)
+    const haystack = tokenize(text).map(normalizeToken).filter(Boolean)
     if (!haystack.length) return 0
     const joined = ` ${haystack.join(' ')} `
+    const expandedVocabulary = expandTopicVocabulary(topicVocabulary)
+    const expandedExcludedVocabulary = expandTopicVocabulary(excludedVocabulary)
     const positiveHits = topicVocabulary.reduce((count, item) => {
         const normalized = normalizeText(item).toLowerCase()
         if (!normalized) return count
@@ -180,8 +223,10 @@ function topicMatchScore(text: string, topicVocabulary: string[], excludedVocabu
         if (!normalized) return count
         return count + (joined.includes(` ${normalized} `) || joined.includes(normalized) ? 1 : 0)
     }, 0)
-    const tokenHits = haystack.filter((token) => topicVocabulary.some((item) => tokenize(item).includes(token))).length
-    const raw = Math.min(100, positiveHits * 18 + tokenHits * 6 - negativeHits * 20)
+    const tokenHits = haystack.filter((token) => expandedVocabulary.has(token)).length
+    const uniqueTokenHits = new Set(haystack.filter((token) => expandedVocabulary.has(token))).size
+    const negativeTokenHits = new Set(haystack.filter((token) => expandedExcludedVocabulary.has(token))).size
+    const raw = Math.min(100, positiveHits * 18 + tokenHits * 5 + uniqueTokenHits * 8 - negativeHits * 20 - negativeTokenHits * 10)
     return Math.max(0, raw)
 }
 
@@ -222,7 +267,7 @@ export function buildRelevantPages(items: Array<Record<string, unknown>>, topicV
             topicMatchScore: score,
             topicMatchLabel: label,
             pageType,
-            include: score >= 50 && ['Article', 'Guide', 'Comparison', 'FAQ'].includes(pageType),
+            include: score >= 30 && ['Article', 'Guide', 'Comparison', 'FAQ', 'Mixed'].includes(pageType),
             sectionKey: extractSectionKey(url),
         } satisfies WarehouseRelevantPage
     })
@@ -246,13 +291,13 @@ export function scoreDomainFit(params: {
         }, 0) / categoryRows.reduce((sum, row) => sum + Math.max(1, row.organic_count), 0)
         : 0
     const contentTypeMatch = params.relevantPages.length
-        ? (params.relevantPages.filter((page) => page.include).length / params.relevantPages.length) * 100
+        ? (params.relevantPages.filter((page) => page.include || page.topicMatchScore >= 35).length / params.relevantPages.length) * 100
         : 0
     const repeatedCompetitorSignal = params.relevantPages.length
         ? (params.relevantPages.filter((page) => page.positionOpportunityCount >= 10 || page.organicCount >= 25).length / params.relevantPages.length) * 100
         : 0
     const lowNoise = params.relevantPages.length
-        ? 100 - (params.relevantPages.filter((page) => page.topicMatchScore < 45).length / params.relevantPages.length) * 100
+        ? 100 - (params.relevantPages.filter((page) => page.topicMatchScore < 25).length / params.relevantPages.length) * 100
         : 0
     const fitScore = Math.round(
         categoryMatch * 0.4 +
