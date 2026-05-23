@@ -872,7 +872,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                     </div>
                     
                     {/* Visual Flow Indicator */}
-                    <div className="hidden xl:flex items-center gap-8 absolute left-1/2 -translate-x-1/2">
+                    <div className="hidden xl:flex flex-1 justify-center items-center gap-8">
                         <FlowStep number="1" label="Discover" active={isJobsPage || jobs.length > 0} icon={<Layers className="h-3.5 w-3.5" />} />
                         <div className="w-8 h-px bg-white/10" />
                         <FlowStep number="2" label="Validate" active={isOpportunitiesPage || workflowResults.length > 0} icon={<Target className="h-3.5 w-3.5" />} />
@@ -996,7 +996,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                             </div>
 
                             <div className="p-8 space-y-8">
-                                <div className="rounded-[2rem] border border-indigo-400/20 bg-[#151925] p-6 space-y-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                                <div className="rounded-[2rem] border border-indigo-400/20 bg-indigo-50/50 dark:bg-indigo-500/10 p-6 space-y-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                                     <div className="flex items-center gap-3">
                                         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-indigo-500/30 bg-indigo-500/15 text-xs font-black text-indigo-300">1</span>
                                         <div>
@@ -1109,7 +1109,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     </div>
                                 </div>
 
-                                <div className="rounded-[2rem] border border-emerald-400/20 bg-[#141b19] p-6 space-y-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                                <div className="rounded-[2rem] border border-emerald-400/20 bg-emerald-50/50 dark:bg-emerald-500/10 p-6 space-y-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                                     <div className="flex items-center gap-3">
                                         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/15 text-xs font-black text-emerald-300">2</span>
                                         <div>
@@ -1289,7 +1289,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     </div>
                                 </div>
 
-                                <div className="rounded-[2rem] border border-amber-400/20 bg-[#1b1711] p-6 space-y-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                                <div className="rounded-[2rem] border border-amber-400/20 bg-amber-50/50 dark:bg-amber-500/10 p-6 space-y-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                                     <div className="flex items-center gap-3">
                                         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/15 text-xs font-black text-amber-300">3</span>
                                         <div>
@@ -1357,7 +1357,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                 value={focusArea}
                                                 onChange={(e) => setFocusArea(e.target.value)}
                                                 placeholder="Example: privacy-first PKM workflows, second-brain tools for structured thinking, AI research efficiency for solo founders"
-                                                className="min-h-[88px] w-full rounded-2xl border border-border bg-[#111521] px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none transition focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/20"
+                                                className="min-h-[88px] w-full rounded-2xl border border-border bg-muted px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none transition focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/20"
                                             />
                                         </div>
                                         <div className="space-y-2">
@@ -1368,7 +1368,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                 value={avoidGuidance}
                                                 onChange={(e) => setAvoidGuidance(e.target.value)}
                                                 placeholder="Example: generic productivity advice, enterprise use cases, broad AI news"
-                                                className="bg-[#111521] border-border rounded-xl text-xs h-12 text-foreground focus:ring-indigo-500/30"
+                                                className="bg-muted border-border rounded-xl text-xs h-12 text-foreground focus:ring-indigo-500/30"
                                             />
                                         </div>
                                         <button
@@ -1433,7 +1433,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                         </section>
 
                         {isOpportunitiesPage && (
-                            <section className="bg-[#0d0d0f] border border-white/5 rounded-[2.5rem] shadow-2xl overflow-hidden">
+                            <section className="bg-card border border-white/5 rounded-[2.5rem] shadow-2xl overflow-hidden">
                                 <div className="p-8 border-b border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent">
                                     <h3 className="text-sm font-black text-foreground uppercase tracking-widest flex items-center gap-3">
                                         <Globe className="h-4 w-4 text-indigo-400" />
@@ -1555,7 +1555,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                             </div>
                         </div>
 
-                        <section className="bg-[#0d0d0f] border border-white/5 rounded-[3rem] p-1 shadow-2xl min-h-[800px] flex flex-col relative overflow-hidden">
+                        <section className="bg-card border border-white/5 rounded-[3rem] p-1 shadow-2xl min-h-[800px] flex flex-col relative overflow-hidden">
                             {/* Inner Background Glow */}
                             <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-500/5 blur-[120px] rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
 
@@ -1821,7 +1821,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                 <XCircle className="h-4 w-4" />
                             </button>
                         </div>
-                        <div className="flex-1 overflow-y-auto px-6 py-6 bg-[#0a0c10]">
+                        <div className="flex-1 overflow-y-auto px-6 py-6 bg-background">
                             <div className="space-y-3">
                                 {activeSearchPreviewItems.map((item, index) => {
                                     const keyword = String((item as any).keyword || (item as any).title || (item as any).url || `Result ${index + 1}`)
@@ -2008,7 +2008,7 @@ function FilterSelect({ value, onChange, options }: { value: string; onChange: (
                 onChange={(e) => onChange(e.target.value)} 
                 className="bg-transparent border-none text-[11px] font-black uppercase tracking-[0.2em] text-muted-foreground focus:ring-0 px-4 h-9 outline-none hover:text-foreground transition-all cursor-pointer appearance-none"
             >
-                {options.map(opt => <option key={opt.value} value={opt.value} className="bg-[#0d0d0f]">{opt.label}</option>)}
+                {options.map(opt => <option key={opt.value} value={opt.value} className="bg-card">{opt.label}</option>)}
             </select>
         </div>
     )
@@ -2404,9 +2404,9 @@ function PhaseGuide({ title, description, color = 'indigo' }: { title: string; d
     if (!isVisible) return null
 
     const colors = {
-        indigo: 'bg-indigo-500/10 border-indigo-500/20 text-indigo-200 shadow-indigo-500/5',
-        emerald: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-200 shadow-emerald-500/5',
-        purple: 'bg-purple-500/10 border-purple-500/20 text-purple-200 shadow-purple-500/5',
+        indigo: 'bg-indigo-500/10 border-indigo-500/20 text-indigo-800 dark:text-indigo-200 shadow-indigo-500/5',
+        emerald: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-800 dark:text-emerald-200 shadow-emerald-500/5',
+        purple: 'bg-purple-500/10 border-purple-500/20 text-purple-800 dark:text-purple-200 shadow-purple-500/5',
     }
 
     return (
