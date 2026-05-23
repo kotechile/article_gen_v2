@@ -872,12 +872,12 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                     </div>
                     
                     {/* Visual Flow Indicator */}
-                    <div className="hidden xl:flex flex-1 justify-center items-center gap-8">
-                        <FlowStep number="1" label="Discover" active={isJobsPage || jobs.length > 0} icon={<Layers className="h-3.5 w-3.5" />} />
-                        <div className="w-8 h-px bg-white/10" />
-                        <FlowStep number="2" label="Validate" active={isOpportunitiesPage || workflowResults.length > 0} icon={<Target className="h-3.5 w-3.5" />} />
-                        <div className="w-8 h-px bg-white/10" />
-                        <FlowStep number="3" label="Promote" active={workflowResults.some(r => r.candidates.some(c => c.generated_outcome.status === 'persisted'))} icon={<Rocket className="h-3.5 w-3.5" />} />
+                    <div className="hidden xl:flex flex-1 justify-center items-center gap-4">
+                        <FlowStep number="1" label="Discover" active={isJobsPage} icon={<Layers className="h-3.5 w-3.5" />} />
+                        <div className="w-4 h-px bg-border" />
+                        <FlowStep number="2" label="Validate" active={isOpportunitiesPage} icon={<Target className="h-3.5 w-3.5" />} />
+                        <div className="w-4 h-px bg-border" />
+                        <FlowStep number="3" label="Promote" active={false} icon={<Rocket className="h-3.5 w-3.5" />} />
                     </div>
 
                     <div className="flex items-center gap-4">
@@ -1960,20 +1960,20 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
 
 function FlowStep({ number, label, active, icon }: { number: string; label: string; active: boolean; icon: React.ReactNode }) {
     return (
-        <div className={cn("flex items-center gap-4 transition-all duration-500", active ? "opacity-100 translate-y-0" : "opacity-30 translate-y-1")}>
+        <div className={cn("flex items-center gap-3 transition-all duration-500", active ? "opacity-100 translate-y-0" : "opacity-50 translate-y-1")}>
             <div className={cn(
-                "w-9 h-9 rounded-2xl flex items-center justify-center text-xs font-black border transition-all duration-500", 
+                "w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black border transition-all duration-500", 
                 active 
-                    ? "bg-indigo-500 border-indigo-400 text-foreground shadow-[0_0_20px_rgba(99,102,241,0.5)] rotate-0" 
-                    : "bg-white/5 border-border text-muted-foreground rotate-[-5deg]"
+                    ? "bg-indigo-500 border-indigo-400 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)] rotate-0" 
+                    : "bg-black/5 dark:bg-white/5 border-border text-slate-500 dark:text-muted-foreground rotate-[-5deg]"
             )}>
                 {number}
             </div>
             <div className="flex flex-col">
-                <span className={cn("text-[11px] font-black uppercase tracking-[0.15em] leading-none mb-1", active ? "text-foreground" : "text-muted-foreground")}>{label}</span>
-                <span className={cn("flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest", active ? "text-indigo-400" : "text-slate-700")}>
-                    {active ? <CheckCircle2 className="h-3 w-3" /> : icon} 
-                    {active ? 'Complete' : 'Pipeline'}
+                <span className={cn("text-[11px] font-black uppercase tracking-[0.15em] leading-none mb-1", active ? "text-foreground" : "text-slate-500 dark:text-muted-foreground")}>{label}</span>
+                <span className={cn("flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest", active ? "text-indigo-500 dark:text-indigo-400" : "text-slate-400 dark:text-slate-600")}>
+                    {icon} 
+                    {active ? 'Current Phase' : 'Pipeline'}
                 </span>
             </div>
         </div>
