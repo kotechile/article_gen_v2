@@ -61,6 +61,8 @@ ALLOWED_OUTCOME_TYPES = {"article", "software", "editorial"}
 ALLOWED_OUTCOME_STATUSES = {"draft", "generated", "persisted", "published", "archived"}
 ALLOWED_DATAFORSEO_SEARCH_TYPES = {
     "related_keywords",
+    "keyword_suggestions",
+    "expansion_funnel",
     "keyword_overview",
     "serp",
     "google_trends",

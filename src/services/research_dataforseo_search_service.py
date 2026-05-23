@@ -275,6 +275,108 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
                 "location_code": int(location_code),
                 "limit": max(1, min(int(limit or 25), 100)),
             }
+        elif search_type_normalized == "keyword_suggestions":
+            cleaned_keywords = []
+            for keyword in keywords or []:
+                cleaned = str(keyword or "").strip()
+                if cleaned and cleaned.lower() not in {item.lower() for item in cleaned_keywords}:
+                    cleaned_keywords.append(cleaned)
+            if not cleaned_keywords and query_text:
+                cleaned_keywords = [str(query_text).strip()]
+            if not cleaned_keywords:
+                raise ValueError("keywords or query_text is required for keyword_suggestions searches")
+
+            raw_result = await dataforseo_api.get_keyword_suggestions_labs_live(
+                cleaned_keywords,
+                language_name="English",
+                location_code=int(location_code),
+                limit_per_seed=max(1, min(int(limit or 500), 500)),
+                return_raw=True,
+            )
+            items = (raw_result or {}).get("items") or []
+            response_payload = self._sanitize_for_json(raw_result)
+            result_summary_json = self._summarize_related_keywords(items)
+            endpoint = "dataforseo_labs/google/keyword_suggestions/live"
+            request_payload = {
+                "seeds": cleaned_keywords,
+                "language_code": language_code,
+                "location_code": int(location_code),
+                "limit": max(1, min(int(limit or 500), 500)),
+            }
+            query_text = ", ".join(cleaned_keywords[:5])
+        elif search_type_normalized == "expansion_funnel":
+            cleaned_keywords = []
+            for keyword in keywords or []:
+                cleaned = str(keyword or "").strip()
+                if cleaned and cleaned.lower() not in {item.lower() for item in cleaned_keywords}:
+                    cleaned_keywords.append(cleaned)
+            if not cleaned_keywords and query_text:
+                cleaned_keywords = [str(query_text).strip()]
+            if not cleaned_keywords:
+                raise ValueError("keywords or query_text is required for expansion_funnel searches")
+
+            # Run both related_keywords and keyword_suggestions in parallel
+            related_task = dataforseo_api.get_related_keywords_labs_live(
+                cleaned_keywords,
+                language_name="English",
+                location_code=int(location_code),
+                limit_per_seed=max(1, min(int(limit or 500), 500)),
+                return_raw=True,
+            )
+            suggestions_task = dataforseo_api.get_keyword_suggestions_labs_live(
+                cleaned_keywords,
+                language_name="English",
+                location_code=int(location_code),
+                limit_per_seed=max(1, min(int(limit or 500), 500)),
+                return_raw=True,
+            )
+            
+            import asyncio
+            related_raw, suggestions_raw = await asyncio.gather(related_task, suggestions_task)
+            
+            related_items = (related_raw or {}).get("items") or []
+            suggestions_items = (suggestions_raw or {}).get("items") or []
+            
+            # Auto-Deduplication & Trash Collection
+            seen_keywords = set()
+            combined_items = []
+            
+            for item in related_items + suggestions_items:
+                kw = str(item.get("keyword") or "").strip().lower()
+                if not kw or kw in seen_keywords:
+                    continue
+                
+                kd = item.get("keyword_difficulty")
+                sv = item.get("search_volume")
+                
+                # Basic trash collection / filtering based on task rules: KD < 30, SV > 20
+                if kd is not None and sv is not None:
+                    if kd < 30 and sv > 20:
+                        seen_keywords.add(kw)
+                        combined_items.append(item)
+                        
+            # Sort by search volume descending
+            combined_items.sort(key=lambda x: x.get("search_volume") or 0, reverse=True)
+
+            raw_result = {
+                "items": combined_items,
+                "raw": {
+                    "related_keywords": (related_raw or {}).get("raw"),
+                    "keyword_suggestions": (suggestions_raw or {}).get("raw"),
+                }
+            }
+            
+            items = combined_items
+            response_payload = self._sanitize_for_json(raw_result)
+            result_summary_json = self._summarize_related_keywords(items)
+            endpoint = "dataforseo_labs/google/expansion_funnel"
+            request_payload = {
+                "seeds": cleaned_keywords,
+                "language_code": language_code,
+                "location_code": int(location_code),
+                "limit": max(1, min(int(limit or 500), 500)),
+            }
+            query_text = ", ".join(cleaned_keywords[:5])
         elif search_type_normalized == "keyword_overview":
             cleaned_keywords = []
             for keyword in keywords or []:
@@ -488,7 +590,7 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
             request_payload = {}
             query_text = "dataforseo_labs/categories"
         else:
-            raise ValueError("search_type must be one of related_keywords, keyword_overview, serp, google_trends, serp_probe, ranked_keywords, relevant_pages, categories_for_domain, category_index")
+            raise ValueError("search_type must be one of related_keywords, keyword_suggestions, expansion_funnel, keyword_overview, serp, google_trends, serp_probe, ranked_keywords, relevant_pages, categories_for_domain, category_index")
 
         payload = {
             "project_id": str(project_id),

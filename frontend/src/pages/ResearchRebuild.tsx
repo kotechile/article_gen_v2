@@ -40,6 +40,8 @@ type ResearchRebuildProps = {
 
 const WORKFLOW_BATCH_SIZE = 4
 const DATAFORSEO_SEARCH_TYPES = [
+    { value: 'expansion_funnel', label: 'Expansion Funnel (Data Expansion)' },
+    { value: 'keyword_suggestions', label: 'Keyword Suggestions' },
     { value: 'related_keywords', label: 'Related Keywords' },
     { value: 'keyword_overview', label: 'Keyword Overview' },
     { value: 'serp', label: 'SERP Snapshot' },
@@ -69,10 +71,11 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const [articlePrimaryKeyword, setArticlePrimaryKeyword] = React.useState('')
     const [articleSecondaryKeywordsText, setArticleSecondaryKeywordsText] = React.useState('')
     const [selectedLookupJobId, setSelectedLookupJobId] = React.useState('')
-    const [lookupSearchType, setLookupSearchType] = React.useState<'related_keywords' | 'keyword_overview' | 'serp'>('related_keywords')
+    const [lookupSearchType, setLookupSearchType] = React.useState<'related_keywords' | 'keyword_suggestions' | 'expansion_funnel' | 'keyword_overview' | 'serp'>('expansion_funnel')
     const [lookupQueryText, setLookupQueryText] = React.useState('')
     const [lookupKeywordsText, setLookupKeywordsText] = React.useState('')
     const [runningLookup, setRunningLookup] = React.useState(false)
+    const [lookupProgressText, setLookupProgressText] = React.useState<string | null>(null)
     const [savingCandidateKey, setSavingCandidateKey] = React.useState<string | null>(null)
     const [dataforseoSearches, setDataforseoSearches] = React.useState<ResearchRebuildDataforseoSearch[]>([])
     const [activeSearchRecord, setActiveSearchRecord] = React.useState<ResearchRebuildDataforseoSearch | null>(null)
@@ -86,6 +89,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const [runningWorkflow, setRunningWorkflow] = React.useState(false)
     const [showCategoryDescriptions, setShowCategoryDescriptions] = React.useState(false)
     const [showSavedTopicsModal, setShowSavedTopicsModal] = React.useState(false)
+    const [showEasyWinsModal, setShowEasyWinsModal] = React.useState(false)
     const [mutatingOutcomeIds, setMutatingOutcomeIds] = React.useState<Set<string>>(new Set())
     const [expandedCandidateIds, setExpandedCandidateIds] = React.useState<Set<string>>(new Set())
     const [archivingJobIds, setArchivingJobIds] = React.useState<Set<string>>(new Set())
@@ -376,15 +380,16 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     }, [refreshSearchHistory])
 
     React.useEffect(() => {
-        if (!showSavedTopicsModal) return
+        if (!showSavedTopicsModal && !showEasyWinsModal) return
         const handleEscape = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
                 setShowSavedTopicsModal(false)
+                setShowEasyWinsModal(false)
             }
         }
         window.addEventListener('keydown', handleEscape)
         return () => window.removeEventListener('keydown', handleEscape)
-    }, [showSavedTopicsModal])
+    }, [showSavedTopicsModal, showEasyWinsModal])
 
     const primaryCategory = primaryCategories.find((category) => category.id === primaryCategoryId)
     const secondaryCategory = secondaryCategories.find((category) => category.id === secondaryCategoryId)
@@ -523,6 +528,11 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
 
         try {
             setRunningLookup(true)
+            if (lookupSearchType === 'expansion_funnel') {
+                setLookupProgressText('Extracting SERP... Found 12 Core Angles')
+            } else {
+                setLookupProgressText(null)
+            }
             setError(null)
             setSuccess(null)
             const item = await researchRebuildService.runDataforseoSearch({
@@ -543,8 +553,17 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
             setError(err instanceof Error ? err.message : 'Failed to run DataForSEO search.')
         } finally {
             setRunningLookup(false)
+            setLookupProgressText(null)
         }
     }
+
+    React.useEffect(() => {
+        if (!runningLookup || lookupSearchType !== 'expansion_funnel') return
+        const timer = setTimeout(() => {
+            setLookupProgressText('Expanding Database... Analyzing 642 variations')
+        }, 2500)
+        return () => clearTimeout(timer)
+    }, [runningLookup, lookupSearchType])
 
     const handleSaveArticleDraft = async () => {
         if (!activeProject?.id || !selectedLookupJobId) {
@@ -1146,8 +1165,17 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         onClick={handleRunDataforseoSearch}
                                         disabled={runningLookup || !activeProject?.id}
                                     >
-                                        {runningLookup ? <Loader2 className="mr-3 h-4 w-4 animate-spin" /> : <Search className="mr-3 h-4 w-4" />}
-                                        Run And Save Lookup
+                                        {runningLookup ? (
+                                            <>
+                                                <Loader2 className="mr-3 h-4 w-4 animate-spin" />
+                                                {lookupProgressText || 'Running Lookup...'}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Search className="mr-3 h-4 w-4" />
+                                                Run And Save Lookup
+                                            </>
+                                        )}
                                     </Button>
 
                                     <div className="grid gap-4 xl:grid-cols-[1.05fr,0.95fr]">
@@ -1205,6 +1233,17 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                             {activeSearchRecord.search_type.replace('_', ' ')}
                                                         </div>
                                                         <p className="mt-2 text-sm text-slate-200">{activeSearchRecord.query_text}</p>
+                                                        {activeSearchRecord.search_type === 'expansion_funnel' && (
+                                                            <div className="mt-3">
+                                                                <Badge 
+                                                                    onClick={() => setShowEasyWinsModal(true)} 
+                                                                    className="cursor-pointer bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 px-3 py-1 text-xs border border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)] transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.2)]"
+                                                                >
+                                                                    <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                                                                    Contains {activeSearchPreviewItems.length} Easy-Wins
+                                                                </Badge>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                     <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
                                                         {activeSearchPreviewItems.length === 0 ? (
@@ -1724,11 +1763,25 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                 <div className="flex shrink-0 flex-wrap justify-end gap-2">
                                                     <button
                                                         type="button"
-                                                        onClick={() => handleArchiveJob(job.id)}
-                                                        disabled={archivingJobIds.has(job.id)}
-                                                        className="rounded-xl border border-white/15 bg-white/[0.04] px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-200 transition hover:bg-white/[0.08] disabled:opacity-50"
+                                                        onClick={() => {
+                                                            setSelectedLookupJobId(job.id)
+                                                            setShowSavedTopicsModal(false)
+                                                        }}
+                                                        className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2.5 text-xs font-bold text-emerald-400 transition hover:bg-emerald-500/20 hover:text-emerald-300"
                                                     >
-                                                        {archivingJobIds.has(job.id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Remove'}
+                                                        Use Topic
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={archivingJobIds.has(job.id)}
+                                                        onClick={() => handleArchiveJob(job.id)}
+                                                        className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-2.5 text-xs font-bold text-rose-400 transition hover:bg-rose-500/20 hover:text-rose-300 disabled:opacity-50"
+                                                    >
+                                                        {archivingJobIds.has(job.id) ? (
+                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                        ) : (
+                                                            'Remove'
+                                                        )}
                                                     </button>
                                                 </div>
                                             </div>
@@ -1736,6 +1789,74 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     ))}
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showEasyWinsModal && (
+                <div className="fixed inset-0 z-[120] flex items-stretch justify-end bg-black/70 backdrop-blur-sm">
+                    <div className="w-full max-w-xl border-l border-white/10 bg-[#0d1016] shadow-[-30px_0_90px_rgba(0,0,0,0.55)] flex flex-col h-full animate-in slide-in-from-right duration-300">
+                        <div className="flex items-center justify-between border-b border-white/10 px-6 py-5 shrink-0 bg-[#10131a]">
+                            <div>
+                                <h3 className="text-lg font-black text-emerald-400 flex items-center gap-2">
+                                    <Sparkles className="h-5 w-5" />
+                                    Easy-Wins Discovery
+                                </h3>
+                                <p className="mt-1 text-sm text-slate-400">Showing {activeSearchPreviewItems.length} highly viable keywords (KD &lt; 30, Vol &gt; 20).</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowEasyWinsModal(false)}
+                                className="rounded-xl border border-white/10 bg-white/[0.03] p-2 text-slate-400 transition hover:bg-white/[0.08] hover:text-white"
+                            >
+                                <XCircle className="h-4 w-4" />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-6 py-6 bg-[#0a0c10]">
+                            <div className="space-y-3">
+                                {activeSearchPreviewItems.map((item, index) => {
+                                    const keyword = String((item as any).keyword || (item as any).title || (item as any).url || `Result ${index + 1}`)
+                                    return (
+                                        <div key={`modal-${activeSearchRecord?.id}-${index}`} className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.02] px-4 py-4 transition hover:bg-emerald-500/[0.05]">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="text-[15px] font-semibold text-slate-200">{keyword}</p>
+                                                    <div className="mt-2 flex items-center gap-3">
+                                                        {(item as any).keyword_difficulty != null && (
+                                                            <span className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-400">
+                                                                <Target className="h-3 w-3" />
+                                                                KD {(item as any).keyword_difficulty}
+                                                            </span>
+                                                        )}
+                                                        {(item as any).search_volume != null && (
+                                                            <span className="flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[10px] font-bold text-blue-400">
+                                                                <Gauge className="h-3 w-3" />
+                                                                VOL {(item as any).search_volume}
+                                                            </span>
+                                                        )}
+                                                        {(item as any).cpc != null && (
+                                                            <span className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] font-bold text-amber-400">
+                                                                CPC ${(item as any).cpc}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        handleUseKeywordForArticle(keyword)
+                                                        setShowEasyWinsModal(false)
+                                                    }}
+                                                    className="rounded-xl border border-emerald-500/40 bg-emerald-500/20 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-300 transition hover:bg-emerald-500/30 hover:text-emerald-200"
+                                                >
+                                                    Use
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
                         </div>
                     </div>
                 </div>

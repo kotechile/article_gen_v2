@@ -611,6 +611,100 @@ class DataForSEOAPI:
                 }
             return []
 
+    async def get_keyword_suggestions_labs_live(
+        self,
+        seeds: List[str],
+        language_name: str = "English",
+        location_code: int = 2840,
+        limit_per_seed: int = 500,
+        include_seed_keyword: bool = True,
+        return_raw: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get keyword suggestions from DataForSEO Labs live endpoint.
+        Endpoint: /v3/dataforseo_labs/google/keyword_suggestions/live
+        """
+        try:
+            if not seeds:
+                if return_raw:
+                    return {"items": [], "raw": {"error": "no_seeds"}}
+                return []
+
+            sanitized_seeds = []
+            seen = set()
+            for seed in seeds[:10]:
+                s = str(seed or "").strip().lower()
+                if not s or s in seen:
+                    continue
+                seen.add(s)
+                sanitized_seeds.append(s)
+
+            if not sanitized_seeds:
+                if return_raw:
+                    return {"items": [], "raw": {"error": "no_sanitized_seeds"}}
+                return []
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                url = f"{self.base_url}/dataforseo_labs/google/keyword_suggestions/live"
+                headers = {
+                    "Authorization": self.auth_header,
+                    "Content-Type": "application/json"
+                }
+
+                aggregated_items: List[Dict[str, Any]] = []
+                raw_responses: List[Dict[str, Any]] = []
+
+                for seed in sanitized_seeds:
+                    payload = [{
+                        "keyword": seed,
+                        "language_name": language_name,
+                        "location_code": location_code,
+                        "include_seed_keyword": bool(include_seed_keyword),
+                        "include_serp_info": False,
+                        "exact_match": False,
+                        "ignore_synonyms": False,
+                        "filters": [
+                            ["keyword_info.keyword_difficulty", "<", 30],
+                            "and",
+                            ["keyword_info.search_volume", ">", 20]
+                        ],
+                        "order_by": ["keyword_info.search_volume,desc"],
+                        "limit": int(limit_per_seed),
+                    }]
+                    data = await self._make_request_with_retry(client, url, payload, headers)
+                    
+                    raw_responses.append({
+                        "seed": seed,
+                        "request_payload": payload,
+                        "response": data,
+                    })
+                    parsed = self._process_related_keywords(data) # We can reuse _process_related_keywords for suggestions
+                    if parsed:
+                        aggregated_items.extend(parsed)
+
+                if return_raw:
+                    raw_payload = {
+                        "endpoint": "dataforseo_labs/google/keyword_suggestions/live",
+                        "requests_count": len(sanitized_seeds),
+                        "responses": raw_responses,
+                    }
+                    return {
+                        "items": aggregated_items,
+                        "raw": raw_payload,
+                    }
+                return aggregated_items
+        except Exception as e:
+            logger.error(f"DataForSEO Labs keyword suggestions live error: {e}")
+            if return_raw:
+                return {
+                    "items": [],
+                    "raw": {
+                        "endpoint": "dataforseo_labs/google/keyword_suggestions/live",
+                        "error": str(e),
+                    },
+                }
+            return []
+
     async def get_bulk_metrics_standard(
         self,
         keywords: List[str],

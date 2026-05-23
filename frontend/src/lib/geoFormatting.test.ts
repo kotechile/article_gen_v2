@@ -31,4 +31,28 @@ describe('ensureIntroKeyTakeaways', () => {
         expect(section?.textContent || '').not.toContain('and adapt that guidance');
         expect(section?.textContent || '').not.toContain('is a practical topic shaped by');
     });
+
+    it('keeps key takeaways above a generated introduction heading', () => {
+        const html = `
+            <h1>Cost Breaking Lease: Termination Fees vs. Subletting in 2026</h1>
+            <h2>Introduction: The True Cost of Breaking a Lease in 2026</h2>
+            <h2>Key Takeaways</h2>
+            <ul>
+                <li>Breaking a lease typically costs between one and three months' rent, but total expenses can climb higher when you factor in lost deposits and ongoing rent obligations.</li>
+                <li>Some states legally cap what landlords can charge, while others let the lease agreement dictate the penalty.</li>
+                <li>You almost always have the right to request a written breakdown of fees, and using a lease termination fee calculator before making any moves can save you from nasty surprises.</li>
+            </ul>
+            <p>Here's the short answer to a question nobody wants to ask: the cost breaking lease typically lands between two and four months' rent.</p>
+        `;
+
+        const normalized = ensureIntroKeyTakeaways(html);
+        const doc = new DOMParser().parseFromString(normalized, 'text/html');
+        const children = Array.from(doc.body.children);
+
+        expect(children[0]?.tagName).toBe('H1');
+        expect(children[1]?.tagName).toBe('SECTION');
+        expect(children[1]?.classList.contains('geo-key-takeaways')).toBe(true);
+        expect(children[2]?.tagName).toBe('H2');
+        expect(children[2]?.textContent?.trim()).toBe('Introduction: The True Cost of Breaking a Lease in 2026');
+    });
 });

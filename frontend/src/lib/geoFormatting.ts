@@ -1,4 +1,5 @@
 const KEY_TAKEAWAYS_HEADING = /^key takeaways$/i;
+const INTRODUCTION_HEADING = /^introduction\b/i;
 const TAKEAWAY_PREFIX = /^key takeaway\s*:\s*/i;
 const TAKEAWAY_META_PATTERNS = [
     /^claim extracted from:/i,
@@ -129,6 +130,16 @@ export const ensureIntroKeyTakeaways = (html: string, articleData?: any): string
     }
 
     if (!takeawaysSection) return html;
+
+    const leadingIntroHeading = Array.from(body.children).find((node) =>
+        node !== takeawaysSection &&
+        /^H[1-3]$/i.test(node.tagName) &&
+        INTRODUCTION_HEADING.test((node.textContent || '').trim()),
+    );
+    if (leadingIntroHeading) {
+        body.insertBefore(takeawaysSection, leadingIntroHeading);
+        return body.innerHTML;
+    }
 
     const h1 = Array.from(body.children).find(
         (node) => node !== takeawaysSection && /^H1$/i.test(node.tagName),

@@ -280,12 +280,14 @@ class LLMClient:
                     
                     response_time = time.time() - start_time
                     
-                    # Extract response data
-                    # Some models (e.g. DeepSeek V4) put thinking/reasoning in a separate field.
-                    # Use reasoning_content when content is empty, otherwise use content.
+                    # Extract response data.
+                    # Never surface provider reasoning/thinking fields as user-facing output.
                     raw_content = response.choices[0].message.content
                     if not raw_content and hasattr(response.choices[0].message, 'reasoning_content'):
-                        raw_content = response.choices[0].message.reasoning_content or ''
+                        self.logger.warning(
+                            "Model %s returned empty content but included reasoning_content; ignoring reasoning payload",
+                            current_model,
+                        )
                     content = raw_content or ''
                     usage = response.usage.dict() if response.usage else {}
                     cost = getattr(response, '_hidden_params', {}).get('cost', 0.0)
@@ -371,12 +373,14 @@ class LLMClient:
                     
                     response_time = time.time() - start_time
                     
-                    # Extract response data
-                    # Some models (e.g. DeepSeek V4) put thinking/reasoning in a separate field.
-                    # Use reasoning_content when content is empty, otherwise use content.
+                    # Extract response data.
+                    # Never surface provider reasoning/thinking fields as user-facing output.
                     raw_content = response.choices[0].message.content
                     if not raw_content and hasattr(response.choices[0].message, 'reasoning_content'):
-                        raw_content = response.choices[0].message.reasoning_content or ''
+                        self.logger.warning(
+                            "Model %s returned empty content but included reasoning_content; ignoring reasoning payload",
+                            current_model,
+                        )
                     content = raw_content or ''
                     usage = response.usage.dict() if response.usage else {}
                     cost = getattr(response, '_hidden_params', {}).get('cost', 0.0)
