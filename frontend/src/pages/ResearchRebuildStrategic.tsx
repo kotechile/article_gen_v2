@@ -964,8 +964,6 @@ export function ResearchRebuildStrategicPage() {
                         </p>
                     </header>
 
-                    {workflowToggle}
-
                     {error ? (
                         <div className="rounded-2xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 text-sm text-rose-200">{error}</div>
                     ) : null}

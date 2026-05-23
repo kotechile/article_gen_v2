@@ -90,6 +90,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const [showCategoryDescriptions, setShowCategoryDescriptions] = React.useState(false)
     const [showSavedTopicsModal, setShowSavedTopicsModal] = React.useState(false)
     const [showEasyWinsModal, setShowEasyWinsModal] = React.useState(false)
+    const [showAllMetricsModal, setShowAllMetricsModal] = React.useState(false)
     const [mutatingOutcomeIds, setMutatingOutcomeIds] = React.useState<Set<string>>(new Set())
     const [expandedCandidateIds, setExpandedCandidateIds] = React.useState<Set<string>>(new Set())
     const [archivingJobIds, setArchivingJobIds] = React.useState<Set<string>>(new Set())
@@ -851,20 +852,20 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     }
 
     return (
-        <div className="min-h-screen bg-[#06070b] text-slate-100 selection:bg-indigo-500/30">
+        <div className="min-h-screen bg-background text-foreground selection:bg-indigo-500/30">
             {/* Premium Header */}
-            <header className="sticky top-0 z-50 border-b border-white/10 bg-[#10131a] shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
-                <div className="mx-auto max-w-[1600px] px-6 py-4 flex items-center justify-between">
+            <header className="sticky top-0 z-50 border-b border-border bg-card shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
+                <div className="mx-auto w-full px-4 lg:px-8 px-6 py-4 flex items-center justify-between">
                     <div className="flex items-center gap-4">
                         <div className="bg-gradient-to-tr from-indigo-600 to-indigo-400 p-2.5 rounded-2xl shadow-[0_0_20px_rgba(99,102,241,0.4)]">
-                            <Sparkles className="h-5 w-5 text-white" />
+                            <Sparkles className="h-5 w-5 text-foreground" />
                         </div>
                         <div>
-                            <h1 className="text-xl font-black tracking-tight text-white flex items-center gap-2">
+                            <h1 className="text-xl font-black tracking-tight text-foreground flex items-center gap-2">
                                 Research <span className="text-indigo-400">{isJobsPage ? 'Setup' : 'Results'}</span>
                                 <Badge variant="outline" className="text-[10px] bg-indigo-500/10 border-indigo-500/20 text-indigo-400 font-black uppercase">v2.0</Badge>
                             </h1>
-                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.25em]">
+                            <p className="text-[10px] text-muted-foreground font-black uppercase tracking-[0.25em]">
                                 {isJobsPage ? 'Step 1 of 2 · Job Discovery' : 'Step 2 of 2 · Opportunity Validation'}
                             </p>
                         </div>
@@ -880,13 +881,13 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                     </div>
 
                     <div className="flex items-center gap-4">
-                        <div className="hidden lg:flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                        <div className="hidden lg:flex items-center gap-2 rounded-2xl border border-border bg-white/[0.03] px-3 py-2">
                             <button
                                 type="button"
                                 onClick={() => navigate(jobsPagePath)}
                                 className={cn(
                                     "rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] transition-all",
-                                    isJobsPage ? "bg-white text-black" : "text-slate-400 hover:text-white",
+                                    isJobsPage ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
                                 )}
                             >
                                 1. Jobs
@@ -897,21 +898,21 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                 disabled={activeTopics.length === 0}
                                 className={cn(
                                     "rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] transition-all",
-                                    isOpportunitiesPage ? "bg-indigo-500 text-white" : "text-slate-400 hover:text-white",
-                                    activeTopics.length === 0 && "cursor-not-allowed opacity-40 hover:text-slate-400",
+                                    isOpportunitiesPage ? "bg-indigo-500 text-foreground" : "text-muted-foreground hover:text-foreground",
+                                    activeTopics.length === 0 && "cursor-not-allowed opacity-40 hover:text-muted-foreground",
                                 )}
                             >
                                 2. Opportunities
                             </button>
                         </div>
-                        <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-xl border border-white/10">
+                        <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-xl border border-border">
                             <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Live Engine</span>
+                            <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Live Engine</span>
                         </div>
                         <Button 
                             variant="ghost" 
                             size="sm" 
-                            className="rounded-xl h-10 px-4 text-slate-400 hover:text-white hover:bg-white/5 border border-white/10 transition-all"
+                            className="rounded-xl h-10 px-4 text-muted-foreground hover:text-foreground hover:bg-white/5 border border-border transition-all"
                             onClick={handleCopyCurrentViewLink}
                         >
                             <Copy className="mr-2 h-3.5 w-3.5" />
@@ -921,7 +922,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                 </div>
             </header>
 
-            <main className="mx-auto max-w-[1600px] p-6 lg:p-10">
+            <main className="mx-auto w-full px-4 lg:px-8 p-6 lg:p-10">
                 {/* Notifications */}
                 <div className="fixed bottom-10 right-10 z-[100] space-y-4 max-w-md">
                     {error && (
@@ -931,7 +932,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                 <h4 className="text-xs font-bold uppercase tracking-widest text-red-400 mb-1">Error Encountered</h4>
                                 <p className="text-[13px] font-medium leading-relaxed opacity-90">{error}</p>
                             </div>
-                            <button onClick={() => setError(null)} className="text-slate-500 hover:text-white transition-colors"><XCircle className="h-4 w-4" /></button>
+                            <button onClick={() => setError(null)} className="text-muted-foreground hover:text-foreground transition-colors"><XCircle className="h-4 w-4" /></button>
                         </div>
                     )}
                     {success && (
@@ -941,7 +942,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                 <h4 className="text-xs font-bold uppercase tracking-widest text-emerald-400 mb-1">Success</h4>
                                 <p className="text-[13px] font-medium leading-relaxed opacity-90">{success}</p>
                             </div>
-                            <button onClick={() => setSuccess(null)} className="text-slate-500 hover:text-white transition-colors"><XCircle className="h-4 w-4" /></button>
+                            <button onClick={() => setSuccess(null)} className="text-muted-foreground hover:text-foreground transition-colors"><XCircle className="h-4 w-4" /></button>
                         </div>
                     )}
                 </div>
@@ -949,7 +950,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                 <div
                     className={cn(
                         "grid gap-10 items-start relative",
-                        isJobsPage ? "mx-auto max-w-5xl lg:grid-cols-1" : "lg:grid-cols-[400px,1fr]",
+                        isJobsPage ? "mx-auto w-full lg:grid-cols-1" : "xl:grid-cols-[1fr,400px]",
                     )}
                 >
                     {/* Background Tints */}
@@ -960,17 +961,17 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                         </>
                     )}
                     {/* LEFT PANEL: CONFIGURATION & DISCOVERY */}
-                    <aside className={cn("space-y-8", isJobsPage ? "mx-auto w-full max-w-4xl" : "lg:sticky lg:top-32")}>
+                    <aside className={cn("space-y-8", isJobsPage ? "mx-auto w-full w-full" : "lg:sticky lg:top-32")}>
                         <div className="px-2 space-y-4 relative z-10">
                              <h2 className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.4em] flex items-center gap-3">
                                 <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-[10px]">01</span>
                                 {isJobsPage ? 'Discovery Phase' : 'Research Context'}
                             </h2>
                             <div>
-                                <h3 className="text-xl font-black text-white tracking-tight mb-2">
+                                <h3 className="text-xl font-black text-foreground tracking-tight mb-2">
                                     {isJobsPage ? 'Capture User Intent' : 'Keep Context Visible'}
                                 </h3>
-                                <p className="text-slate-500 text-xs font-medium leading-relaxed mb-6">
+                                <p className="text-muted-foreground text-xs font-medium leading-relaxed mb-6">
                                     {isJobsPage
                                         ? 'Follow a simple 3-step flow: define a topic, research keywords, then save an article draft with assigned keywords.'
                                         : 'Review the approved jobs and scope while you validate only the saved opportunities on the second step.'}
@@ -986,9 +987,9 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                             </div>
                         </div>
 
-                        <section className={cn("bg-[#10131a] border border-white/10 rounded-[2.5rem] shadow-2xl overflow-hidden", isOpportunitiesPage && "hidden")}>
-                            <div className="p-8 border-b border-white/10 bg-gradient-to-br from-white/[0.04] to-transparent">
-                                <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-3">
+                        <section className={cn("bg-card border border-border rounded-[2.5rem] shadow-2xl overflow-hidden", isOpportunitiesPage && "hidden")}>
+                            <div className="p-8 border-b border-border bg-gradient-to-br from-white/[0.04] to-transparent">
+                                <h3 className="text-sm font-black text-foreground uppercase tracking-widest flex items-center gap-3">
                                     <Globe className="h-4 w-4 text-indigo-400" />
                                     Simple Manual Workflow
                                 </h3>
@@ -999,8 +1000,8 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     <div className="flex items-center gap-3">
                                         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-indigo-500/30 bg-indigo-500/15 text-xs font-black text-indigo-300">1</span>
                                         <div>
-                                            <h4 className="text-base font-black text-white">Select Domain / Category And Define A Topic</h4>
-                                            <p className="text-sm text-slate-400">Pick the category scope, then write the exact topic you want to research.</p>
+                                            <h4 className="text-base font-black text-foreground">Select Domain / Category And Define A Topic</h4>
+                                            <p className="text-sm text-muted-foreground">Pick the category scope, then write the exact topic you want to research.</p>
                                         </div>
                                     </div>
 
@@ -1034,32 +1035,32 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         />
                                     </div>
 
-                                    <div className="rounded-2xl border border-white/10 bg-[#0d1016]">
+                                    <div className="rounded-2xl border border-border bg-card">
                                         <button
                                             type="button"
                                             onClick={() => setShowCategoryDescriptions((current) => !current)}
                                             className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
                                         >
                                             <div>
-                                                <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">
+                                                <div className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
                                                     Category Descriptions
                                                 </div>
-                                                <p className="mt-1 text-xs text-slate-500">
+                                                <p className="mt-1 text-xs text-muted-foreground">
                                                     Expand to review the selected category and sub-category details.
                                                 </p>
                                             </div>
-                                            {showCategoryDescriptions ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                                            {showCategoryDescriptions ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                                         </button>
                                         {showCategoryDescriptions && (
-                                            <div className="max-h-56 space-y-4 overflow-y-auto border-t border-white/10 px-4 py-4">
+                                            <div className="max-h-56 space-y-4 overflow-y-auto border-t border-border px-4 py-4">
                                                 <div className="rounded-2xl border border-indigo-400/15 bg-indigo-500/[0.06] px-4 py-3">
                                                     <div className="text-[10px] font-black uppercase tracking-[0.22em] text-indigo-200/90">
                                                         Category
                                                     </div>
-                                                    <div className="mt-2 text-sm font-semibold text-white">
+                                                    <div className="mt-2 text-sm font-semibold text-foreground">
                                                         {primaryCategory?.name || 'No category selected'}
                                                     </div>
-                                                    <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                                                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                                                         {primaryCategory?.description || 'Select a primary category to see its description here.'}
                                                     </p>
                                                 </div>
@@ -1067,10 +1068,10 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                     <div className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-200/90">
                                                         Sub-Category
                                                     </div>
-                                                    <div className="mt-2 text-sm font-semibold text-white">
+                                                    <div className="mt-2 text-sm font-semibold text-foreground">
                                                         {secondaryCategory?.name || 'No sub-category selected'}
                                                     </div>
-                                                    <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                                                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                                                         {secondaryCategory?.description || 'Select a sub-category to see its description here.'}
                                                     </p>
                                                 </div>
@@ -1078,19 +1079,19 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         )}
                                     </div>
                                     <div className="space-y-2">
-                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
                                             Topic
                                         </label>
                                         <textarea
                                             value={manualJobText}
                                             onChange={(e) => setManualJobText(e.target.value)}
                                             placeholder="Example: Best expired domains for local SEO lead generation"
-                                            className="min-h-[88px] w-full rounded-2xl border border-white/15 bg-[#0d1016] px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/20"
+                                            className="min-h-[88px] w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none transition focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/20"
                                         />
                                     </div>
                                     <div className="flex flex-col gap-3 sm:flex-row">
                                         <Button
-                                            className="flex-1 bg-white text-black hover:bg-indigo-50 h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px]"
+                                            className="flex-1 bg-primary text-primary-foreground hover:bg-indigo-50 h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px]"
                                             onClick={handleCreateManualJob}
                                             disabled={creatingManualJob || !manualJobText.trim()}
                                         >
@@ -1100,7 +1101,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         <Button
                                             type="button"
                                             variant="outline"
-                                            className="h-12 rounded-2xl border-white/15 bg-[#0d1016] px-5 text-[11px] font-black uppercase tracking-[0.15em] text-slate-200 hover:bg-white/[0.06]"
+                                            className="h-12 rounded-2xl border-border bg-card px-5 text-[11px] font-black uppercase tracking-[0.15em] text-card-foreground hover:bg-white/[0.06]"
                                             onClick={() => setShowSavedTopicsModal(true)}
                                         >
                                             View Saved Topics
@@ -1112,8 +1113,8 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     <div className="flex items-center gap-3">
                                         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/15 text-xs font-black text-emerald-300">2</span>
                                         <div>
-                                            <h4 className="text-base font-black text-white">Use SEO Tools To Find Keywords</h4>
-                                            <p className="text-sm text-slate-400">Run a manual lookup, inspect the results, then choose the keyword you want to use.</p>
+                                            <h4 className="text-base font-black text-foreground">Use SEO Tools To Find Keywords</h4>
+                                            <p className="text-sm text-muted-foreground">Run a manual lookup, inspect the results, then choose the keyword you want to use.</p>
                                         </div>
                                     </div>
 
@@ -1136,26 +1137,26 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
 
                                     {lookupSearchType === 'keyword_overview' ? (
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                            <label className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
                                                 Keywords
                                             </label>
                                             <textarea
                                                 value={lookupKeywordsText}
                                                 onChange={(e) => setLookupKeywordsText(e.target.value)}
                                                 placeholder="Paste one keyword per line or comma separated"
-                                                className="min-h-[110px] w-full rounded-2xl border border-white/15 bg-[#0d1016] px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-500/20"
+                                                className="min-h-[110px] w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none transition focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-500/20"
                                             />
                                         </div>
                                     ) : (
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                            <label className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
                                                 Query
                                             </label>
                                             <Input
                                                 value={lookupQueryText}
                                                 onChange={(e) => setLookupQueryText(e.target.value)}
                                                 placeholder={lookupSearchType === 'serp' ? 'Enter the exact Google query to inspect' : 'Enter one seed keyword'}
-                                                className="bg-[#0d1016] border-white/15 rounded-xl text-xs h-12 text-slate-100 focus:ring-emerald-500/30"
+                                                className="bg-card border-border rounded-xl text-xs h-12 text-foreground focus:ring-emerald-500/30"
                                             />
                                         </div>
                                     )}
@@ -1179,14 +1180,14 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     </Button>
 
                                     <div className="grid gap-4 xl:grid-cols-[1.05fr,0.95fr]">
-                                        <div className="rounded-2xl border border-white/10 bg-[#0d1016] p-4">
+                                        <div className="rounded-2xl border border-border bg-card p-4">
                                             <div className="mb-3 flex items-center justify-between">
-                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Saved Searches</span>
-                                                <span className="text-[10px] text-slate-600">{dataforseoSearches.length}</span>
+                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">Saved Searches</span>
+                                                <span className="text-[10px] text-muted-foreground">{dataforseoSearches.length}</span>
                                             </div>
                                             <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
                                                 {dataforseoSearches.length === 0 ? (
-                                                    <p className="text-xs text-slate-500">No saved searches in this scope yet.</p>
+                                                    <p className="text-xs text-muted-foreground">No saved searches in this scope yet.</p>
                                                 ) : (
                                                     dataforseoSearches.map((item) => (
                                                         <button
@@ -1197,66 +1198,73 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                                 "w-full rounded-2xl border px-4 py-3 text-left transition",
                                                                 activeSearchRecord?.id === item.id
                                                                     ? "border-emerald-500/30 bg-emerald-500/[0.08]"
-                                                                    : "border-white/5 bg-white/[0.02] hover:border-white/10",
+                                                                    : "border-white/5 bg-white/[0.02] hover:border-border",
                                                             )}
                                                         >
                                                             <div className="flex items-center justify-between gap-3">
                                                                 <span className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300/80">
                                                                     {item.search_type.replace('_', ' ')}
                                                                 </span>
-                                                                <span className="text-[10px] text-slate-500">
+                                                                <span className="text-[10px] text-muted-foreground">
                                                                     {item.searched_at ? new Date(item.searched_at).toLocaleDateString() : ''}
                                                                 </span>
                                                             </div>
-                                                            <p className="mt-2 text-sm text-slate-200 line-clamp-2">{item.query_text}</p>
+                                                            <p className="mt-2 text-sm text-card-foreground line-clamp-2">{item.query_text}</p>
                                                         </button>
                                                     ))
                                                 )}
                                             </div>
                                         </div>
 
-                                        <div className="rounded-2xl border border-white/10 bg-[#0d1016] p-4">
+                                        <div className="rounded-2xl border border-border bg-card p-4">
                                             <div className="mb-3 flex items-center justify-between gap-3">
-                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Keyword Results</span>
+                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">Keyword Results</span>
                                                 {activeSearchRecord && (
-                                                    <span className="text-[10px] text-slate-500">
+                                                    <span className="text-[10px] text-muted-foreground">
                                                         {(activeSearchRecord.result_summary_json?.result_count as number | undefined) ?? activeSearchPreviewItems.length} results
                                                     </span>
                                                 )}
                                             </div>
                                             {!activeSearchRecord ? (
-                                                <p className="text-xs text-slate-500">Run a lookup or select one from history to inspect it here.</p>
+                                                <p className="text-xs text-muted-foreground">Run a lookup or select one from history to inspect it here.</p>
                                             ) : (
                                                 <div className="space-y-3">
-                                                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                                                        <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                                                    <div className="rounded-2xl border border-border bg-white/[0.03] px-4 py-3">
+                                                        <div className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">
                                                             {activeSearchRecord.search_type.replace('_', ' ')}
                                                         </div>
-                                                        <p className="mt-2 text-sm text-slate-200">{activeSearchRecord.query_text}</p>
+                                                        <p className="mt-2 text-sm text-card-foreground">{activeSearchRecord.query_text}</p>
                                                         {activeSearchRecord.search_type === 'expansion_funnel' && (
-                                                            <div className="mt-3">
-                                                                <Badge 
-                                                                    onClick={() => setShowEasyWinsModal(true)} 
-                                                                    className="cursor-pointer bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 px-3 py-1 text-xs border border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)] transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.2)]"
-                                                                >
-                                                                    <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-                                                                    Contains {activeSearchPreviewItems.length} Easy-Wins
-                                                                </Badge>
-                                                            </div>
+                                                                <div className="flex gap-2 mt-3">
+                                                                    <Badge 
+                                                                        onClick={() => setShowEasyWinsModal(true)} 
+                                                                        className="cursor-pointer bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 px-3 py-1 text-xs border border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)] transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.2)]"
+                                                                    >
+                                                                        <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                                                                        Contains {activeSearchPreviewItems.length} Easy-Wins
+                                                                    </Badge>
+                                                                    <Badge 
+                                                                        onClick={() => setShowAllMetricsModal(true)} 
+                                                                        className="cursor-pointer bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 px-3 py-1 text-xs border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.1)] transition-all hover:shadow-[0_0_20px_rgba(99,102,241,0.2)]"
+                                                                    >
+                                                                        <Layers className="mr-1.5 h-3.5 w-3.5" />
+                                                                        View All Metrics
+                                                                    </Badge>
+                                                                </div>
                                                         )}
                                                     </div>
                                                     <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
                                                         {activeSearchPreviewItems.length === 0 ? (
-                                                            <p className="text-xs text-slate-500">This search did not return preview items.</p>
+                                                            <p className="text-xs text-muted-foreground">This search did not return preview items.</p>
                                                         ) : (
                                                             activeSearchPreviewItems.slice(0, 8).map((item, index) => {
                                                                 const keyword = String(item.keyword || item.title || item.url || `Result ${index + 1}`)
                                                                 return (
-                                                                    <div key={`${activeSearchRecord.id}-${index}`} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                                                                    <div key={`${activeSearchRecord.id}-${index}`} className="rounded-2xl border border-border bg-white/[0.03] px-4 py-3">
                                                                         <div className="flex items-start justify-between gap-3">
                                                                             <div className="min-w-0 flex-1">
-                                                                                <p className="text-sm text-slate-200">{keyword}</p>
-                                                                                <p className="mt-1 text-[11px] text-slate-500">
+                                                                                <p className="text-sm text-card-foreground">{keyword}</p>
+                                                                                <p className="mt-1 text-[11px] text-muted-foreground">
                                                                                     {[item.search_volume ? `Vol ${item.search_volume}` : null, item.keyword_difficulty ? `KD ${item.keyword_difficulty}` : null, item.cpc ? `CPC ${item.cpc}` : null]
                                                                                         .filter(Boolean)
                                                                                         .join(' · ') || String(item.snippet || '')}
@@ -1265,7 +1273,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() => handleUseKeywordForArticle(String(item.keyword || activeSearchRecord.query_text || keyword))}
-                                                                                className="rounded-xl border border-white/15 bg-white/[0.05] px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-100 transition hover:bg-white/[0.1]"
+                                                                                className="rounded-xl border border-border bg-white/[0.05] px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-foreground transition hover:bg-white/[0.1]"
                                                                             >
                                                                                 Use Keyword
                                                                             </button>
@@ -1285,44 +1293,44 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     <div className="flex items-center gap-3">
                                         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/15 text-xs font-black text-amber-300">3</span>
                                         <div>
-                                            <h4 className="text-base font-black text-white">Define Article Title And Assign Keywords</h4>
-                                            <p className="text-sm text-slate-400">Write the title you want, assign the primary keyword, then save the article draft for validation.</p>
+                                            <h4 className="text-base font-black text-foreground">Define Article Title And Assign Keywords</h4>
+                                            <p className="text-sm text-muted-foreground">Write the title you want, assign the primary keyword, then save the article draft for validation.</p>
                                         </div>
                                     </div>
 
                                     <div className="space-y-2">
-                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
                                             Article Title
                                         </label>
                                         <Input
                                             value={articleTitleDraft}
                                             onChange={(e) => setArticleTitleDraft(e.target.value)}
                                             placeholder="Example: Best Expired Domains for Local SEO in 2026"
-                                            className="bg-[#0d1016] border-white/15 rounded-xl text-xs h-12 text-slate-100 focus:ring-amber-500/30"
+                                            className="bg-card border-border rounded-xl text-xs h-12 text-foreground focus:ring-amber-500/30"
                                         />
                                     </div>
 
                                     <div className="space-y-2">
-                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
                                             Primary Keyword
                                         </label>
                                         <Input
                                             value={articlePrimaryKeyword}
                                             onChange={(e) => setArticlePrimaryKeyword(e.target.value)}
                                             placeholder="Pick one keyword from Step 2 or type it here"
-                                            className="bg-[#0d1016] border-white/15 rounded-xl text-xs h-12 text-slate-100 focus:ring-amber-500/30"
+                                            className="bg-card border-border rounded-xl text-xs h-12 text-foreground focus:ring-amber-500/30"
                                         />
                                     </div>
 
                                     <div className="space-y-2">
-                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
                                             Assigned Keywords
                                         </label>
                                         <textarea
                                             value={articleSecondaryKeywordsText}
                                             onChange={(e) => setArticleSecondaryKeywordsText(e.target.value)}
                                             placeholder="One keyword per line"
-                                            className="min-h-[110px] w-full rounded-2xl border border-white/15 bg-[#0d1016] px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-amber-500/40 focus:ring-2 focus:ring-amber-500/20"
+                                            className="min-h-[110px] w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none transition focus:border-amber-500/40 focus:ring-2 focus:ring-amber-500/20"
                                         />
                                     </div>
 
@@ -1336,51 +1344,51 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     </Button>
                                 </div>
 
-                                <details className="rounded-[2rem] border border-white/10 bg-[#0d1016] p-6">
-                                    <summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+                                <details className="rounded-[2rem] border border-border bg-card p-6">
+                                    <summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">
                                         Optional AI Batch Tools
                                     </summary>
                                     <div className="mt-5 space-y-5">
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                            <label className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
                                                 Focus Area For AI Batch
                                             </label>
                                             <textarea
                                                 value={focusArea}
                                                 onChange={(e) => setFocusArea(e.target.value)}
                                                 placeholder="Example: privacy-first PKM workflows, second-brain tools for structured thinking, AI research efficiency for solo founders"
-                                                className="min-h-[88px] w-full rounded-2xl border border-white/15 bg-[#111521] px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/20"
+                                                className="min-h-[88px] w-full rounded-2xl border border-border bg-[#111521] px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none transition focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/20"
                                             />
                                         </div>
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
+                                            <label className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
                                                 Avoid In AI Batch
                                             </label>
                                             <Input
                                                 value={avoidGuidance}
                                                 onChange={(e) => setAvoidGuidance(e.target.value)}
                                                 placeholder="Example: generic productivity advice, enterprise use cases, broad AI news"
-                                                className="bg-[#111521] border-white/15 rounded-xl text-xs h-12 text-slate-100 focus:ring-indigo-500/30"
+                                                className="bg-[#111521] border-border rounded-xl text-xs h-12 text-foreground focus:ring-indigo-500/30"
                                             />
                                         </div>
                                         <button
                                             type="button"
                                             onClick={() => setStartFreshBatch((current) => !current)}
-                                            className="flex items-start gap-3 rounded-2xl border border-white/15 bg-white/[0.04] px-4 py-4 text-left transition hover:bg-white/[0.07]"
+                                            className="flex items-start gap-3 rounded-2xl border border-border bg-white/[0.04] px-4 py-4 text-left transition hover:bg-white/[0.07]"
                                         >
                                             <span className={cn(
                                                 "mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-all",
                                                 startFreshBatch
                                                     ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-400"
-                                                    : "border-white/10 bg-white/[0.03] text-slate-500",
+                                                    : "border-border bg-white/[0.03] text-muted-foreground",
                                             )}>
                                                 {startFreshBatch ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
                                             </span>
                                             <div className="space-y-1">
-                                                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-300">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">
                                                     Start Fresh Batch
                                                 </p>
-                                                <p className="text-[11px] leading-relaxed text-slate-500">
+                                                <p className="text-[11px] leading-relaxed text-muted-foreground">
                                                     {startFreshBatch
                                                         ? "Archive the current draft and approved jobs in this category scope before generating a cleaner batch."
                                                         : "Keep the current active jobs visible and add the next generation on top of them."}
@@ -1388,7 +1396,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                             </div>
                                         </button>
                                         <Button 
-                                            className="w-full bg-white text-black hover:bg-indigo-50 h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px] transition-all"
+                                            className="w-full bg-primary text-primary-foreground hover:bg-indigo-50 h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px] transition-all"
                                             onClick={handleGenerateJobs} 
                                             disabled={generatingJobs || !activeProject?.id}
                                         >
@@ -1399,14 +1407,14 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                 </details>
                             </div>
 
-                            <div className="border-t border-white/10 bg-[#0d1016]">
+                            <div className="border-t border-border bg-card">
                                 <div className="flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
                                     <div>
                                         <div className="flex items-center gap-2">
-                                            <Layers className="h-3.5 w-3.5 text-slate-400" />
-                                            <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Saved Topics</span>
+                                            <Layers className="h-3.5 w-3.5 text-muted-foreground" />
+                                            <span className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">Saved Topics</span>
                                         </div>
-                                        <p className="mt-2 text-sm text-slate-400">
+                                        <p className="mt-2 text-sm text-muted-foreground">
                                             {activeTopics.length} saved topic{activeTopics.length === 1 ? '' : 's'} in this scope.
                                         </p>
                                     </div>
@@ -1414,7 +1422,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         <Button
                                             type="button"
                                             variant="outline"
-                                            className="rounded-xl border-white/15 bg-white/[0.03] px-4 text-[10px] font-black uppercase tracking-[0.15em] text-slate-200 hover:bg-white/[0.07]"
+                                            className="rounded-xl border-border bg-white/[0.03] px-4 text-[10px] font-black uppercase tracking-[0.15em] text-card-foreground hover:bg-white/[0.07]"
                                             onClick={() => setShowSavedTopicsModal(true)}
                                         >
                                             Manage Topics
@@ -1427,7 +1435,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                         {isOpportunitiesPage && (
                             <section className="bg-[#0d0d0f] border border-white/5 rounded-[2.5rem] shadow-2xl overflow-hidden">
                                 <div className="p-8 border-b border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent">
-                                    <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-3">
+                                    <h3 className="text-sm font-black text-foreground uppercase tracking-widest flex items-center gap-3">
                                         <Globe className="h-4 w-4 text-indigo-400" />
                                         Validation Context
                                     </h3>
@@ -1445,11 +1453,11 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     </div>
                                     <div className="rounded-2xl border border-white/5 bg-black/30 p-5">
                                         <div className="mb-3 flex items-center justify-between">
-                                            <span className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">Saved Topic Set</span>
+                                            <span className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">Saved Topic Set</span>
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                className="border-white/10 bg-white/[0.03] hover:bg-white/[0.08]"
+                                                className="border-border bg-white/[0.03] hover:bg-white/[0.08]"
                                                 onClick={() => navigate(jobsPagePath)}
                                             >
                                                 Back To Jobs
@@ -1457,10 +1465,10 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         </div>
                                         <div className="space-y-3">
                                             {activeTopics.length === 0 ? (
-                                                <p className="text-sm text-slate-500">No saved topics yet. Go back to Jobs and create the topics you want to validate.</p>
+                                                <p className="text-sm text-muted-foreground">No saved topics yet. Go back to Jobs and create the topics you want to validate.</p>
                                             ) : (
                                                 activeTopics.slice(0, 6).map((job) => (
-                                                    <div key={job.id} className="rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3 text-sm text-slate-300">
+                                                    <div key={job.id} className="rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3 text-sm text-muted-foreground">
                                                         {job.job_text}
                                                     </div>
                                                 ))
@@ -1474,19 +1482,19 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                         {/* Phase 02 Launcher */}
                         <div className="relative group">
                             <div className="absolute -inset-0.5 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-[2.5rem] blur opacity-20 group-hover:opacity-40 transition-opacity" />
-                            <div className="relative bg-gradient-to-br from-[#121218] to-[#0d0d0f] p-10 rounded-[2.5rem] border border-white/10 shadow-2xl overflow-hidden">
+                            <div className="relative bg-gradient-to-br from-[#121218] to-[#0d0d0f] p-10 rounded-[2.5rem] border border-border shadow-2xl overflow-hidden">
                                 <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:scale-125 group-hover:opacity-10 transition-all duration-700 pointer-events-none">
-                                    <Rocket className="h-32 w-32 text-white" />
+                                    <Rocket className="h-32 w-32 text-foreground" />
                                 </div>
                                 <h3 className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.4em] mb-4">
                                     {isJobsPage ? 'Phase 02: Validate' : 'Step Actions'}
                                 </h3>
-                                <h4 className="text-white font-black text-xl mb-3 tracking-tight leading-tight">
+                                <h4 className="text-foreground font-black text-xl mb-3 tracking-tight leading-tight">
                                     {isJobsPage ? <>Opportunity <br />Verification Engine</> : <>Run Or Refresh <br />Validation</>}
                                 </h4>
-                                <p className="text-slate-400 text-[13px] mb-10 leading-relaxed font-medium">
+                                <p className="text-muted-foreground text-[13px] mb-10 leading-relaxed font-medium">
                                     {isJobsPage
-                                        ? <>Move forward with <span className="text-white font-bold">{activeTopics.length} saved topic{activeTopics.length === 1 ? '' : 's'}</span>, then validate only the opportunities you manually saved from your searches.</>
+                                        ? <>Move forward with <span className="text-foreground font-bold">{activeTopics.length} saved topic{activeTopics.length === 1 ? '' : 's'}</span>, then validate only the opportunities you manually saved from your searches.</>
                                         : <>Use the saved topics on the left to run or rerun validation for saved opportunities, then inspect the strongest outcomes on this page.</>}
                                 </p>
                                 
@@ -1494,8 +1502,8 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     className={cn(
                                         "w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[11px] transition-all active:scale-[0.97] border",
                                         activeTopics.length > 0 
-                                            ? "bg-indigo-500 text-white hover:bg-indigo-400 shadow-[0_0_25px_rgba(99,102,241,0.4)] border-indigo-400/50" 
-                                            : "bg-white/5 text-slate-500 border-white/5 cursor-not-allowed"
+                                            ? "bg-indigo-500 text-foreground hover:bg-indigo-400 shadow-[0_0_25px_rgba(99,102,241,0.4)] border-indigo-400/50" 
+                                            : "bg-white/5 text-muted-foreground border-white/5 cursor-not-allowed"
                                     )}
                                     onClick={isJobsPage ? () => navigate(opportunitiesPagePath) : handleRunWorkflow}
                                     disabled={(isOpportunitiesPage && runningWorkflow) || activeTopics.length === 0 || !activeProject?.id}
@@ -1522,8 +1530,8 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     Intelligence Phase
                                 </h2>
                                 <div>
-                                    <h3 className="text-3xl font-black text-white tracking-tight leading-tight">High-Achievability Outcomes</h3>
-                                    <p className="text-slate-500 text-[13px] font-medium mt-3 leading-relaxed mb-6">
+                                    <h3 className="text-3xl font-black text-foreground tracking-tight leading-tight">High-Achievability Outcomes</h3>
+                                    <p className="text-muted-foreground text-[13px] font-medium mt-3 leading-relaxed mb-6">
                                         Strategic opportunities derived from validated search data. Every outcome represents a winnable path identified by the engine.
                                     </p>
                                     
@@ -1536,13 +1544,13 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                             </div>
                             
                             <div className="flex flex-wrap items-center gap-3">
-                                <div className="px-4 py-2 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-2.5">
-                                    <Layers className="h-4 w-4 text-slate-500" />
-                                    <span className="text-xs font-black text-slate-300 uppercase tracking-tighter">{workflowTotalJobs} Jobs</span>
+                                <div className="px-4 py-2 bg-white/5 rounded-2xl border border-border flex items-center gap-2.5">
+                                    <Layers className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-xs font-black text-muted-foreground uppercase tracking-tighter">{workflowTotalJobs} Jobs</span>
                                 </div>
-                                <div className="px-4 py-2 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-2.5">
-                                    <Target className="h-4 w-4 text-slate-500" />
-                                    <span className="text-xs font-black text-slate-300 uppercase tracking-tighter">{workflowResults.reduce((s, j) => s + j.candidates.length, 0)} Outcomes</span>
+                                <div className="px-4 py-2 bg-white/5 rounded-2xl border border-border flex items-center gap-2.5">
+                                    <Target className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-xs font-black text-muted-foreground uppercase tracking-tighter">{workflowResults.reduce((s, j) => s + j.candidates.length, 0)} Outcomes</span>
                                 </div>
                             </div>
                         </div>
@@ -1565,10 +1573,10 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                 Refresh {staleValidationTargets.length} Stale Results
                                             </button>
                                         )}
-                                        <div className="h-10 px-4 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-3">
-                                            <Filter className="h-3.5 w-3.5 text-slate-600" />
-                                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Active Filters:</span>
-                                            <Badge variant="secondary" className="bg-white/10 text-slate-300 text-[9px] uppercase tracking-tighter">{routeFilter === 'all' ? 'No Route Filter' : routeFilter.replace('_', ' ')}</Badge>
+                                        <div className="h-10 px-4 bg-white/5 rounded-2xl border border-border flex items-center gap-3">
+                                            <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+                                            <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Active Filters:</span>
+                                            <Badge variant="secondary" className="bg-white/10 text-muted-foreground text-[9px] uppercase tracking-tighter">{routeFilter === 'all' ? 'No Route Filter' : routeFilter.replace('_', ' ')}</Badge>
                                         </div>
                                     </div>
 
@@ -1581,7 +1589,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         </div>
                                         <div className="w-px h-6 bg-white/10 mx-1 hidden sm:block" />
                                         <div className="relative group flex-1 sm:flex-none">
-                                            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-600 group-focus-within:text-indigo-400 transition-colors" />
+                                            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-indigo-400 transition-colors" />
                                             <Input 
                                                 value={candidateSearch} 
                                                 onChange={(e) => setCandidateSearch(e.target.value)} 
@@ -1596,7 +1604,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                             {/* Opportunity Stream */}
                             <div className="p-8 lg:p-12 space-y-12 flex-1 relative z-10">
                                 {loadingWorkflowArtifacts ? (
-                                    <div className="py-52 flex flex-col items-center justify-center gap-6 text-slate-600">
+                                    <div className="py-52 flex flex-col items-center justify-center gap-6 text-muted-foreground">
                                         <div className="relative">
                                             <div className="absolute inset-0 animate-ping bg-indigo-500/20 rounded-full scale-150" />
                                             <div className="bg-indigo-500/10 p-6 rounded-full border border-indigo-500/20 relative z-10">
@@ -1604,24 +1612,24 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                             </div>
                                         </div>
                                         <div className="text-center space-y-2">
-                                            <p className="text-sm font-black uppercase tracking-[0.3em] text-white">Synthesizing Analysis</p>
-                                            <p className="text-xs font-medium text-slate-500 italic">Compiling live SERP snapshots and internal hooks...</p>
+                                            <p className="text-sm font-black uppercase tracking-[0.3em] text-foreground">Synthesizing Analysis</p>
+                                            <p className="text-xs font-medium text-muted-foreground italic">Compiling live SERP snapshots and internal hooks...</p>
                                         </div>
                                     </div>
                                 ) : filteredWorkflowResults.length === 0 ? (
-                                    <div className="py-40 text-center bg-white/[0.01] border border-dashed border-white/10 rounded-[4rem] group">
+                                    <div className="py-40 text-center bg-white/[0.01] border border-dashed border-border rounded-[4rem] group">
                                         <div className="bg-indigo-500/10 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-8 group-hover:scale-110 transition-transform duration-700 border border-indigo-500/20">
                                             <Target className="h-10 w-10 text-indigo-400" />
                                         </div>
-                                        <h3 className="text-white font-black text-2xl tracking-tight mb-4">Awaiting Intelligence</h3>
-                                        <p className="text-slate-500 text-[15px] font-medium max-w-sm mx-auto leading-relaxed mb-8">
+                                        <h3 className="text-foreground font-black text-2xl tracking-tight mb-4">Awaiting Intelligence</h3>
+                                        <p className="text-muted-foreground text-[15px] font-medium max-w-sm mx-auto leading-relaxed mb-8">
                                             No opportunities found for the current filter. Initiate a <b>Validation Run</b> in Phase 02 to discover new outcomes.
                                         </p>
                                         <div className="flex justify-center gap-4">
-                                            <div className="px-4 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                            <div className="px-4 py-2 bg-white/5 rounded-xl border border-border text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                                                 Search Active: {candidateSearch || 'None'}
                                             </div>
-                                            <div className="px-4 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                            <div className="px-4 py-2 bg-white/5 rounded-xl border border-border text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                                                 Run: {workflowRunFilter === 'all' ? 'All History' : 'Selected Run'}
                                             </div>
                                         </div>
@@ -1636,10 +1644,10 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                         <div className="bg-indigo-500/10 text-indigo-400 h-10 px-4 rounded-xl flex items-center justify-center text-[10px] font-black tracking-widest border border-indigo-500/20 shadow-lg shadow-indigo-500/5 uppercase">
                                                             Job Node
                                                         </div>
-                                                        <h3 className="text-lg font-black text-white tracking-tight leading-tight max-w-2xl">{jobResult.job?.job_text}</h3>
+                                                        <h3 className="text-lg font-black text-foreground tracking-tight leading-tight max-w-2xl">{jobResult.job?.job_text}</h3>
                                                     </div>
                                                     <div className="flex-1 h-px bg-white/5 hidden md:block" />
-                                                    <Badge variant="outline" className="text-[10px] border-white/10 text-slate-500 uppercase tracking-widest px-3 py-1 self-start md:self-center">
+                                                    <Badge variant="outline" className="text-[10px] border-border text-muted-foreground uppercase tracking-widest px-3 py-1 self-start md:self-center">
                                                         {jobResult.candidates.length} Outcomes Identified
                                                     </Badge>
                                                     
@@ -1674,14 +1682,14 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                             {/* Pagination Footer */}
                             {workflowTotalJobs > 0 && (
                                 <div className="mt-auto bg-black/40 border-t border-white/5 p-8 relative z-10">
-                                    <div className="mx-auto max-w-4xl flex items-center justify-between">
-                                        <div className="text-[11px] text-slate-500 font-black uppercase tracking-[0.2em]">
-                                            Job View <span className="text-white bg-white/10 px-2 py-0.5 rounded ml-2">{workflowPage * workflowPageSize + 1}—{Math.min((workflowPage + 1) * workflowPageSize, workflowTotalJobs)}</span> <span className="mx-2 opacity-30">/</span> {workflowTotalJobs} Total
+                                    <div className="mx-auto w-full flex items-center justify-between">
+                                        <div className="text-[11px] text-muted-foreground font-black uppercase tracking-[0.2em]">
+                                            Job View <span className="text-foreground bg-white/10 px-2 py-0.5 rounded ml-2">{workflowPage * workflowPageSize + 1}—{Math.min((workflowPage + 1) * workflowPageSize, workflowTotalJobs)}</span> <span className="mx-2 opacity-30">/</span> {workflowTotalJobs} Total
                                         </div>
                                         <div className="flex items-center gap-6">
                                             <div className="flex items-center gap-3">
-                                                <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Page Size:</span>
-                                                <select value={String(workflowPageSize)} onChange={(e) => { setWorkflowPageSize(Number(e.target.value)); setWorkflowPage(0); }} className="bg-white/5 border border-white/10 rounded-xl text-[10px] font-black px-4 h-10 uppercase text-slate-300 focus:ring-1 focus:ring-indigo-500/50 outline-none hover:bg-white/10 transition-all cursor-pointer">
+                                                <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Page Size:</span>
+                                                <select value={String(workflowPageSize)} onChange={(e) => { setWorkflowPageSize(Number(e.target.value)); setWorkflowPage(0); }} className="bg-white/5 border border-border rounded-xl text-[10px] font-black px-4 h-10 uppercase text-muted-foreground focus:ring-1 focus:ring-indigo-500/50 outline-none hover:bg-white/10 transition-all cursor-pointer">
                                                     <option value="5">05 / PAGE</option>
                                                     <option value="10">10 / PAGE</option>
                                                     <option value="25">25 / PAGE</option>
@@ -1691,7 +1699,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                 <Button 
                                                     variant="outline" 
                                                     size="icon" 
-                                                    className="rounded-xl h-11 w-11 border-white/10 bg-white/5 hover:bg-white/10 transition-all disabled:opacity-20" 
+                                                    className="rounded-xl h-11 w-11 border-border bg-white/5 hover:bg-white/10 transition-all disabled:opacity-20" 
                                                     disabled={workflowPage === 0} 
                                                     onClick={() => setWorkflowPage(p => p - 1)}
                                                 >
@@ -1700,7 +1708,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                 <Button 
                                                     variant="outline" 
                                                     size="icon" 
-                                                    className="rounded-xl h-11 w-11 border-white/10 bg-white/5 hover:bg-white/10 transition-all disabled:opacity-20" 
+                                                    className="rounded-xl h-11 w-11 border-border bg-white/5 hover:bg-white/10 transition-all disabled:opacity-20" 
                                                     disabled={(workflowPage + 1) * workflowPageSize >= workflowTotalJobs} 
                                                     onClick={() => setWorkflowPage(p => p + 1)}
                                                 >
@@ -1719,16 +1727,16 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
 
             {showSavedTopicsModal && (
                 <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm">
-                    <div className="w-full max-w-3xl rounded-[2rem] border border-white/10 bg-[#10131a] shadow-[0_30px_90px_rgba(0,0,0,0.55)]">
-                        <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
+                    <div className="w-full max-w-3xl rounded-[2rem] border border-border bg-card shadow-[0_30px_90px_rgba(0,0,0,0.55)]">
+                        <div className="flex items-center justify-between border-b border-border px-6 py-5">
                             <div>
-                                <h3 className="text-lg font-black text-white">Saved Topics</h3>
-                                <p className="mt-1 text-sm text-slate-400">Review, approve, reject, or remove topics without crowding the main workflow.</p>
+                                <h3 className="text-lg font-black text-foreground">Saved Topics</h3>
+                                <p className="mt-1 text-sm text-muted-foreground">Review, approve, reject, or remove topics without crowding the main workflow.</p>
                             </div>
                             <button
                                 type="button"
                                 onClick={() => setShowSavedTopicsModal(false)}
-                                className="rounded-xl border border-white/10 bg-white/[0.03] p-2 text-slate-400 transition hover:bg-white/[0.08] hover:text-white"
+                                className="rounded-xl border border-border bg-white/[0.03] p-2 text-muted-foreground transition hover:bg-white/[0.08] hover:text-foreground"
                             >
                                 <XCircle className="h-4 w-4" />
                             </button>
@@ -1736,29 +1744,29 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                         <div className="max-h-[70vh] overflow-y-auto px-6 py-6">
                             {loadingJobs ? (
                                 <div className="flex min-h-[240px] flex-col items-center justify-center gap-4">
-                                    <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
-                                    <p className="text-sm text-slate-400">Loading saved topics...</p>
+                                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                                    <p className="text-sm text-muted-foreground">Loading saved topics...</p>
                                 </div>
                             ) : jobs.length === 0 ? (
                                 <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 text-center">
-                                    <Info className="h-8 w-8 text-slate-600" />
-                                    <p className="text-sm font-semibold text-slate-300">No saved topics yet.</p>
-                                    <p className="max-w-sm text-sm text-slate-500">Create a topic in Step 1 and it will appear here for later review and cleanup.</p>
+                                    <Info className="h-8 w-8 text-muted-foreground" />
+                                    <p className="text-sm font-semibold text-muted-foreground">No saved topics yet.</p>
+                                    <p className="max-w-sm text-sm text-muted-foreground">Create a topic in Step 1 and it will appear here for later review and cleanup.</p>
                                 </div>
                             ) : (
                                 <div className="space-y-3">
                                     {jobs.map((job) => (
-                                        <div key={job.id} className="rounded-2xl border border-white/10 bg-[#0d1016] p-4">
+                                        <div key={job.id} className="rounded-2xl border border-border bg-card p-4">
                                             <div className="flex items-start justify-between gap-4">
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         {(job.primary_category_id || job.secondary_category_id) && (
-                                                            <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                                                            <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                                                                 Scoped Topic
                                                             </span>
                                                         )}
                                                     </div>
-                                                    <p className="mt-3 text-sm leading-relaxed text-slate-100">{job.job_text}</p>
+                                                    <p className="mt-3 text-sm leading-relaxed text-foreground">{job.job_text}</p>
                                                 </div>
                                                 <div className="flex shrink-0 flex-wrap justify-end gap-2">
                                                     <button
@@ -1796,19 +1804,19 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
 
             {showEasyWinsModal && (
                 <div className="fixed inset-0 z-[120] flex items-stretch justify-end bg-black/70 backdrop-blur-sm">
-                    <div className="w-full max-w-xl border-l border-white/10 bg-[#0d1016] shadow-[-30px_0_90px_rgba(0,0,0,0.55)] flex flex-col h-full animate-in slide-in-from-right duration-300">
-                        <div className="flex items-center justify-between border-b border-white/10 px-6 py-5 shrink-0 bg-[#10131a]">
+                    <div className="w-full max-w-xl border-l border-border bg-card shadow-[-30px_0_90px_rgba(0,0,0,0.55)] flex flex-col h-full animate-in slide-in-from-right duration-300">
+                        <div className="flex items-center justify-between border-b border-border px-6 py-5 shrink-0 bg-card">
                             <div>
                                 <h3 className="text-lg font-black text-emerald-400 flex items-center gap-2">
                                     <Sparkles className="h-5 w-5" />
                                     Easy-Wins Discovery
                                 </h3>
-                                <p className="mt-1 text-sm text-slate-400">Showing {activeSearchPreviewItems.length} highly viable keywords (KD &lt; 30, Vol &gt; 20).</p>
+                                <p className="mt-1 text-sm text-muted-foreground">Showing {activeSearchPreviewItems.length} highly viable keywords (KD &lt; 30, Vol &gt; 20).</p>
                             </div>
                             <button
                                 type="button"
                                 onClick={() => setShowEasyWinsModal(false)}
-                                className="rounded-xl border border-white/10 bg-white/[0.03] p-2 text-slate-400 transition hover:bg-white/[0.08] hover:text-white"
+                                className="rounded-xl border border-border bg-white/[0.03] p-2 text-muted-foreground transition hover:bg-white/[0.08] hover:text-foreground"
                             >
                                 <XCircle className="h-4 w-4" />
                             </button>
@@ -1821,7 +1829,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         <div key={`modal-${activeSearchRecord?.id}-${index}`} className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.02] px-4 py-4 transition hover:bg-emerald-500/[0.05]">
                                             <div className="flex items-start justify-between gap-3">
                                                 <div className="min-w-0 flex-1">
-                                                    <p className="text-[15px] font-semibold text-slate-200">{keyword}</p>
+                                                    <p className="text-[15px] font-semibold text-card-foreground">{keyword}</p>
                                                     <div className="mt-2 flex items-center gap-3">
                                                         {(item as any).keyword_difficulty != null && (
                                                             <span className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-400">
@@ -1861,6 +1869,89 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                     </div>
                 </div>
             )}
+
+            {showAllMetricsModal && activeSearchRecord && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 md:p-8">
+                    <div className="w-full max-w-[1400px] h-full max-h-[90vh] flex flex-col rounded-[2rem] border border-border bg-card shadow-[0_30px_90px_rgba(0,0,0,0.55)] animate-in fade-in zoom-in-95 duration-300">
+                        <div className="flex items-center justify-between border-b border-border px-8 py-6 shrink-0 bg-card rounded-t-[2rem]">
+                            <div>
+                                <h3 className="text-2xl font-black text-foreground flex items-center gap-3">
+                                    <Layers className="h-6 w-6 text-indigo-400" />
+                                    Full Keyword Metrics
+                                </h3>
+                                <p className="mt-1.5 text-sm text-muted-foreground">Showing {(activeSearchRecord.result_summary_json?.top_items as any[])?.length || 0} keywords for "{activeSearchRecord.query_text}".</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowAllMetricsModal(false)}
+                                className="rounded-xl border border-border bg-white/[0.03] p-2.5 text-muted-foreground transition hover:bg-white/[0.08] hover:text-foreground"
+                            >
+                                <XCircle className="h-5 w-5" />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-auto bg-background p-6 rounded-b-[2rem]">
+                            <div className="min-w-[800px]">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="border-b border-border">
+                                            <th className="py-3 px-4 text-xs font-black uppercase tracking-wider text-muted-foreground">Keyword</th>
+                                            <th className="py-3 px-4 text-xs font-black uppercase tracking-wider text-muted-foreground text-right">Volume</th>
+                                            <th className="py-3 px-4 text-xs font-black uppercase tracking-wider text-muted-foreground text-right">KD</th>
+                                            <th className="py-3 px-4 text-xs font-black uppercase tracking-wider text-muted-foreground text-right">CPC</th>
+                                            <th className="py-3 px-4 text-xs font-black uppercase tracking-wider text-muted-foreground">Intent</th>
+                                            <th className="py-3 px-4 text-xs font-black uppercase tracking-wider text-muted-foreground text-center">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-border">
+                                        {((activeSearchRecord.result_summary_json?.top_items as any[]) || []).map((item, index) => {
+                                            const keyword = String(item.keyword || item.title || item.url || `Result ${index + 1}`)
+                                            const isEasyWin = (item.keyword_difficulty || 100) < 30 && (item.search_volume || 0) > 20
+                                            return (
+                                                <tr key={`full-metric-${index}`} className="hover:bg-muted/50 transition-colors">
+                                                    <td className="py-3 px-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-medium text-foreground">{keyword}</span>
+                                                            {isEasyWin && (
+                                                                <span className="bg-emerald-500/20 text-emerald-400 text-[9px] font-black uppercase px-1.5 py-0.5 rounded">Easy Win</span>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-right font-mono text-sm text-muted-foreground">{item.search_volume ?? '-'}</td>
+                                                    <td className="py-3 px-4 text-right">
+                                                        {item.keyword_difficulty != null ? (
+                                                            <span className={`inline-flex items-center justify-center rounded-md px-2 py-0.5 text-xs font-bold ${item.keyword_difficulty < 30 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-muted text-muted-foreground'}`}>
+                                                                {item.keyword_difficulty}
+                                                            </span>
+                                                        ) : '-'}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-right font-mono text-sm text-muted-foreground">{item.cpc ? `$${item.cpc}` : '-'}</td>
+                                                    <td className="py-3 px-4 text-xs text-muted-foreground">{(item.intent || '-').substring(0, 20)}</td>
+                                                    <td className="py-3 px-4 text-center">
+                                                        <button
+                                                            onClick={() => {
+                                                                handleUseKeywordForArticle(keyword)
+                                                                setShowAllMetricsModal(false)
+                                                            }}
+                                                            className="rounded-lg border border-border bg-card px-3 py-1.5 text-[10px] font-black uppercase text-foreground hover:bg-muted hover:border-muted-foreground transition"
+                                                        >
+                                                            Use
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            )
+                                        })}
+                                        {((activeSearchRecord.result_summary_json?.top_items as any[]) || []).length === 0 && (
+                                            <tr>
+                                                <td colSpan={6} className="py-12 text-center text-muted-foreground">No keyword data available for this lookup.</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
@@ -1873,13 +1964,13 @@ function FlowStep({ number, label, active, icon }: { number: string; label: stri
             <div className={cn(
                 "w-9 h-9 rounded-2xl flex items-center justify-center text-xs font-black border transition-all duration-500", 
                 active 
-                    ? "bg-indigo-500 border-indigo-400 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)] rotate-0" 
-                    : "bg-white/5 border-white/10 text-slate-500 rotate-[-5deg]"
+                    ? "bg-indigo-500 border-indigo-400 text-foreground shadow-[0_0_20px_rgba(99,102,241,0.5)] rotate-0" 
+                    : "bg-white/5 border-border text-muted-foreground rotate-[-5deg]"
             )}>
                 {number}
             </div>
             <div className="flex flex-col">
-                <span className={cn("text-[11px] font-black uppercase tracking-[0.15em] leading-none mb-1", active ? "text-white" : "text-slate-600")}>{label}</span>
+                <span className={cn("text-[11px] font-black uppercase tracking-[0.15em] leading-none mb-1", active ? "text-foreground" : "text-muted-foreground")}>{label}</span>
                 <span className={cn("flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest", active ? "text-indigo-400" : "text-slate-700")}>
                     {active ? <CheckCircle2 className="h-3 w-3" /> : icon} 
                     {active ? 'Complete' : 'Pipeline'}
@@ -1892,16 +1983,16 @@ function FlowStep({ number, label, active, icon }: { number: string; label: stri
 function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
     return (
         <div className="space-y-2.5">
-            <label className="pl-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{label}</label>
+            <label className="pl-1 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">{label}</label>
             <div className="relative group">
                 <select 
                     value={value} 
                     onChange={(e) => onChange(e.target.value)} 
-                    className="h-12 w-full cursor-pointer appearance-none rounded-2xl border border-white/15 bg-[#0d1016] px-4 text-xs font-medium text-slate-100 outline-none transition-all hover:bg-white/[0.06] focus:ring-2 focus:ring-indigo-500/40"
+                    className="h-12 w-full cursor-pointer appearance-none rounded-2xl border border-border bg-card px-4 text-xs font-medium text-foreground outline-none transition-all hover:bg-white/[0.06] focus:ring-2 focus:ring-indigo-500/40"
                 >
-                    {options.map(opt => <option key={opt.value} value={opt.value} className="bg-[#10131a] py-3">{opt.label}</option>)}
+                    {options.map(opt => <option key={opt.value} value={opt.value} className="bg-card py-3">{opt.label}</option>)}
                 </select>
-                <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-hover:text-slate-200">
+                <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors group-hover:text-card-foreground">
                     <ChevronDown className="h-4 w-4" />
                 </div>
             </div>
@@ -1915,7 +2006,7 @@ function FilterSelect({ value, onChange, options }: { value: string; onChange: (
             <select 
                 value={value} 
                 onChange={(e) => onChange(e.target.value)} 
-                className="bg-transparent border-none text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 focus:ring-0 px-4 h-9 outline-none hover:text-white transition-all cursor-pointer appearance-none"
+                className="bg-transparent border-none text-[11px] font-black uppercase tracking-[0.2em] text-muted-foreground focus:ring-0 px-4 h-9 outline-none hover:text-foreground transition-all cursor-pointer appearance-none"
             >
                 {options.map(opt => <option key={opt.value} value={opt.value} className="bg-[#0d0d0f]">{opt.label}</option>)}
             </select>
@@ -1987,7 +2078,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
         amber: 'border-amber-500/30 bg-amber-500/10 text-amber-400 shadow-amber-500/10',
         indigo: 'border-indigo-500/30 bg-indigo-500/10 text-indigo-400 shadow-indigo-500/10',
         orange: 'border-orange-500/30 bg-orange-500/10 text-orange-400 shadow-orange-500/10',
-        slate: 'border-white/10 bg-white/5 text-slate-500'
+        slate: 'border-border bg-white/5 text-muted-foreground'
     }
 
     const achievability = validation_run.achievability_score || 0
@@ -1997,8 +2088,8 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
             className={cn(
                 "rounded-[2.5rem] border transition-all duration-700 relative overflow-hidden group", 
                 isExpanded 
-                    ? "bg-white/[0.05] border-white/10 ring-1 ring-white/5 shadow-2xl" 
-                    : "bg-white/[0.02] border-white/5 hover:border-white/10 hover:bg-white/[0.03] hover:shadow-xl"
+                    ? "bg-white/[0.05] border-border ring-1 ring-white/5 shadow-2xl" 
+                    : "bg-white/[0.02] border-white/5 hover:border-border hover:bg-white/[0.03] hover:shadow-xl"
             )}
         >
             {/* Decision Stamp Watermark */}
@@ -2024,7 +2115,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                             </div>
                             <div className="flex items-center gap-2 px-3 py-1.5 bg-black/40 rounded-xl border border-white/5">
                                 <Gauge className="h-3.5 w-3.5 text-indigo-500" />
-                                <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Efficiency: {Math.round(achievability * 100)}%</span>
+                                <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">Efficiency: {Math.round(achievability * 100)}%</span>
                             </div>
                             {validation_run.freshness_state !== 'fresh' && (
                                 <Badge variant="outline" className="text-[9px] border-amber-500/20 text-amber-500 bg-amber-500/5 uppercase font-black tracking-widest px-2.5 py-1">Stale Data</Badge>
@@ -2032,13 +2123,13 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                         </div>
 
                         <div>
-                            <h4 className="text-2xl font-black text-white tracking-tight leading-tight group-hover:text-indigo-400 transition-colors duration-500 mb-3">{candidate.candidate_text}</h4>
+                            <h4 className="text-2xl font-black text-foreground tracking-tight leading-tight group-hover:text-indigo-400 transition-colors duration-500 mb-3">{candidate.candidate_text}</h4>
                             <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
                                 <div className="flex items-center gap-2.5 text-xs font-bold">
-                                    <span className="text-slate-500 uppercase tracking-widest text-[9px] font-black">Core Keyword:</span>
+                                    <span className="text-muted-foreground uppercase tracking-widest text-[9px] font-black">Core Keyword:</span>
                                     <span className="text-indigo-400 bg-indigo-500/10 px-3 py-1 rounded-lg border border-indigo-500/20">{keyword_pack.primary_keyword || 'Intent Discovery'}</span>
                                 </div>
-                                <div className="text-[12px] text-slate-400 font-medium">{config.description}</div>
+                                <div className="text-[12px] text-muted-foreground font-medium">{config.description}</div>
                             </div>
                         </div>
                     </div>
@@ -2049,7 +2140,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                                 {generated_outcome.outcome_type === 'software' ? (
                                     <Button 
                                         size="sm" 
-                                        className="bg-indigo-500 hover:bg-indigo-400 text-white rounded-xl h-11 px-6 font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.95] shadow-lg shadow-indigo-500/20 group/btn" 
+                                        className="bg-indigo-500 hover:bg-indigo-400 text-foreground rounded-xl h-11 px-6 font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.95] shadow-lg shadow-indigo-500/20 group/btn" 
                                         onClick={() => onRelease(generated_outcome.id)} 
                                         disabled={isMutating}
                                     >
@@ -2059,7 +2150,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                                 ) : (
                                     <Button 
                                         size="sm" 
-                                        className="bg-white text-black hover:bg-indigo-50 rounded-xl h-11 px-6 font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.95] shadow-xl group/btn" 
+                                        className="bg-primary text-primary-foreground hover:bg-indigo-50 rounded-xl h-11 px-6 font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.95] shadow-xl group/btn" 
                                         onClick={() => onPersist(generated_outcome.id)} 
                                         disabled={isMutating}
                                     >
@@ -2071,7 +2162,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                                 <button 
                                     onClick={() => onReject(candidate.id, 'weak_serp')} 
                                     disabled={isRejecting} 
-                                    className="h-11 w-11 flex items-center justify-center rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 hover:text-white transition-all shadow-xl shadow-red-500/10"
+                                    className="h-11 w-11 flex items-center justify-center rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 hover:text-foreground transition-all shadow-xl shadow-red-500/10"
                                     title="Reject Analysis"
                                 >
                                     {isRejecting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Ban className="h-5 w-5" />}
@@ -2081,7 +2172,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                         <button 
                             onClick={() => onRefresh(validation_run.id)} 
                             disabled={isRefreshing} 
-                            className="h-11 w-11 flex items-center justify-center rounded-xl bg-white/5 text-slate-500 border border-white/10 hover:bg-white/10 hover:text-white transition-all"
+                            className="h-11 w-11 flex items-center justify-center rounded-xl bg-white/5 text-muted-foreground border border-border hover:bg-white/10 hover:text-foreground transition-all"
                             title="Refresh Validation"
                         >
                             {isRefreshing ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}
@@ -2090,7 +2181,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                             onClick={onToggle} 
                             className={cn(
                                 "h-11 px-4 flex items-center justify-center gap-2 rounded-xl border transition-all text-[11px] font-black uppercase tracking-widest",
-                                isExpanded ? "bg-white text-black border-white shadow-xl" : "bg-white/5 text-slate-400 border-white/10 hover:bg-white/10"
+                                isExpanded ? "bg-primary text-primary-foreground border-white shadow-xl" : "bg-white/5 text-muted-foreground border-border hover:bg-white/10"
                             )}
                         >
                             {isExpanded ? 'Details' : 'Inspect'}
@@ -2103,7 +2194,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                 <div className="mt-10 flex flex-col md:flex-row md:items-center gap-8">
                     <div className="flex-1">
                         <div className="flex items-center justify-between mb-3 px-1">
-                            <span className="text-[10px] font-black text-slate-600 uppercase tracking-[0.25em]">Achievability Gradient</span>
+                            <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.25em]">Achievability Gradient</span>
                             <span className={cn(
                                 "text-[11px] font-black uppercase tracking-widest",
                                 achievability > 0.6 ? "text-emerald-400" : achievability > 0.3 ? "text-amber-400" : "text-red-400"
@@ -2121,7 +2212,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                             />
                         </div>
                     </div>
-                    <div className="grid grid-cols-4 gap-12 shrink-0 border-l border-white/10 pl-12">
+                    <div className="grid grid-cols-4 gap-12 shrink-0 border-l border-border pl-12">
                         <ScoreMini label="Intent" value={validation_run.intent_match_score} color="indigo" />
                         <ScoreMini label="SERP" value={validation_run.serp_weakness_score} color="emerald" />
                         <ScoreMini label="Gap" value={validation_run.serp_gap_score} color="violet" />
@@ -2131,12 +2222,12 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
             </div>
 
             {isExpanded && (
-                <div className="px-8 pb-12 pt-6 border-t border-white/10 animate-in fade-in slide-in-from-top-4 duration-500 bg-white/[0.02]">
+                <div className="px-8 pb-12 pt-6 border-t border-border animate-in fade-in slide-in-from-top-4 duration-500 bg-white/[0.02]">
                     <div className="grid lg:grid-cols-2 gap-16 mt-8">
                         {/* SERP Evidence */}
                         <div className="space-y-8">
                             <div className="flex items-center justify-between">
-                                <h5 className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-500 flex items-center gap-3">
+                                <h5 className="text-[11px] font-black uppercase tracking-[0.3em] text-muted-foreground flex items-center gap-3">
                                     <Globe className="h-4 w-4 text-indigo-500" /> SERP Competitive Evidence
                                 </h5>
                                 <span className="text-[9px] font-black text-slate-700 uppercase tracking-widest">Top 4 Results</span>
@@ -2146,14 +2237,14 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                                     getSerpRows(validation_run).slice(0, 4).map((row: any, i: number) => (
                                         <div key={i} className="group/row bg-black/40 border border-white/5 rounded-2xl p-5 hover:bg-black/60 hover:border-indigo-500/30 transition-all duration-300 shadow-sm relative overflow-hidden">
                                             <div className="absolute top-0 right-0 p-3 opacity-5 group-hover/row:opacity-10 transition-opacity">
-                                                <ExternalLink className="h-12 w-12 text-white" />
+                                                <ExternalLink className="h-12 w-12 text-foreground" />
                                             </div>
                                             <div className="flex items-start justify-between gap-4 mb-3">
                                                 <div className="flex items-start gap-4">
-                                                    <div className="mt-0.5 w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-[11px] font-black text-indigo-400 group-hover/row:bg-indigo-500 group-hover/row:text-white transition-all shadow-lg">{i + 1}</div>
-                                                    <p className="text-[14px] font-black text-slate-200 group-hover/row:text-white transition-colors leading-snug">{row.title || 'Competitor Snapshot'}</p>
+                                                    <div className="mt-0.5 w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-[11px] font-black text-indigo-400 group-hover/row:bg-indigo-500 group-hover/row:text-foreground transition-all shadow-lg">{i + 1}</div>
+                                                    <p className="text-[14px] font-black text-card-foreground group-hover/row:text-foreground transition-colors leading-snug">{row.title || 'Competitor Snapshot'}</p>
                                                 </div>
-                                                <a href={row.url} target="_blank" rel="noreferrer" className="shrink-0 text-slate-500 hover:text-indigo-400 p-2 bg-white/5 rounded-xl transition-all border border-white/5 hover:border-indigo-500/20">
+                                                <a href={row.url} target="_blank" rel="noreferrer" className="shrink-0 text-muted-foreground hover:text-indigo-400 p-2 bg-white/5 rounded-xl transition-all border border-white/5 hover:border-indigo-500/20">
                                                     <ExternalLink className="h-4 w-4" />
                                                 </a>
                                             </div>
@@ -2163,12 +2254,12 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                                                     alt="icon" 
                                                     className="w-4 h-4 rounded shadow-sm opacity-60 grayscale group-hover/row:grayscale-0 group-hover/row:opacity-100 transition-all"
                                                 />
-                                                <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">{new URL(row.url).hostname}</p>
+                                                <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">{new URL(row.url).hostname}</p>
                                             </div>
                                         </div>
                                     ))
                                 ) : (
-                                    <div className="py-20 flex flex-col items-center justify-center bg-white/[0.01] border border-dashed border-white/10 rounded-[2.5rem]">
+                                    <div className="py-20 flex flex-col items-center justify-center bg-white/[0.01] border border-dashed border-border rounded-[2.5rem]">
                                         <Ban className="h-10 w-10 text-slate-800 mb-4" />
                                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-700">No SERP data collected</p>
                                     </div>
@@ -2180,7 +2271,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                         <div className="space-y-12">
                             {/* Existing content matches */}
                             <div className="space-y-8">
-                                <h5 className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-500 flex items-center gap-3">
+                                <h5 className="text-[11px] font-black uppercase tracking-[0.3em] text-muted-foreground flex items-center gap-3">
                                     <Layers className="h-4 w-4 text-emerald-500" /> Existing Content Matches
                                 </h5>
                                 <div className="space-y-4">
@@ -2189,7 +2280,7 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                                             const meta = getInternalLinkMetadata(link)
                                             return (
                                                 <div key={link.id} className="bg-black/40 border border-white/5 rounded-2xl p-5 hover:bg-black/60 hover:border-emerald-500/30 transition-all shadow-sm">
-                                                    <p className="text-[14px] font-black text-slate-200 mb-4 leading-tight">{String(meta.matched_title || 'Target Neighborhood')}</p>
+                                                    <p className="text-[14px] font-black text-card-foreground mb-4 leading-tight">{String(meta.matched_title || 'Target Neighborhood')}</p>
                                                     <div className="flex items-center justify-between">
                                                         <Badge variant="outline" className="text-[10px] font-black uppercase text-emerald-400 bg-emerald-500/10 border-emerald-500/20 tracking-widest px-3">
                                                             {link.link_role.replace('_', ' ')}
@@ -2198,14 +2289,14 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                                                             <div className="w-24 h-2 bg-white/5 rounded-full overflow-hidden border border-white/5 p-px">
                                                                 <div className="h-full bg-emerald-500 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)]" style={{ width: `${(link.match_score || 0) * 100}%` }} />
                                                             </div>
-                                                            <span className="text-[11px] text-slate-500 font-black uppercase tabular-nums">{Math.round((link.match_score || 0) * 100)}% Match</span>
+                                                            <span className="text-[11px] text-muted-foreground font-black uppercase tabular-nums">{Math.round((link.match_score || 0) * 100)}% Match</span>
                                                         </div>
                                                     </div>
                                                 </div>
                                             )
                                         })
                                     ) : (
-                                        <div className="py-20 flex flex-col items-center justify-center bg-white/[0.01] border border-dashed border-white/10 rounded-[2.5rem]">
+                                        <div className="py-20 flex flex-col items-center justify-center bg-white/[0.01] border border-dashed border-border rounded-[2.5rem]">
                                             <div className="bg-white/5 p-4 rounded-full mb-4">
                                                 <Layers className="h-8 w-8 text-slate-800" />
                                             </div>
@@ -2217,12 +2308,12 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
 
                             {/* Secondary Keywords */}
                             <div className="space-y-6">
-                                <h5 className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-500 flex items-center gap-3">
+                                <h5 className="text-[11px] font-black uppercase tracking-[0.3em] text-muted-foreground flex items-center gap-3">
                                     <Target className="h-4 w-4 text-indigo-400" /> Semantic Expansion
                                 </h5>
                                 <div className="flex flex-wrap gap-2.5">
                                     {(keyword_pack.secondary_keywords || []).map((kw: any, i: number) => (
-                                        <div key={i} className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-[11px] font-bold text-slate-300 hover:text-white hover:bg-white/10 transition-all cursor-default">
+                                        <div key={i} className="px-4 py-2 bg-white/5 border border-border rounded-xl text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-white/10 transition-all cursor-default">
                                             {typeof kw === 'string' ? kw : kw.keyword}
                                         </div>
                                     ))}
@@ -2232,11 +2323,11 @@ function OpportunityCard({ data, isExpanded, onToggle, onPersist, onRelease, onR
                     </div>
                     
                     {/* Reason Codes & Tags */}
-                    <div className="mt-12 pt-8 border-t border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                    <div className="mt-12 pt-8 border-t border-border flex flex-col md:flex-row md:items-center justify-between gap-6">
                         <div className="flex flex-wrap items-center gap-3">
-                            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-600 mr-2">Analysis Intelligence Tags:</span>
+                            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground mr-2">Analysis Intelligence Tags:</span>
                             {(validation_run.validation_reason_codes || []).map((code: string) => (
-                                <span key={code} className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-indigo-400 transition-colors">
+                                <span key={code} className="px-3 py-1.5 bg-white/5 border border-border rounded-xl text-[10px] font-black uppercase tracking-widest text-muted-foreground group-hover:text-indigo-400 transition-colors">
                                     {code.replace('_', ' ')}
                                 </span>
                             ))}
@@ -2262,9 +2353,9 @@ function ScoreMini({ label, value, color = 'indigo' }: { label: string; value?: 
     
     return (
         <div className="flex flex-col gap-2.5 min-w-[60px]">
-            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 leading-none">{label}</span>
+            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground leading-none">{label}</span>
             <div className="space-y-2">
-                <span className="text-[13px] font-black text-white tabular-nums">{(value || 0).toFixed(2)}</span>
+                <span className="text-[13px] font-black text-foreground tabular-nums">{(value || 0).toFixed(2)}</span>
                 <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
                     <div 
                         className={cn("h-full rounded-full transition-all duration-1000", colorMap[color])}
@@ -2279,8 +2370,8 @@ function ScoreMini({ label, value, color = 'indigo' }: { label: string; value?: 
 function ContextStat({ label, value }: { label: string; value: string }) {
     return (
         <div className="rounded-2xl border border-white/5 bg-black/30 p-4">
-            <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">{label}</div>
-            <div className="mt-2 text-sm font-semibold text-slate-200">{value}</div>
+            <div className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">{label}</div>
+            <div className="mt-2 text-sm font-semibold text-card-foreground">{value}</div>
         </div>
     )
 }
@@ -2288,8 +2379,8 @@ function ContextStat({ label, value }: { label: string; value: string }) {
 function ContextBlock({ label, value }: { label: string; value: string }) {
     return (
         <div className="rounded-2xl border border-white/5 bg-black/30 p-4">
-            <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">{label}</div>
-            <p className="mt-2 text-sm leading-relaxed text-slate-300">{value}</p>
+            <div className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">{label}</div>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{value}</p>
         </div>
     )
 }
@@ -2327,7 +2418,7 @@ function PhaseGuide({ title, description, color = 'indigo' }: { title: string; d
                 <h5 className="text-[11px] font-black uppercase tracking-widest mb-1">{title}</h5>
                 <p className="text-[12px] font-medium leading-relaxed opacity-80">{description}</p>
             </div>
-            <button onClick={() => setIsVisible(false)} className="text-white/20 hover:text-white transition-colors">
+            <button onClick={() => setIsVisible(false)} className="text-foreground/20 hover:text-foreground transition-colors">
                 <XCircle className="h-4 w-4" />
             </button>
         </div>
