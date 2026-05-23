@@ -872,39 +872,34 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                     </div>
                     
                     {/* Visual Flow Indicator */}
-                    <div className="hidden xl:flex flex-1 justify-center items-center gap-4">
-                        <FlowStep number="1" label="Discover" active={isJobsPage} icon={<Layers className="h-3.5 w-3.5" />} />
+                    <div className="hidden lg:flex flex-1 justify-center items-center gap-4">
+                        <FlowStep 
+                            number="1" 
+                            label="Discover" 
+                            active={isJobsPage} 
+                            icon={<Layers className="h-3.5 w-3.5" />} 
+                            onClick={() => navigate(jobsPagePath)}
+                        />
                         <div className="w-4 h-px bg-border" />
-                        <FlowStep number="2" label="Validate" active={isOpportunitiesPage} icon={<Target className="h-3.5 w-3.5" />} />
+                        <FlowStep 
+                            number="2" 
+                            label="Validate" 
+                            active={isOpportunitiesPage} 
+                            icon={<Target className="h-3.5 w-3.5" />} 
+                            onClick={() => navigate(opportunitiesPagePath)}
+                            disabled={activeTopics.length === 0}
+                        />
                         <div className="w-4 h-px bg-border" />
-                        <FlowStep number="3" label="Promote" active={false} icon={<Rocket className="h-3.5 w-3.5" />} />
+                        <FlowStep 
+                            number="3" 
+                            label="Promote" 
+                            active={false} 
+                            icon={<Rocket className="h-3.5 w-3.5" />} 
+                            disabled={true}
+                        />
                     </div>
 
                     <div className="flex items-center gap-4">
-                        <div className="hidden lg:flex items-center gap-2 rounded-2xl border border-border bg-white/[0.03] px-3 py-2">
-                            <button
-                                type="button"
-                                onClick={() => navigate(jobsPagePath)}
-                                className={cn(
-                                    "rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] transition-all",
-                                    isJobsPage ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-                                )}
-                            >
-                                1. Discover
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => navigate(opportunitiesPagePath)}
-                                disabled={activeTopics.length === 0}
-                                className={cn(
-                                    "rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] transition-all",
-                                    isOpportunitiesPage ? "bg-indigo-500 text-foreground" : "text-muted-foreground hover:text-foreground",
-                                    activeTopics.length === 0 && "cursor-not-allowed opacity-40 hover:text-muted-foreground",
-                                )}
-                            >
-                                2. Validate
-                            </button>
-                        </div>
                         <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-xl border border-border">
                             <div className="w-2 h-2 rounded-full bg-emerald-500" />
                             <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Live Engine</span>
@@ -1958,9 +1953,19 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
 
 // --- SUB-COMPONENTS ---
 
-function FlowStep({ number, label, active, icon }: { number: string; label: string; active: boolean; icon: React.ReactNode }) {
+function FlowStep({ number, label, active, icon, onClick, disabled }: { number: string; label: string; active: boolean; icon: React.ReactNode; onClick?: () => void; disabled?: boolean }) {
     return (
-        <div className={cn("flex items-center gap-3 transition-all duration-500", active ? "opacity-100 translate-y-0" : "opacity-50 translate-y-1")}>
+        <button 
+            type="button"
+            onClick={onClick}
+            disabled={disabled}
+            className={cn(
+                "flex items-center gap-3 transition-all duration-500 text-left outline-none", 
+                active ? "opacity-100 translate-y-0" : "opacity-50 translate-y-1",
+                onClick && !disabled ? "cursor-pointer hover:opacity-80 hover:-translate-y-0.5" : "",
+                disabled ? "cursor-not-allowed opacity-40" : ""
+            )}
+        >
             <div className={cn(
                 "w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black border transition-all duration-500", 
                 active 
@@ -1976,7 +1981,7 @@ function FlowStep({ number, label, active, icon }: { number: string; label: stri
                     {active ? 'Current Phase' : 'Pipeline'}
                 </span>
             </div>
-        </div>
+        </button>
     )
 }
 
