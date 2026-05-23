@@ -438,7 +438,9 @@ class ResearchRebuildService {
     async listDataforseoSearches(params: {
         project_id: string
         user_job_id?: string
-        search_type?: 'related_keywords' | 'keyword_overview' | 'serp' | 'google_trends' | 'serp_probe' | 'ranked_keywords' | 'relevant_pages' | 'categories_for_domain' | 'category_index'
+        primary_category_id?: string
+        secondary_category_id?: string
+        search_type?: 'related_keywords' | 'keyword_suggestions' | 'expansion_funnel' | 'keyword_overview' | 'serp' | 'google_trends' | 'serp_probe' | 'ranked_keywords' | 'relevant_pages' | 'categories_for_domain' | 'category_index'
         limit?: number
     }): Promise<ResearchRebuildListResponse<ResearchRebuildDataforseoSearch>> {
         const query = new URLSearchParams()
@@ -454,7 +456,7 @@ class ResearchRebuildService {
         user_job_id?: string
         primary_category_id?: string
         secondary_category_id?: string
-        search_type: 'related_keywords' | 'keyword_overview' | 'serp' | 'google_trends' | 'serp_probe' | 'ranked_keywords' | 'relevant_pages' | 'categories_for_domain' | 'category_index'
+        search_type: 'related_keywords' | 'keyword_suggestions' | 'expansion_funnel' | 'keyword_overview' | 'serp' | 'google_trends' | 'serp_probe' | 'ranked_keywords' | 'relevant_pages' | 'categories_for_domain' | 'category_index'
         query_text?: string
         keywords?: string[]
         target?: string

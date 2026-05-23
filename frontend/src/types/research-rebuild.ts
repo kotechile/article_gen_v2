@@ -97,6 +97,8 @@ export type ResearchRebuildDataforseoSearch = {
     secondary_category_id?: string | null
     search_type:
         | 'related_keywords'
+        | 'keyword_suggestions'
+        | 'expansion_funnel'
         | 'keyword_overview'
         | 'serp'
         | 'google_trends'
