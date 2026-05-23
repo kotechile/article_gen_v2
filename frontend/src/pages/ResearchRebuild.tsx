@@ -890,7 +890,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     isJobsPage ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
                                 )}
                             >
-                                1. Jobs
+                                1. Discover
                             </button>
                             <button
                                 type="button"
@@ -902,7 +902,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     activeTopics.length === 0 && "cursor-not-allowed opacity-40 hover:text-muted-foreground",
                                 )}
                             >
-                                2. Opportunities
+                                2. Validate
                             </button>
                         </div>
                         <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-xl border border-border">
@@ -1482,7 +1482,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                         {/* Phase 02 Launcher */}
                         <div className="relative group">
                             <div className="absolute -inset-0.5 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-[2.5rem] blur opacity-20 group-hover:opacity-40 transition-opacity" />
-                            <div className="relative bg-gradient-to-br from-[#121218] to-[#0d0d0f] p-10 rounded-[2.5rem] border border-border shadow-2xl overflow-hidden">
+                            <div className="relative bg-gradient-to-br from-indigo-50 dark:from-[#121218] to-card dark:to-[#0d0d0f] p-10 rounded-[2.5rem] border border-border shadow-2xl overflow-hidden">
                                 <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:scale-125 group-hover:opacity-10 transition-all duration-700 pointer-events-none">
                                     <Rocket className="h-32 w-32 text-foreground" />
                                 </div>
