@@ -971,27 +971,14 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         ? 'Follow a simple 3-step flow: define a topic, research keywords, then save an article draft with assigned keywords.'
                                         : 'Review the approved jobs and scope while you validate only the saved opportunities on the second step.'}
                                 </p>
-                                
-                                <PhaseGuide 
-                                    title={isJobsPage ? 'Getting Started' : 'Step Reminder'}
-                                    description={isJobsPage
-                                        ? "Step 1 defines the topic. Step 2 runs manual SEO lookups. Step 3 saves the article draft you want to validate."
-                                        : "This page validates only opportunities you already saved. Go back to Jobs if you need more manual searches or want to add more candidates first."}
-                                    color="indigo"
-                                />
                             </div>
                         </div>
 
                         <section className={cn("bg-card border border-border rounded-[2.5rem] shadow-2xl overflow-hidden", isOpportunitiesPage && "hidden")}>
-                            <div className="p-8 border-b border-border bg-gradient-to-br from-white/[0.04] to-transparent">
-                                <h3 className="text-sm font-black text-foreground uppercase tracking-widest flex items-center gap-3">
-                                    <Globe className="h-4 w-4 text-indigo-400" />
-                                    Simple Manual Workflow
-                                </h3>
-                            </div>
+                            
 
                             <div className="p-8 space-y-8">
-                                <div className="rounded-[2rem] border border-indigo-400/20 bg-indigo-50/50 dark:bg-indigo-500/10 p-6 space-y-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                                <div>
                                     <div className="flex items-center gap-3">
                                         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-indigo-500/30 bg-indigo-500/15 text-xs font-black text-indigo-300">1</span>
                                         <div>
@@ -1529,12 +1516,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     <p className="text-muted-foreground text-[13px] font-medium mt-3 leading-relaxed mb-6">
                                         Strategic opportunities derived from validated search data. Every outcome represents a winnable path identified by the engine.
                                     </p>
-                                    
-                                    <PhaseGuide 
-                                        title="Making Decisions"
-                                        description="Inspect opportunities to see SERP evidence. 'Promote' winning ideas to start creating content, or 'Release' software tools."
-                                        color="emerald"
-                                    />
                                 </div>
                             </div>
                             
@@ -2404,31 +2385,7 @@ function getInternalLinkMetadata(link: ResearchRebuildInternalLinkCandidate): an
     return link.match_metadata || {}
 }
 
-function PhaseGuide({ title, description, color = 'indigo' }: { title: string; description: string; color?: 'indigo' | 'emerald' | 'purple' }) {
-    const [isVisible, setIsVisible] = React.useState(true)
-    if (!isVisible) return null
 
-    const colors = {
-        indigo: 'bg-indigo-500/10 border-indigo-500/20 text-indigo-800 dark:text-indigo-200 shadow-indigo-500/5',
-        emerald: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-800 dark:text-emerald-200 shadow-emerald-500/5',
-        purple: 'bg-purple-500/10 border-purple-500/20 text-purple-800 dark:text-purple-200 shadow-purple-500/5',
-    }
-
-    return (
-        <div className={cn("p-5 rounded-2xl border flex items-start gap-4 mb-8 animate-in fade-in slide-in-from-left-4 duration-700", colors[color])}>
-            <div className="bg-white/10 p-2 rounded-xl mt-0.5">
-                <Info className="h-4 w-4" />
-            </div>
-            <div className="flex-1">
-                <h5 className="text-[11px] font-black uppercase tracking-widest mb-1">{title}</h5>
-                <p className="text-[12px] font-medium leading-relaxed opacity-80">{description}</p>
-            </div>
-            <button onClick={() => setIsVisible(false)} className="text-foreground/20 hover:text-foreground transition-colors">
-                <XCircle className="h-4 w-4" />
-            </button>
-        </div>
-    )
-}
 
 function formatWorkflowRunShortLabel(run: ResearchRebuildWorkflowRunSummary): string {
     const date = run.started_at ? new Date(run.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '??'
