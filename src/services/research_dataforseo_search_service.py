@@ -349,11 +349,11 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
                 kd = item.get("keyword_difficulty")
                 sv = item.get("search_volume")
                 
-                # Basic trash collection / filtering based on task rules: KD < 30, SV > 20
-                if kd is not None and sv is not None:
-                    if kd < 30 and sv > 20:
-                        seen_keywords.add(kw)
-                        combined_items.append(item)
+                # Relaxed trash collection to allow an explosion of long-tail keywords
+                # even if they don't have volume data or have slightly higher KD
+                if kd is None or kd <= 60:
+                    seen_keywords.add(kw)
+                    combined_items.append(item)
                         
             # Sort by search volume descending
             combined_items.sort(key=lambda x: x.get("search_volume") or 0, reverse=True)

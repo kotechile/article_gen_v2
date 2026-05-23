@@ -72,7 +72,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const [articleSecondaryKeywordsText, setArticleSecondaryKeywordsText] = React.useState('')
     const [selectedLookupJobId, setSelectedLookupJobId] = React.useState('')
     const [lookupSearchType, setLookupSearchType] = React.useState<'related_keywords' | 'keyword_suggestions' | 'expansion_funnel' | 'keyword_overview' | 'serp'>('expansion_funnel')
-    const [lookupQueryText, setLookupQueryText] = React.useState('')
     const [lookupKeywordsText, setLookupKeywordsText] = React.useState('')
     const [runningLookup, setRunningLookup] = React.useState(false)
     const [lookupProgressText, setLookupProgressText] = React.useState<string | null>(null)
@@ -522,8 +521,11 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
             setError('Add at least one keyword for keyword overview lookups.')
             return
         }
-        if (lookupSearchType !== 'keyword_overview' && !lookupQueryText.trim()) {
-            setError('Enter a search query before running a lookup.')
+        const selectedTopic = activeTopics.find(t => t.id === selectedLookupJobId);
+        const queryTextToUse = selectedTopic ? selectedTopic.job_text : '';
+
+        if (lookupSearchType !== 'keyword_overview' && !queryTextToUse.trim()) {
+            setError('Select a topic to use as the search query before running a lookup.')
             return
         }
 
@@ -542,7 +544,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                 primary_category_id: primaryCategoryId || undefined,
                 secondary_category_id: secondaryCategoryId || undefined,
                 search_type: lookupSearchType,
-                query_text: lookupSearchType === 'keyword_overview' ? undefined : lookupQueryText.trim(),
+                query_text: lookupSearchType === 'keyword_overview' ? undefined : queryTextToUse.trim(),
                 keywords: lookupSearchType === 'keyword_overview' ? parseLookupKeywords() : undefined,
                 limit: lookupSearchType === 'serp' ? 10 : 25,
             })
@@ -1117,7 +1119,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         options={DATAFORSEO_SEARCH_TYPES.map((item) => ({ value: item.value, label: item.label }))}
                                     />
 
-                                    {lookupSearchType === 'keyword_overview' ? (
+                                    {lookupSearchType === 'keyword_overview' && (
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
                                                 Keywords
@@ -1127,18 +1129,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                 onChange={(e) => setLookupKeywordsText(e.target.value)}
                                                 placeholder="Paste one keyword per line or comma separated"
                                                 className="min-h-[110px] w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none transition focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-500/20"
-                                            />
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
-                                                Query
-                                            </label>
-                                            <Input
-                                                value={lookupQueryText}
-                                                onChange={(e) => setLookupQueryText(e.target.value)}
-                                                placeholder={lookupSearchType === 'serp' ? 'Enter the exact Google query to inspect' : 'Enter one seed keyword'}
-                                                className="bg-card border-border rounded-xl text-xs h-12 text-foreground focus:ring-emerald-500/30"
                                             />
                                         </div>
                                     )}
@@ -1161,113 +1151,75 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         )}
                                     </Button>
 
-                                    <div className="grid gap-4 xl:grid-cols-[1.05fr,0.95fr]">
-                                        <div className="rounded-2xl border border-border bg-card p-4">
-                                            <div className="mb-3 flex items-center justify-between">
-                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">Saved Searches</span>
-                                                <span className="text-[10px] text-muted-foreground">{dataforseoSearches.length}</span>
-                                            </div>
-                                            <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
-                                                {dataforseoSearches.length === 0 ? (
-                                                    <p className="text-xs text-muted-foreground">No saved searches in this scope yet.</p>
-                                                ) : (
-                                                    dataforseoSearches.map((item) => (
-                                                        <button
-                                                            key={item.id}
-                                                            type="button"
-                                                            onClick={() => setActiveSearchRecord(item)}
-                                                            className={cn(
-                                                                "w-full rounded-2xl border px-4 py-3 text-left transition",
-                                                                activeSearchRecord?.id === item.id
-                                                                    ? "border-emerald-500/30 bg-emerald-500/[0.08]"
-                                                                    : "border-white/5 bg-white/[0.02] hover:border-border",
-                                                            )}
-                                                        >
-                                                            <div className="flex items-center justify-between gap-3">
-                                                                <span className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300/80">
-                                                                    {item.search_type.replace('_', ' ')}
-                                                                </span>
-                                                                <span className="text-[10px] text-muted-foreground">
-                                                                    {item.searched_at ? new Date(item.searched_at).toLocaleDateString() : ''}
-                                                                </span>
-                                                            </div>
-                                                            <p className="mt-2 text-sm text-card-foreground line-clamp-2">{item.query_text}</p>
-                                                        </button>
-                                                    ))
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <div className="rounded-2xl border border-border bg-card p-4">
-                                            <div className="mb-3 flex items-center justify-between gap-3">
-                                                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">Keyword Results</span>
-                                                {activeSearchRecord && (
-                                                    <span className="text-[10px] text-muted-foreground">
-                                                        {(activeSearchRecord.result_summary_json?.result_count as number | undefined) ?? activeSearchPreviewItems.length} results
-                                                    </span>
-                                                )}
-                                            </div>
-                                            {!activeSearchRecord ? (
-                                                <p className="text-xs text-muted-foreground">Run a lookup or select one from history to inspect it here.</p>
-                                            ) : (
-                                                <div className="space-y-3">
-                                                    <div className="rounded-2xl border border-border bg-white/[0.03] px-4 py-3">
-                                                        <div className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">
-                                                            {activeSearchRecord.search_type.replace('_', ' ')}
-                                                        </div>
-                                                        <p className="mt-2 text-sm text-card-foreground">{activeSearchRecord.query_text}</p>
-                                                        {activeSearchRecord.search_type === 'expansion_funnel' && (
-                                                                <div className="flex gap-2 mt-3">
-                                                                    <Badge 
-                                                                        onClick={() => setShowEasyWinsModal(true)} 
-                                                                        className="cursor-pointer bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 px-3 py-1 text-xs border border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)] transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.2)]"
-                                                                    >
-                                                                        <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-                                                                        Contains {activeSearchPreviewItems.length} Easy-Wins
-                                                                    </Badge>
-                                                                    <Badge 
-                                                                        onClick={() => setShowAllMetricsModal(true)} 
-                                                                        className="cursor-pointer bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 px-3 py-1 text-xs border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.1)] transition-all hover:shadow-[0_0_20px_rgba(99,102,241,0.2)]"
-                                                                    >
-                                                                        <Layers className="mr-1.5 h-3.5 w-3.5" />
-                                                                        View All Metrics
-                                                                    </Badge>
-                                                                </div>
-                                                        )}
-                                                    </div>
-                                                    <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
-                                                        {activeSearchPreviewItems.length === 0 ? (
-                                                            <p className="text-xs text-muted-foreground">This search did not return preview items.</p>
-                                                        ) : (
-                                                            activeSearchPreviewItems.slice(0, 8).map((item, index) => {
-                                                                const keyword = String(item.keyword || item.title || item.url || `Result ${index + 1}`)
-                                                                return (
-                                                                    <div key={`${activeSearchRecord.id}-${index}`} className="rounded-2xl border border-border bg-white/[0.03] px-4 py-3">
-                                                                        <div className="flex items-start justify-between gap-3">
-                                                                            <div className="min-w-0 flex-1">
-                                                                                <p className="text-sm text-card-foreground">{keyword}</p>
-                                                                                <p className="mt-1 text-[11px] text-muted-foreground">
-                                                                                    {[item.search_volume ? `Vol ${item.search_volume}` : null, item.keyword_difficulty ? `KD ${item.keyword_difficulty}` : null, item.cpc ? `CPC ${item.cpc}` : null]
-                                                                                        .filter(Boolean)
-                                                                                        .join(' · ') || String(item.snippet || '')}
-                                                                                </p>
-                                                                            </div>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => handleUseKeywordForArticle(String(item.keyword || activeSearchRecord.query_text || keyword))}
-                                                                                className="rounded-xl border border-border bg-white/[0.05] px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-foreground transition hover:bg-white/[0.1]"
-                                                                            >
-                                                                                Use Keyword
-                                                                            </button>
-                                                                        </div>
-                                                                    </div>
-                                                                )
-                                                            })
-                                                        )}
-                                                    </div>
-                                                </div>
+                                    <div className="rounded-2xl border border-border bg-card p-4">
+                                        <div className="mb-3 flex items-center justify-between gap-3">
+                                            <span className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">Keyword Results</span>
+                                            {activeSearchRecord && (
+                                                <span className="text-[10px] text-muted-foreground">
+                                                    {(activeSearchRecord.result_summary_json?.result_count as number | undefined) ?? activeSearchPreviewItems.length} results
+                                                </span>
                                             )}
                                         </div>
+                                        {!activeSearchRecord ? (
+                                            <p className="text-xs text-muted-foreground">Run a lookup to inspect results here.</p>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                <div className="rounded-2xl border border-border bg-white/[0.03] px-4 py-3">
+                                                    <div className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">
+                                                        {activeSearchRecord.search_type.replace('_', ' ')}
+                                                    </div>
+                                                    <p className="mt-2 text-sm text-card-foreground">{activeSearchRecord.query_text}</p>
+                                                    {activeSearchRecord.search_type === 'expansion_funnel' && (
+                                                            <div className="flex gap-2 mt-3">
+                                                                <Badge 
+                                                                    onClick={() => setShowEasyWinsModal(true)} 
+                                                                    className="cursor-pointer bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 px-3 py-1 text-xs border border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)] transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.2)]"
+                                                                >
+                                                                    <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                                                                    Contains {activeSearchPreviewItems.length} Easy-Wins
+                                                                </Badge>
+                                                                <Badge 
+                                                                    onClick={() => setShowAllMetricsModal(true)} 
+                                                                    className="cursor-pointer bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 px-3 py-1 text-xs border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.1)] transition-all hover:shadow-[0_0_20px_rgba(99,102,241,0.2)]"
+                                                                >
+                                                                    <Layers className="mr-1.5 h-3.5 w-3.5" />
+                                                                    View All Metrics
+                                                                </Badge>
+                                                            </div>
+                                                    )}
+                                                </div>
+                                                <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
+                                                    {activeSearchPreviewItems.length === 0 ? (
+                                                        <p className="text-xs text-muted-foreground">This search did not return preview items.</p>
+                                                    ) : (
+                                                        activeSearchPreviewItems.slice(0, 8).map((item, index) => {
+                                                            const keyword = String(item.keyword || item.title || item.url || `Result ${index + 1}`)
+                                                            return (
+                                                                <div key={`${activeSearchRecord.id}-${index}`} className="rounded-2xl border border-border bg-white/[0.03] px-4 py-3">
+                                                                    <div className="flex items-start justify-between gap-3">
+                                                                        <div className="min-w-0 flex-1">
+                                                                            <p className="text-sm text-card-foreground">{keyword}</p>
+                                                                            <p className="mt-1 text-[11px] text-muted-foreground">
+                                                                                {[item.search_volume ? `Vol ${item.search_volume}` : null, item.keyword_difficulty ? `KD ${item.keyword_difficulty}` : null, item.cpc ? `CPC ${item.cpc}` : null]
+                                                                                    .filter(Boolean)
+                                                                                    .join(' · ') || String(item.snippet || '')}
+                                                                            </p>
+                                                                        </div>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleUseKeywordForArticle(String(item.keyword || activeSearchRecord.query_text || keyword))}
+                                                                            className="rounded-xl border border-border bg-white/[0.05] px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-foreground transition hover:bg-white/[0.1]"
+                                                                        >
+                                                                            Use Keyword
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            )
+                                                        })
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
