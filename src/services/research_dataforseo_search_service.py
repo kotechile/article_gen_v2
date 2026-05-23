@@ -20,7 +20,7 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
     """Persist and execute user-driven DataForSEO lookups."""
 
     table_name = "research_dataforseo_searches"
-    NON_BLOCKING_SEARCH_TYPES = {"categories_for_domain", "category_index"}
+    NON_BLOCKING_SEARCH_TYPES = {"categories_for_domain", "category_index", "expansion_funnel", "keyword_suggestions"}
 
     def __init__(self, supabase_service: Optional[SupabaseService] = None):
         super().__init__(supabase_service=supabase_service)
