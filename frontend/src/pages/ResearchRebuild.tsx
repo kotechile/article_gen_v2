@@ -1017,7 +1017,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                         />
                                     </div>
 
-                                    <div className="rounded-2xl border border-border bg-card">
+                                    <div className="rounded-2xl border border-border bg-card mt-6">
                                         <button
                                             type="button"
                                             onClick={() => setShowCategoryDescriptions((current) => !current)}
@@ -1073,7 +1073,7 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                     </div>
                                     <div className="flex flex-col gap-3 sm:flex-row">
                                         <Button
-                                            className="flex-1 bg-primary text-primary-foreground hover:bg-indigo-50 h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px]"
+                                            className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 h-12 rounded-2xl font-black uppercase tracking-[0.15em] text-[11px]"
                                             onClick={handleCreateManualJob}
                                             disabled={creatingManualJob || !manualJobText.trim()}
                                         >
