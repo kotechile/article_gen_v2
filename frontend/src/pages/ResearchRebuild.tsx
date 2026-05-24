@@ -76,7 +76,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
     const [runningLookup, setRunningLookup] = React.useState(false)
     const [lookupProgressText, setLookupProgressText] = React.useState<string | null>(null)
     const [savingCandidateKey, setSavingCandidateKey] = React.useState<string | null>(null)
-    const [dataforseoSearches, setDataforseoSearches] = React.useState<ResearchRebuildDataforseoSearch[]>([])
     const [activeSearchRecord, setActiveSearchRecord] = React.useState<ResearchRebuildDataforseoSearch | null>(null)
     const [focusArea, setFocusArea] = React.useState('')
     const [avoidGuidance, setAvoidGuidance] = React.useState('')
@@ -359,7 +358,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
 
     const refreshSearchHistory = React.useCallback(async () => {
         if (!activeProject?.id) {
-            setDataforseoSearches([])
             return
         }
         try {
@@ -368,7 +366,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                 user_job_id: selectedLookupJobId || undefined,
                 limit: 12,
             })
-            setDataforseoSearches(response.items || [])
             setActiveSearchRecord((current) => current || response.items?.[0] || null)
         } catch (err) {
             console.error('Failed to load DataForSEO search history:', err)
@@ -634,7 +631,6 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
         setSelectedLookupJobId(nextSelectedTopicId)
         if (selectedLookupJobId === jobId) {
             setActiveSearchRecord(null)
-            setDataforseoSearches([])
         }
 
         try {
