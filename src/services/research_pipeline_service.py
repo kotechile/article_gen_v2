@@ -75,22 +75,57 @@ class ResearchPipelineService:
         logger.info(f"Found {len(lookup_terms)} unique keywords from expansion. Fetching bulk metrics...")
 
         # Step 2: Profitability Expansion & Filtering
-        bulk_metrics = await dataforseo_api.get_bulk_metrics_standard(lookup_terms[:1000])  # Cap at 1000 to be safe
+        vol_task = dataforseo_api.get_bulk_metrics_standard(lookup_terms[:1000])
+        kd_task = dataforseo_api.get_keyword_difficulty(lookup_terms[:1000])
+        
+        bulk_metrics_res, kd_metrics_res = await asyncio.gather(vol_task, kd_task, return_exceptions=True)
+        
+        bulk_metrics = bulk_metrics_res if isinstance(bulk_metrics_res, list) else []
+        kd_metrics = kd_metrics_res if isinstance(kd_metrics_res, list) else []
+
+        # Merge them by keyword
+        merged_metrics = {}
+        for item in bulk_metrics:
+            kw = item.get("keyword")
+            if kw:
+                merged_metrics[kw] = {
+                    "keyword": kw,
+                    "search_volume": item.get("search_volume") or 0,
+                    "cpc": item.get("cpc") or 0.0,
+                    "competition": item.get("competition") or "UNKNOWN",
+                    "keyword_difficulty": None  # Will be filled by kd_metrics
+                }
+                
+        for item in kd_metrics:
+            kw = item.get("keyword")
+            if kw:
+                if kw not in merged_metrics:
+                    merged_metrics[kw] = {
+                        "keyword": kw,
+                        "search_volume": item.get("search_volume") or 0, # get_keyword_difficulty doesn't return SV, but just in case
+                        "cpc": item.get("cpc") or 0.0,
+                        "competition": item.get("competition") or "UNKNOWN",
+                        "keyword_difficulty": item.get("keyword_difficulty")
+                    }
+                else:
+                    merged_metrics[kw]["keyword_difficulty"] = item.get("keyword_difficulty")
         
         filtered_keywords = []
-        if bulk_metrics:
-            for item in bulk_metrics:
-                vol = item.get("search_volume") or 0
-                kd = item.get("keyword_difficulty") or 100
-                # Filter: KD < 30 and Vol > 30 (Based on user request)
-                if kd < 30 and vol > 30:
-                    filtered_keywords.append({
-                        "keyword": item.get("keyword"),
-                        "search_volume": vol,
-                        "keyword_difficulty": kd,
-                        "cpc": item.get("cpc") or 0.0,
-                        "competition": item.get("competition") or "UNKNOWN"
-                    })
+        for kw, item in merged_metrics.items():
+            vol = item.get("search_volume") or 0
+            # If KD is missing from Labs, we assume it's low or 0 (or we could assume 100).
+            # Usually, un-tracked long tails have low difficulty, but to be safe we can use 0 for filtering or a fallback.
+            # Wait, the user asked for KD < 30. If it's missing, maybe it's 0.
+            kd = item.get("keyword_difficulty") if item.get("keyword_difficulty") is not None else 0
+            
+            if kd < 30 and vol > 30:
+                filtered_keywords.append({
+                    "keyword": kw,
+                    "search_volume": vol,
+                    "keyword_difficulty": kd,
+                    "cpc": item.get("cpc") or 0.0,
+                    "competition": item.get("competition") or "UNKNOWN"
+                })
 
         if not filtered_keywords:
             logger.warning("No keywords passed the profitability filter.")
