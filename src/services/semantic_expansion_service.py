@@ -869,8 +869,10 @@ class SemanticExpansionService:
                 # Enrich cluster object
                 cluster['cluster_title'] = title
                 # CRITICAL: Store objects in BOTH keys for compatibility
-                cluster['keywords'] = matched_kw_objects if matched_kw_objects else raw_kws 
-                cluster['seed_keywords'] = matched_kw_objects if matched_kw_objects else raw_kws
+                if not matched_kw_objects and raw_kws:
+                    matched_kw_objects = [{"keyword": kw, "search_volume": 0, "keyword_difficulty": 0} for kw in raw_kws]
+                cluster['keywords'] = matched_kw_objects
+                cluster['seed_keywords'] = matched_kw_objects
                 if matched_kw_objects:
                     cluster['primary_keyword'] = self._sanitize_keyword_text(matched_kw_objects[0].get('keyword'))
                 else:
@@ -926,12 +928,11 @@ class SemanticExpansionService:
 
             if not enriched_clusters:
                 logger.warning("No valid clusters formed after enrichment.")
-                # Fallback
                 if keywords:
                      return [{
-                         "cluster_title": "General Ideas",
+                         "cluster_title": "General Ideas (No LLM Clusters)",
                          "primary_keyword": keywords[0]['keyword'],
-                         "keywords": [k['keyword'] for k in keywords[:15]],
+                         "keywords": keywords[:15],
                          "search_volume": sum(k.get('search_volume', 0) for k in keywords[:15]),
                          "cpc": 0.5,
                          "keyword_difficulty": 50,
@@ -949,10 +950,11 @@ class SemanticExpansionService:
             logger.error(f"Error clustering keywords: {e}")
             # Fallback to single cluster
             if keywords:
+                error_msg = str(e).replace('"', "'")
                 return [{
-                     "cluster_title": "General Ideas",
+                     "cluster_title": f"General Ideas (Err: {error_msg[:30]})",
                      "primary_keyword": keywords[0]['keyword'],
-                     "keywords": [k['keyword'] for k in keywords[:15]],
+                     "keywords": keywords[:15],
                      "search_volume": sum(k.get('search_volume', 0) for k in keywords[:15]),
                      "cpc": 0.0,
                      "keyword_difficulty": 50,
