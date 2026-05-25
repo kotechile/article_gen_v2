@@ -452,7 +452,7 @@ class DataForSEOAPI:
                                     # Finished!
                                     completed_results.append(task_res)
                                     pending_ids.remove(tid)
-                                elif status in ["In Queue", "Task In Queue", "Active", "Running"]:
+                                elif status in ["In Queue", "Task In Queue", "In Queue.", "Task In Queue.", "Active", "Running"]:
                                     # Still waiting
                                     continue
                                 else:
@@ -794,7 +794,7 @@ class DataForSEOAPI:
                                 if status == "Ok.":
                                     completed_results.append(t_res)
                                     pending_ids.remove(tid)
-                                elif status in ["In Queue", "Task In Queue", "Active", "Running"]:
+                                elif status in ["In Queue", "Task In Queue", "In Queue.", "Task In Queue.", "Active", "Running"]:
                                     continue
                                 else:
                                     logger.warning(f"Task {tid} status: {status}")
@@ -1402,7 +1402,7 @@ class DataForSEOAPI:
                                                 "date": item.get("date_published") # sometimes available
                                             })
                             return results
-                        elif status in ["In Queue", "Task In Queue", "Active", "Running"]:
+                        elif status in ["In Queue", "Task In Queue", "In Queue.", "Task In Queue.", "Active", "Running"]:
                             continue
                         else:
                              logger.warning(f"SERP Task {task_id} failed: {status}")
@@ -1471,7 +1471,7 @@ class DataForSEOAPI:
                     if status == "Ok.":
                         final_response = data
                         break
-                    if status in ["In Queue", "Task In Queue", "Active", "Running"]:
+                    if status in ["In Queue", "Task In Queue", "In Queue.", "Task In Queue.", "Active", "Running"]:
                         continue
                     raise ValueError(f"Standard regular SERP task failed with status: {status}")
 
@@ -1619,7 +1619,7 @@ class DataForSEOAPI:
                         
                         if status == "Ok.":
                              return self._process_news_results(data)
-                        elif status in ["In Queue", "Task In Queue", "Active", "Running"]:
+                        elif status in ["In Queue", "Task In Queue", "In Queue.", "Task In Queue.", "Active", "Running"]:
                             continue
                         else:
                             logger.warning(f"News Task {task_id} failed with status: {status}")
@@ -1703,7 +1703,7 @@ class DataForSEOAPI:
                         
                         if status == "Ok.":
                             return self._process_keyword_ideas(data)
-                        elif status in ["In Queue", "Task In Queue", "Active", "Running"]:
+                        elif status in ["In Queue", "Task In Queue", "In Queue.", "Task In Queue.", "Active", "Running"]:
                             continue
                         else:
                              return []
@@ -1926,7 +1926,7 @@ class DataForSEOAPI:
         
         if "tasks" in data and data["tasks"]:
             task = data["tasks"][0]
-            if task.get("result"):
+            if isinstance(task, dict) and task.get("result"):
                 result = task["result"][0]
                 
                 # Process organic results
