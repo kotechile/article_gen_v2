@@ -4,7 +4,7 @@ from src.services.research_pipeline_service import research_pipeline_service
 
 logger = logging.getLogger(__name__)
 
-research_pipeline_bp = Blueprint('research_pipeline', __name__, url_prefix='/api/v1/research-pipeline')
+research_pipeline_bp = Blueprint('research_pipeline', __name__, url_prefix='/api/research-pipeline')
 
 @research_pipeline_bp.route('', methods=['POST'])
 async def run_pipeline():
