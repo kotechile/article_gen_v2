@@ -75,7 +75,7 @@ export function ResearchPipeline() {
                             placeholder="e.g. hidden costs of owning a home"
                             value={queryText}
                             onChange={(e) => setQueryText(e.target.value)}
-                            className="flex-1 bg-black/50 border-white/10 text-lg py-6"
+                            className="flex-1 bg-muted/30 dark:bg-black/50 border-border text-foreground text-lg py-6"
                             onKeyDown={(e) => e.key === 'Enter' && handleExtract()}
                         />
                         <Button 
@@ -108,11 +108,11 @@ export function ResearchPipeline() {
                         </Button>
                     </div>
 
-                    <div className="bg-black/40 border border-white/10 rounded-2xl overflow-hidden">
+                    <div className="bg-muted/20 dark:bg-black/40 border border-border rounded-2xl overflow-hidden">
                         <div className="overflow-x-auto">
                             <table className="w-full text-left text-sm">
                                 <thead>
-                                    <tr className="border-b border-white/10 bg-white/5">
+                                    <tr className="border-b border-border bg-muted/30 dark:bg-white/5">
                                         <th className="p-4 font-black uppercase tracking-widest text-xs text-muted-foreground">Keyword</th>
                                         <th className="p-4 font-black uppercase tracking-widest text-xs text-muted-foreground text-right">Volume</th>
                                         <th className="p-4 font-black uppercase tracking-widest text-xs text-muted-foreground text-right">KD</th>
@@ -133,10 +133,10 @@ export function ResearchPipeline() {
                                             }))
 
                                         return (
-                                            <tr key={idx} className="border-b border-white/5 hover:bg-white/5">
-                                                <td className="p-4 font-medium text-white">{kw.keyword}</td>
-                                                <td className="p-4 text-right text-emerald-400 font-bold">{kw.search_volume?.toLocaleString()}</td>
-                                                <td className="p-4 text-right text-amber-400 font-bold">{kw.keyword_difficulty}</td>
+                                            <tr key={idx} className="border-b border-border hover:bg-muted/30 dark:hover:bg-white/5">
+                                                <td className="p-4 font-medium text-foreground">{kw.keyword}</td>
+                                                <td className="p-4 text-right text-emerald-600 dark:text-emerald-400 font-bold">{kw.search_volume?.toLocaleString()}</td>
+                                                <td className="p-4 text-right text-amber-600 dark:text-amber-400 font-bold">{kw.keyword_difficulty}</td>
                                                 <td className="p-4 text-right">${kw.cpc?.toFixed(2) || '0.00'}</td>
                                                 <td className="p-4">
                                                     <Badge variant="outline" className="text-[10px] uppercase border-indigo-500/30 text-indigo-400">
@@ -181,7 +181,7 @@ export function ResearchPipeline() {
                             const maxKd = clusterKws.reduce((acc: number, kw: any) => Math.max(acc, kw.keyword_difficulty || 0), 0)
                             
                             return (
-                                <div key={idx} className="bg-black/40 border border-white/10 rounded-2xl p-6 flex flex-col hover:border-indigo-500/50 transition-colors">
+                                <div key={idx} className="bg-muted/20 dark:bg-black/40 border border-border rounded-2xl p-6 flex flex-col hover:border-indigo-500/50 transition-colors">
                                     <div className="flex justify-between items-start mb-4">
                                         <h4 className="text-lg font-black leading-tight flex-1 pr-4">{title}</h4>
                                         <Badge variant="outline" className="text-[10px] uppercase tracking-widest border-indigo-500/30 text-indigo-400 whitespace-nowrap">
@@ -192,11 +192,11 @@ export function ResearchPipeline() {
                                     <div className="flex gap-6 mb-6">
                                         <div>
                                             <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Total Vol</div>
-                                            <div className="font-black text-emerald-400">{totalVol.toLocaleString()}</div>
+                                            <div className="font-black text-emerald-600 dark:text-emerald-400">{totalVol.toLocaleString()}</div>
                                         </div>
                                         <div>
                                             <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Max KD</div>
-                                            <div className="font-black text-amber-400">{maxKd}</div>
+                                            <div className="font-black text-amber-600 dark:text-amber-400">{maxKd}</div>
                                         </div>
                                         <div>
                                             <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Keywords</div>
@@ -208,20 +208,20 @@ export function ResearchPipeline() {
                                         <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Profitable Keywords</div>
                                         <div className="flex flex-wrap gap-2">
                                             {clusterKws.slice(0, 5).map((kw: any, i: number) => (
-                                                <Badge key={i} variant="secondary" className="bg-white/5 hover:bg-white/10 border-white/5 font-medium text-xs">
-                                                    {kw.keyword} <span className="text-emerald-400/70 ml-1 text-[10px]">{kw.search_volume}v</span>
+                                                <Badge key={i} variant="secondary" className="bg-muted/50 hover:bg-muted dark:bg-white/5 dark:hover:bg-white/10 border-border font-medium text-xs text-foreground">
+                                                    {kw.keyword} <span className="text-emerald-600/70 dark:text-emerald-400/70 ml-1 text-[10px]">{kw.search_volume}v</span>
                                                 </Badge>
                                             ))}
                                             {clusterKws.length > 5 && (
-                                                <Badge variant="secondary" className="bg-white/5 border-white/5 font-medium text-xs opacity-50">
+                                                <Badge variant="secondary" className="bg-muted/50 dark:bg-white/5 border-border font-medium text-xs opacity-50 text-foreground">
                                                     +{clusterKws.length - 5} more
                                                 </Badge>
                                             )}
                                         </div>
                                     </div>
 
-                                    <div className="mt-6 pt-6 border-t border-white/5">
-                                        <Button className="w-full bg-white/5 hover:bg-indigo-500 hover:text-white transition-colors text-foreground font-bold">
+                                    <div className="mt-6 pt-6 border-t border-border">
+                                        <Button className="w-full bg-muted/50 dark:bg-white/5 hover:bg-indigo-500 hover:text-white transition-colors text-foreground font-bold">
                                             <Target className="w-4 h-4 mr-2" />
                                             Select for Article
                                         </Button>
