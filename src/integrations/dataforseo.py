@@ -2008,6 +2008,9 @@ class DataForSEOAPI:
                 # Process organic results
                 if "items" in result:
                     for item in result["items"]:
+                        if not isinstance(item, dict):
+                            continue
+                        
                         if item.get("type") == "organic":
                             analysis["organic_results"].append({
                                 "position": item.get("rank_group", 0),
@@ -2029,17 +2032,19 @@ class DataForSEOAPI:
                         elif item.get("type") == "related_searches":
                             if "items" in item:
                                 for related_item in item["items"]:
-                                    analysis["related_searches"].append({
-                                        "keyword": related_item.get("keyword", ""),
-                                        "search_volume": related_item.get("search_volume", 0)
-                                    })
+                                    if isinstance(related_item, dict):
+                                        analysis["related_searches"].append({
+                                            "keyword": related_item.get("keyword", ""),
+                                            "search_volume": related_item.get("search_volume", 0)
+                                        })
                         elif item.get("type") == "people_also_ask":
                             if "items" in item:
                                 for paa_item in item["items"]:
-                                    analysis["people_also_ask"].append({
-                                        "question": paa_item.get("question", ""),
-                                        "answer": paa_item.get("answer", "")
-                                    })
+                                    if isinstance(paa_item, dict):
+                                        analysis["people_also_ask"].append({
+                                            "question": paa_item.get("question", ""),
+                                            "answer": paa_item.get("answer", "")
+                                        })
                 
                 # Calculate summary statistics
                 organic_results = analysis["organic_results"]

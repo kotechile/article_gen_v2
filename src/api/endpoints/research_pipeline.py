@@ -30,8 +30,10 @@ def extract_pipeline():
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"Error running extraction pipeline: {str(e)}", exc_info=True)
-        return jsonify({'error': 'internal_error', 'message': str(e)}), 500
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"Error running extraction pipeline: {str(e)}\n{tb}", exc_info=True)
+        return jsonify({'error': 'internal_error', 'message': f"{str(e)}\n{tb}"}), 500
 
 @research_pipeline_bp.route('/cluster', methods=['POST'])
 def cluster_pipeline():

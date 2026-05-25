@@ -72,16 +72,22 @@ class ResearchPipelineService:
         
         db_payload = []
         for row in filtered_keywords:
+            comp_level = row.get("competition_level")
+            if isinstance(comp_level, str) and not comp_level.replace('.', '').isdigit():
+                comp_index = 0
+            else:
+                comp_index = int(float(comp_level or 0))
+                
             db_payload.append({
                 "research_run_id": run_id,
                 "topic_id": topic_id,
                 "user_id": user_id,
                 "keyword": row.get("keyword"),
-                "search_volume": int(row.get("search_volume", 0)),
+                "search_volume": int(row.get("search_volume") or 0),
                 "cpc": float(row.get("cpc") or 0),
                 "competition": row.get("competition"),
-                "competition_index": int(row.get("competition_level", 0)),
-                "keyword_difficulty": float(row.get("keyword_difficulty", 0)),
+                "competition_index": comp_index,
+                "keyword_difficulty": float(row.get("keyword_difficulty") or 0),
                 "intent_label": row.get("intent")
             })
 
