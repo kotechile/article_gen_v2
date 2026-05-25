@@ -13,6 +13,7 @@ import { KnowledgeGaps } from './pages/KnowledgeGaps';
 import { ArticleEditor } from './pages/ArticleEditor';
 import { Research } from './pages/Research';
 import { ResearchRebuildJobsPage, ResearchRebuildOpportunitiesPage } from './pages/ResearchRebuild';
+import { ResearchPipeline } from './pages/ResearchPipeline';
 import { TopicDetail } from './pages/TopicDetail';
 import { Settings } from './pages/Settings';
 import { SoftwareIdeas } from './pages/SoftwareIdeas';
@@ -31,6 +32,7 @@ function App() {
               <Route path="/research-rebuild" element={<ResearchRebuildRedirect />} />
               <Route path="/research-rebuild/jobs" element={<ResearchRebuildJobsPage />} />
               <Route path="/research-rebuild/opportunities" element={<ResearchRebuildOpportunitiesPage />} />
+              <Route path="/research-pipeline" element={<ResearchPipeline />} />
               <Route path="/my-articles" element={<MyArticles />} />
               <Route path="/software-ideas" element={<SoftwareIdeas />} />
               <Route path="/knowledge-gaps" element={<KnowledgeGaps />} />

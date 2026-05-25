@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Settings, ChevronLeft, ChevronRight, LogOut, BookOpen, Menu, Wrench, FlaskConical } from "lucide-react"
+import { Settings, ChevronLeft, ChevronRight, LogOut, BookOpen, Menu, Wrench, FlaskConical, Rocket } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -97,9 +97,16 @@ export function Sidebar({ className }: SidebarProps) {
                             <NavItem
                                 href="/"
                                 icon={<FlaskConical className="h-5 w-5" />}
-                                label="Research"
+                                label="Research Tools"
                                 isCollapsed={isCollapsed}
                                 active={pathname === "/" || pathname?.startsWith("/research-rebuild")}
+                            />
+                            <NavItem
+                                href="/research-pipeline"
+                                icon={<Rocket className="h-5 w-5" />}
+                                label="Full Pipeline"
+                                isCollapsed={isCollapsed}
+                                active={pathname?.startsWith("/research-pipeline")}
                             />
                             <NavItem
                                 href="/my-articles"

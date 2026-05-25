@@ -22,13 +22,13 @@ The Research workflow should optimize for solving real user problems, not just g
 
 ### End-to-End Research Process
 
-1. Start with website context.
-2. Build category-specific user jobs.
-3. Split candidates into SEO, editorial, and software-first paths.
-4. Validate SEO and software candidates using keyword data and live SERP evidence.
-5. Cluster validated opportunities.
-6. Generate ideas only from validated opportunities.
-7. Attach final keyword packs before ideas reach Content Studio.
+The research pipeline should orchestrate a single, streamlined workflow that starts from a seed keyword and results in clustered, actionable article ideas. The steps are:
+
+1. **Seed Expansion**: From a seed topic, extract "People Also Ask" (PAA), Google Autocomplete predictions (Keyword Suggestions), and semantic "Related Searches" from real SERP and DataForSEO Labs data.
+2. **Profitability Expansion & Filtering**: Fetch accurate bulk metrics (Keyword Difficulty and Search Volume) for all expanded terms. Filter out non-viable candidates (e.g., `KD < 30` and `Volume > 30`).
+3. **Semantic Clustering**: Pass the surviving profitable keywords to the LLM to group them into distinct micro-niches or "Subtopics".
+4. **Presentation**: Display the resulting clusters in the UI as interactive Cluster Cards, complete with aggregate metrics (Total Volume, Max KD) and a defined user outcome.
+5. **Selection & Ideation**: From these cluster cards, select primary and secondary keywords to send to the Content Studio for article generation.
 
 ### Step 1: Website Context
 

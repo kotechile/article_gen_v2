@@ -65,6 +65,7 @@ def create_app(config_name: str = None) -> Flask:
     from .endpoints.research_topics import research_topics_bp
     from .endpoints.content_ideas import content_ideas_bp
     from .endpoints.research_rebuild import research_rebuild_bp
+    from .endpoints.research_pipeline import research_pipeline_bp
     from .endpoints.ai import ai_bp
     from .wordpress import wordpress_bp
     from .trends import trends_bp
@@ -77,6 +78,7 @@ def create_app(config_name: str = None) -> Flask:
     app.register_blueprint(research_topics_bp)
     app.register_blueprint(content_ideas_bp)
     app.register_blueprint(research_rebuild_bp)
+    app.register_blueprint(research_pipeline_bp)
     app.register_blueprint(wordpress_bp)
     app.register_blueprint(ai_bp)
     app.register_blueprint(trends_bp)

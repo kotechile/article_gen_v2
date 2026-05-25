@@ -1172,7 +1172,14 @@ export function ResearchRebuild({ mode = 'jobs' }: ResearchRebuildProps) {
                                                                     className="cursor-pointer bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 px-3 py-1 text-xs border border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)] transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.2)]"
                                                                 >
                                                                     <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-                                                                    Contains {activeSearchPreviewItems.length} Easy-Wins
+                                                                    {(() => {
+                                                                        const easyWinsCount = activeSearchPreviewItems.filter(item => {
+                                                                            const kd = (item as any).keyword_difficulty ?? 100;
+                                                                            const sv = (item as any).search_volume ?? 0;
+                                                                            return kd < 30 && sv > 20;
+                                                                        }).length;
+                                                                        return easyWinsCount > 0 ? `Contains ${easyWinsCount} Easy-Wins` : 'No Easy Wins Found';
+                                                                    })()}
                                                                 </Badge>
                                                                 <Badge 
                                                                     onClick={() => setShowAllMetricsModal(true)} 

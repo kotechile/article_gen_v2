@@ -338,12 +338,11 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
             suggestions_items = (suggestions_raw or {}).get("items") or []
             
             # Auto-Deduplication & Trash Collection
-            seen_keywords = set()
-            combined_items = []
+            merged_items_map = {}
             
             for item in related_items + suggestions_items:
                 kw = str(item.get("keyword") or "").strip().lower()
-                if not kw or kw in seen_keywords:
+                if not kw:
                     continue
                 
                 kd = item.get("keyword_difficulty")
@@ -352,8 +351,17 @@ class ResearchDataforseoSearchService(ResearchRebuildBaseService):
                 # Relaxed trash collection to allow an explosion of long-tail keywords
                 # even if they don't have volume data or have slightly higher KD
                 if kd is None or kd <= 60:
-                    seen_keywords.add(kw)
-                    combined_items.append(item)
+                    existing = merged_items_map.get(kw)
+                    if existing:
+                        # Prefer the item with metrics
+                        old_kd = existing.get("keyword_difficulty")
+                        old_sv = existing.get("search_volume")
+                        if (old_kd is None and old_sv is None) and (kd is not None or sv is not None):
+                            merged_items_map[kw] = item
+                    else:
+                        merged_items_map[kw] = item
+
+            combined_items = list(merged_items_map.values())
                         
             # Sort by search volume descending
             combined_items.sort(key=lambda x: x.get("search_volume") or 0, reverse=True)
