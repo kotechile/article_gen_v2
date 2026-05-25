@@ -87,10 +87,10 @@ class ResearchPipelineService:
 
         # Batch insert using SupabaseService
         try:
-            # Chunking
+            client = supabase_service.get_client()
             for i in range(0, len(db_payload), 100):
                 chunk = db_payload[i:i+100]
-                await supabase_service.get_client().table("topic_keyword_candidates").insert(chunk).execute()
+                client.table("topic_keyword_candidates").insert(chunk).execute()
         except Exception as e:
             logger.warning(f"Failed to persist keywords to Supabase: {e}", exc_info=True)
 
