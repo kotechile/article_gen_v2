@@ -1,149 +1,140 @@
 import logging
 import asyncio
+import uuid
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 
 from src.integrations.dataforseo import dataforseo_api
 from src.services.semantic_expansion_service import semantic_expansion_service
+from src.services.supabase_service import supabase_service
 
 logger = logging.getLogger(__name__)
 
 class ResearchPipelineService:
+    async def extract_and_persist(
+        self,
+        seed_keyword: str,
+        user_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Step 1: Extract keywords using SERP and Keyword Ideas, filter, and persist.
+        Returns the validated keywords and a generated run_id.
+        """
+        logger.info(f"Extracting keyword ideas for seed: {seed_keyword}")
+
+        # 1. SERP Expansion for additional seeds
+        serp_res = await dataforseo_api.get_serp_analysis(seed_keyword)
+        
+        seed_list = {seed_keyword.strip().lower()}
+        if isinstance(serp_res, dict):
+            for paa in serp_res.get("people_also_ask", []):
+                if q := paa.get("question"): seed_list.add(str(q).strip().lower())
+            for rs in serp_res.get("related_searches", []):
+                if k := rs.get("keyword"): seed_list.add(str(k).strip().lower())
+
+        # 2. Keyword Ideas (DataForSEO Labs)
+        # Cap at 200 seeds to avoid payload limits
+        seeds_to_expand = list(seed_list)[:200]
+        
+        ideas = await dataforseo_api.get_keyword_ideas_labs_live(
+            keywords=seeds_to_expand,
+            limit=50, # Limit per seed
+            include_serp_info=False
+        )
+
+        filtered_keywords = []
+        seen = set()
+        
+        for item in ideas:
+            kw = item.get("keyword")
+            if not kw or kw in seen:
+                continue
+            
+            seen.add(kw)
+            
+            vol = item.get("search_volume") or 0
+            kd = item.get("keyword_difficulty") if item.get("keyword_difficulty") is not None else 0
+            
+            # Filter: KD < 30 and Vol > 30
+            if kd < 30 and vol > 30:
+                filtered_keywords.append(item)
+
+        # Sort by volume desc
+        filtered_keywords.sort(key=lambda x: x.get("search_volume", 0), reverse=True)
+
+        if not filtered_keywords:
+            logger.warning("No keywords passed the profitability filter.")
+            return {"run_id": None, "keywords": []}
+
+        # 3. Persist to Supabase
+        run_id = str(uuid.uuid4())
+        topic_id = str(uuid.uuid4()) # Dummy topic_id just for DB constraints if needed
+        
+        db_payload = []
+        for row in filtered_keywords:
+            db_payload.append({
+                "research_run_id": run_id,
+                "topic_id": topic_id,
+                "user_id": user_id,
+                "keyword": row.get("keyword"),
+                "search_volume": int(row.get("search_volume", 0)),
+                "cpc": float(row.get("cpc") or 0),
+                "competition": row.get("competition"),
+                "competition_index": int(row.get("competition_level", 0)),
+                "keyword_difficulty": float(row.get("keyword_difficulty", 0)),
+                "intent_label": row.get("intent")
+            })
+
+        # Batch insert using SupabaseService
+        try:
+            # Chunking
+            for i in range(0, len(db_payload), 100):
+                chunk = db_payload[i:i+100]
+                await supabase_service.get_client().table("topic_keyword_candidates").insert(chunk).execute()
+        except Exception as e:
+            logger.warning(f"Failed to persist keywords to Supabase: {e}", exc_info=True)
+
+        logger.info(f"Extracted and persisted {len(filtered_keywords)} keywords for run {run_id}.")
+        return {
+            "run_id": run_id,
+            "keywords": filtered_keywords
+        }
+
+    async def cluster_detailed_keywords(self, keywords: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Step 2: Cluster the rich detailed keywords.
+        """
+        logger.info(f"Clustering {len(keywords)} profitable keywords...")
+        
+        # Sort by volume and keep top 75 for LLM clustering
+        keywords.sort(key=lambda x: x.get("search_volume", 0), reverse=True)
+        top_keywords = keywords[:75]
+        
+        # We need to map it to the structure SemanticExpansionService expects
+        cluster_input = []
+        for k in top_keywords:
+            cluster_input.append({
+                "keyword": k.get("keyword"),
+                "search_volume": k.get("search_volume"),
+                "keyword_difficulty": k.get("keyword_difficulty"),
+                "cpc": k.get("cpc"),
+                "competition": k.get("competition")
+            })
+            
+        clusters = await semantic_expansion_service.cluster_keywords(cluster_input)
+        
+        logger.info(f"Pipeline complete. Generated {len(clusters)} clusters.")
+        return clusters
+
+    # Keeping old run_pipeline for backwards compatibility just in case
     async def run_pipeline(
         self,
         seed_keyword: str,
         user_id: str,
     ) -> List[Dict[str, Any]]:
-        logger.info(f"Starting End-to-End Research Pipeline for: {seed_keyword}")
-
-        # Step 1: Seed Expansion (Wide Net)
-        # We fire off SERP, Autocomplete, and Related Searches simultaneously.
-        serp_task = dataforseo_api.get_serp_analysis(seed_keyword)
-        # We use limit_per_seed=25 to mimic the current limits, but we can expand if needed.
-        suggestions_task = dataforseo_api.get_keyword_suggestions_labs_live(
-            [seed_keyword],
-            limit_per_seed=50,
-            return_raw=True
-        )
-        related_task = dataforseo_api.get_related_keywords_labs_live(
-            [seed_keyword],
-            limit_per_seed=50,
-            return_raw=True
-        )
-
-        serp_res, suggestions_res, related_res = await asyncio.gather(
-            serp_task, suggestions_task, related_task, return_exceptions=True
-        )
-
-        raw_keywords = set()
-
-        # Extract PAA and Related Searches from SERP
-        if isinstance(serp_res, dict):
-            for paa in serp_res.get("people_also_ask", []):
-                q = paa.get("question")
-                if q:
-                    raw_keywords.add(str(q).strip().lower())
-            for rs in serp_res.get("related_searches", []):
-                k = rs.get("keyword")
-                if k:
-                    raw_keywords.add(str(k).strip().lower())
-
-        # Extract Autocomplete
-        if isinstance(suggestions_res, dict):
-            items = suggestions_res.get("items", [])
-            for item in items:
-                k = item.get("keyword")
-                if k:
-                    raw_keywords.add(str(k).strip().lower())
-
-        # Extract Related Keywords
-        if isinstance(related_res, dict):
-            items = related_res.get("items", [])
-            for item in items:
-                k = item.get("keyword")
-                if k:
-                    raw_keywords.add(str(k).strip().lower())
-                    
-        # Include the seed itself
-        raw_keywords.add(seed_keyword.strip().lower())
-
-        if not raw_keywords:
-            logger.warning("No keywords found from any expansion source.")
+        res = await self.extract_and_persist(seed_keyword, user_id)
+        if not res["keywords"]:
             return []
-
-        # Convert to list for Bulk Metrics
-        lookup_terms = list(raw_keywords)
-        logger.info(f"Found {len(lookup_terms)} unique keywords from expansion. Fetching bulk metrics...")
-
-        # Step 2: Profitability Expansion & Filtering
-        vol_task = dataforseo_api.get_bulk_metrics_standard(lookup_terms[:1000])
-        kd_task = dataforseo_api.get_keyword_difficulty(lookup_terms[:1000])
-        
-        bulk_metrics_res, kd_metrics_res = await asyncio.gather(vol_task, kd_task, return_exceptions=True)
-        
-        bulk_metrics = bulk_metrics_res if isinstance(bulk_metrics_res, list) else []
-        kd_metrics = kd_metrics_res if isinstance(kd_metrics_res, list) else []
-
-        # Merge them by keyword
-        merged_metrics = {}
-        for item in bulk_metrics:
-            kw = item.get("keyword")
-            if kw:
-                merged_metrics[kw] = {
-                    "keyword": kw,
-                    "search_volume": item.get("search_volume") or 0,
-                    "cpc": item.get("cpc") or 0.0,
-                    "competition": item.get("competition") or "UNKNOWN",
-                    "keyword_difficulty": None  # Will be filled by kd_metrics
-                }
-                
-        for item in kd_metrics:
-            kw = item.get("keyword")
-            if kw:
-                if kw not in merged_metrics:
-                    merged_metrics[kw] = {
-                        "keyword": kw,
-                        "search_volume": item.get("search_volume") or 0, # get_keyword_difficulty doesn't return SV, but just in case
-                        "cpc": item.get("cpc") or 0.0,
-                        "competition": item.get("competition") or "UNKNOWN",
-                        "keyword_difficulty": item.get("keyword_difficulty")
-                    }
-                else:
-                    merged_metrics[kw]["keyword_difficulty"] = item.get("keyword_difficulty")
-        
-        filtered_keywords = []
-        for kw, item in merged_metrics.items():
-            vol = item.get("search_volume") or 0
-            # If KD is missing from Labs, we assume it's low or 0 (or we could assume 100).
-            # Usually, un-tracked long tails have low difficulty, but to be safe we can use 0 for filtering or a fallback.
-            # Wait, the user asked for KD < 30. If it's missing, maybe it's 0.
-            kd = item.get("keyword_difficulty") if item.get("keyword_difficulty") is not None else 0
-            
-            if kd < 30 and vol > 30:
-                filtered_keywords.append({
-                    "keyword": kw,
-                    "search_volume": vol,
-                    "keyword_difficulty": kd,
-                    "cpc": item.get("cpc") or 0.0,
-                    "competition": item.get("competition") or "UNKNOWN"
-                })
-
-        if not filtered_keywords:
-            logger.warning("No keywords passed the profitability filter.")
-            return []
-
-        # Step 3: Semantic Clustering
-        # We use the existing SemanticExpansionService to group these keywords
-        logger.info(f"Clustering {len(filtered_keywords)} profitable keywords...")
-        
-        # Sort by volume and keep top 75 for LLM clustering
-        filtered_keywords.sort(key=lambda x: x.get("search_volume", 0), reverse=True)
-        top_keywords = filtered_keywords[:75]
-        
-        clusters = await semantic_expansion_service.cluster_keywords(top_keywords)
-        
-        # We skip verification for now as the user just wants the cluster cards
-        
-        logger.info(f"Pipeline complete. Generated {len(clusters)} clusters.")
-        return clusters
+        return await self.cluster_detailed_keywords(res["keywords"])
 
 research_pipeline_service = ResearchPipelineService()

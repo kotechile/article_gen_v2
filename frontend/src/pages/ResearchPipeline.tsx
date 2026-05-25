@@ -1,76 +1,184 @@
 import * as React from 'react'
-import { Rocket, Loader2, Target } from 'lucide-react'
+import { Rocket, Loader2, Target, ArrowRight, Table as TableIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { researchPipelineService } from '@/services/research-pipeline.service'
+import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts'
 
 export function ResearchPipeline() {
     const [queryText, setQueryText] = React.useState('')
     const [loading, setLoading] = React.useState(false)
+    const [step, setStep] = React.useState<1 | 2 | 3>(1)
+    
+    const [keywords, setKeywords] = React.useState<any[]>([])
     const [clusters, setClusters] = React.useState<any[]>([])
     const [error, setError] = React.useState<string | null>(null)
 
-    const handleRunPipeline = async () => {
+    const handleExtract = async () => {
         if (!queryText) return
         setLoading(true)
         setError(null)
         try {
-            const data = await researchPipelineService.runPipeline(queryText)
-            setClusters(data)
+            const data = await researchPipelineService.extractKeywords(queryText)
+            setKeywords(data.keywords || [])
+            setStep(2)
         } catch (err: any) {
-            setError(err.message || 'An error occurred while running the pipeline.')
+            setError(err.message || 'An error occurred during extraction.')
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    const handleCluster = async () => {
+        if (keywords.length === 0) return
+        setLoading(true)
+        setError(null)
+        try {
+            const data = await researchPipelineService.clusterKeywords(keywords)
+            setClusters(data || [])
+            setStep(3)
+        } catch (err: any) {
+            setError(err.message || 'An error occurred during clustering.')
         } finally {
             setLoading(false)
         }
     }
 
     return (
-        <div className="flex flex-col h-full bg-background overflow-y-auto p-8 max-w-7xl mx-auto w-full">
-            <div className="mb-8 space-y-2">
-                <h1 className="text-3xl font-black tracking-tight flex items-center gap-3">
-                    <Rocket className="h-8 w-8 text-indigo-500" />
-                    End-to-End Research Pipeline
-                </h1>
-                <p className="text-muted-foreground">
-                    Discover highly-profitable keywords through SERP and autocomplete expansion, automatically clustered into actionable topics.
-                </p>
-            </div>
-
-            <div className="bg-white/5 border border-border rounded-3xl p-8 mb-8">
-                <h3 className="text-sm font-black uppercase tracking-widest text-foreground mb-4">Seed Topic</h3>
-                <div className="flex gap-4">
-                    <Input
-                        placeholder="e.g. espresso machines"
-                        value={queryText}
-                        onChange={(e) => setQueryText(e.target.value)}
-                        className="flex-1 bg-black/50 border-white/10 text-lg py-6"
-                        onKeyDown={(e) => e.key === 'Enter' && handleRunPipeline()}
-                    />
-                    <Button 
-                        onClick={handleRunPipeline}
-                        disabled={loading || !queryText}
-                        className="h-auto px-8 bg-indigo-500 hover:bg-indigo-600 text-white font-black"
-                    >
-                        {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Rocket className="w-5 h-5 mr-2" />}
-                        Run Full Pipeline
-                    </Button>
+        <div className="flex flex-col h-full bg-background overflow-y-auto p-8 max-w-[1400px] mx-auto w-full">
+            <div className="mb-8 space-y-2 flex justify-between items-end">
+                <div>
+                    <h1 className="text-3xl font-black tracking-tight flex items-center gap-3">
+                        <Rocket className="h-8 w-8 text-indigo-500" />
+                        End-to-End Research Pipeline
+                    </h1>
+                    <p className="text-muted-foreground mt-2">
+                        Discover highly-profitable keywords, analyze metrics, and cluster them into actionable topics.
+                    </p>
                 </div>
-                {error && <div className="mt-4 text-red-400 text-sm">{error}</div>}
+                
+                <div className="flex gap-2">
+                    <Badge variant={step >= 1 ? "default" : "outline"} className={step >= 1 ? "bg-indigo-500" : ""}>1. Seed</Badge>
+                    <ArrowRight className="w-4 h-4 text-muted-foreground self-center" />
+                    <Badge variant={step >= 2 ? "default" : "outline"} className={step >= 2 ? "bg-indigo-500" : ""}>2. Validate</Badge>
+                    <ArrowRight className="w-4 h-4 text-muted-foreground self-center" />
+                    <Badge variant={step >= 3 ? "default" : "outline"} className={step >= 3 ? "bg-indigo-500" : ""}>3. Cluster</Badge>
+                </div>
             </div>
 
-            {clusters.length > 0 && (
+            {step === 1 && (
+                <div className="bg-white/5 border border-border rounded-3xl p-8 mb-8">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-foreground mb-4">Seed Topic</h3>
+                    <div className="flex gap-4">
+                        <Input
+                            placeholder="e.g. hidden costs of owning a home"
+                            value={queryText}
+                            onChange={(e) => setQueryText(e.target.value)}
+                            className="flex-1 bg-black/50 border-white/10 text-lg py-6"
+                            onKeyDown={(e) => e.key === 'Enter' && handleExtract()}
+                        />
+                        <Button 
+                            onClick={handleExtract}
+                            disabled={loading || !queryText}
+                            className="h-auto px-8 bg-indigo-500 hover:bg-indigo-600 text-white font-black"
+                        >
+                            {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Rocket className="w-5 h-5 mr-2" />}
+                            Extract Keywords
+                        </Button>
+                    </div>
+                    {error && <div className="mt-4 text-red-400 text-sm">{error}</div>}
+                </div>
+            )}
+
+            {step === 2 && (
                 <div className="space-y-6">
-                    <h3 className="text-xl font-black text-foreground">Discovered Clusters ({clusters.length})</h3>
+                    <div className="flex justify-between items-center bg-white/5 border border-border rounded-2xl p-6">
+                        <div>
+                            <h3 className="text-xl font-black text-foreground">Validated Keywords</h3>
+                            <p className="text-sm text-muted-foreground mt-1">Found {keywords.length} profitable keywords for "{queryText}". Saved to database.</p>
+                        </div>
+                        <Button 
+                            onClick={handleCluster}
+                            disabled={loading || keywords.length === 0}
+                            className="bg-emerald-500 hover:bg-emerald-600 text-white font-black"
+                        >
+                            {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <TableIcon className="w-5 h-5 mr-2" />}
+                            Generate Clusters
+                        </Button>
+                    </div>
+
+                    <div className="bg-black/40 border border-white/10 rounded-2xl overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead>
+                                    <tr className="border-b border-white/10 bg-white/5">
+                                        <th className="p-4 font-black uppercase tracking-widest text-xs text-muted-foreground">Keyword</th>
+                                        <th className="p-4 font-black uppercase tracking-widest text-xs text-muted-foreground text-right">Volume</th>
+                                        <th className="p-4 font-black uppercase tracking-widest text-xs text-muted-foreground text-right">KD</th>
+                                        <th className="p-4 font-black uppercase tracking-widest text-xs text-muted-foreground text-right">CPC</th>
+                                        <th className="p-4 font-black uppercase tracking-widest text-xs text-muted-foreground">Intent</th>
+                                        <th className="p-4 font-black uppercase tracking-widest text-xs text-muted-foreground w-32">Trend</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {keywords.map((kw, idx) => {
+                                        // Sort trend by month chronologically if needed, assuming it's returned sorted
+                                        const chartData = (kw.monthly_searches || [])
+                                            .slice()
+                                            .reverse()
+                                            .map((m: any) => ({
+                                                name: `${m.month}/${m.year}`,
+                                                val: m.search_volume
+                                            }))
+
+                                        return (
+                                            <tr key={idx} className="border-b border-white/5 hover:bg-white/5">
+                                                <td className="p-4 font-medium text-white">{kw.keyword}</td>
+                                                <td className="p-4 text-right text-emerald-400 font-bold">{kw.search_volume?.toLocaleString()}</td>
+                                                <td className="p-4 text-right text-amber-400 font-bold">{kw.keyword_difficulty}</td>
+                                                <td className="p-4 text-right">${kw.cpc?.toFixed(2) || '0.00'}</td>
+                                                <td className="p-4">
+                                                    <Badge variant="outline" className="text-[10px] uppercase border-indigo-500/30 text-indigo-400">
+                                                        {kw.intent || 'unknown'}
+                                                    </Badge>
+                                                </td>
+                                                <td className="p-4 h-12 w-32">
+                                                    {chartData.length > 0 ? (
+                                                        <ResponsiveContainer width="100%" height="100%">
+                                                            <LineChart data={chartData}>
+                                                                <YAxis domain={['dataMin', 'dataMax']} hide />
+                                                                <Line type="monotone" dataKey="val" stroke="#8b5cf6" strokeWidth={2} dot={false} isAnimationActive={false} />
+                                                            </LineChart>
+                                                        </ResponsiveContainer>
+                                                    ) : (
+                                                        <span className="text-xs text-muted-foreground">No data</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {step === 3 && (
+                <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                        <h3 className="text-xl font-black text-foreground">Discovered Clusters ({clusters.length})</h3>
+                        <Button variant="outline" onClick={() => setStep(1)} className="border-white/10">Start New Search</Button>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                         {clusters.map((cluster, idx) => {
                             const title = cluster.subtopic_name || cluster.cluster_title || 'Unknown Cluster'
                             const intent = cluster.primary_intent || cluster.cluster_intent || 'mixed'
-                            const keywords = cluster.keywords || []
+                            const clusterKws = cluster.keywords || []
                             
-                            // Calculate metrics
-                            const totalVol = keywords.reduce((acc: number, kw: any) => acc + (kw.search_volume || 0), 0)
-                            const maxKd = keywords.reduce((acc: number, kw: any) => Math.max(acc, kw.keyword_difficulty || 0), 0)
+                            const totalVol = clusterKws.reduce((acc: number, kw: any) => acc + (kw.search_volume || 0), 0)
+                            const maxKd = clusterKws.reduce((acc: number, kw: any) => Math.max(acc, kw.keyword_difficulty || 0), 0)
                             
                             return (
                                 <div key={idx} className="bg-black/40 border border-white/10 rounded-2xl p-6 flex flex-col hover:border-indigo-500/50 transition-colors">
@@ -92,21 +200,21 @@ export function ResearchPipeline() {
                                         </div>
                                         <div>
                                             <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Keywords</div>
-                                            <div className="font-black">{keywords.length}</div>
+                                            <div className="font-black">{clusterKws.length}</div>
                                         </div>
                                     </div>
                                     
                                     <div className="flex-1">
                                         <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Profitable Keywords</div>
                                         <div className="flex flex-wrap gap-2">
-                                            {keywords.slice(0, 5).map((kw: any, i: number) => (
+                                            {clusterKws.slice(0, 5).map((kw: any, i: number) => (
                                                 <Badge key={i} variant="secondary" className="bg-white/5 hover:bg-white/10 border-white/5 font-medium text-xs">
                                                     {kw.keyword} <span className="text-emerald-400/70 ml-1 text-[10px]">{kw.search_volume}v</span>
                                                 </Badge>
                                             ))}
-                                            {keywords.length > 5 && (
+                                            {clusterKws.length > 5 && (
                                                 <Badge variant="secondary" className="bg-white/5 border-white/5 font-medium text-xs opacity-50">
-                                                    +{keywords.length - 5} more
+                                                    +{clusterKws.length - 5} more
                                                 </Badge>
                                             )}
                                         </div>

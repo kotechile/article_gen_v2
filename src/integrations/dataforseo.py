@@ -203,6 +203,55 @@ class DataForSEOAPI:
         except Exception as e:
             logger.error(f"DataForSEO keyword ideas API error: {e}")
             return []
+
+    async def get_keyword_ideas_labs_live(
+        self,
+        keywords: List[str],
+        language_code: str = "en",
+        location_code: int = 2840,
+        limit: int = 100,
+        include_serp_info: bool = True,
+        return_raw: bool = False,
+    ) -> Any:
+        """
+        Get keyword ideas with full metrics from DataForSEO Labs.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                url = f"{self.base_url}/dataforseo_labs/google/keyword_ideas/live"
+                
+                payload = [{
+                    "keywords": keywords[:200],  # Max allowed in an array
+                    "language_code": language_code,
+                    "location_code": location_code,
+                    "limit": limit,
+                    "include_serp_info": include_serp_info
+                }]
+                
+                headers = {
+                    "Authorization": self.auth_header,
+                    "Content-Type": "application/json"
+                }
+                
+                data = await self._make_request_with_retry(client, url, payload, headers)
+                items = self._process_keyword_ideas_labs(data)
+                
+                if return_raw:
+                    return {
+                        "items": items,
+                        "raw": {
+                            "endpoint": "dataforseo_labs/google/keyword_ideas/live",
+                            "request": {"url": url, "payload": payload},
+                            "response": data,
+                        },
+                    }
+                return items
+                
+        except Exception as e:
+            logger.error(f"DataForSEO Labs keyword ideas live API error: {e}")
+            if return_raw:
+                return {"items": [], "raw": {"endpoint": "dataforseo_labs/google/keyword_ideas/live", "error": str(e)}}
+            return []
     
     async def get_keyword_metrics(
         self,
@@ -1863,6 +1912,33 @@ class DataForSEOAPI:
         task = data["tasks"][0]
         return list(task.get("result") or [])
     
+    def _process_keyword_ideas_labs(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Process keyword ideas response from DataForSEO Labs"""
+        keywords = []
+        
+        if "tasks" in data and data["tasks"]:
+            task = data["tasks"][0]
+            if task.get("result"):
+                for result_entry in task["result"]:
+                    for item in result_entry.get("items", []):
+                        keyword_info = item.get("keyword_info") or {}
+                        keyword_properties = item.get("keyword_properties") or {}
+                        search_intent_info = item.get("search_intent_info") or {}
+                        
+                        keywords.append({
+                            "keyword": item.get("keyword", ""),
+                            "search_volume": keyword_info.get("search_volume"),
+                            "competition": keyword_info.get("competition"),
+                            "competition_level": keyword_info.get("competition_level"),
+                            "cpc": keyword_info.get("cpc"),
+                            "keyword_difficulty": keyword_properties.get("keyword_difficulty"),
+                            "intent": search_intent_info.get("main_intent"),
+                            "monthly_searches": keyword_info.get("monthly_searches", []),
+                            "created_at": datetime.utcnow().isoformat()
+                        })
+        
+        return keywords
+
     def _process_keyword_ideas(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Process keyword ideas response"""
         keywords = []
