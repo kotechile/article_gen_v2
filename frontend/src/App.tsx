@@ -12,7 +12,7 @@ import { ContentStudio } from './pages/ContentStudio';
 import { KnowledgeGaps } from './pages/KnowledgeGaps';
 import { ArticleEditor } from './pages/ArticleEditor';
 import { Research } from './pages/Research';
-import { ResearchRebuildJobsPage, ResearchRebuildOpportunitiesPage } from './pages/ResearchRebuild';
+import { ResearchTools } from './pages/ResearchTools';
 import { ResearchPipeline } from './pages/ResearchPipeline';
 import { TopicDetail } from './pages/TopicDetail';
 import { Settings } from './pages/Settings';
@@ -28,10 +28,8 @@ function App() {
 
             <Route element={<ProtectedRoute />}>
             <Route element={<ProjectProvider><MainLayout /></ProjectProvider>}>
-              <Route path="/" element={<ResearchRebuildJobsPage />} />
-              <Route path="/research-rebuild" element={<ResearchRebuildRedirect />} />
-              <Route path="/research-rebuild/jobs" element={<ResearchRebuildJobsPage />} />
-              <Route path="/research-rebuild/opportunities" element={<ResearchRebuildOpportunitiesPage />} />
+              <Route path="/" element={<ResearchTools />} />
+              <Route path="/research-tools" element={<ResearchTools />} />
               <Route path="/research-pipeline" element={<ResearchPipeline />} />
               <Route path="/my-articles" element={<MyArticles />} />
               <Route path="/software-ideas" element={<SoftwareIdeas />} />
@@ -53,10 +51,6 @@ function App() {
   );
 }
 
-function ResearchRebuildRedirect() {
-  const location = useLocation();
-  const target = '/research-rebuild/jobs';
-  return <Navigate to={`${target}${location.search || ''}`} replace />;
-}
+
 
 export default App;

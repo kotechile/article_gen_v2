@@ -95,16 +95,16 @@ export function Sidebar({ className }: SidebarProps) {
 
                             <div className="space-y-2">
                             <NavItem
-                                href="/"
+                                href="/research-tools"
                                 icon={<FlaskConical className="h-5 w-5" />}
                                 label="Research Tools"
                                 isCollapsed={isCollapsed}
-                                active={pathname === "/" || pathname?.startsWith("/research-rebuild")}
+                                active={pathname === "/" || pathname?.startsWith("/research-tools")}
                             />
                             <NavItem
                                 href="/research-pipeline"
                                 icon={<Rocket className="h-5 w-5" />}
-                                label="Full Pipeline"
+                                label="Research Pipeline"
                                 isCollapsed={isCollapsed}
                                 active={pathname?.startsWith("/research-pipeline")}
                             />
