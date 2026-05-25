@@ -1,4 +1,4 @@
-import { api } from '@/lib/api'
+import { apiClient } from '@/api-client'
 
 export interface KeywordResult {
     keyword: string
@@ -16,25 +16,26 @@ export interface KeywordResult {
 
 export const researchToolsService = {
     async getBulkMetrics(keywords: string[]): Promise<KeywordResult[]> {
-        const response = await api.post('/api/research-tools/bulk-metrics', {
+        const response: any = await apiClient.post('/research-tools/bulk-metrics', {
             keywords
         })
-        return response.data?.keywords || []
+        return response?.keywords || []
     },
 
     async getWebsiteKeywords(domain: string, limit: number = 100): Promise<KeywordResult[]> {
-        const response = await api.post('/api/research-tools/website-keywords', {
+        const response: any = await apiClient.post('/research-tools/website-keywords', {
             domain,
             limit
         })
-        return response.data?.keywords || []
+        return response?.keywords || []
     },
 
     async getRelatedKeywords(seedKeyword: string, limit: number = 100): Promise<KeywordResult[]> {
-        const response = await api.post('/api/research-tools/related-keywords', {
+        const response: any = await apiClient.post('/research-tools/related-keywords', {
             seed_keyword: seedKeyword,
             limit
         })
-        return response.data?.keywords || []
+        return response?.keywords || []
     }
 }
+

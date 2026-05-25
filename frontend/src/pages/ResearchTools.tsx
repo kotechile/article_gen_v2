@@ -1,15 +1,16 @@
 import * as React from 'react'
 import {
-    Loader2, Search, Globe, ListChecks, ArrowRight,
-    Download, ExternalLink, BarChart3, Wrench
+    Loader2, Search, Globe, ListChecks,
+    Download, BarChart3, Wrench
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts'
-import { researchToolsService, KeywordResult } from '@/services/research-tools.service'
+import { researchToolsService } from '@/services/research-tools.service'
+import type { KeywordResult } from '@/services/research-tools.service'
 
 export function ResearchTools() {
     const [activeTab, setActiveTab] = React.useState('bulk')
@@ -188,11 +189,11 @@ export function ResearchTools() {
                         <h3 className="text-sm font-black uppercase tracking-widest text-foreground mb-4">Search a List of Keywords</h3>
                         <p className="text-sm text-muted-foreground mb-6">Enter up to 500 keywords, one per line, to retrieve search volume, KD, and CPC metrics.</p>
                         <div className="flex gap-4">
-                            <Textarea
+                            <textarea
                                 placeholder="e.g.&#10;buy coffee beans&#10;best coffee maker&#10;how to brew espresso"
                                 value={bulkKeywordsText}
-                                onChange={(e) => setBulkKeywordsText(e.target.value)}
-                                className="flex-1 bg-muted/30 dark:bg-black/50 border-border text-foreground min-h-[150px]"
+                                onChange={(e: any) => setBulkKeywordsText(e.target.value)}
+                                className="flex-1 bg-muted/30 dark:bg-black/50 border border-border text-foreground min-h-[150px] p-4 rounded-xl text-sm"
                             />
                         </div>
                         <div className="mt-6 flex justify-between items-center">
@@ -227,7 +228,7 @@ export function ResearchTools() {
                             <Input
                                 placeholder="e.g. example.com or example.com/blog-post"
                                 value={websiteDomain}
-                                onChange={(e) => setWebsiteDomain(e.target.value)}
+                                onChange={(e: any) => setWebsiteDomain(e.target.value)}
                                 className="flex-1 bg-muted/30 dark:bg-black/50 border-border text-foreground text-lg py-6"
                                 onKeyDown={(e) => e.key === 'Enter' && handleWebsiteSearch()}
                             />
@@ -263,7 +264,7 @@ export function ResearchTools() {
                             <Input
                                 placeholder="e.g. credit cards"
                                 value={seedKeyword}
-                                onChange={(e) => setSeedKeyword(e.target.value)}
+                                onChange={(e: any) => setSeedKeyword(e.target.value)}
                                 className="flex-1 bg-muted/30 dark:bg-black/50 border-border text-foreground text-lg py-6"
                                 onKeyDown={(e) => e.key === 'Enter' && handleRelatedSearch()}
                             />
