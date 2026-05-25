@@ -6,8 +6,10 @@ logger = logging.getLogger(__name__)
 
 research_pipeline_bp = Blueprint('research_pipeline', __name__, url_prefix='/api/research-pipeline')
 
+import asyncio
+
 @research_pipeline_bp.route('', methods=['POST'])
-async def run_pipeline():
+def run_pipeline():
     try:
         data = request.get_json()
         if not data:
@@ -19,9 +21,11 @@ async def run_pipeline():
 
         user_id = data.get('user_id', 'anonymous')
 
-        clusters = await research_pipeline_service.run_pipeline(
-            seed_keyword=query_text,
-            user_id=user_id
+        clusters = asyncio.run(
+            research_pipeline_service.run_pipeline(
+                seed_keyword=query_text,
+                user_id=user_id
+            )
         )
 
         return jsonify({'clusters': clusters})
