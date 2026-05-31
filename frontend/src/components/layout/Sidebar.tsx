@@ -94,20 +94,22 @@ export function Sidebar({ className }: SidebarProps) {
                             </div>
 
                             <div className="space-y-2">
-                            <NavItem
-                                href="/research-tools"
-                                icon={<FlaskConical className="h-5 w-5" />}
-                                label="Research Tools"
-                                isCollapsed={isCollapsed}
-                                active={pathname === "/" || pathname?.startsWith("/research-tools")}
-                            />
+
                             <NavItem
                                 href="/research-pipeline"
                                 icon={<Rocket className="h-5 w-5" />}
-                                label="Research Pipeline"
+                                label="Research Workflow"
                                 isCollapsed={isCollapsed}
                                 active={pathname?.startsWith("/research-pipeline")}
                             />
+                            <NavItem
+                                href="/research-tools"
+                                icon={<FlaskConical className="h-5 w-5" />}
+                                label="SEO Tools"
+                                isCollapsed={isCollapsed}
+                                active={pathname === "/" || pathname?.startsWith("/research-tools")}
+                            />
+                            
                             <NavItem
                                 href="/my-articles"
                                 icon={<BookOpen className="h-5 w-5" />}
