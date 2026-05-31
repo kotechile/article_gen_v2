@@ -203,17 +203,19 @@ def sync_wordpress_posts():
         # 2. Iterate each site
         for i, site in enumerate(sites):
             domain = site.get('domain')
-            debug_logs.append(f"Processing site {i+1}/{len(sites)}: {domain}")
+            # Use cms or cms_url for API requests if available, fallback to domain
+            api_domain = (site.get('cms') or site.get('cms_url') or domain or "").strip()
+            debug_logs.append(f"Processing site {i+1}/{len(sites)}: {domain} (API domain: {api_domain})")
             try:
                 username = site.get('wpUserName')
                 password = site.get('wordpress_key')
                 site_id = site.get('id')
                 
-                if not domain or not username or not password:
-                    debug_logs.append(f"Skipping site {domain} due to missing credentials")
+                if not api_domain or not username or not password:
+                    debug_logs.append(f"Skipping site {domain} due to missing credentials or domain")
                     continue
                     
-                client = WordPressClient(domain, username, password)
+                client = WordPressClient(api_domain, username, password)
                 
                 # Fetch Categories
                 debug_logs.append(f"Fetching categories for {domain}...")
@@ -321,10 +323,35 @@ def sync_project_categories_to_wordpress():
             return jsonify({'error': 'Project not found'}), 404
         project = project_rows[0]
 
-        domain = (project.get("domain") or "").strip()
+        project_domain = (project.get("domain") or "").strip()
         username = (project.get("wpusername") or project.get("wpUserName") or "").strip()
         app_password = (project.get("wordpress_key") or "").strip()
-        if not domain or not username or not app_password:
+        api_domain = project_domain
+        
+        # Load credentials and CMS domain from wordPress_details if available to override projects table
+        if project_domain:
+            try:
+                wp_resp = (
+                    supabase
+                    .table("wordPress_details")
+                    .select("wpUserName, wordpress_key, cms, cms_url")
+                    .eq("user_id", user_id)
+                    .eq("domain", project_domain)
+                    .limit(1)
+                    .execute()
+                )
+                if wp_resp.data:
+                    wp_detail = wp_resp.data[0]
+                    username = (wp_detail.get("wpUserName") or wp_detail.get("wpusername") or username).strip()
+                    app_password = (wp_detail.get("wordpress_key") or app_password).strip()
+                    
+                    cms_domain = (wp_detail.get("cms") or wp_detail.get("cms_url") or "").strip()
+                    if cms_domain:
+                        api_domain = cms_domain
+            except Exception as wp_err:
+                logger.warning("Failed to fetch credentials from wordPress_details for domain %s: %s", project_domain, wp_err)
+
+        if not api_domain or not username or not app_password:
             return jsonify({'error': 'WordPress credentials are incomplete for this project'}), 400
 
         local_categories = None
@@ -369,7 +396,7 @@ def sync_project_categories_to_wordpress():
                 "details": "No local categories to sync."
             }), 200
 
-        client = WordPressClient(domain, username, app_password)
+        client = WordPressClient(api_domain, username, app_password)
         try:
             wp_categories = client.get_categories_detailed()
         except requests.exceptions.HTTPError as e:
@@ -383,7 +410,7 @@ def sync_project_categories_to_wordpress():
                     reason = e.response.text[:300]
             logger.warning(
                 "WordPress category fetch failed for domain=%s project=%s status=%s reason=%s",
-                domain,
+                api_domain,
                 project_id,
                 status,
                 reason,
@@ -397,7 +424,7 @@ def sync_project_categories_to_wordpress():
         except requests.exceptions.RequestException as e:
             logger.warning(
                 "WordPress network error for domain=%s project=%s: %s",
-                domain,
+                api_domain,
                 project_id,
                 str(e),
             )
@@ -440,7 +467,7 @@ def sync_project_categories_to_wordpress():
                 by_slug_global[slug] = cat
 
         category_descriptions = _generate_category_descriptions(
-            domain=domain,
+            domain=api_domain,
             project_name=(project.get("app_name") or "").strip(),
             categories=local_categories,
         )
@@ -558,7 +585,7 @@ def sync_project_categories_to_wordpress():
                     "id": local_id,
                     "wordpress_category_id": wp_id,
                     "wordpress_parent_category_id": None,
-                    "wordpress_site_domain": domain,
+                    "wordpress_site_domain": project_domain,
                     "wordpress_last_synced_at": datetime.utcnow().isoformat(),
                 })
                 sync_details.append({
@@ -592,7 +619,7 @@ def sync_project_categories_to_wordpress():
                     "id": local_id,
                     "wordpress_category_id": wp_id,
                     "wordpress_parent_category_id": parent_wp_id or None,
-                    "wordpress_site_domain": domain,
+                    "wordpress_site_domain": project_domain,
                     "wordpress_last_synced_at": datetime.utcnow().isoformat(),
                 })
                 sync_details.append({
@@ -633,7 +660,7 @@ def sync_project_categories_to_wordpress():
         return jsonify({
             "success": True,
             "project_id": project_id,
-            "domain": domain,
+            "domain": project_domain,
             "synced": synced_count,
             "created": created_count,
             "updated": updated_count,
