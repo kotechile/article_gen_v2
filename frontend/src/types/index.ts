@@ -74,10 +74,13 @@ export interface Project {
     /** WordPress Application Password (optional) */
     wordpress_key?: string;
     wpUserName?: string;
+    wpusername?: string;
     /** PRIMARY niche description used by AI for content generation */
     site_description?: string;
     websiteDescription?: string;
+    websitedescription?: string;
     targetAudienceDescription?: string;
+    targetaudiencedescription?: string;
     brand_primary_color?: string;
     brand_text_color?: string;
     brand_secondary_color?: string;
