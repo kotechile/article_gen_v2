@@ -370,25 +370,29 @@ export const Settings: React.FC = () => {
         setIsSaving(true);
         try {
             const normalizedDomain = normalizeProjectDomain(formData.domain) || null;
-            const payload = {
-                ...formData,
+            const projectsPayload = {
                 user_id: user.id,
+                app_name: formData.app_name || null,
                 domain: normalizedDomain,
-                seo_plugin: formData.seo_plugin || 'unknown',
-                site_url_override: formData.site_url_override?.trim() || null,
-                social_default_image_url: formData.social_default_image_url?.trim() || null,
+                site_description: formData.site_description || null,
+                websitedescription: formData.websitedescription || null,
+                targetaudiencedescription: formData.targetaudiencedescription || formData.targetAudienceDescription || null,
+                wordpress_key: formData.wordpress_key || null,
+                wpusername: formData.wpusername || formData.wpUserName || null,
                 brand_primary_color: normalizeOptionalHexColor(formData.brand_primary_color) || null,
                 brand_text_color: normalizeOptionalHexColor(formData.brand_text_color) || null,
                 brand_secondary_color: normalizeOptionalHexColor(formData.brand_secondary_color) || null,
                 brand_neutral_color: normalizeOptionalHexColor(formData.brand_neutral_color) || null,
+                site_url_override: formData.site_url_override?.trim() || null,
+                social_default_image_url: formData.social_default_image_url?.trim() || null,
                 branding_updated_at: new Date().toISOString(),
             };
             let saveError;
             if (editingId && editingId !== 'new') {
-                const { error: err } = await supabase.from('projects').update(payload).eq('id', editingId);
+                const { error: err } = await supabase.from('projects').update(projectsPayload).eq('id', editingId);
                 saveError = err;
             } else {
-                const { error: err } = await supabase.from('projects').insert([payload]);
+                const { error: err } = await supabase.from('projects').insert([projectsPayload]);
                 saveError = err;
             }
             if (saveError) throw saveError;
@@ -397,18 +401,19 @@ export const Settings: React.FC = () => {
                 const wpBrandPayload = {
                     user_id: user.id,
                     domain: normalizedDomain,
-                    app_name: payload.app_name || null,
-                    wpUserName: payload.wpUserName || null,
-                    wordpress_key: payload.wordpress_key || null,
-                    seo_plugin: payload.seo_plugin || 'unknown',
+                    app_name: projectsPayload.app_name || null,
+                    wpUserName: formData.wpUserName || formData.wpusername || null,
+                    wordpress_key: formData.wordpress_key || null,
+                    seo_plugin: formData.seo_plugin || 'unknown',
+                    cms: formData.cms_url ? normalizeProjectDomain(formData.cms_url) : null,
                     cms_url: formData.cms_url?.trim() || null,
-                    site_url_override: payload.site_url_override,
-                    social_default_image_url: payload.social_default_image_url,
-                    brand_primary_color: payload.brand_primary_color,
-                    brand_text_color: payload.brand_text_color,
-                    brand_secondary_color: payload.brand_secondary_color,
-                    brand_neutral_color: payload.brand_neutral_color,
-                    branding_updated_at: payload.branding_updated_at,
+                    site_url_override: projectsPayload.site_url_override,
+                    social_default_image_url: projectsPayload.social_default_image_url,
+                    brand_primary_color: projectsPayload.brand_primary_color,
+                    brand_text_color: projectsPayload.brand_text_color,
+                    brand_secondary_color: projectsPayload.brand_secondary_color,
+                    brand_neutral_color: projectsPayload.brand_neutral_color,
+                    branding_updated_at: projectsPayload.branding_updated_at,
                 };
 
                 const { data: existingWpSite } = await supabase
@@ -423,7 +428,7 @@ export const Settings: React.FC = () => {
                         .from('wordPress_details')
                         .update(wpBrandPayload)
                         .eq('id', existingWpSite.id);
-                } else if (showWpFields || payload.brand_primary_color || payload.brand_text_color || payload.brand_secondary_color || payload.brand_neutral_color) {
+                } else if (showWpFields || projectsPayload.brand_primary_color || projectsPayload.brand_text_color || projectsPayload.brand_secondary_color || projectsPayload.brand_neutral_color) {
                     await supabase
                         .from('wordPress_details')
                         .insert([wpBrandPayload]);
