@@ -668,6 +668,7 @@ class DataForSEOAPI:
         limit_per_seed: int = 500,
         include_seed_keyword: bool = True,
         return_raw: bool = False,
+        filters: List[Any] | None = None,
     ) -> List[Dict[str, Any]]:
         """
         Get keyword suggestions from DataForSEO Labs live endpoint.
@@ -704,6 +705,13 @@ class DataForSEOAPI:
                 raw_responses: List[Dict[str, Any]] = []
 
                 for seed in sanitized_seeds:
+                    actual_filters = filters
+                    if actual_filters is None:
+                        actual_filters = [
+                            ["keyword_info.keyword_difficulty", "<", 30],
+                            "and",
+                            ["keyword_info.search_volume", ">", 20]
+                        ]
                     payload = [{
                         "keyword": seed,
                         "language_name": language_name,
@@ -712,14 +720,11 @@ class DataForSEOAPI:
                         "include_serp_info": False,
                         "exact_match": False,
                         "ignore_synonyms": False,
-                        "filters": [
-                            ["keyword_info.keyword_difficulty", "<", 30],
-                            "and",
-                            ["keyword_info.search_volume", ">", 20]
-                        ],
                         "order_by": ["keyword_info.search_volume,desc"],
                         "limit": int(limit_per_seed),
                     }]
+                    if actual_filters:
+                        payload[0]["filters"] = actual_filters
                     data = await self._make_request_with_retry(client, url, payload, headers)
                     
                     raw_responses.append({

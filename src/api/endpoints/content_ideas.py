@@ -3122,10 +3122,11 @@ def keyword_lab_related():
 
         related_rows_response = asyncio.run(
             asyncio.wait_for(
-                dataforseo_api.get_related_keywords_labs_live(
+                dataforseo_api.get_keyword_suggestions_labs_live(
                     [seed],
-                    limit_per_seed=max(5, min(limit, 25)),
+                    limit_per_seed=max(10, min(limit, 100)),
                     return_raw=True,
+                    filters=[],
                 ),
                 timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS,
             )
@@ -3134,6 +3135,17 @@ def keyword_lab_related():
             related_rows = related_rows_response.get("items") or []
         else:
             related_rows = related_rows_response or []
+
+        metrics_map = {}
+        for row in related_rows or []:
+            kw_key = str(row.get("keyword") or "").strip().lower()
+            if kw_key:
+                metrics_map[kw_key] = {
+                    "search_volume": row.get("search_volume"),
+                    "cpc": row.get("cpc"),
+                    "keyword_difficulty": row.get("keyword_difficulty"),
+                }
+
         related_keywords = []
         seen = {seed}
         exclude_set = {_normalize_keyword_term(k) for k in exclude_keywords if _normalize_keyword_term(k)}
@@ -3145,12 +3157,6 @@ def keyword_lab_related():
             related_keywords.append(kw)
         # Keep seed included as requested, then append new related terms.
         candidate_keywords = [seed] + related_keywords
-        metrics_map = asyncio.run(
-            asyncio.wait_for(
-                _fetch_metrics_map_for_keywords(candidate_keywords, max_keywords_for_metrics=max(15, len(candidate_keywords))),
-                timeout=PER_IDEA_ENRICH_TIMEOUT_SECONDS,
-            )
-        )
         ranked = _rank_keywords_by_opportunity(candidate_keywords, metrics_map)
         if min_search_volume > 0:
             ranked = [
