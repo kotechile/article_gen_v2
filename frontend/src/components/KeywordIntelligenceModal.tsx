@@ -1007,7 +1007,7 @@ export function KeywordIntelligenceModal({
             setParsed(baseParsed);
             setExpandedKeywords(new Set());
             setExpanderOpen(false);
-            setExpanderSeed("");
+            setExpanderSeed(canonicalPrimary || "");
             setExpanderError(null);
             setExpanderAdded(0);
             setExpanderQualifiedOnly(true);
@@ -1234,46 +1234,74 @@ export function KeywordIntelligenceModal({
                 });
             }
 
-            // Build DFSKeywordRow objects from the ranked keyword-lab response
-            const newRows: DFSKeywordRow[] = returnedKeywords
-                .filter((k) => !existingKeywords.some((existing) => normalizeKeywordKey(existing) === normalizeKeywordKey(k.keyword)))
-                .map((k) => ({
-                    keyword: k.keyword,
-                    type: normalizeKeywordKey(k.keyword) === normalizeKeywordKey(normalizedSeedKeyword) ? "seed" as const : "related" as const,
-                    depth: normalizeKeywordKey(k.keyword) === normalizeKeywordKey(normalizedSeedKeyword) ? 0 : 2, // mark as custom-expanded
-                    search_volume: k.search_volume ?? null,
-                    competition: null,
-                    competition_level: (k as any).competition_level ?? null,
-                    cpc: k.cpc ?? null,
-                    keyword_difficulty: k.keyword_difficulty ?? null,
-                    main_intent: (k as any).intent_label ?? null,
-                    foreign_intents: null,
-                    monthly_searches: [],
-                    search_volume_trend: null,
-                    low_top_of_page_bid: null,
-                    high_top_of_page_bid: null,
-                    se_results_count: null,
-                    related_keywords: null,
-                }));
+            // Merge metrics for existing keywords and add new ones
+            const newRows: DFSKeywordRow[] = [];
+            const updatedRows = parsed ? [...parsed.rows] : [];
+            let metricsUpdated = false;
 
-            if (newRows.length === 0) {
-                setExpanderError("All returned keywords are already in the list.");
+            returnedKeywords.forEach((k) => {
+                const existingIdx = updatedRows.findIndex(
+                    (existing) => normalizeKeywordKey(existing.keyword) === normalizeKeywordKey(k.keyword)
+                );
+
+                if (existingIdx >= 0) {
+                    const existingRow = updatedRows[existingIdx];
+                    const nextVol = k.search_volume !== null && k.search_volume !== undefined ? k.search_volume : existingRow.search_volume;
+                    const nextKd = k.keyword_difficulty !== null && k.keyword_difficulty !== undefined ? k.keyword_difficulty : existingRow.keyword_difficulty;
+                    const nextCpc = k.cpc !== null && k.cpc !== undefined ? k.cpc : existingRow.cpc;
+                    const nextComp = (k as any).competition_level || existingRow.competition_level;
+                    const nextIntent = (k as any).intent_label || existingRow.main_intent;
+
+                    if (
+                        nextVol !== existingRow.search_volume ||
+                        nextKd !== existingRow.keyword_difficulty ||
+                        nextCpc !== existingRow.cpc ||
+                        nextComp !== existingRow.competition_level ||
+                        nextIntent !== existingRow.main_intent
+                    ) {
+                        metricsUpdated = true;
+                        updatedRows[existingIdx] = {
+                            ...existingRow,
+                            search_volume: nextVol,
+                            keyword_difficulty: nextKd,
+                            cpc: nextCpc,
+                            competition_level: nextComp,
+                            main_intent: nextIntent,
+                        };
+                    }
+                } else {
+                    newRows.push({
+                        keyword: k.keyword,
+                        type: normalizeKeywordKey(k.keyword) === normalizeKeywordKey(normalizedSeedKeyword) ? "seed" as const : "related" as const,
+                        depth: normalizeKeywordKey(k.keyword) === normalizeKeywordKey(normalizedSeedKeyword) ? 0 : 2, // mark as custom-expanded
+                        search_volume: k.search_volume ?? null,
+                        competition: null,
+                        competition_level: (k as any).competition_level ?? null,
+                        cpc: k.cpc ?? null,
+                        keyword_difficulty: k.keyword_difficulty ?? null,
+                        main_intent: (k as any).intent_label ?? null,
+                        foreign_intents: null,
+                        monthly_searches: [],
+                        search_volume_trend: null,
+                        low_top_of_page_bid: null,
+                        high_top_of_page_bid: null,
+                        se_results_count: null,
+                        related_keywords: null,
+                    });
+                }
+            });
+
+            if (newRows.length === 0 && !metricsUpdated) {
+                setExpanderError("All returned keywords are already in the list with up-to-date metrics.");
                 return;
             }
 
-            const nextParsed: DFSParsedOutput = parsed
-                ? {
-                    ...parsed,
-                    rows: [...parsed.rows, ...newRows],
-                    total_count: Number(parsed.total_count || 0) + newRows.length,
-                    items_count: Number(parsed.items_count || 0) + newRows.length,
-                }
-                : {
-                    seed_keyword: normalizedSeedKeyword || seed,
-                    total_count: newRows.length,
-                    items_count: newRows.length,
-                    rows: newRows,
-                };
+            const nextParsed: DFSParsedOutput = {
+                seed_keyword: normalizedSeedKeyword || seed,
+                total_count: updatedRows.length + newRows.length,
+                items_count: updatedRows.length + newRows.length,
+                rows: [...updatedRows, ...newRows],
+            };
 
             if (nextParsed.seed_keyword !== normalizedSeedKeyword && normalizedSeedKeyword) {
                 nextParsed.seed_keyword = normalizedSeedKeyword;
