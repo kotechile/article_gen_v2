@@ -66,6 +66,7 @@ interface ArticleData {
     LLM: string;
     status: string;
     rag_collection_name?: string;
+    writer_notes?: string;
     rag_query_type?: string;
     rag_balance_emphasis?: string;
     source_strategy?: string;
@@ -397,6 +398,7 @@ export const ContentStudio: React.FC = () => {
         emphasis: 'balanced',
         sourceMode: 'dossier_only',
         claimsValidation: true,
+        writerNotes: '',
     });
 
     useEffect(() => {
@@ -598,9 +600,12 @@ export const ContentStudio: React.FC = () => {
                     title: normalizedArticle.Title || '',
                     description: normalizedArticle.userDescription || '',
                     keywords: (
-                        // Prefer primary_keywords array, fall back to legacy Keywords field
+                        // Combine primary and secondary keywords if primary exists, otherwise fall back to legacy Keywords field
                         normalizedArticle.primary_keywords && normalizedArticle.primary_keywords.length > 0
-                            ? normalizedArticle.primary_keywords.join(', ')
+                            ? [
+                                ...normalizedArticle.primary_keywords,
+                                ...(normalizedArticle.secondary_keywords || [])
+                              ].filter(Boolean).join(', ')
                             : normalizedArticle.Keywords || ''
                     ),
                     domain: normalizedArticle.domain || '',
@@ -615,6 +620,7 @@ export const ContentStudio: React.FC = () => {
                         claimsValidation: false,
                     }),
                     claimsValidation: true,
+                    writerNotes: (artData as any).writer_notes || '',
                 });
 
             } catch (error) {
@@ -749,10 +755,21 @@ export const ContentStudio: React.FC = () => {
             const minutes = Math.ceil(words / wpm);
             const readingTime = Math.max(1, minutes);
 
+            const rawKeywords = effectiveFormData.keywords || '';
+            const keywordList = rawKeywords
+                .split(',')
+                .map((kw: string) => kw.trim())
+                .filter(Boolean);
+            const primaryKws = keywordList.length > 0 ? [keywordList[0]] : [];
+            const secondaryKws = keywordList.length > 1 ? keywordList.slice(1) : [];
+
             const updates = {
                 Title: effectiveFormData.title,
                 userDescription: effectiveFormData.description,
                 Keywords: effectiveFormData.keywords,
+                primary_keywords: primaryKws,
+                secondary_keywords: secondaryKws,
+                writer_notes: effectiveFormData.writerNotes,
                 domain: effectiveFormData.domain || null,
                 articleLength: effectiveFormData.articleLength,
                 Tone: effectiveFormData.tone,
@@ -774,6 +791,7 @@ export const ContentStudio: React.FC = () => {
                 setArticle({
                     ...article,
                     ...updates,
+                    writer_notes: effectiveFormData.writerNotes,
                     domain: effectiveFormData.domain || undefined,
                     // Ensure type compatibility if needed, though spreading updates should work 
                     // if keys match partial ArticleData. 
@@ -1062,6 +1080,7 @@ export const ContentStudio: React.FC = () => {
                     : undefined,
                 rag_balance_emphasis: formData.emphasis,
                 article_id: articleId,
+                writer_notes: formData.writerNotes,
             };
 
             // Call Backend
@@ -1254,6 +1273,19 @@ export const ContentStudio: React.FC = () => {
                                 onChange={(e) => handleChange('description', e.target.value)}
                                 placeholder="Describe what you want to write about..."
                             />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Personal Touch & reflections (Added Value)</label>
+                            <textarea
+                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none h-32"
+                                value={formData.writerNotes}
+                                onChange={(e) => handleChange('writerNotes', e.target.value)}
+                                placeholder="Enter your ideas, opinions, experiences, book citations, or concepts to include as natural reflections (not literal quotes) in the article..."
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                                Share your personal experience, stories, or key arguments. The LLM will weave these into the content as the writer's reflections.
+                            </p>
                         </div>
 
                         <div>

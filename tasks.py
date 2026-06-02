@@ -1862,6 +1862,9 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         research_data['content_outline'] = content_outline
                     else:
                         logger.info(f"No content_outline found in DB for article {article_id}")
+                    writer_notes = title_row.get('writer_notes')
+                    if writer_notes:
+                        research_data['writer_notes'] = writer_notes
                     current_source_caps = _normalize_source_strategy(research_data)
                     use_dossier_context = (
                         current_source_caps["use_dossier"]

@@ -653,6 +653,7 @@ class ContentGenerator:
             "dossier_summary": dossier_summary,
             "dossier_claims": dossier_claims,
             "dossier_unresolved_questions": dossier_questions,
+            "writer_notes": research_data.get('writer_notes', ''),
         }
     
     def _build_user_message(self, context: Dict[str, Any]) -> str:
@@ -672,12 +673,25 @@ class ContentGenerator:
         # Build draft title line
         draft_title_line = f"Draft Title: {context['draft_title']}\n" if context.get('draft_title') else ""
         
+        # Build writer notes (personal touch reflections)
+        writer_notes_part = ""
+        if context.get('writer_notes'):
+            writer_notes_part = f"""
+========================================
+WRITER'S REFLECTIONS & PERSONAL TOUCH (MUST WEAVE IN)
+========================================
+The writer has provided these specific reflections, opinions, personal experiences, or book references. 
+You MUST weave these concepts naturally into the article as if they are the writer's own reflections or added value.
+Do NOT just quote them literally; express these ideas in the writer's voice as firsthand thoughts, personal touch, or professional opinions:
+{context['writer_notes']}
+"""
+        
         return f"""Section: {context['title']}
 {subtitle_line}========================================
 TONE REMINDER - CRITICAL
 ========================================
 {tone_reminder}
-
+{writer_notes_part}
 ========================================
 CONTENT REQUIREMENTS
 ========================================
