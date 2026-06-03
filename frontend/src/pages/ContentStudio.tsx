@@ -1256,13 +1256,6 @@ export const ContentStudio: React.FC = () => {
         return 'text-destructive';
     };
 
-    const selectedSourceMode = useRag && useLiveWeb
-        ? 'rag_plus_live_web'
-        : useRag
-        ? 'rag_only'
-        : useLiveWeb
-        ? 'live_web_only'
-        : 'none';
     const sourceModeUsesRag = useRag;
 
     return (
