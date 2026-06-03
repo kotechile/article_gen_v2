@@ -1133,6 +1133,55 @@ class DataForSEOAPI:
                 }
             return []
 
+    async def get_google_autocomplete_live(
+        self,
+        keyword: str,
+        language_code: str = "en",
+        location_code: int = 2840,
+        return_raw: bool = False,
+    ) -> Any:
+        """
+        Get autocomplete suggestions from DataForSEO SERP Autocomplete API.
+        Endpoint: /v3/serp/google/autocomplete/live/advanced
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                url = f"{self.base_url}/serp/google/autocomplete/live/advanced"
+                payload = [{
+                    "keyword": keyword,
+                    "language_code": language_code,
+                    "location_code": location_code
+                }]
+                headers = {
+                    "Authorization": self.auth_header,
+                    "Content-Type": "application/json"
+                }
+                data = await self._make_request_with_retry(client, url, payload, headers)
+                suggestions = []
+                if "tasks" in data and data["tasks"]:
+                    task = data["tasks"][0]
+                    if task.get("result"):
+                        for result in task["result"]:
+                            if "items" in result:
+                                for item in result["items"]:
+                                    if isinstance(item, dict) and item.get("suggestion"):
+                                        suggestions.append({
+                                            "keyword": item["suggestion"],
+                                            "search_volume": item.get("search_volume"),
+                                            "cpc": item.get("cpc"),
+                                            "keyword_difficulty": item.get("keyword_difficulty"),
+                                            "competition": item.get("competition")
+                                        })
+                if return_raw:
+                    return {"items": suggestions, "raw": data}
+                return suggestions
+        except Exception as e:
+            logger.error(f"DataForSEO google autocomplete live error: {e}")
+            if return_raw:
+                return {"items": [], "raw": {"error": str(e)}}
+            return []
+
+
     async def get_ranked_keywords_live(
         self,
         target: str,
