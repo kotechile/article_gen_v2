@@ -49,6 +49,7 @@ type ProjectCategory = {
     name: string
     level: number
     parent_category_id: string | null
+    wordpress_category_id?: number | null
 }
 
 type CategoryContextFallback = {
@@ -273,7 +274,7 @@ export const MyArticles: React.FC = () => {
             }
             const { data, error } = await supabase
                 .from('project_categories')
-                .select('id, name, level, parent_category_id')
+                .select('id, name, level, parent_category_id, wordpress_category_id')
                 .eq('user_id', user.id)
                 .eq('project_id', projectFilter)
                 .order('level', { ascending: true })
@@ -689,9 +690,55 @@ export const MyArticles: React.FC = () => {
     const filteredArticles = useMemo(
         () =>
             sortedArticles.filter(article => {
-                if (projectFilter && article._project_id !== projectFilter) return false
-                if (primaryCategoryFilter && article._primary_category_id !== primaryCategoryFilter) return false
-                if (secondaryCategoryFilter && article._secondary_category_id !== secondaryCategoryFilter) return false
+                // Resolve project ID from domain fallback
+                let articleProjectId = article._project_id
+                if (!articleProjectId && (article as any).domain) {
+                    const matchedProj = projects.find(p => 
+                        p.domain?.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '') === 
+                        (article as any).domain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '')
+                    )
+                    if (matchedProj) {
+                        articleProjectId = matchedProj.id
+                    }
+                }
+
+                if (projectFilter && articleProjectId !== projectFilter) return false
+
+                // Resolve primary and secondary category IDs from wordpress category mapping
+                let articlePrimaryCatId = article._primary_category_id
+                let articleSecondaryCatId = article._secondary_category_id
+
+                if (articleProjectId && ((article as any).wordpress_category_id || (article as any).last_wp_category_id)) {
+                    const activeWpCategoryId = Number((article as any).wordpress_category_id || (article as any).last_wp_category_id)
+                    const activeWpParentCategoryId = (article as any).wordpress_parent_category_id ? Number((article as any).wordpress_parent_category_id) : null
+
+                    if (activeWpParentCategoryId) {
+                        // It has both parent (primary) and subcategory (secondary)
+                        const primaryMatch = projectCategories.find(c => c.level === 1 && Number(c.wordpress_category_id) === activeWpParentCategoryId)
+                        if (primaryMatch) articlePrimaryCatId = primaryMatch.id
+
+                        const secondaryMatch = projectCategories.find(c => c.level === 2 && Number(c.wordpress_category_id) === activeWpCategoryId)
+                        if (secondaryMatch) articleSecondaryCatId = secondaryMatch.id
+                    } else {
+                        // Only has category, check if it matches a primary (level 1) category
+                        const primaryMatch = projectCategories.find(c => c.level === 1 && Number(c.wordpress_category_id) === activeWpCategoryId)
+                        if (primaryMatch) {
+                            articlePrimaryCatId = primaryMatch.id
+                        } else {
+                            // Maybe it matches a secondary (level 2) category
+                            const secondaryMatch = projectCategories.find(c => c.level === 2 && Number(c.wordpress_category_id) === activeWpCategoryId)
+                            if (secondaryMatch) {
+                                articleSecondaryCatId = secondaryMatch.id
+                                if (secondaryMatch.parent_category_id) {
+                                    articlePrimaryCatId = secondaryMatch.parent_category_id
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (primaryCategoryFilter && articlePrimaryCatId !== primaryCategoryFilter) return false
+                if (secondaryCategoryFilter && articleSecondaryCatId !== secondaryCategoryFilter) return false
 
                 const haystack = [
                     article.Title,
@@ -708,7 +755,7 @@ export const MyArticles: React.FC = () => {
                 if (!exactMetricsOnly) return true
                 return !isKeywordMetricEstimated(article)
             }),
-        [sortedArticles, search, exactMetricsOnly, projectFilter, primaryCategoryFilter, secondaryCategoryFilter],
+        [sortedArticles, search, exactMetricsOnly, projectFilter, primaryCategoryFilter, secondaryCategoryFilter, projects, projectCategories],
     )
 
     useEffect(() => {
