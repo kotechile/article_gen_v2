@@ -761,7 +761,7 @@ Previous Context:
                     
                     - Create smooth transitions between paragraphs - use connecting words naturally, not excessively
                     - Include bullet points or numbered lists where appropriate for clarity
-                    - MANDATORY: Include COMPARATIVE TABLES when comparing options, strategies, or presenting structured data
+                    - OPTIONAL: Include a table ONLY if comparing options, strategies, or presenting structured data where a table is highly relevant and adds genuine value (otherwise use standard paragraphs)
                     - Include multiple specific examples, data points, statistics, and practical insights throughout
                     - Write in a natural style that reads like human-editing content
                     - Integrate the provided keywords into the content where they fit naturally
@@ -780,21 +780,15 @@ Previous Context:
                     - Focus on hook, overview, and what reader will learn
                     - Avoid breaking introduction into multiple subsections
                     
-                    MANDATORY TABLE REQUIREMENTS:
-                    - ALWAYS include COMPARATIVE TABLES when comparing:
+                    OPTIONAL TABLE RULES:
+                    - You may include a comparative table if the content explicitly compares:
                       * Different strategies, approaches, or methodologies
                       * Feature comparisons between options or tools
-                      * Pros/cons lists (presented in table format with columns)
+                      * Pros/cons lists
                       * Performance metrics, statistics, or data comparisons
-                      * Decision frameworks or evaluation criteria
-                      * Timeline comparisons or historical data
-                    - Use tables for: market data, price comparisons, regional statistics, trend analysis
-                    - Use tables for: numerical data, percentages, rankings, survey results, comparative metrics
-                    - When comparing ANYTHING (strategies, tools, approaches, options), ALWAYS present it in a comparative table format
-                    - Tables MUST include proper headers and well-organized data
-                    - Include explanatory text before and after each table to provide context
-                    - Create at least 1-2 meaningful comparative tables per section when comparisons are relevant
-                    - DO NOT skip tables just because evidence is limited - create useful comparisons based on topic
+                    - Do NOT generate a table for this section if it is not necessary.
+                    - If you do generate a table, it MUST include proper headers and well-organized data.
+                    - Do not skip tables if they are highly relevant and you have the data, but do not force them.
                     
                     TABLE FORMAT:
                     <table style="border-collapse: collapse; width: 100%; margin: 1em 0;">

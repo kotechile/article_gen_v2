@@ -733,7 +733,8 @@ def _build_geo_definition_paragraph(topic_phrase: str, support_points: List[str]
 
 
 def _build_geo_takeaways_block(topic_phrase: str, support_points: List[str]) -> str:
-    bullet_points = _select_geo_support_points(support_points, limit=3)
+    cleaned_points = [p for p in support_points if not _looks_like_support_section_noise(p)]
+    bullet_points = _select_geo_support_points(cleaned_points, limit=3)
     if not bullet_points:
         bullet_points = [
             f"Focus on the core decision factors that change the outcome for {topic_phrase.lower()}.",
@@ -753,7 +754,8 @@ def _build_geo_takeaways_block(topic_phrase: str, support_points: List[str]) -> 
 
 
 def _build_geo_faq_block(topic_phrase: str, support_points: List[str]) -> str:
-    complete_points = _select_geo_support_points(support_points, limit=3)
+    cleaned_points = [p for p in support_points if not _looks_like_support_section_noise(p)]
+    complete_points = _select_geo_support_points(cleaned_points, limit=3)
     topic_lower = topic_phrase.lower()
     answer_one = (
         f"Start with {complete_points[0].rstrip('.')}. That usually gives you the clearest frame for evaluating {topic_lower} in your own situation."
@@ -829,7 +831,7 @@ def _extract_json_payload_from_response(raw_text: str) -> Any:
     return None
 
 
-def _looks_like_support_section_noise(value: str) -> bool:
+def _looks_like_support_section_noise(value: str, min_len: int = 20) -> bool:
     normalized = re.sub(r"\s+", " ", str(value or "")).strip()
     if not normalized:
         return True
@@ -838,7 +840,7 @@ def _looks_like_support_section_noise(value: str) -> bool:
         return True
     if normalized.startswith("{") or normalized.startswith("["):
         return True
-    if len(normalized) < 20:
+    if len(normalized) < min_len:
         return True
     return False
 
@@ -848,7 +850,7 @@ def _sanitize_takeaway_text(value: str) -> str:
     text = re.sub(r"^(key takeaway|takeaway)\s*:\s*", "", text, flags=re.IGNORECASE).strip()
     if not text:
         return ""
-    if _looks_like_support_section_noise(text):
+    if _looks_like_support_section_noise(text, min_len=20):
         return ""
     if len(text) < 35 or len(text) > 320:
         return ""
@@ -860,7 +862,7 @@ def _sanitize_takeaway_text(value: str) -> str:
 def _sanitize_faq_question(value: str) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip(" -:;,.")
     text = re.sub(r"^(q|question)\s*[:.-]\s*", "", text, flags=re.IGNORECASE).strip()
-    if not text or _looks_like_support_section_noise(text):
+    if not text or _looks_like_support_section_noise(text, min_len=10):
         return ""
     if len(text) < 12 or len(text) > 180:
         return ""
@@ -872,7 +874,7 @@ def _sanitize_faq_question(value: str) -> str:
 def _sanitize_faq_answer(value: str) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip()
     text = re.sub(r"^(a|answer)\s*[:.-]\s*", "", text, flags=re.IGNORECASE).strip()
-    if not text or _looks_like_support_section_noise(text):
+    if not text or _looks_like_support_section_noise(text, min_len=20):
         return ""
     if len(text) < 40 or len(text) > 650:
         return ""
@@ -903,7 +905,7 @@ def _normalize_takeaway_items(payload: Any) -> List[str]:
         cleaned.append(text)
         if len(cleaned) >= 5:
             break
-    return cleaned[:5] if len(cleaned) >= 3 else []
+    return cleaned[:5] if len(cleaned) >= 1 else []
 
 
 def _normalize_faq_items(payload: Any) -> List[Dict[str, str]]:
@@ -927,7 +929,7 @@ def _normalize_faq_items(payload: Any) -> List[Dict[str, str]]:
         cleaned.append({"question": question, "answer": answer})
         if len(cleaned) >= 5:
             break
-    return cleaned[:5] if len(cleaned) >= 3 else []
+    return cleaned[:5] if len(cleaned) >= 1 else []
 
 
 def _render_key_takeaways_html(items: List[str]) -> str:
@@ -1064,6 +1066,57 @@ Full article:
     payload = _extract_json_payload_from_response(response.content)
     items = _normalize_faq_items(payload)
     return _render_faq_html(items)
+
+
+def _generate_faq_from_article_html_fallback(
+    *,
+    llm_client: Any,
+    article_title: str,
+    article_text: str,
+) -> str:
+    if not str(article_text or "").strip():
+        return ""
+
+    prompt = f"""
+You are writing the final FAQ section for a professional article.
+Read the full article and generate a FAQ section containing 3 to 5 FAQs.
+Output the FAQ directly as HTML using H3 tags for questions and P tags for answers.
+Do not include any outer wrappers, markdown code blocks, metadata, preamble, reasoning, analysis, or introductory text. Just output the HTML elements.
+
+Rules:
+- Generate 3 to 5 FAQs.
+- Questions must reflect realistic reader follow-up questions about the article.
+- Answers must be concise, direct, and professional (1 to 3 sentences).
+- Do not mention prompts, instructions, reasoning, analysis, SEO, GEO, keywords, or citations.
+- Output format must be strictly like:
+<h3>Question 1?</h3>
+<p>Answer 1.</p>
+<h3>Question 2?</h3>
+<p>Answer 2.</p>
+
+Article title: {article_title}
+
+Full article:
+{article_text}
+""".strip()
+
+    response = llm_client.generate(
+        [
+            {"role": "system", "content": "You write polished FAQ sections for finished articles in HTML format. Output raw HTML only."},
+            {"role": "user", "content": prompt},
+        ]
+    )
+    content = response.content or ""
+    # Strip markdown block wrappers if LLM returned them
+    content = re.sub(r"^```html\s*", "", content, flags=re.IGNORECASE)
+    content = re.sub(r"^```\s*", "", content, flags=re.IGNORECASE)
+    content = re.sub(r"\s*```$", "", content)
+    content = content.strip()
+    
+    # Simple validation: must contain <h3> and <p>
+    if "<h3>" in content.lower() and "<p>" in content.lower():
+        return "<h2>FAQ</h2>\n\n" + content
+    return ""
 
 
 def _extract_external_links(citations: List[Dict[str, Any]]) -> List[str]:
@@ -4739,6 +4792,7 @@ Rules:
 - Prefer concrete language over abstract filler.
 - Reduce hedging and repetitive transitions.
 - Remove banned/generic phrases.
+- CRITICAL: Split long, dense paragraphs into small, digestible paragraphs (typically 2 to 4 sentences or 35 to 70 words per paragraph). Avoid walls of text.
 - {"For Key Takeaways sections, tighten repeated ideas into 3-5 distinct bullets and remove redundant setup language." if takeaways_section else "Keep the current section structure unless a cleaner equivalent is clearly better."}
 - Keep the same facts and HTML structure.
 - Keep tone as {tone}.
@@ -4773,6 +4827,7 @@ Rules:
             - Make sure complex concepts are explained simply (especially for friendly tone)
             - Ensure the language matches the {tone} tone perfectly
             - Keep the content engaging and natural
+            - CRITICAL: Proactively split any long, dense paragraphs into smaller, bite-sized, digestible paragraphs (typically 2 to 4 sentences or 30 to 70 words each) to avoid fatigue, improve readability, and keep the layout scannable.
             - {"If this is a Key Takeaways section, make it more fluid and concise by using 3-5 short, distinct bullets with minimal overlap." if takeaways_section else "Avoid unnecessary repetition and keep each section focused."}
             - Maintain the original meaning and factual accuracy
             - Maintain HTML structure exactly as provided
@@ -5125,7 +5180,17 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                     article_text=support_article_text,
                 )
             except Exception as faq_error:
-                logger.warning("FAQ generation failed; using fallback block. error=%s", faq_error)
+                logger.warning("FAQ generation failed; trying HTML fallback. error=%s", faq_error)
+
+            if not generated_faq_block:
+                try:
+                    generated_faq_block = _generate_faq_from_article_html_fallback(
+                        llm_client=support_llm_client,
+                        article_title=str(structure.get('title', 'Generated Article')),
+                        article_text=support_article_text,
+                    )
+                except Exception as fallback_error:
+                    logger.warning("HTML FAQ fallback generation failed. error=%s", fallback_error)
 
         takeaways_block = generated_takeaways_block or existing_takeaways_block
         if not takeaways_block:

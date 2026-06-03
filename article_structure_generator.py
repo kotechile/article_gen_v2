@@ -604,6 +604,10 @@ class ArticleStructureGenerator:
                     - "step_by_step": Instructional content (only use if the article is actually a step-by-step guide)
                     - "comparison": Side-by-side comparisons
                     - "table": Data-rich content with tables
+
+                    TABLE PLANNING RULES:
+                    - Across the entire article, plan between 0 and 4 sections with "table" or "comparison" content types.
+                    - Plan tables/comparisons ONLY for sections where structured comparison or data presentation adds genuine value. If a section is purely expository and has no data/metrics or options to compare, use "paragraph" or "list". Do not force tables on sections that do not need them.
                     
                     IMPORTANT: Return ONLY valid JSON. Do not include any text before or after the JSON. The JSON must be parseable.
                     
