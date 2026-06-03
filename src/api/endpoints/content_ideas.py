@@ -3121,45 +3121,6 @@ def keyword_lab_related():
         if not request_user_id:
             return jsonify({"error": "Authorization bearer token is required"}), 401
 
-        async def fetch_all_sources():
-            # 1. Suggestions
-            task_suggestions = dataforseo_api.get_keyword_suggestions_labs_live(
-                [seed],
-                limit_per_seed=max(10, min(limit, 100)),
-                return_raw=True,
-                filters=[],
-            )
-            # 2. DataForSEO Google Autocomplete
-            task_autocomplete = dataforseo_api.get_google_autocomplete_live(
-                seed,
-                return_raw=True,
-            )
-            # 3. Organic SERP (PAA & Related Searches)
-            task_serp = dataforseo_api.get_serp_analysis(
-                seed,
-                depth=10,
-            )
-            # 4. Free Google Autocomplete suggest queries
-            google_ac_service = GoogleAutocompleteService()
-            task_free_ac = google_ac_service.get_suggestions(seed)
-
-            return await asyncio.gather(
-                task_suggestions,
-                task_autocomplete,
-                task_serp,
-                task_free_ac,
-                return_exceptions=True
-            )
-
-        results = asyncio.run(
-            asyncio.wait_for(
-                fetch_all_sources(),
-                timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS,
-            )
-        )
-
-        res_suggestions, res_autocomplete, res_serp, res_free_ac = results
-
         discovered_keywords = set()
         metrics_map = {}
 
@@ -3177,45 +3138,92 @@ def keyword_lab_related():
                 if kd is not None:
                     metrics_map[k]["keyword_difficulty"] = kd
 
-        # 1. Process Suggestions
-        if not isinstance(res_suggestions, Exception) and res_suggestions:
-            items = res_suggestions.get("items") or []
-            for item in items:
-                add_discovered(
-                    item.get("keyword"),
-                    search_volume=item.get("search_volume"),
-                    cpc=item.get("cpc"),
-                    kd=item.get("keyword_difficulty"),
+        # 1. Process Suggestions (try up to 8 seconds timeout)
+        try:
+            res_suggestions = asyncio.run(
+                asyncio.wait_for(
+                    dataforseo_api.get_keyword_suggestions_labs_live(
+                        [seed],
+                        limit_per_seed=max(10, min(limit, 100)),
+                        return_raw=True,
+                        filters=[],
+                    ),
+                    timeout=8.0
                 )
+            )
+            if res_suggestions:
+                items = res_suggestions.get("items") or []
+                for item in items:
+                    add_discovered(
+                        item.get("keyword"),
+                        search_volume=item.get("search_volume"),
+                        cpc=item.get("cpc"),
+                        kd=item.get("keyword_difficulty"),
+                    )
+        except Exception as e:
+            logger.warning("DataForSEO suggestions failed or timed out: %s", e)
 
-        # 2. Process DataForSEO Autocomplete
-        if not isinstance(res_autocomplete, Exception) and res_autocomplete:
-            items = res_autocomplete.get("items") or []
-            for item in items:
-                add_discovered(
-                    item.get("keyword"),
-                    search_volume=item.get("search_volume"),
-                    cpc=item.get("cpc"),
-                    kd=item.get("keyword_difficulty"),
+        # 2. Process DataForSEO Autocomplete (try up to 8 seconds timeout)
+        try:
+            res_autocomplete = asyncio.run(
+                asyncio.wait_for(
+                    dataforseo_api.get_google_autocomplete_live(
+                        seed,
+                        return_raw=True,
+                    ),
+                    timeout=8.0
                 )
+            )
+            if res_autocomplete:
+                items = res_autocomplete.get("items") or []
+                for item in items:
+                    add_discovered(
+                        item.get("keyword"),
+                        search_volume=item.get("search_volume"),
+                        cpc=item.get("cpc"),
+                        kd=item.get("keyword_difficulty"),
+                    )
+        except Exception as e:
+            logger.warning("DataForSEO autocomplete failed or timed out: %s", e)
 
-
-        # 4. Process SERP (PAA & Related Searches)
-        if not isinstance(res_serp, Exception) and res_serp:
-            # Related searches
-            for item in res_serp.get("related_searches") or []:
-                add_discovered(
-                    item.get("keyword"),
-                    search_volume=item.get("search_volume"),
+        # 3. Process SERP (PAA & Related Searches) (try up to 10 seconds timeout)
+        try:
+            res_serp = asyncio.run(
+                asyncio.wait_for(
+                    dataforseo_api.get_serp_analysis(
+                        seed,
+                        depth=10,
+                    ),
+                    timeout=10.0
                 )
-            # PAA questions
-            for item in res_serp.get("people_also_ask") or []:
-                add_discovered(item.get("question"))
+            )
+            if res_serp:
+                # Related searches
+                for item in res_serp.get("related_searches") or []:
+                    add_discovered(
+                        item.get("keyword"),
+                        search_volume=item.get("search_volume"),
+                    )
+                # PAA questions
+                for item in res_serp.get("people_also_ask") or []:
+                    add_discovered(item.get("question"))
+        except Exception as e:
+            logger.warning("DataForSEO SERP analysis failed or timed out: %s", e)
 
-        # 5. Process Free Autocomplete suggestions
-        if not isinstance(res_free_ac, Exception) and res_free_ac:
-            for item in res_free_ac.suggestions or []:
-                add_discovered(item)
+        # 4. Process Free Autocomplete suggestions (try up to 4 seconds timeout)
+        try:
+            google_ac_service = GoogleAutocompleteService()
+            res_free_ac = asyncio.run(
+                asyncio.wait_for(
+                    google_ac_service.get_suggestions(seed),
+                    timeout=4.0
+                )
+            )
+            if res_free_ac and res_free_ac.suggestions:
+                for item in res_free_ac.suggestions:
+                    add_discovered(item)
+        except Exception as e:
+            logger.warning("Free autocomplete suggest queries failed or timed out: %s", e)
 
         # Ensure seed keyword is in the set
         seed_normalized = _normalize_keyword_term(seed)
@@ -3228,40 +3236,48 @@ def keyword_lab_related():
             if not m or m.get("search_volume") is None or m.get("keyword_difficulty") is None:
                 missing_metrics.append(kw)
 
-        # Bulk fetch metrics live for missing keywords (limit to 100 keywords to stay within live API payload size)
+        # Bulk fetch metrics live for missing keywords (limit to 50 keywords for speed)
         if missing_metrics:
-            missing_metrics = missing_metrics[:100]
+            missing_metrics = missing_metrics[:50]
             
-            async def fetch_missing_metrics():
-                task_metrics = dataforseo_api.get_keyword_metrics(missing_metrics)
-                task_kd = dataforseo_api.get_keyword_difficulty(missing_metrics)
-                return await asyncio.gather(task_metrics, task_kd, return_exceptions=True)
-
-            metrics_results = asyncio.run(
-                asyncio.wait_for(
-                    fetch_missing_metrics(),
-                    timeout=DATAFORSEO_BULK_TIMEOUT_SECONDS,
+            # Fetch Volume Live
+            try:
+                ret_metrics = asyncio.run(
+                    asyncio.wait_for(
+                        dataforseo_api.get_keyword_metrics(missing_metrics),
+                        timeout=8.0
+                    )
                 )
-            )
-            ret_metrics, ret_kd = metrics_results
+                if ret_metrics:
+                    for row in ret_metrics:
+                        k = _normalize_keyword_term(row.get("keyword") or "")
+                        if k:
+                            if k not in metrics_map:
+                                metrics_map[k] = {"search_volume": None, "cpc": None, "keyword_difficulty": None}
+                            metrics_map[k]["search_volume"] = row.get("search_volume")
+                            metrics_map[k]["cpc"] = row.get("cpc")
+            except Exception as e:
+                logger.warning("Bulk metrics fetch failed or timed out: %s", e)
 
-            kd_map = {}
-            if not isinstance(ret_kd, Exception) and ret_kd:
-                for row in ret_kd:
-                    k = _normalize_keyword_term(row.get("keyword") or "")
-                    if k and row.get("keyword_difficulty") is not None:
-                        kd_map[k] = row.get("keyword_difficulty")
-
-            if not isinstance(ret_metrics, Exception) and ret_metrics:
-                for row in ret_metrics:
-                    k = _normalize_keyword_term(row.get("keyword") or "")
-                    if k:
-                        if k not in metrics_map:
-                            metrics_map[k] = {"search_volume": None, "cpc": None, "keyword_difficulty": None}
-                        metrics_map[k]["search_volume"] = row.get("search_volume")
-                        metrics_map[k]["cpc"] = row.get("cpc")
-                        if k in kd_map:
-                            metrics_map[k]["keyword_difficulty"] = kd_map[k]
+            # Fetch KD Live
+            try:
+                ret_kd = asyncio.run(
+                    asyncio.wait_for(
+                        dataforseo_api.get_keyword_difficulty(missing_metrics),
+                        timeout=8.0
+                    )
+                )
+                kd_map = {}
+                if ret_kd:
+                    for row in ret_kd:
+                        k = _normalize_keyword_term(row.get("keyword") or "")
+                        if k and row.get("keyword_difficulty") is not None:
+                            kd_map[k] = row.get("keyword_difficulty")
+                            if k not in metrics_map:
+                                metrics_map[k] = {"search_volume": None, "cpc": None, "keyword_difficulty": None}
+                            metrics_map[k]["keyword_difficulty"] = row.get("keyword_difficulty")
+            except Exception as e:
+                logger.warning("Bulk KD fetch failed or timed out: %s", e)
 
         related_keywords = []
         seen = {seed_normalized}
