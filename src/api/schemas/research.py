@@ -26,7 +26,7 @@ class ResearchRequestSchema(BaseModel):
     rag_enabled: Optional[bool] = Field(True)
     source_strategy: Optional[str] = Field(
         None,
-        pattern="^(dossier_only|dossier_plus_rag|dossier_plus_rag_plus_live_web|rag_only)$"
+        pattern="^(dossier_only|dossier_plus_rag|dossier_plus_rag_plus_live_web|rag_only|live_web_only|rag_plus_live_web)$"
     )
     rag_collection: Optional[str] = Field(None)
     rag_endpoint: Optional[str] = Field(None)

@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
-import { Loader2, Wand2, Save, BarChart3, BrainCircuit, ShieldCheck, AlertTriangle, Globe2, Tag, KeyRound, FolderTree } from 'lucide-react';
+import { Loader2, Wand2, Save, BarChart3, BrainCircuit, ShieldCheck, AlertTriangle, Globe2, Tag, KeyRound, FolderTree, Plus, Trash2, Sparkles, Target } from 'lucide-react';
 import axios from 'axios';
 import { Gauge } from '../components/Gauge';
 import { METRIC_EXPLANATIONS } from '../types/metrics';
@@ -302,19 +302,17 @@ function titleHasKeywordAndWithinLengthLimit(
 }
 
 function inferSourceMode(params: {
-    sourceStrategy?: string | null;
-    ragCollection?: string | null;
+    sourceStrategy?: string;
+    ragCollection?: string;
     claimsValidation?: boolean;
 }): string {
-    const explicit = String(params.sourceStrategy || '').trim();
+    const explicit = params.sourceStrategy;
     if (explicit && SOURCE_MODE_OPTIONS.some((opt) => opt.value === explicit)) {
         return explicit;
     }
 
     const hasRag = Boolean(String(params.ragCollection || '').trim());
-    const claimsValidation = Boolean(params.claimsValidation);
-    if (!hasRag) return 'dossier_only';
-    return claimsValidation ? 'dossier_plus_rag_plus_live_web' : 'dossier_plus_rag';
+    return hasRag ? 'rag_plus_live_web' : 'live_web_only';
 }
 
 const TONE_OPTIONS = [
@@ -343,10 +341,9 @@ const EMPHASIS_OPTIONS = [
 ];
 
 const SOURCE_MODE_OPTIONS = [
-    { label: "Dossier only", value: "dossier_only" },
-    { label: "Dossier + RAG", value: "dossier_plus_rag" },
-    { label: "Dossier + RAG + Live Web Refresh", value: "dossier_plus_rag_plus_live_web" },
     { label: "RAG only", value: "rag_only" },
+    { label: "Competitor-Informed Live Web", value: "live_web_only" },
+    { label: "RAG + Competitor-Informed Live Web", value: "rag_plus_live_web" },
 ];
 
 const SOURCE_STRATEGY_REFACTOR_ENABLED =
@@ -375,6 +372,11 @@ export const ContentStudio: React.FC = () => {
     const [refinementDraft, setRefinementDraft] = useState({ title: '', description: '' });
     const [approvedRefinementSignature, setApprovedRefinementSignature] = useState('');
 
+    // Competitor Analysis States
+    const [mustHaves, setMustHaves] = useState<string[]>([]);
+    const [competitiveEdge, setCompetitiveEdge] = useState<string[]>([]);
+    const [analyzingCompetitors, setAnalyzingCompetitors] = useState(false);
+
     const clearStoredGenerationSession = React.useCallback((targetArticleId?: string | null) => {
         if (!targetArticleId) return;
         localStorage.removeItem(getContentStudioGenerationStorageKey(targetArticleId));
@@ -398,7 +400,7 @@ export const ContentStudio: React.FC = () => {
         ragCollection: '',
         ragQueryType: '/query_hybrid_enhanced',
         emphasis: 'balanced',
-        sourceMode: 'dossier_only',
+        sourceMode: 'live_web_only',
         claimsValidation: true,
         writerNotes: '',
     });
@@ -625,6 +627,10 @@ export const ContentStudio: React.FC = () => {
                     writerNotes: (artData as any).writer_notes || '',
                 });
 
+                const competitorAnalysis = normalizedArticle.idea_metadata?.competitor_analysis || {};
+                setMustHaves(competitorAnalysis.must_haves || []);
+                setCompetitiveEdge(competitorAnalysis.competitive_edge || []);
+
             } catch (error) {
                 logSafeError("Error fetching data:", error);
             } finally {
@@ -676,9 +682,9 @@ export const ContentStudio: React.FC = () => {
             if (SOURCE_STRATEGY_REFACTOR_ENABLED && field === 'ragCollection') {
                 const hasRag = Boolean(String(value || '').trim());
                 if (!hasRag) {
-                    next.sourceMode = 'dossier_only';
-                } else if (prev.sourceMode === 'dossier_only') {
-                    next.sourceMode = 'dossier_plus_rag';
+                    next.sourceMode = 'live_web_only';
+                } else if (prev.sourceMode === 'live_web_only') {
+                    next.sourceMode = 'rag_plus_live_web';
                 }
             }
             return next;
@@ -765,6 +771,17 @@ export const ContentStudio: React.FC = () => {
             const primaryKws = keywordList.length > 0 ? [keywordList[0]] : [];
             const secondaryKws = keywordList.length > 1 ? keywordList.slice(1) : [];
 
+            const existingMetadata = article?.idea_metadata || {};
+            const competitorAnalysis = {
+                ...(existingMetadata.competitor_analysis || {}),
+                must_haves: mustHaves,
+                competitive_edge: competitiveEdge,
+            };
+            const updatedMetadata = {
+                ...existingMetadata,
+                competitor_analysis: competitorAnalysis,
+            };
+
             const updates = {
                 Title: effectiveFormData.title,
                 userDescription: effectiveFormData.description,
@@ -779,6 +796,7 @@ export const ContentStudio: React.FC = () => {
                 rag_query_type: effectiveFormData.ragQueryType,
                 rag_balance_emphasis: effectiveFormData.emphasis,
                 estimated_reading_time: readingTime,
+                idea_metadata: updatedMetadata,
             };
 
             const { error } = await supabase
@@ -795,11 +813,8 @@ export const ContentStudio: React.FC = () => {
                     ...updates,
                     writer_notes: effectiveFormData.writerNotes,
                     domain: effectiveFormData.domain || undefined,
-                    // Ensure type compatibility if needed, though spreading updates should work 
-                    // if keys match partial ArticleData. 
-                    // However, updates uses 'Tone' while interface sends 'tone' (Title vs title)
-                    // We just need to ensure estimated_reading_time is set.
                     estimated_reading_time: readingTime,
+                    idea_metadata: updatedMetadata,
                 });
             }
 
@@ -815,6 +830,61 @@ export const ContentStudio: React.FC = () => {
             return false;
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleAnalyzeCompetitors = async () => {
+        if (!articleId) return;
+        setAnalyzingCompetitors(true);
+        setError(null);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const token = session?.access_token;
+            if (!token) throw new Error("No session token found");
+
+            const response = await axios.post(
+                `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/v1/research/analyze-competitors`,
+                {
+                    article_id: articleId,
+                    primary_keyword: formData.keywords.split(',')[0]?.trim() || undefined,
+                    brief: formData.description || undefined,
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'X-API-Key': 'development'
+                    }
+                }
+            );
+
+            if (response.data && response.data.success) {
+                const analysis = response.data.data;
+                const newMustHaves = analysis.must_haves || [];
+                const newEdge = analysis.competitive_edge || [];
+                setMustHaves(newMustHaves);
+                setCompetitiveEdge(newEdge);
+
+                // Update local article metadata
+                if (article) {
+                    const existingMetadata = article.idea_metadata || {};
+                    const updatedMetadata = {
+                        ...existingMetadata,
+                        competitor_analysis: analysis
+                    };
+                    setArticle({
+                        ...article,
+                        idea_metadata: updatedMetadata
+                    });
+                }
+            } else {
+                throw new Error("Competitor analysis failed or returned invalid response.");
+            }
+        } catch (err: any) {
+            logSafeError("Error analyzing competitors:", err);
+            const msg = err.response?.data?.message || err.message || "Failed to analyze competitors.";
+            setError(msg);
+        } finally {
+            setAnalyzingCompetitors(false);
         }
     };
 
@@ -1022,8 +1092,8 @@ export const ContentStudio: React.FC = () => {
                     ragCollection: formData.ragCollection,
                     claimsValidation: formData.claimsValidation,
                 });
-            const strategyUsesRag = ['dossier_plus_rag', 'dossier_plus_rag_plus_live_web', 'rag_only'].includes(selectedSourceMode);
-            const strategyUsesLiveWeb = selectedSourceMode === 'dossier_plus_rag_plus_live_web';
+            const strategyUsesRag = ['rag_plus_live_web', 'rag_only'].includes(selectedSourceMode);
+            const strategyUsesLiveWeb = ['rag_plus_live_web', 'live_web_only'].includes(selectedSourceMode);
 
             if (seoShiftEnabled && primaryKw) {
                 const geoCtx = computeGEOContext(primaryKw, article?.domain);
@@ -1171,7 +1241,7 @@ export const ContentStudio: React.FC = () => {
         ragCollection: formData.ragCollection,
         claimsValidation: formData.claimsValidation,
     });
-    const sourceModeUsesRag = ['dossier_plus_rag', 'dossier_plus_rag_plus_live_web', 'rag_only'].includes(selectedSourceMode);
+    const sourceModeUsesRag = ['rag_plus_live_web', 'rag_only'].includes(selectedSourceMode);
 
     return (
         <div className="max-w-5xl mx-auto space-y-6">
@@ -1493,6 +1563,129 @@ export const ContentStudio: React.FC = () => {
                                             onChange={(e) => handleChange('claimsValidation', e.target.checked)}
                                         />
                                         <label htmlFor="claims" className="text-sm">Enable Claims Validation (Web Search)</label>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Competitor Analysis Card */}
+                    <div className="bg-background p-6 rounded-2xl border border-border shadow-sm space-y-4">
+                        <div className="flex items-center justify-between border-b border-border pb-3">
+                            <div className="flex items-center gap-2">
+                                <Target className="w-5 h-5 text-primary" />
+                                <h3 className="font-semibold text-foreground">Competitor Analysis</h3>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleAnalyzeCompetitors}
+                                disabled={analyzingCompetitors || !formData.keywords}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-xl text-xs font-semibold transition disabled:opacity-50"
+                            >
+                                {analyzingCompetitors ? (
+                                    <>
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        <span>Analyzing...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Sparkles className="w-3.5 h-3.5" />
+                                        <span>Analyze Competitors</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+
+                        <p className="text-xs text-muted-foreground">
+                            Define critical competitor coverage areas (Must Haves) and unique perspectives or gaps to cover (Competitive Edges).
+                            Click "Analyze Competitors" to auto-discover these from Google top results, or customize them manually below.
+                        </p>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                            {/* Must Haves */}
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-sm font-medium text-foreground">Must Haves (Competitor Coverage)</h4>
+                                    <button
+                                        type="button"
+                                        onClick={() => setMustHaves([...mustHaves, ''])}
+                                        className="flex items-center gap-1 text-xs text-primary hover:underline"
+                                    >
+                                        <Plus className="w-3 h-3" /> Add
+                                    </button>
+                                </div>
+                                {mustHaves.length === 0 ? (
+                                    <div className="text-xs text-muted-foreground bg-muted/30 border border-dashed rounded-xl p-4 text-center">
+                                        No competitor must-haves defined yet.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                                        {mustHaves.map((item, idx) => (
+                                            <div key={idx} className="flex items-center gap-2">
+                                                <input
+                                                    type="text"
+                                                    className="flex-1 px-3 py-1.5 rounded-xl border border-border bg-muted/30 text-xs focus:ring-1 focus:ring-ring outline-none"
+                                                    value={item}
+                                                    onChange={(e) => {
+                                                        const updated = [...mustHaves];
+                                                        updated[idx] = e.target.value;
+                                                        setMustHaves(updated);
+                                                    }}
+                                                    placeholder="e.g. Include a checklist of required tools"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setMustHaves(mustHaves.filter((_, i) => i !== idx))}
+                                                    className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Competitive Edge */}
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-sm font-medium text-foreground">Competitive Edge (Gaps / Unique Value)</h4>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCompetitiveEdge([...competitiveEdge, ''])}
+                                        className="flex items-center gap-1 text-xs text-primary hover:underline"
+                                    >
+                                        <Plus className="w-3 h-3" /> Add
+                                    </button>
+                                </div>
+                                {competitiveEdge.length === 0 ? (
+                                    <div className="text-xs text-muted-foreground bg-muted/30 border border-dashed rounded-xl p-4 text-center">
+                                        No competitive edges defined yet.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                                        {competitiveEdge.map((item, idx) => (
+                                            <div key={idx} className="flex items-center gap-2">
+                                                <input
+                                                    type="text"
+                                                    className="flex-1 px-3 py-1.5 rounded-xl border border-border bg-muted/30 text-xs focus:ring-1 focus:ring-ring outline-none"
+                                                    value={item}
+                                                    onChange={(e) => {
+                                                        const updated = [...competitiveEdge];
+                                                        updated[idx] = e.target.value;
+                                                        setCompetitiveEdge(updated);
+                                                    }}
+                                                    placeholder="e.g. Provide a downloadable template"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setCompetitiveEdge(competitiveEdge.filter((_, i) => i !== idx))}
+                                                    className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
                             </div>

@@ -100,6 +100,12 @@ class ArticleStructureGenerator:
             keywords = research_data.get('keywords', '')
             tone = research_data.get('tone', 'journalistic')
             target_word_count = research_data.get('target_word_count', 2000)
+
+            # Add competitor analysis insights to the brief
+            competitor_context = self._build_competitor_context_text(research_data)
+            if competitor_context:
+                brief = f"{brief}\n\nCompetitor Analysis Insights:\n{competitor_context}"
+
             dossier_context = self._build_dossier_context_text(research_data)
             brief_with_dossier = f"{brief}\n\nDeep Research Context:\n{dossier_context}" if dossier_context else brief
             
@@ -190,6 +196,27 @@ class ArticleStructureGenerator:
         if stat_lines:
             parts.append("Important Statistics: " + " | ".join(stat_lines))
         return "\n".join(parts)
+
+    def _build_competitor_context_text(self, research_data: Dict[str, Any]) -> str:
+        """Build a compact competitor analysis context string for structure planning prompts."""
+        analysis = research_data.get('competitor_analysis') or {}
+        if not isinstance(analysis, dict):
+            return ""
+        
+        must_haves = analysis.get('must_haves') or []
+        edge = analysis.get('competitive_edge') or []
+        
+        lines = []
+        if must_haves:
+            lines.append("Competitor Must-Haves (topics/details you MUST cover in this article):")
+            for item in must_haves[:6]:
+                lines.append(f"- {item}")
+        if edge:
+            lines.append("Our Competitive Edge (topics/gaps competitors missed or cover poorly that we should emphasize):")
+            for item in edge[:6]:
+                lines.append(f"- {item}")
+        
+        return "\n".join(lines) if lines else ""
     
     def _determine_article_type(self, brief: str) -> str:
         """Determine article type based on brief content."""
@@ -573,6 +600,7 @@ class ArticleStructureGenerator:
                     - Order sections logically with smooth transitions
                     - Include practical, actionable content
                     - Distribute evidence and claims evenly across sections
+                    - Integrate Competitor Insights: Incorporate all "Competitor Must-Haves" across the sections, and dedicate specific focus or sub-points to highlight our "Competitive Edge".
                     
                     ⚠️ CRITICAL: AVOID GENERIC SECTION TITLES ⚠️
                     - DO NOT use generic titles like: "Getting Started", "Step-by-Step Process", "Key Concepts", "Practical Applications", "Understanding the Fundamentals", "Real-World Implementation"

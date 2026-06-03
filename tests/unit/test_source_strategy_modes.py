@@ -131,43 +131,26 @@ def _base_result(strategy: str):
     }
 
 
-def test_mode_dossier_only_skips_rag_and_web(monkeypatch):
+def test_mode_live_web_only_uses_web_without_rag(monkeypatch):
     counters = _Counters()
     _patch_dependencies(monkeypatch, counters)
 
-    result = tasks._collect_evidence(_base_result("dossier_only"))
+    result = tasks._collect_evidence(_base_result("live_web_only"))
 
     assert counters.rag_calls == 0
-    assert counters.linkup_calls == 0
-    assert result["stage_data"]["dossier_sources"] == 2
+    assert counters.linkup_calls >= 1
     assert result["stage_data"]["rag_sources"] == 0
-    assert result["stage_data"]["web_sources"] == 0
-    assert len(result["citation_seed_evidence"]) == 2
+    assert result["stage_data"]["web_sources"] >= 1
 
 
-def test_mode_dossier_plus_rag_uses_rag_only(monkeypatch):
+def test_mode_rag_plus_live_web_uses_both_sources(monkeypatch):
     counters = _Counters()
     _patch_dependencies(monkeypatch, counters)
 
-    result = tasks._collect_evidence(_base_result("dossier_plus_rag"))
-
-    assert counters.rag_calls == 1
-    assert counters.linkup_calls == 0
-    assert result["stage_data"]["dossier_sources"] == 2
-    assert result["stage_data"]["rag_sources"] >= 1
-    assert result["stage_data"]["web_sources"] == 0
-    assert len(result["citation_seed_evidence"]) >= 3
-
-
-def test_mode_dossier_plus_rag_plus_live_web_uses_both_sources(monkeypatch):
-    counters = _Counters()
-    _patch_dependencies(monkeypatch, counters)
-
-    result = tasks._collect_evidence(_base_result("dossier_plus_rag_plus_live_web"))
+    result = tasks._collect_evidence(_base_result("rag_plus_live_web"))
 
     assert counters.rag_calls == 1
     assert counters.linkup_calls >= 1
-    assert result["stage_data"]["dossier_sources"] == 2
     assert result["stage_data"]["rag_sources"] >= 1
     assert result["stage_data"]["web_sources"] >= 1
 
@@ -180,7 +163,6 @@ def test_mode_rag_only_uses_rag_without_web(monkeypatch):
 
     assert counters.rag_calls == 1
     assert counters.linkup_calls == 0
-    assert result["stage_data"]["dossier_sources"] == 0
     assert result["stage_data"]["rag_sources"] >= 1
     assert result["stage_data"]["web_sources"] == 0
 
@@ -202,25 +184,11 @@ def test_legacy_inference_defaults_to_dual_source_when_rag_and_claims_enabled(mo
     assert result["stage_data"]["web_sources"] >= 1
 
 
-def test_dossier_plus_rag_empty_rag_preserves_dossier_evidence(monkeypatch):
+def test_source_strategy_raises_when_no_allowed_source_has_evidence(monkeypatch):
     counters = _Counters()
     counters.rag_results = []
     _patch_dependencies(monkeypatch, counters)
-
-    result = tasks._collect_evidence(_base_result("dossier_plus_rag"))
-
-    assert counters.rag_calls == 1
-    assert counters.linkup_calls == 0
-    assert result["stage_data"]["dossier_sources"] == 2
-    assert result["stage_data"]["rag_sources"] == 0
-    assert len(result["citation_seed_evidence"]) == 2
-
-
-def test_source_strategy_raises_when_no_allowed_source_has_evidence(monkeypatch):
-    counters = _Counters()
-    _patch_dependencies(monkeypatch, counters)
-    result_data = _base_result("dossier_only")
-    result_data["research_data"].pop("research_dossier")
+    result_data = _base_result("rag_only")
     result_data["research_data"]["prior_citations"] = []
 
     with pytest.raises(RuntimeError, match="No citation-grade evidence collected"):

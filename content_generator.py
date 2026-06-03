@@ -637,6 +637,14 @@ class ContentGenerator:
         # Log tone for debugging
         self.logger.info(f"Preparing content context for section '{title}' with tone: {tone}")
         
+        # Competitor analysis context
+        analysis = research_data.get('competitor_analysis') or {}
+        must_haves = []
+        competitive_edge = []
+        if isinstance(analysis, dict):
+            must_haves = analysis.get('must_haves') or []
+            competitive_edge = analysis.get('competitive_edge') or []
+
         return {
             "title": title,
             "subtitle": subtitle,
@@ -654,6 +662,8 @@ class ContentGenerator:
             "dossier_claims": dossier_claims,
             "dossier_unresolved_questions": dossier_questions,
             "writer_notes": research_data.get('writer_notes', ''),
+            "must_haves": must_haves,
+            "competitive_edge": competitive_edge,
         }
     
     def _build_user_message(self, context: Dict[str, Any]) -> str:
@@ -686,6 +696,19 @@ Do NOT just quote them literally; express these ideas in the writer's voice as f
 {context['writer_notes']}
 """
         
+        # Build competitor insights block
+        competitor_part = ""
+        must_haves = context.get('must_haves') or []
+        edge = context.get('competitive_edge') or []
+        if must_haves or edge:
+            competitor_part = "\n========================================\nCOMPETITOR ANALYSIS & STRATEGIC POSITIONING\n========================================\n"
+            if must_haves:
+                competitor_part += "Competitor Must-Haves (MUST ensure these topics/details are covered if relevant to this section):\n"
+                competitor_part += "\n".join(f"- {item}" for item in must_haves) + "\n"
+            if edge:
+                competitor_part += "Our Competitive Edge (EMPHASIZE these unique value angles/gaps competitors missed):\n"
+                competitor_part += "\n".join(f"- {item}" for item in edge) + "\n"
+
         return f"""Section: {context['title']}
 {subtitle_line}========================================
 TONE REMINDER - CRITICAL
@@ -711,7 +734,7 @@ Deep Research Dossier Context:
 Summary: {context.get('dossier_summary', '')}
 Primary Claims: {', '.join(context.get('dossier_claims', []))}
 Unresolved Questions: {', '.join(context.get('dossier_unresolved_questions', []))}
-
+{competitor_part}
 CRITICAL: If the evidence above contains specific examples (especially those marked with instruction_topic), you MUST include those exact examples in your content. Do not create generic examples - use the researched examples provided in the evidence.
 {self._get_citation_instructions(context)}
 

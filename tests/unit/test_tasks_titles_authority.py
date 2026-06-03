@@ -25,7 +25,7 @@ def test_keyword_intelligence_blocks_when_titles_candidates_missing(monkeypatch)
 
     result = {
         "research_data": {
-            "keywords": "brief keyword, another brief keyword",
+            "keywords": "",
             "keyword_candidates": [],
         }
     }

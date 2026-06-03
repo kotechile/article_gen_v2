@@ -105,10 +105,9 @@ _CONTRADICTION_MARKERS = (
 )
 _SOURCE_TYPES = ("expert", "primary", "secondary", "commercial", "community")
 _SOURCE_STRATEGIES = {
-    "dossier_only",
-    "dossier_plus_rag",
-    "dossier_plus_rag_plus_live_web",
     "rag_only",
+    "live_web_only",
+    "rag_plus_live_web",
 }
 
 _GENERIC_SECTION_QUERY_MARKERS = (
@@ -134,7 +133,6 @@ def _normalize_source_strategy(research_data: Dict[str, Any]) -> Dict[str, Any]:
     Normalize source strategy into explicit capability flags.
 
     The new strategy controls whether we can use:
-    - dossier context
     - RAG evidence
     - live web refresh (Linkup/Tavily)
     """
@@ -142,21 +140,27 @@ def _normalize_source_strategy(research_data: Dict[str, Any]) -> Dict[str, Any]:
     rag_enabled = bool(research_data.get("rag_enabled", False))
     claims_enabled = bool(research_data.get("claims_research_enabled", True))
 
+    # Map legacy strategies for compatibility
+    if requested == "dossier_only":
+        requested = "live_web_only"
+    elif requested in ("dossier_plus_rag", "dossier_plus_rag_plus_live_web"):
+        requested = "rag_plus_live_web"
+
     if requested in _SOURCE_STRATEGIES:
         strategy = requested
     else:
         if rag_enabled and claims_enabled:
-            strategy = "dossier_plus_rag_plus_live_web"
+            strategy = "rag_plus_live_web"
         elif rag_enabled:
-            strategy = "dossier_plus_rag"
+            strategy = "rag_only"
         else:
-            strategy = "dossier_only"
+            strategy = "live_web_only"
 
     capabilities = {
         "strategy": strategy,
-        "use_dossier": strategy in {"dossier_only", "dossier_plus_rag", "dossier_plus_rag_plus_live_web"},
-        "use_rag": strategy in {"dossier_plus_rag", "dossier_plus_rag_plus_live_web", "rag_only"},
-        "use_live_web": strategy == "dossier_plus_rag_plus_live_web",
+        "use_dossier": False, # Dossier is retired
+        "use_rag": strategy in {"rag_plus_live_web", "rag_only"},
+        "use_live_web": strategy in {"rag_plus_live_web", "live_web_only"},
     }
     return capabilities
 
@@ -1607,6 +1611,134 @@ def _refresh_dossier_via_deep_research(
     }
 
 
+def run_competitor_analysis_sync(
+    primary_keyword: str,
+    brief: str,
+    llm_client: Any,
+) -> Dict[str, Any]:
+    """
+    Perform a search for the focus keyword, take the top 2-3 results,
+    and ask the LLM to extract must-haves, competitive edge, and competitor list.
+    """
+    logger.info(f"Starting competitor analysis for keyword: {primary_keyword}")
+    
+    # 1. Search Tavily / Linkup for focus keyword
+    competitors_raw = []
+    # Try Linkup first
+    try:
+        linkup_api_key = get_linkup_api_key() or os.getenv('LINKUP_API_KEY')
+        if linkup_api_key:
+            linkup_client = create_linkup_client(api_key=linkup_api_key, cache_enabled=True)
+            linkup_response = linkup_client.search(SearchQuery(query=primary_keyword, depth='standard'))
+            if linkup_response.success:
+                competitors_raw = linkup_response.results
+                logger.info(f"Linkup returned {len(competitors_raw)} competitor search results.")
+    except Exception as e:
+        logger.warning(f"Linkup competitor search failed: {e}")
+
+    # Try Tavily as fallback
+    if not competitors_raw:
+        try:
+            from supabase_client import get_api_key
+            tavily_api_key = get_api_key('tavily') or os.getenv('TAVILY_API_KEY')
+            if tavily_api_key:
+                from tavily_client import create_tavily_client
+                tavily_client = create_tavily_client(api_key=tavily_api_key)
+                tavily_response = tavily_client.search(SearchQuery(query=primary_keyword))
+                if tavily_response.success:
+                    competitors_raw = tavily_response.results
+                    logger.info(f"Tavily returned {len(competitors_raw)} competitor search results.")
+        except Exception as e:
+            logger.warning(f"Tavily competitor search failed: {e}")
+
+    # Restrict to top 2-3 organic competitors
+    top_competitors = competitors_raw[:3]
+    
+    if not top_competitors:
+        logger.warning("No competitor pages found via search. Returning empty analysis structure.")
+        return {
+            "competitors": [],
+            "must_haves": [],
+            "competitive_edge": []
+        }
+
+    formatted = []
+    for idx, comp in enumerate(top_competitors):
+        title = getattr(comp, 'title', 'Untitled') or 'Untitled'
+        url = getattr(comp, 'url', '') or ''
+        content = getattr(comp, 'content', '') or getattr(comp, 'snippet', '') or ''
+        formatted.append(f"Competitor #{idx+1}:\nTitle: {title}\nURL: {url}\nExcerpt: {content[:1000]}")
+    formatted_str = "\n\n".join(formatted)
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are an expert SEO and competitive content analyst.\n"
+                "Your task is to analyze search results for a focus keyword, identify "
+                "what the top ranking competitors cover (Must Haves), and identify what "
+                "they miss or cover poorly (Competitive Edge) to help us write a superior article."
+            )
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Focus Keyword: {primary_keyword}\n"
+                f"Article Brief: {brief}\n\n"
+                f"Competitor Search Results:\n{formatted_str}\n\n"
+                "Analyze the competitor search results above.\n"
+                "Generate a JSON object with the following structure:\n"
+                "{\n"
+                '  "competitors": [\n'
+                "    {\n"
+                '      "title": "Competitor Page Title",\n'
+                '      "url": "Competitor Page URL",\n'
+                '      "summary": "Brief summary of their angle and depth"\n'
+                "    }\n"
+                "  ],\n"
+                '  "must_haves": [\n'
+                '    "Specific topic/details/features that are standard across these pages and MUST be included in our article"\n'
+                "  ],\n"
+                '  "competitive_edge": [\n'
+                '    "Angles, topics, interactive tools, or details that competitors do NOT cover or cover poorly, which our article should focus on to stand out"\n'
+                "  ]\n"
+                "}\n\n"
+                "Ensure that 'must_haves' are concrete and topic-specific, not generic templates.\n"
+                "Ensure that 'competitive_edge' points out real gaps in the competitor content (e.g. lack of interactive steps, missing calculations, lack of deep case studies, outdated data).\n\n"
+                "Return ONLY the raw JSON object. Do not include markdown code block formatting or any other text before or after the JSON."
+            )
+        }
+    ]
+
+    try:
+        response = llm_client.generate(messages)
+        result = _extract_json_payload_from_response(response.content)
+        if isinstance(result, dict) and ("must_haves" in result or "competitive_edge" in result):
+            cleaned_result = {
+                "competitors": result.get("competitors") or [],
+                "must_haves": result.get("must_haves") or [],
+                "competitive_edge": result.get("competitive_edge") or []
+            }
+            cleaned_result["must_haves"] = list(dict.fromkeys([str(x).strip() for x in cleaned_result["must_haves"] if str(x).strip()]))
+            cleaned_result["competitive_edge"] = list(dict.fromkeys([str(x).strip() for x in cleaned_result["competitive_edge"] if str(x).strip()]))
+            logger.info("Successfully extracted competitor analysis.")
+            return cleaned_result
+    except Exception as e:
+        logger.error(f"Error parsing or calling LLM for competitor analysis: {e}")
+
+    return {
+        "competitors": [
+            {
+                "title": getattr(c, 'title', 'Untitled') or 'Untitled',
+                "url": getattr(c, 'url', '') or '',
+                "summary": "No summary available"
+            } for c in top_competitors
+        ],
+        "must_haves": [],
+        "competitive_edge": []
+    }
+
+
 def _ensure_dossier_prerequisites(
     article_id: str,
     title_row: Dict[str, Any],
@@ -1615,8 +1747,7 @@ def _ensure_dossier_prerequisites(
     use_dossier_context: bool,
 ) -> None:
     """Ensure dossier-backed modes have reusable dossier and citations before generation continues."""
-    if not use_dossier_context:
-        return
+    return
 
     research_dossier = title_row.get('research_dossier')
     dossier_status = title_row.get('dossier_status')
@@ -1931,6 +2062,49 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         supabase=supabase,
                         use_dossier_context=use_dossier_context,
                     )
+
+                    # Load competitor analysis from idea_metadata
+                    existing_metadata = title_row.get('idea_metadata') or {}
+                    if isinstance(existing_metadata, str):
+                        try:
+                            existing_metadata = json.loads(existing_metadata)
+                        except Exception:
+                            existing_metadata = {}
+                    if not isinstance(existing_metadata, dict):
+                        existing_metadata = {}
+                    
+                    competitor_analysis = existing_metadata.get('competitor_analysis')
+                    
+                    # If empty and use_live_web is True, execute inline competitor analysis fallback
+                    if not competitor_analysis and current_source_caps.get("use_live_web"):
+                        logger.info("Competitor analysis not found in metadata. Running inline competitor analysis fallback...")
+                        primary_keyword = str(title_row.get('primary_keyword') or title_row.get('search_phrase') or '').strip()
+                        brief = str(title_row.get('userDescription') or '').strip()
+                        if primary_keyword:
+                            try:
+                                provider = research_data.get('provider', 'gemini')
+                                model = research_data.get('model', 'gemini-2.5-flash')
+                                api_key = get_llm_api_key(provider, model)
+                                llm_client = create_llm_client(
+                                    provider=provider,
+                                    model=model,
+                                    api_key=api_key,
+                                    temperature=0.2,
+                                    timeout=60,
+                                )
+                                competitor_analysis = run_competitor_analysis_sync(
+                                    primary_keyword=primary_keyword,
+                                    brief=brief,
+                                    llm_client=llm_client
+                                )
+                                existing_metadata['competitor_analysis'] = competitor_analysis
+                                supabase.table('Titles').update({'idea_metadata': existing_metadata}).eq('id', article_id).execute()
+                                logger.info("Successfully executed and saved inline competitor analysis fallback.")
+                            except Exception as comp_err:
+                                logger.error(f"Failed inline competitor analysis fallback: {comp_err}")
+                    
+                    research_data['competitor_analysis'] = competitor_analysis or {}
+
                     if research_data.get('prior_citations'):
                         logger.info(
                             "Loaded %s prior citations for article %s as dossier-backed evidence",

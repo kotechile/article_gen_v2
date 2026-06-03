@@ -61,7 +61,7 @@ class ResearchRequest(BaseModel):
     include_in_text_citations: bool = Field(default=True, description="Include in-text citation references like [^1], [^2] in the content")
     source_strategy: Optional[str] = Field(
         default=None,
-        description="Optional source strategy: dossier_only, dossier_plus_rag, dossier_plus_rag_plus_live_web, rag_only",
+        description="Optional source strategy: rag_only, live_web_only, rag_plus_live_web",
     )
     
     # RAG Configuration (optional)
@@ -94,6 +94,8 @@ class ResearchRequest(BaseModel):
             "dossier_plus_rag",
             "dossier_plus_rag_plus_live_web",
             "rag_only",
+            "live_web_only",
+            "rag_plus_live_web",
         }
         if normalized not in supported:
             raise ValueError(f"source_strategy must be one of: {', '.join(sorted(supported))}")

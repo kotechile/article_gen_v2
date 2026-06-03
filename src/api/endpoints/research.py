@@ -41,10 +41,9 @@ from supabase_client import (
 logger = logging.getLogger(__name__)
 
 _SOURCE_STRATEGIES = {
-    "dossier_only",
-    "dossier_plus_rag",
-    "dossier_plus_rag_plus_live_web",
     "rag_only",
+    "live_web_only",
+    "rag_plus_live_web",
 }
 
 
@@ -63,27 +62,31 @@ def _normalize_source_strategy_payload(data: dict) -> None:
     rag_enabled = bool(data.get("rag_enabled", False))
     claims_enabled = bool(data.get("claims_research_enabled", True))
 
+    # Map legacy strategies to new options for backward compatibility
+    if requested_strategy == "dossier_only":
+        requested_strategy = "live_web_only"
+    elif requested_strategy in ("dossier_plus_rag", "dossier_plus_rag_plus_live_web"):
+        requested_strategy = "rag_plus_live_web"
+
     if requested_strategy in _SOURCE_STRATEGIES:
         strategy = requested_strategy
     else:
+        # Infer strategy from legacy flags if requested_strategy is missing or unknown
         if rag_enabled and claims_enabled:
-            strategy = "dossier_plus_rag_plus_live_web"
+            strategy = "rag_plus_live_web"
         elif rag_enabled:
-            strategy = "dossier_plus_rag"
+            strategy = "rag_only"
         else:
-            strategy = "dossier_only"
+            strategy = "live_web_only"
 
     # Keep strategy as normalized canonical field.
     data["source_strategy"] = strategy
 
     # Keep legacy booleans aligned to avoid regressions in old code paths.
-    if strategy == "dossier_only":
+    if strategy == "live_web_only":
         data["rag_enabled"] = False
-        data["claims_research_enabled"] = False
-    elif strategy == "dossier_plus_rag":
-        data["rag_enabled"] = True
-        data["claims_research_enabled"] = False
-    elif strategy == "dossier_plus_rag_plus_live_web":
+        data["claims_research_enabled"] = True
+    elif strategy == "rag_plus_live_web":
         data["rag_enabled"] = True
         data["claims_research_enabled"] = True
     elif strategy == "rag_only":
@@ -930,6 +933,128 @@ Additional article context:
         return jsonify({
             "success": False,
             "message": f"Failed to refine metadata: {str(exc)}",
+        }), 500
+
+
+@research_bp.route('/research/analyze-competitors', methods=['POST'])
+@require_api_key
+@limiter.limit("30 per minute")
+def analyze_competitors():
+    """
+    Perform a competitor search and LLM analysis synchronously to extract must-haves & competitive edge.
+    Saves the results under idea_metadata.competitor_analysis in Supabase.
+    """
+    try:
+        if not request.is_json:
+            return jsonify({
+                "success": False,
+                "message": "Content-Type must be application/json",
+            }), 400
+
+        data = request.get_json() or {}
+        article_id = str(data.get("article_id") or "").strip()
+        primary_keyword = str(data.get("primary_keyword") or "").strip()
+        brief = str(data.get("brief") or "").strip()
+
+        if not article_id:
+            return jsonify({
+                "success": False,
+                "message": "article_id is required.",
+            }), 400
+
+        from supabase_client import get_supabase_client
+        supabase = get_supabase_client()
+        if not supabase:
+            return jsonify({
+                "success": False,
+                "message": "Supabase client not available",
+            }), 500
+
+        # Fetch the Titles row
+        response = supabase.table('Titles').select('*').eq('id', article_id).limit(1).execute()
+        if not response.data:
+            return jsonify({
+                "success": False,
+                "message": f"Article title row not found for ID {article_id}",
+            }), 404
+
+        title_row = response.data[0]
+        
+        # Fallbacks
+        if not primary_keyword:
+            primary_keyword = str(title_row.get('primary_keyword') or title_row.get('search_phrase') or '').strip()
+            if not primary_keyword:
+                candidates = title_row.get('keyword_candidates_json') or []
+                if candidates and isinstance(candidates, list):
+                    primary_keyword = candidates[0]
+        
+        if not primary_keyword:
+            return jsonify({
+                "success": False,
+                "message": "No primary keyword found or provided for this article.",
+            }), 400
+
+        if not brief:
+            brief = str(title_row.get('userDescription') or '').strip()
+
+        # Resolve LLM Provider
+        resolved = resolve_llm_provider(task_role=LLM_ROLE_FINAL_REVIEW)
+        provider = str(resolved.get("provider") or "").strip().lower()
+        model = str(resolved.get("model") or "").strip()
+        api_key = str(resolved.get("api_key") or "").strip()
+
+        if not provider or not model:
+            resolved = resolve_llm_provider(task_role=LLM_ROLE_ARTICLE_GENERATION)
+            provider = str(resolved.get("provider") or "").strip().lower()
+            model = str(resolved.get("model") or "").strip()
+            api_key = str(resolved.get("api_key") or "").strip()
+
+        if not provider or not model or not api_key:
+            return jsonify({
+                "success": False,
+                "message": "Could not resolve LLM provider or API key for competitor analysis.",
+            }), 500
+
+        llm_client = create_llm_client(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            temperature=0.2,
+            timeout=60,
+        )
+
+        from tasks import run_competitor_analysis_sync
+        analysis = run_competitor_analysis_sync(
+            primary_keyword=primary_keyword,
+            brief=brief,
+            llm_client=llm_client
+        )
+
+        # Merge competitor analysis into the existing idea_metadata
+        existing_metadata = title_row.get('idea_metadata') or {}
+        if isinstance(existing_metadata, str):
+            try:
+                existing_metadata = json.loads(existing_metadata)
+            except Exception:
+                existing_metadata = {}
+        if not isinstance(existing_metadata, dict):
+            existing_metadata = {}
+
+        existing_metadata["competitor_analysis"] = analysis
+
+        # Save back to database
+        supabase.table('Titles').update({'idea_metadata': existing_metadata}).eq('id', article_id).execute()
+
+        return jsonify({
+            "success": True,
+            "data": analysis
+        }), 200
+
+    except Exception as exc:
+        logger.error("Competitor analysis endpoint failed", exc_info=True)
+        return jsonify({
+            "success": False,
+            "message": f"Failed to analyze competitors: {str(exc)}",
         }), 500
 
 

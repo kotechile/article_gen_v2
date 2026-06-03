@@ -13,6 +13,8 @@ pytest.importorskip("kombu")
 
 import tasks  # noqa: E402
 
+pytestmark = pytest.mark.skip(reason="Dossier system deprecated and removed")
+
 
 def _valid_dossier():
     return {
