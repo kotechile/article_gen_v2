@@ -3,13 +3,14 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
-import { Loader2, Wand2, Save, BarChart3, BrainCircuit, ShieldCheck, AlertTriangle, Globe2, Tag, KeyRound } from 'lucide-react';
+import { Loader2, Wand2, Save, BarChart3, BrainCircuit, ShieldCheck, AlertTriangle, Globe2, Tag, KeyRound, FolderTree } from 'lucide-react';
 import axios from 'axios';
 import { Gauge } from '../components/Gauge';
 import { METRIC_EXPLANATIONS } from '../types/metrics';
 import { MetricTooltip } from '../components/Tooltip';
 import { GenerationModal } from '../components/GenerationModal';
 import { KeywordIntelligenceModal } from '../components/KeywordIntelligenceModal';
+import { CategoryMappingModal } from '../components/CategoryMappingModal';
 import { computeGEOContext } from '../utils/seoUtils';
 import { contentIdeasService, mergeKeywordSelectionState } from '../services/content-ideas.service';
 import type { ContentIdea } from '../types/idea-burst';
@@ -367,6 +368,7 @@ export const ContentStudio: React.FC = () => {
     const [keywordValidationEnabled, setKeywordValidationEnabled] = useState(false);
     const [seoValidation, setSeoValidation] = useState<SEOValidation | null>(null);
     const [showKeywordModal, setShowKeywordModal] = useState(false);
+    const [showCategoryModal, setShowCategoryModal] = useState(false);
     const [showRefinementGate, setShowRefinementGate] = useState(false);
     const [requestingRefinement, setRequestingRefinement] = useState(false);
     const [refinementPreview, setRefinementPreview] = useState<MetadataRefinementPreview | null>(null);
@@ -1190,11 +1192,20 @@ export const ContentStudio: React.FC = () => {
                                 <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0" />
                                 <span className="text-sm font-semibold text-destructive">SEO Validation — Generation Blocked</span>
                             </div>
-                            <ul className="space-y-1 pl-6 list-disc">
+                            <ul className="space-y-1 pl-6 list-disc mb-3">
                                 {seoValidation.errors.map((e, i) => (
                                     <li key={i} className="text-xs text-destructive">{e}</li>
                                 ))}
                             </ul>
+                            <div className="pl-6 pb-2">
+                                <button
+                                    onClick={() => setShowCategoryModal(true)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-destructive/20 hover:bg-destructive/30 text-destructive border border-destructive/30 rounded-xl text-xs font-semibold transition"
+                                >
+                                    <FolderTree className="w-3.5 h-3.5" />
+                                    Map Website & Category
+                                </button>
+                            </div>
                         </div>
                     )}
                     {seoValidation.warnings.length > 0 && (
@@ -1227,6 +1238,14 @@ export const ContentStudio: React.FC = () => {
                     >
                         <KeyRound className="w-4 h-4" />
                         Keywords
+                    </button>
+                    <button
+                        onClick={() => setShowCategoryModal(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-background border border-border rounded-xl hover:bg-muted transition text-foreground"
+                        title="Map Website & WordPress Category"
+                    >
+                        <FolderTree className="w-4 h-4" />
+                        Map Category
                     </button>
                     <button
                         onClick={() => {
@@ -1887,6 +1906,43 @@ export const ContentStudio: React.FC = () => {
                         setFormData((prev) => ({
                             ...prev,
                             keywords: [primary, ...secondary].filter(Boolean).join(', '),
+                        }));
+                    }}
+                />
+            )}
+
+            {showCategoryModal && user?.id && article?.id && (
+                <CategoryMappingModal
+                    isOpen={showCategoryModal}
+                    onClose={() => setShowCategoryModal(false)}
+                    userId={user.id}
+                    currentDomain={article.domain}
+                    currentCategoryId={article.wordpress_category_id ?? undefined}
+                    currentParentCategoryId={article.wordpress_parent_category_id ?? undefined}
+                    onSave={async (domain, categoryId, parentCategoryId) => {
+                        const { error } = await supabase
+                            .from('Titles')
+                            .update({
+                                domain,
+                                wordpress_category_id: categoryId,
+                                wordpress_parent_category_id: parentCategoryId
+                            })
+                            .eq('id', article.id);
+
+                        if (error) throw error;
+
+                        setArticle(prev => {
+                            if (!prev) return prev;
+                            return {
+                                ...prev,
+                                domain,
+                                wordpress_category_id: categoryId,
+                                wordpress_parent_category_id: parentCategoryId
+                            };
+                        });
+                        setFormData(prev => ({
+                            ...prev,
+                            domain: domain || ''
                         }));
                     }}
                 />
