@@ -351,6 +351,25 @@ def _parse_keyword_list(raw_value: Any) -> List[str]:
     return []
 
 
+def _coerce_json_field(value: Any, fallback: Any = None) -> Any:
+    if value is None:
+        return fallback if fallback is not None else {}
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        val_strip = value.strip()
+        if not val_strip:
+            return fallback if fallback is not None else {}
+        try:
+            parsed = json.loads(val_strip)
+            if isinstance(parsed, (dict, list)):
+                return parsed
+        except Exception:
+            pass
+    return fallback if fallback is not None else {}
+
+
+
 def _normalize_markdown_artifacts_to_html(raw_text: str) -> str:
     """
     Convert common markdown artifacts that occasionally leak from LLM outputs
@@ -2169,9 +2188,9 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     recovered_volume = int(title_row.get('selected_keyword_search_volume') or 0)
                     recovered_difficulty = float(title_row.get('selected_keyword_difficulty') or 0.0)
                     recovered_intent = str(title_row.get('selected_keyword_intent') or '').strip().lower()
-                    recovered_selected_keyword_metrics = title_row.get('selected_keyword_metrics_json') or {}
-                    recovered_keyword_metric_map = _normalize_keyword_metric_map(title_row.get('keyword_metrics_map') or {})
-                    recovered_raw_dataforseo_output = title_row.get('raw_dataforseo_output') or {}
+                    recovered_selected_keyword_metrics = _coerce_json_field(title_row.get('selected_keyword_metrics_json'), {})
+                    recovered_keyword_metric_map = _normalize_keyword_metric_map(_coerce_json_field(title_row.get('keyword_metrics_map'), {}))
+                    recovered_raw_dataforseo_output = _coerce_json_field(title_row.get('raw_dataforseo_output'), {})
 
                     explicit_request_primary = str(research_data.get('seo_primary_keyword') or '').strip()
                     explicit_request_secondary = research_data.get('seo_secondary_keywords') or []
@@ -2436,6 +2455,26 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         'excerpt': final_content.get('excerpt', ''),
                     }
 
+                    # Load current DB values to prevent overwriting user edits or race conditions
+                    current_row = {}
+                    current_metrics_json = {}
+                    current_raw_output = {}
+                    try:
+                        curr_resp = (
+                            supabase.table('Titles')
+                            .select(
+                                'selected_keyword_metrics_json, raw_dataforseo_output, primary_keyword, secondary_keywords, primary_keywords, secondary_keywords_json, Keywords, search_phrase, keyword_candidates_json, keyword_clusters_json, keyword_research_status, keyword_research_source, keyword_research_confidence, keyword_research_generated_at, selected_keyword_search_volume, selected_keyword_difficulty, selected_keyword_intent'
+                            )
+                            .eq('id', article_id)
+                            .execute()
+                        )
+                        if curr_resp.data:
+                            current_row = curr_resp.data[0]
+                            current_metrics_json = _coerce_json_field(current_row.get('selected_keyword_metrics_json'), {})
+                            current_raw_output = _coerce_json_field(current_row.get('raw_dataforseo_output'), {})
+                    except Exception as fetch_curr_err:
+                        logger.warning("Failed to fetch current Title row before final save: %s", fetch_curr_err)
+
                     optional_updates = {
                         'seo_title_optimized': final_content.get('seo_title_optimized', ''),
                         'metaTitle': final_content.get('metaTitle', ''),
@@ -2452,24 +2491,24 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         'quality_gate': final_content.get('quality_gate', {}),
                         'citations': citations_payload,
                         'selected_citations': selected_citation_indices,
-                        'keyword_candidates_json': final_content.get('keyword_candidates_json', []),
-                        'keyword_clusters_json': final_content.get('keyword_clusters_json', []),
-                        'keyword_research_status': final_content.get('keyword_research_status', ''),
-                        'keyword_research_source': final_content.get('keyword_research_source', ''),
-                        'keyword_research_confidence': final_content.get('keyword_research_confidence', 0.0),
-                        'keyword_research_generated_at': final_content.get('keyword_research_generated_at'),
-                        'primary_keyword': final_content.get('primary_keyword', ''),
-                        'primary_keywords': [final_content.get('primary_keyword')] if final_content.get('primary_keyword') else [],
-                        'secondary_keywords': final_content.get('secondary_keywords_json', []),
-                        'search_phrase': final_content.get('primary_keyword', ''),
-                        'secondary_keywords_json': final_content.get('secondary_keywords_json', []),
-                        'supporting_entities_json': final_content.get('supporting_entities_json', []),
-                        'priority_questions_json': final_content.get('priority_questions_json', []),
-                        'selected_keyword_search_volume': final_content.get('selected_keyword_search_volume', 0),
-                        'selected_keyword_difficulty': final_content.get('selected_keyword_difficulty', 0.0),
-                        'selected_keyword_intent': final_content.get('selected_keyword_intent', ''),
-                        'selected_keyword_metrics_json': final_content.get('selected_keyword_metrics_json', {}),
-                        'raw_dataforseo_output': final_content.get('raw_dataforseo_output', {}),
+                        'keyword_candidates_json': final_content.get('keyword_candidates_json') or _coerce_json_field(current_row.get('keyword_candidates_json'), []),
+                        'keyword_clusters_json': final_content.get('keyword_clusters_json') or _coerce_json_field(current_row.get('keyword_clusters_json'), []),
+                        'keyword_research_status': final_content.get('keyword_research_status') or current_row.get('keyword_research_status') or '',
+                        'keyword_research_source': final_content.get('keyword_research_source') or current_row.get('keyword_research_source') or '',
+                        'keyword_research_confidence': final_content.get('keyword_research_confidence') or current_row.get('keyword_research_confidence') or 0.0,
+                        'keyword_research_generated_at': final_content.get('keyword_research_generated_at') or current_row.get('keyword_research_generated_at'),
+                        'primary_keyword': final_content.get('primary_keyword') or current_row.get('primary_keyword') or '',
+                        'primary_keywords': ([final_content.get('primary_keyword')] if final_content.get('primary_keyword') else None) or _coerce_json_field(current_row.get('primary_keywords'), []),
+                        'secondary_keywords': final_content.get('secondary_keywords_json') or _coerce_json_field(current_row.get('secondary_keywords'), []),
+                        'search_phrase': final_content.get('primary_keyword') or current_row.get('search_phrase') or '',
+                        'secondary_keywords_json': final_content.get('secondary_keywords_json') or _coerce_json_field(current_row.get('secondary_keywords_json'), []),
+                        'supporting_entities_json': final_content.get('supporting_entities_json') or [],
+                        'priority_questions_json': final_content.get('priority_questions_json') or [],
+                        'selected_keyword_search_volume': final_content.get('selected_keyword_search_volume') or current_row.get('selected_keyword_search_volume') or 0,
+                        'selected_keyword_difficulty': final_content.get('selected_keyword_difficulty') or current_row.get('selected_keyword_difficulty') or 0.0,
+                        'selected_keyword_intent': final_content.get('selected_keyword_intent') or current_row.get('selected_keyword_intent') or '',
+                        'selected_keyword_metrics_json': final_content.get('selected_keyword_metrics_json') or current_metrics_json,
+                        'raw_dataforseo_output': final_content.get('raw_dataforseo_output') or current_raw_output,
                         'keyword_selection_reason': final_content.get('keyword_selection_reason', ''),
                         'keyword_strategy_version': final_content.get('keyword_strategy_version', ''),
                         'keyword_selection_source': final_content.get('keyword_selection_source', ''),

@@ -885,6 +885,9 @@ export const ContentStudio: React.FC = () => {
                 const newEdge = analysis.competitive_edge || [];
                 setMustHaves(newMustHaves);
                 setCompetitiveEdge(newEdge);
+                if (newMustHaves.length > 0 || newEdge.length > 0) {
+                    setUseCompetitorAnalysis(true);
+                }
 
                 // Update local article metadata
                 if (article) {
@@ -1552,24 +1555,30 @@ export const ContentStudio: React.FC = () => {
                                         </div>
 
                                         {/* Competitor Analysis option */}
-                                        <div className="flex items-start gap-3 p-3 rounded-xl border border-border bg-muted/30 hover:bg-muted/50 transition">
-                                            <input
-                                                id="source-competitor-checkbox"
-                                                type="checkbox"
-                                                className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-ring"
-                                                checked={useCompetitorAnalysis}
-                                                onChange={(e) => setUseCompetitorAnalysis(e.target.checked)}
-                                            />
-                                            <div className="flex-1">
-                                                <label htmlFor="source-competitor-checkbox" className="text-xs font-semibold text-foreground cursor-pointer flex items-center gap-1.5">
-                                                    <Target className="w-3.5 h-3.5 text-primary" />
-                                                    Competitor Analysis steering
-                                                </label>
-                                                <p className="text-[10px] text-muted-foreground mt-0.5">
-                                                    Steer the article outline and content based on must-haves and competitive edges.
-                                                </p>
-                                            </div>
-                                        </div>
+                                        {(() => {
+                                            const hasCompetitorData = mustHaves.some(val => val.trim() !== '') || competitiveEdge.some(val => val.trim() !== '');
+                                            return (
+                                                <div className={`flex items-start gap-3 p-3 rounded-xl border border-border bg-muted/30 transition ${!hasCompetitorData ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted/50'}`}>
+                                                    <input
+                                                        id="source-competitor-checkbox"
+                                                        type="checkbox"
+                                                        className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-ring disabled:cursor-not-allowed cursor-pointer"
+                                                        checked={useCompetitorAnalysis && hasCompetitorData}
+                                                        disabled={!hasCompetitorData}
+                                                        onChange={(e) => setUseCompetitorAnalysis(e.target.checked)}
+                                                    />
+                                                    <div className="flex-1">
+                                                        <label htmlFor="source-competitor-checkbox" className={`text-xs font-semibold text-foreground flex items-center gap-1.5 ${hasCompetitorData ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
+                                                            <Target className="w-3.5 h-3.5 text-primary" />
+                                                            Competitor Analysis steering {!hasCompetitorData && <span className="text-[10px] text-muted-foreground font-normal">(Run analysis below to enable)</span>}
+                                                        </label>
+                                                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                                                            Steer the article outline and content based on must-haves and competitive edges.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 )}
 
