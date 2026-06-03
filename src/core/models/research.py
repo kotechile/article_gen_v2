@@ -58,6 +58,7 @@ class ResearchRequest(BaseModel):
     # Optional Features
     claims_research_enabled: bool = Field(default=True, description="Enable claims research")
     rag_enabled: bool = Field(default=True, description="Enable RAG evidence collection")
+    competitor_analysis_enabled: bool = Field(default=True, description="Enable competitor analysis")
     include_in_text_citations: bool = Field(default=True, description="Include in-text citation references like [^1], [^2] in the content")
     source_strategy: Optional[str] = Field(
         default=None,
@@ -96,6 +97,7 @@ class ResearchRequest(BaseModel):
             "rag_only",
             "live_web_only",
             "rag_plus_live_web",
+            "none",
         }
         if normalized not in supported:
             raise ValueError(f"source_strategy must be one of: {', '.join(sorted(supported))}")

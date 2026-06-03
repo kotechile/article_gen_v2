@@ -44,6 +44,7 @@ _SOURCE_STRATEGIES = {
     "rag_only",
     "live_web_only",
     "rag_plus_live_web",
+    "none",
 }
 
 
@@ -76,8 +77,10 @@ def _normalize_source_strategy_payload(data: dict) -> None:
             strategy = "rag_plus_live_web"
         elif rag_enabled:
             strategy = "rag_only"
-        else:
+        elif claims_enabled:
             strategy = "live_web_only"
+        else:
+            strategy = "none"
 
     # Keep strategy as normalized canonical field.
     data["source_strategy"] = strategy
@@ -91,6 +94,9 @@ def _normalize_source_strategy_payload(data: dict) -> None:
         data["claims_research_enabled"] = True
     elif strategy == "rag_only":
         data["rag_enabled"] = True
+        data["claims_research_enabled"] = False
+    elif strategy == "none":
+        data["rag_enabled"] = False
         data["claims_research_enabled"] = False
 
 # Create blueprint

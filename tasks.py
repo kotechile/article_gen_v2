@@ -108,6 +108,7 @@ _SOURCE_STRATEGIES = {
     "rag_only",
     "live_web_only",
     "rag_plus_live_web",
+    "none",
 }
 
 _GENERIC_SECTION_QUERY_MARKERS = (
@@ -153,8 +154,10 @@ def _normalize_source_strategy(research_data: Dict[str, Any]) -> Dict[str, Any]:
             strategy = "rag_plus_live_web"
         elif rag_enabled:
             strategy = "rag_only"
-        else:
+        elif claims_enabled:
             strategy = "live_web_only"
+        else:
+            strategy = "none"
 
     capabilities = {
         "strategy": strategy,
@@ -2075,35 +2078,58 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     
                     competitor_analysis = existing_metadata.get('competitor_analysis')
                     
-                    # If empty and use_live_web is True, execute inline competitor analysis fallback
-                    if not competitor_analysis and current_source_caps.get("use_live_web"):
-                        logger.info("Competitor analysis not found in metadata. Running inline competitor analysis fallback...")
-                        primary_keyword = str(title_row.get('primary_keyword') or title_row.get('search_phrase') or '').strip()
-                        brief = str(title_row.get('userDescription') or '').strip()
-                        if primary_keyword:
-                            try:
-                                provider = research_data.get('provider', 'gemini')
-                                model = research_data.get('model', 'gemini-2.5-flash')
-                                api_key = get_llm_api_key(provider, model)
-                                llm_client = create_llm_client(
-                                    provider=provider,
-                                    model=model,
-                                    api_key=api_key,
-                                    temperature=0.2,
-                                    timeout=60,
-                                )
-                                competitor_analysis = run_competitor_analysis_sync(
-                                    primary_keyword=primary_keyword,
-                                    brief=brief,
-                                    llm_client=llm_client
-                                )
-                                existing_metadata['competitor_analysis'] = competitor_analysis
-                                supabase.table('Titles').update({'idea_metadata': existing_metadata}).eq('id', article_id).execute()
-                                logger.info("Successfully executed and saved inline competitor analysis fallback.")
-                            except Exception as comp_err:
-                                logger.error(f"Failed inline competitor analysis fallback: {comp_err}")
-                    
-                    research_data['competitor_analysis'] = competitor_analysis or {}
+                    # Determine if competitor analysis is enabled
+                    comp_enabled = True
+                    if 'competitor_analysis_enabled' in research_data:
+                        comp_enabled = bool(research_data['competitor_analysis_enabled'])
+                    elif isinstance(competitor_analysis, dict) and 'enabled' in competitor_analysis:
+                        comp_enabled = bool(competitor_analysis['enabled'])
+
+                    if not comp_enabled:
+                        logger.info("Competitor analysis is explicitly disabled for this task run.")
+                        research_data['competitor_analysis'] = {
+                            "enabled": False,
+                            "must_haves": [],
+                            "competitive_edge": []
+                        }
+                    else:
+                        # Ensure competitor_analysis contains enabled: True
+                        if isinstance(competitor_analysis, dict):
+                            competitor_analysis['enabled'] = True
+                        else:
+                            competitor_analysis = {'enabled': True}
+
+                        # If empty and use_live_web is True, execute inline competitor analysis fallback
+                        if not competitor_analysis or not (competitor_analysis.get('must_haves') or competitor_analysis.get('competitive_edge')):
+                            if current_source_caps.get("use_live_web"):
+                                logger.info("Competitor analysis not found in metadata. Running inline competitor analysis fallback...")
+                                primary_keyword = str(title_row.get('primary_keyword') or title_row.get('search_phrase') or '').strip()
+                                brief = str(title_row.get('userDescription') or '').strip()
+                                if primary_keyword:
+                                    try:
+                                        provider = research_data.get('provider', 'gemini')
+                                        model = research_data.get('model', 'gemini-2.5-flash')
+                                        api_key = get_llm_api_key(provider, model)
+                                        llm_client = create_llm_client(
+                                            provider=provider,
+                                            model=model,
+                                            api_key=api_key,
+                                            temperature=0.2,
+                                            timeout=60,
+                                        )
+                                        competitor_analysis = run_competitor_analysis_sync(
+                                            primary_keyword=primary_keyword,
+                                            brief=brief,
+                                            llm_client=llm_client
+                                        )
+                                        competitor_analysis['enabled'] = True
+                                        existing_metadata['competitor_analysis'] = competitor_analysis
+                                        supabase.table('Titles').update({'idea_metadata': existing_metadata}).eq('id', article_id).execute()
+                                        logger.info("Successfully executed and saved inline competitor analysis fallback.")
+                                    except Exception as comp_err:
+                                        logger.error(f"Failed inline competitor analysis fallback: {comp_err}")
+                        
+                        research_data['competitor_analysis'] = competitor_analysis or {}
 
                     if research_data.get('prior_citations'):
                         logger.info(

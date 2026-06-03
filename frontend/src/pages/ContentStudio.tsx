@@ -377,6 +377,11 @@ export const ContentStudio: React.FC = () => {
     const [competitiveEdge, setCompetitiveEdge] = useState<string[]>([]);
     const [analyzingCompetitors, setAnalyzingCompetitors] = useState(false);
 
+    // Source Options Checkbox States
+    const [useRag, setUseRag] = useState(false);
+    const [useLiveWeb, setUseLiveWeb] = useState(true);
+    const [useCompetitorAnalysis, setUseCompetitorAnalysis] = useState(true);
+
     const clearStoredGenerationSession = React.useCallback((targetArticleId?: string | null) => {
         if (!targetArticleId) return;
         localStorage.removeItem(getContentStudioGenerationStorageKey(targetArticleId));
@@ -630,6 +635,13 @@ export const ContentStudio: React.FC = () => {
                 const competitorAnalysis = normalizedArticle.idea_metadata?.competitor_analysis || {};
                 setMustHaves(competitorAnalysis.must_haves || []);
                 setCompetitiveEdge(competitorAnalysis.competitive_edge || []);
+                
+                const sourceStrat = normalizedArticle.source_strategy || '';
+                const hasRag = ['rag_only', 'rag_plus_live_web'].includes(sourceStrat) || (sourceStrat === '' && !!normalizedArticle.rag_collection_name);
+                const hasLiveWeb = ['live_web_only', 'rag_plus_live_web'].includes(sourceStrat) || (sourceStrat === '' && (artData as any).claims_research_enabled !== false);
+                setUseRag(hasRag);
+                setUseLiveWeb(hasLiveWeb);
+                setUseCompetitorAnalysis(competitorAnalysis.enabled !== false);
 
             } catch (error) {
                 logSafeError("Error fetching data:", error);
@@ -771,11 +783,20 @@ export const ContentStudio: React.FC = () => {
             const primaryKws = keywordList.length > 0 ? [keywordList[0]] : [];
             const secondaryKws = keywordList.length > 1 ? keywordList.slice(1) : [];
 
+            const selectedSourceMode = useRag && useLiveWeb
+                ? 'rag_plus_live_web'
+                : useRag
+                ? 'rag_only'
+                : useLiveWeb
+                ? 'live_web_only'
+                : 'none';
+
             const existingMetadata = article?.idea_metadata || {};
             const competitorAnalysis = {
                 ...(existingMetadata.competitor_analysis || {}),
                 must_haves: mustHaves,
                 competitive_edge: competitiveEdge,
+                enabled: useCompetitorAnalysis,
             };
             const updatedMetadata = {
                 ...existingMetadata,
@@ -797,6 +818,7 @@ export const ContentStudio: React.FC = () => {
                 rag_balance_emphasis: effectiveFormData.emphasis,
                 estimated_reading_time: readingTime,
                 idea_metadata: updatedMetadata,
+                source_strategy: selectedSourceMode,
             };
 
             const { error } = await supabase
@@ -1082,18 +1104,15 @@ export const ContentStudio: React.FC = () => {
 
             let generationBrief = effectiveDescription;
             let seodirective = '';
-            const selectedSourceMode = SOURCE_STRATEGY_REFACTOR_ENABLED
-                ? inferSourceMode({
-                    sourceStrategy: formData.sourceMode,
-                    ragCollection: formData.ragCollection,
-                    claimsValidation: formData.claimsValidation,
-                })
-                : inferSourceMode({
-                    ragCollection: formData.ragCollection,
-                    claimsValidation: formData.claimsValidation,
-                });
-            const strategyUsesRag = ['rag_plus_live_web', 'rag_only'].includes(selectedSourceMode);
-            const strategyUsesLiveWeb = ['rag_plus_live_web', 'live_web_only'].includes(selectedSourceMode);
+            const selectedSourceMode = useRag && useLiveWeb
+                ? 'rag_plus_live_web'
+                : useRag
+                ? 'rag_only'
+                : useLiveWeb
+                ? 'live_web_only'
+                : 'none';
+            const strategyUsesRag = useRag;
+            const strategyUsesLiveWeb = useLiveWeb;
 
             if (seoShiftEnabled && primaryKw) {
                 const geoCtx = computeGEOContext(primaryKw, article?.domain);
@@ -1146,6 +1165,7 @@ export const ContentStudio: React.FC = () => {
                 source_strategy: selectedSourceMode,
                 claims_research_enabled: strategyUsesLiveWeb,
                 rag_enabled: strategyUsesRag && !!formData.ragCollection,
+                competitor_analysis_enabled: useCompetitorAnalysis,
                 rag_collection_name: formData.ragCollection,
                 rag_endpoint: (strategyUsesRag && formData.ragCollection)
                     ? appSettings.rag_url + formData.ragQueryType
@@ -1236,12 +1256,14 @@ export const ContentStudio: React.FC = () => {
         return 'text-destructive';
     };
 
-    const selectedSourceMode = inferSourceMode({
-        sourceStrategy: formData.sourceMode,
-        ragCollection: formData.ragCollection,
-        claimsValidation: formData.claimsValidation,
-    });
-    const sourceModeUsesRag = ['rag_plus_live_web', 'rag_only'].includes(selectedSourceMode);
+    const selectedSourceMode = useRag && useLiveWeb
+        ? 'rag_plus_live_web'
+        : useRag
+        ? 'rag_only'
+        : useLiveWeb
+        ? 'live_web_only'
+        : 'none';
+    const sourceModeUsesRag = useRag;
 
     return (
         <div className="max-w-5xl mx-auto space-y-6">
@@ -1493,20 +1515,68 @@ export const ContentStudio: React.FC = () => {
                             </h4>
                             <div className="space-y-4">
                                 {SOURCE_STRATEGY_REFACTOR_ENABLED && (
-                                    <div>
-                                        <label className="block text-sm font-medium mb-1">Source Mode</label>
-                                        <select
-                                            className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
-                                            value={selectedSourceMode}
-                                            onChange={(e) => handleChange('sourceMode', e.target.value)}
-                                        >
-                                            {SOURCE_MODE_OPTIONS.map((opt) => (
-                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                            ))}
-                                        </select>
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                            Use Deep Research dossier as baseline; optionally add private RAG knowledge and live web refresh.
-                                        </p>
+                                    <div className="space-y-3 pt-2">
+                                        <label className="block text-sm font-medium text-foreground">Source & Context Options</label>
+                                        
+                                        {/* RAG option */}
+                                        <div className="flex items-start gap-3 p-3 rounded-xl border border-border bg-muted/30 hover:bg-muted/50 transition">
+                                            <input
+                                                id="source-rag-checkbox"
+                                                type="checkbox"
+                                                className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                                                checked={useRag}
+                                                onChange={(e) => setUseRag(e.target.checked)}
+                                            />
+                                            <div className="flex-1">
+                                                <label htmlFor="source-rag-checkbox" className="text-xs font-semibold text-foreground cursor-pointer flex items-center gap-1.5">
+                                                    <BrainCircuit className="w-3.5 h-3.5 text-primary" />
+                                                    RAG (Vector Database)
+                                                </label>
+                                                <p className="text-[10px] text-muted-foreground mt-0.5">
+                                                    Retrieve relevant factual content from your uploaded private RAG knowledge base.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* Live Web Research option */}
+                                        <div className="flex items-start gap-3 p-3 rounded-xl border border-border bg-muted/30 hover:bg-muted/50 transition">
+                                            <input
+                                                id="source-liveweb-checkbox"
+                                                type="checkbox"
+                                                className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                                                checked={useLiveWeb}
+                                                onChange={(e) => setUseLiveWeb(e.target.checked)}
+                                            />
+                                            <div className="flex-1">
+                                                <label htmlFor="source-liveweb-checkbox" className="text-xs font-semibold text-foreground cursor-pointer flex items-center gap-1.5">
+                                                    <Globe2 className="w-3.5 h-3.5 text-primary" />
+                                                    Live Web Research
+                                                </label>
+                                                <p className="text-[10px] text-muted-foreground mt-0.5">
+                                                    Perform search queries to fetch up-to-date facts, statistics, and citations during paragraph generation.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* Competitor Analysis option */}
+                                        <div className="flex items-start gap-3 p-3 rounded-xl border border-border bg-muted/30 hover:bg-muted/50 transition">
+                                            <input
+                                                id="source-competitor-checkbox"
+                                                type="checkbox"
+                                                className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                                                checked={useCompetitorAnalysis}
+                                                onChange={(e) => setUseCompetitorAnalysis(e.target.checked)}
+                                            />
+                                            <div className="flex-1">
+                                                <label htmlFor="source-competitor-checkbox" className="text-xs font-semibold text-foreground cursor-pointer flex items-center gap-1.5">
+                                                    <Target className="w-3.5 h-3.5 text-primary" />
+                                                    Competitor Analysis steering
+                                                </label>
+                                                <p className="text-[10px] text-muted-foreground mt-0.5">
+                                                    Steer the article outline and content based on must-haves and competitive edges.
+                                                </p>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 

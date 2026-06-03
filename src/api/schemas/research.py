@@ -24,9 +24,10 @@ class ResearchRequestSchema(BaseModel):
     target_word_count: Optional[int] = Field(2000, ge=500, le=10000)
     claims_research_enabled: Optional[bool] = Field(True)
     rag_enabled: Optional[bool] = Field(True)
+    competitor_analysis_enabled: Optional[bool] = Field(True)
     source_strategy: Optional[str] = Field(
         None,
-        pattern="^(dossier_only|dossier_plus_rag|dossier_plus_rag_plus_live_web|rag_only|live_web_only|rag_plus_live_web)$"
+        pattern="^(dossier_only|dossier_plus_rag|dossier_plus_rag_plus_live_web|rag_only|live_web_only|rag_plus_live_web|none)$"
     )
     rag_collection: Optional[str] = Field(None)
     rag_endpoint: Optional[str] = Field(None)
