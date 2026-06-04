@@ -604,6 +604,10 @@ export const ContentStudio: React.FC = () => {
                     setRagCollections(ragData || []);
                 }
 
+                const sourceStrat = normalizedArticle.source_strategy || '';
+                const hasRag = ['rag_only', 'rag_plus_live_web'].includes(sourceStrat) || (sourceStrat === '' && !!normalizedArticle.rag_collection_name);
+                const hasLiveWeb = ['live_web_only', 'rag_plus_live_web'].includes(sourceStrat) || (sourceStrat === '' && (artData as any).claims_research_enabled !== false);
+
                 // Initialize Form
                 setFormData({
                     title: normalizedArticle.Title || '',
@@ -636,9 +640,6 @@ export const ContentStudio: React.FC = () => {
                 setMustHaves(competitorAnalysis.must_haves || []);
                 setCompetitiveEdge(competitorAnalysis.competitive_edge || []);
                 
-                const sourceStrat = normalizedArticle.source_strategy || '';
-                const hasRag = ['rag_only', 'rag_plus_live_web'].includes(sourceStrat) || (sourceStrat === '' && !!normalizedArticle.rag_collection_name);
-                const hasLiveWeb = ['live_web_only', 'rag_plus_live_web'].includes(sourceStrat) || (sourceStrat === '' && (artData as any).claims_research_enabled !== false);
                 setUseRag(hasRag);
                 setUseLiveWeb(hasLiveWeb);
                 setUseCompetitorAnalysis(competitorAnalysis.enabled !== false);
