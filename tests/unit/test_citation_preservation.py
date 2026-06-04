@@ -68,3 +68,29 @@ def test_finalize_article_preserves_prior_citations_when_generation_returns_none
     assert len(final_article["citations"]) == 2
     assert final_article["citations"][0]["title"] == "Federal Reserve Mortgage Outlook"
     assert "References" in final_article["html_content"]
+
+
+def test_polish_and_format_article_uses_llm_and_preserves_content(mocker):
+    # Mock create_llm_client
+    mock_client = mocker.MagicMock()
+    mock_response = mocker.MagicMock()
+    mock_response.content = "<p>Polished text with citation [1] and [2].</p><table><tr><td>Table</td></tr></table>"
+    mock_client.generate.return_value = mock_response
+    mocker.patch("tasks.create_llm_client", return_value=mock_client)
+
+    html_in = "<p>Raw text with citation [1] and [2].</p>"
+    research_data = {
+        "tone": "professional",
+        "writer_notes": "Use firsthand style",
+        "primary_keyword": "test keyword",
+    }
+    structure = {"title": "Test Title"}
+
+    out = tasks._polish_and_format_article(html_in, research_data, structure)
+
+    # Verify generate was called with expected prompt elements
+    mock_client.generate.assert_called_once()
+    assert "[1]" in out
+    assert "[2]" in out
+    assert "<table>" in out
+

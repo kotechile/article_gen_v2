@@ -1049,6 +1049,106 @@ Full article:
     return _render_key_takeaways_html(items)
 
 
+def _polish_and_format_article(
+    html_content: str,
+    research_data: Dict[str, Any],
+    structure: Dict[str, Any],
+) -> str:
+    """
+    Polishing/formatting agent that runs at the end of content generation.
+    It takes the concatenated article HTML content and polishes it to ensure:
+    1) No walls of text: keep paragraphs short (2-4 sentences max).
+    2) Use H3/H4 subheadings to break down long sections where appropriate.
+    3) Ensure 1-4 comparative HTML tables explaining concepts and numbers are present.
+    4) Ensure writer's notes/firsthand narrative are woven in smoothly and naturally.
+    5) Keep ALL in-text citation markers like [1], [2], [^1], etc. intact and unchanged.
+    """
+    if not html_content or not html_content.strip():
+        return html_content
+
+    # Extract tone / writer notes from research_data
+    writer_notes = str(research_data.get("writer_notes") or "").strip()
+    tone = str(research_data.get("tone") or "").strip()
+    primary_keyword = str(research_data.get("primary_keyword") or "").strip()
+
+    # Log action
+    logger.info("Initializing Formatting/Polishing Agent pass...")
+
+    # Initialize client for final review/polishing
+    review_provider, review_model, review_key = get_llm_provider_for_role(LLM_ROLE_FINAL_REVIEW)
+    provider = review_provider or research_data.get('provider', 'openai')
+    model = review_model or research_data.get('model', 'gpt-4')
+    api_key = review_key or research_data.get('api_key') or research_data.get('llm_key', '')
+    
+    client = create_llm_client(
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        temperature=0.1,  # Low temperature to avoid hallucination or altering the core content/facts
+        timeout=120,      # Give it plenty of time
+        max_retries=2,
+        max_tokens=6000,
+    )
+
+    prompt = f"""
+You are a professional editor and polishing agent. Your job is to format and polish the given article content (in HTML) to meet strict quality guidelines.
+Do NOT lose, omit, or modify any facts, concepts, numbers, references, or information. Keep the core meaning entirely intact.
+
+Strict Quality Guidelines to enforce:
+1. **NO WALLS OF TEXT**: Keep all paragraphs short and digestible (typically 2 to 4 sentences max). If you encounter any long paragraphs, split them.
+2. **SUBHEADING STRUCTURE**: Introduce relevant, descriptive <h3> and <h4> subheadings to organize and break down any sections that are long or dense.
+3. **COMPARATIVE TABLES**: Ensure the article contains 1 to 4 clean HTML tables (<table>, <tr>, <th>, <td>) to compare concepts, list metrics, summarize numerical data, or structure information. If there are no tables in the original text, you MUST construct 1-4 relevant comparative tables based on the context of the article.
+4. **WRITER'S PERSONAL TOUCH**: Weave the writer's notes/instructions/firsthand narrative naturally into the text in a firsthand, authoritative, or tone-appropriate manner.
+5. **KEEP CITATION MARKERS INTACT**: Keep all in-text citation markers like [1], [2], [3], [^1], etc. exactly where they are in the text. DO NOT modify, delete, or rename them.
+
+INPUT INFORMATION:
+- Primary Tone: {tone}
+- Writer Notes: {writer_notes}
+- Primary Keyword: {primary_keyword}
+
+Original HTML Content to format and polish:
+{html_content}
+
+Output instructions:
+- Output ONLY the polished and formatted HTML content.
+- Do NOT wrap the output in markdown code blocks (e.g. do not use ```html).
+- Do NOT output any preamble, explanations, notes, or concluding text. Just return the clean HTML.
+""".strip()
+
+    try:
+        response = client.generate(
+            [
+                {"role": "system", "content": "You are a professional HTML formatting and polishing editor. Return clean, formatted HTML only. Do not wrap in markdown code blocks."},
+                {"role": "user", "content": prompt},
+            ]
+        )
+        content = response.content
+        if not content:
+            logger.warning("Polishing agent returned empty response. Falling back to original content.")
+            return html_content
+
+        # Strip any accidental ```html wrappers
+        cleaned = content.strip()
+        if cleaned.startswith("```html"):
+            cleaned = cleaned[7:]
+        elif cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        
+        cleaned = cleaned.strip()
+        if not cleaned:
+            logger.warning("Cleaned polished content was empty. Falling back to original content.")
+            return html_content
+
+        logger.info(f"Polishing pass complete. Original chars: {len(html_content)}, Polished chars: {len(cleaned)}")
+        return cleaned
+
+    except Exception as e:
+        logger.error(f"Error in polishing agent pass: {str(e)}")
+        return html_content
+
+
 def _generate_faq_from_article(
     *,
     llm_client: Any,
@@ -3241,15 +3341,12 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                     
                     # Include draft title if provided for better focus
                     draft_title = research_data.get('draft_title', '')
-                    dossier_context = " ".join(
-                        [part for part in [dossier_summary, " ".join(dossier_claims), " ".join(dossier_questions)] if part]
-                    ).strip()
                     strategy_prefix = keyword_strategy_text or keywords
                     intent_hint = f" intent:{target_intent}" if target_intent else ""
                     if draft_title:
-                        rag_query_text = f"{strategy_prefix} {draft_title} {brief_context} {dossier_context}{intent_hint}"
+                        rag_query_text = f"{strategy_prefix} {draft_title}{intent_hint}"
                     else:
-                        rag_query_text = f"{strategy_prefix} {brief_context} {dossier_context}{intent_hint}"
+                        rag_query_text = f"{strategy_prefix} {brief_context}{intent_hint}"
                     logger.info(f"Creating RAG query:")
                     logger.info(f"  - Brief: '{brief}'")
                     logger.info(f"  - Keywords: '{keywords}'")
@@ -5302,6 +5399,9 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 else:
                     logger.warning(f"Finalization debug - No content found for section '{heading}'")
         
+        # Apply late-stage Formatting/Polishing Agent pass
+        full_content = _polish_and_format_article(full_content, research_data, structure)
+
         # If still empty, create a basic structure
         # If still empty, raise an error - do NOT create fake success message
         # If still empty or very short (just headings), raise an error

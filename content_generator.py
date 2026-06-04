@@ -486,6 +486,29 @@ class ContentGenerator:
         """
         # Use the standalone function to avoid code duplication
         return get_tone_specific_instructions(tone)
+
+    def _get_writer_notes_instructions(self, context: Dict[str, Any]) -> str:
+        notes = context.get('writer_notes')
+        if not notes:
+            return ""
+        return f"""
+                    ========================================
+                    MANDATORY: WEAVE IN WRITER'S NOTES
+                    ========================================
+                    The writer has provided these specific personal thoughts, experiences, opinions, or notes:
+                    "{notes}"
+                    
+                    You MUST weave these personal notes and firsthand experiences naturally into this section content as the author's own voice. Do not quote them as external quotes; state them as the author's personal experiences, thoughts, or reflections. Make sure they are prominent and well-integrated.
+                    """
+
+    def _get_readability_instructions(self) -> str:
+        return """
+                    ========================================
+                    MANDATORY READABILITY & STRUCTURE RULES:
+                    ========================================
+                    - Avoid big walls of text. Keep paragraphs very short (2 to 4 sentences max).
+                    - You MUST divide this section using descriptive subheadings (H3 or H4) if the text is longer than two paragraphs. Never output a long block of uninterrupted paragraphs.
+                    """
     
     def _get_human_writing_instructions(self) -> str:
         """
@@ -746,6 +769,9 @@ Previous Context:
                     "role": "system",
                     "content": f"""You are an expert content writer. Write clear, useful content for a {context['tone']} article.
                     
+                    {self._get_writer_notes_instructions(context)}
+                    {self._get_readability_instructions()}
+                    
                     ========================================
                     ⚠️ CRITICAL: THE TONE FOR THIS ARTICLE IS {context['tone'].upper()} ⚠️
                     ========================================
@@ -919,6 +945,9 @@ Previous Context:
                     "role": "system",
                     "content": f"""You are an expert content writer. Create a clear, useful list for a {context['tone']} article.
                     
+                    {self._get_writer_notes_instructions(context)}
+                    {self._get_readability_instructions()}
+                    
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
                     - Create a well-structured list
@@ -1027,6 +1056,9 @@ Previous Context:
                     "role": "system",
                     "content": f"""You are an expert instructional writer. Create a clear step-by-step guide for a {context['tone']} article.
                     
+                    {self._get_writer_notes_instructions(context)}
+                    {self._get_readability_instructions()}
+                    
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
                     - Create clear, actionable steps
@@ -1088,6 +1120,9 @@ Previous Context:
                 {
                     "role": "system",
                     "content": f"""You are an expert analytical writer. Create a detailed comparison for a {context['tone']} article.
+                    
+                    {self._get_writer_notes_instructions(context)}
+                    {self._get_readability_instructions()}
                     
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
@@ -1215,9 +1250,12 @@ Previous Context:
                     "role": "system",
                     "content": f"""You are an expert data analyst and content writer. Create clear table-based content for a {context['tone']} article.
                     
+                    {self._get_writer_notes_instructions(context)}
+                    {self._get_readability_instructions()}
+                    
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
-                    - Create detailed, data-rich content with tables when appropriate
+                    - Create detailed, data-rich content with a comparative table explaining concepts, numbers, features, or strategies. Including a comparative table is MANDATORY in this section.
                     - Target approximately {word_count_target} words
                     - Cover the key points: {', '.join(context['key_points'])}
                     - Use evidence and claims to support data presentation when available
@@ -1817,16 +1855,16 @@ Previous Context:
             else:
                 processed_parts.append(part)
         
-        # 2. Check for single subsection
-        if len(valid_h3_indices) == 1:
-            idx = valid_h3_indices[0]
-            h3_part = processed_parts[idx]
-            
-            # Extract content inside tags (removing <h3> wrapper)
-            h3_content = re.sub(r'</?h3>', '', h3_part, flags=re.IGNORECASE).strip()
-            
-            # Replace with bold paragraph
-            processed_parts[idx] = f"<p><strong>{h3_content}</strong></p>"
+        # 2. Check for single subsection (Disabled to allow single subheadings for better readability)
+        # if len(valid_h3_indices) == 1:
+        #     idx = valid_h3_indices[0]
+        #     h3_part = processed_parts[idx]
+        #     
+        #     # Extract content inside tags (removing <h3> wrapper)
+        #     h3_content = re.sub(r'</?h3>', '', h3_part, flags=re.IGNORECASE).strip()
+        #     
+        #     # Replace with bold paragraph
+        #     processed_parts[idx] = f"<p><strong>{h3_content}</strong></p>"
             
         return "".join(processed_parts)
     
