@@ -186,10 +186,23 @@ def test_legacy_inference_defaults_to_dual_source_when_rag_and_claims_enabled(mo
 
 def test_source_strategy_raises_when_no_allowed_source_has_evidence(monkeypatch):
     counters = _Counters()
-    counters.rag_results = []
     _patch_dependencies(monkeypatch, counters)
-    result_data = _base_result("rag_only")
+    
+    class DummyEmptyLinkupClient:
+        def search(self, _query):
+            counters.linkup_calls += 1
+            return SimpleNamespace(success=True, error=None, results=[])
+    monkeypatch.setattr(tasks, "create_linkup_client", lambda **kwargs: DummyEmptyLinkupClient())
+    
+    result_data = _base_result("live_web_only")
     result_data["research_data"]["prior_citations"] = []
 
     with pytest.raises(RuntimeError, match="No citation-grade evidence collected"):
         tasks._collect_evidence(result_data)
+
+    # Verify that rag_only bypasses the RuntimeError check and returns empty evidence list
+    rag_result_data = _base_result("rag_only")
+    rag_result_data["research_data"]["prior_citations"] = []
+    counters.rag_results = []
+    res = tasks._collect_evidence(rag_result_data)
+    assert res["evidence"] == []

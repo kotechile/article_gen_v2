@@ -3612,9 +3612,16 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 "Generation was stopped to avoid publishing an ungrounded article."
             )
             if source_strategy_enabled:
-                logger.error(message)
-                raise RuntimeError(message)
-            logger.info("No evidence collected - proceeding without evidence sources")
+                if source_caps['strategy'] in ('rag_only', 'none'):
+                    logger.warning(
+                        f"No evidence collected for strategy '{source_caps['strategy']}', but bypassing strict failure "
+                        f"to allow manual RAG/source handling later."
+                    )
+                else:
+                    logger.error(message)
+                    raise RuntimeError(message)
+            else:
+                logger.info("No evidence collected - proceeding without evidence sources")
         
         logger.info(f"Collected {len(evidence)} total evidence sources")
         
