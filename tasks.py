@@ -953,9 +953,9 @@ def _normalize_faq_items(payload: Any) -> List[Dict[str, str]]:
             continue
         seen.add(dedupe_key)
         cleaned.append({"question": question, "answer": answer})
-        if len(cleaned) >= 5:
+        if len(cleaned) >= 8:
             break
-    return cleaned[:5] if len(cleaned) >= 1 else []
+    return cleaned[:8] if len(cleaned) >= 1 else []
 
 
 def _render_key_takeaways_html(items: List[str]) -> str:
@@ -1063,7 +1063,7 @@ You are writing the final FAQ section for a professional article.
 Read the full article and return STRICT JSON only.
 
 Rules:
-- Generate 3 to 5 FAQs.
+- Generate 5 to 8 FAQs.
 - Questions must reflect realistic reader follow-up questions about the article.
 - Answers must be concise, direct, and professional.
 - Each answer should be 1 to 3 sentences.
@@ -1105,12 +1105,12 @@ def _generate_faq_from_article_html_fallback(
 
     prompt = f"""
 You are writing the final FAQ section for a professional article.
-Read the full article and generate a FAQ section containing 3 to 5 FAQs.
+Read the full article and generate a FAQ section containing 5 to 8 FAQs.
 Output the FAQ directly as HTML using H3 tags for questions and P tags for answers.
 Do not include any outer wrappers, markdown code blocks, metadata, preamble, reasoning, analysis, or introductory text. Just output the HTML elements.
 
 Rules:
-- Generate 3 to 5 FAQs.
+- Generate 5 to 8 FAQs.
 - Questions must reflect realistic reader follow-up questions about the article.
 - Answers must be concise, direct, and professional (1 to 3 sentences).
 - Do not mention prompts, instructions, reasoning, analysis, SEO, GEO, keywords, or citations.

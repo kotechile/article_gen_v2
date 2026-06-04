@@ -634,8 +634,8 @@ class ArticleStructureGenerator:
                     - "table": Data-rich content with tables
 
                     TABLE PLANNING RULES:
-                    - Across the entire article, plan between 0 and 4 sections with "table" or "comparison" content types.
-                    - Plan tables/comparisons ONLY for sections where structured comparison or data presentation adds genuine value. If a section is purely expository and has no data/metrics or options to compare, use "paragraph" or "list". Do not force tables on sections that do not need them.
+                    - Across the entire article, plan between 1 and 4 sections with "table" or "comparison" content types (so at least one table/comparison is always included to explain concepts and numbers).
+                    - Plan tables/comparisons for sections where structured comparison, data presentation, concepts, or numbers add genuine value.
                     
                     IMPORTANT: Return ONLY valid JSON. Do not include any text before or after the JSON. The JSON must be parseable.
                     
@@ -906,6 +906,7 @@ Create {section_count} topic-specific sections that directly relate to this arti
                     title=f"Mastering {main_topic.title()}" if main_topic else "Mastering the Process",
                     key_points=["Detailed approach", "Best practices", "Pro tips"],
                     word_count_target=600,
+                    content_type="table",
                     order=3,
                     importance="high"
                 ),
@@ -931,6 +932,7 @@ Create {section_count} topic-specific sections that directly relate to this arti
                     title="Market Analysis",
                     key_points=["Current state", "Trends and patterns", "Data insights"],
                     word_count_target=500,
+                    content_type="table",
                     order=2,
                     importance="high"
                 ),
@@ -964,6 +966,7 @@ Create {section_count} topic-specific sections that directly relate to this arti
                     title=f"Top In-Demand {skill_focus} for 2026" if '2026' in brief_lower or '2025' in brief_lower else f"Essential {skill_focus} to Master",
                     key_points=claim_themes[:3] if claim_themes else ["Key skills", "Why they matter", "Market demand"],
                     word_count_target=500,
+                    content_type="table",
                     order=2,
                     importance="high"
                 ),
@@ -1000,6 +1003,7 @@ Create {section_count} topic-specific sections that directly relate to this arti
                     title=f"Understanding {main_topic}" if main_topic else "Core Concepts",
                     key_points=claim_themes[:3] if claim_themes else ["Core concepts", "Important principles", "Key insights"],
                     word_count_target=400,
+                    content_type="table",
                     order=2,
                     importance="high"
                 ),

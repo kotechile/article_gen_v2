@@ -208,12 +208,8 @@ class ContentGenerator:
             elif content_type == "comparison":
                 content_blocks.extend(self._generate_comparison_content(context, word_count_target))
             elif content_type == "table":
-                # Only use table content if we have evidence/data to work with
-                if context.get('relevant_evidence') and len(context['relevant_evidence']) > 0:
-                    content_blocks.extend(self._generate_table_content(context, word_count_target))
-                else:
-                    # Fall back to paragraph content if no evidence available
-                    content_blocks.extend(self._generate_paragraph_content(context, word_count_target))
+                # Generate table content directly
+                content_blocks.extend(self._generate_table_content(context, word_count_target))
             else:  # Default to paragraph
                 content_blocks.extend(self._generate_paragraph_content(context, word_count_target))
             
@@ -512,6 +508,7 @@ class ContentGenerator:
                     - Read it aloud—if it sounds like a speech, make it messier
                     - Avoid parallel structure; humans repeat words accidentally and change phrasing mid-thought
                     - Use em-dashes for interruptions, not just punctuation
+                    - CRITICAL: Avoid big walls of text. Keep paragraphs very short (typically 2 to 4 sentences max). If a section contains a lot of explanation or is long, break it up using descriptive subheadings (H3 or H4) to keep it readable and engaging.
                     
                     CONTEXT & IMPERFECTION:
                     - Reference pop culture, current events, or shared human experiences
@@ -1242,16 +1239,11 @@ Previous Context:
                     - CRITICAL: DO NOT use the main section title "{context['title']}" as a subheading (H3)
                     
                     TABLE USAGE GUIDELINES:
-                    - ONLY create tables when you have specific, meaningful data to present
-                    - Use tables for: market data, price comparisons, regional statistics, trend analysis
-                    - Use tables for: pros/cons lists, feature comparisons, timeline data
-                    - Use tables for: numerical data, percentages, rankings, survey results
-                    - Use tables for: performance metrics, cost analysis, decision matrices
-                    - DO NOT create tables with placeholder or generic data
-                    - If you don't have real data, use paragraphs and lists instead
+                    - Use tables for: market data, price comparisons, regional statistics, trend analysis, pros/cons lists, feature comparisons, timeline data, numerical data, percentages, rankings, survey results, performance metrics, cost analysis, decision matrices
+                    - If you do not have database/search evidence, construct logical comparative tables using general knowledge, concepts, numbers, pros/cons, or strategies relevant to the topic.
                     - Always include table headers and proper HTML table structure
                     - Keep tables concise and relevant to the content
-                    - Include 1-2 tables per section only when you have actual data
+                    - Include 1-2 tables per section to explain concepts and numbers
                     
                     TABLE FORMAT:
                     <table style="border-collapse: collapse; width: 100%; margin: 1em 0;">
@@ -1281,7 +1273,7 @@ Previous Context:
                     - Include inline citations as [^1], [^2], etc. when referencing evidence or claims
                     - Make it clear and useful with factual accuracy
                     
-                    IMPORTANT: If you don't have specific data or evidence to present in tables, focus on creating well-structured paragraphs and lists instead. Only create tables when you have real, meaningful data to display."""
+                    IMPORTANT: Construct logical tables using either the provided evidence/data or general knowledge, concepts, numbers, and comparisons relevant to the topic. Do not skip tables in this section. Table headers and proper HTML structure are mandatory."""
                 },
                 {
                     "role": "user",
