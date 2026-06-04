@@ -1086,7 +1086,7 @@ def _polish_and_format_article(
         provider=provider,
         model=model,
         api_key=api_key,
-        temperature=0.1,  # Low temperature to avoid hallucination or altering the core content/facts
+        temperature=0.25,  # Slightly increased temperature to allow the agent to rewrite and weave in the personal narrative if missing
         timeout=120,      # Give it plenty of time
         max_retries=2,
         max_tokens=6000,
@@ -1100,7 +1100,7 @@ Strict Quality Guidelines to enforce:
 1. **NO WALLS OF TEXT**: Keep all paragraphs short and digestible (typically 2 to 4 sentences max). If you encounter any long paragraphs, split them.
 2. **SUBHEADING STRUCTURE**: Introduce relevant, descriptive <h3> and <h4> subheadings to organize and break down any sections that are long or dense.
 3. **COMPARATIVE TABLES**: Ensure the article contains 1 to 4 clean HTML tables (<table>, <tr>, <th>, <td>) to compare concepts, list metrics, summarize numerical data, or structure information. If there are no tables in the original text, you MUST construct 1-4 relevant comparative tables based on the context of the article.
-4. **WRITER'S PERSONAL TOUCH**: Weave the writer's notes/instructions/firsthand narrative naturally into the text in a firsthand, authoritative, or tone-appropriate manner.
+4. **WRITER'S PERSONAL TOUCH**: Ensure the writer's notes/reflections/firsthand narrative ("{writer_notes}") are woven naturally and prominently into the article (preferably in the opening section or introduction). If they are missing or not prominent, you MUST rewrite the opening paragraphs to weave them in using first-person ("I" or "we") as firsthand narrative, even if the general tone of the article is professional or journalistic. Do not quote them as external quotes; state them as the author's own experience or thoughts.
 5. **KEEP CITATION MARKERS INTACT**: Keep all in-text citation markers like [1], [2], [3], [^1], etc. exactly where they are in the text. DO NOT modify, delete, or rename them.
 
 INPUT INFORMATION:

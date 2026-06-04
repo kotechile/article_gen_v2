@@ -42,8 +42,8 @@ class ResearchStatus(str, Enum):
 class ResearchRequest(BaseModel):
     """Request model for research endpoint."""
     
-    brief: str = Field(..., min_length=10, max_length=3000, description="Research brief or topic")
-    keywords: str = Field(..., min_length=1, max_length=500, description="Comma-separated keywords")
+    brief: str = Field(..., min_length=10, max_length=50000, description="Research brief or topic")
+    keywords: str = Field(..., min_length=1, max_length=2000, description="Comma-separated keywords")
     
     # LLM Configuration
     provider: Optional[str] = Field(None, description="LLM provider (optional when resolved by backend task role)")

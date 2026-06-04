@@ -14,8 +14,8 @@ from ...core.models.research import ResearchRequest, ResearchResponse, ResearchS
 class ResearchRequestSchema(BaseModel):
     """Schema for research request validation."""
     
-    brief: str = Field(..., min_length=10, max_length=3000)
-    keywords: str = Field(..., min_length=1, max_length=500)
+    brief: str = Field(..., min_length=10, max_length=50000)
+    keywords: str = Field(..., min_length=1, max_length=2000)
     provider: Optional[str] = Field(None, min_length=1)
     model: Optional[str] = Field(None, min_length=1)
     api_key: Optional[str] = Field(None, min_length=1)

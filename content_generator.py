@@ -491,14 +491,27 @@ class ContentGenerator:
         notes = context.get('writer_notes')
         if not notes:
             return ""
-        return f"""
+        
+        is_first_section = context.get('is_first_section', False)
+        if is_first_section:
+            return f"""
                     ========================================
-                    MANDATORY: WEAVE IN WRITER'S NOTES
+                    MANDATORY: WEAVE IN WRITER'S REFLECTIONS & PERSONAL STORY
                     ========================================
-                    The writer has provided these specific personal thoughts, experiences, opinions, or notes:
+                    The writer has provided this personal story and reflection explaining why this tool/strategy matters:
                     "{notes}"
                     
-                    You MUST weave these personal notes and firsthand experiences naturally into this section content as the author's own voice. Do not quote them as external quotes; state them as the author's personal experiences, thoughts, or reflections. Make sure they are prominent and well-integrated.
+                    Since this is the introduction/first section of the article, you MUST prominently weave this personal story and firsthand experience naturally into the text in the author's own voice (using first-person "I" or "we", e.g., "At giniloh.com, we built...", "Personally, I used to panic..."). Start with this personal angle or integrate it as a key opening hook. This is mandatory and must be prominent and well-integrated.
+                    """
+        else:
+            return f"""
+                    ========================================
+                    WRITER'S REFLECTIONS REFERENCE (WEAVE IN IF APPROPRIATE)
+                    ========================================
+                    The writer has provided these reflections:
+                    "{notes}"
+                    
+                    If highly relevant to this specific section, you may weave in aspects of these reflections in the author's voice. Otherwise, focus on the technical details of this section. Avoid repeating the same personal story if already shared in the introduction.
                     """
 
     def _get_readability_instructions(self) -> str:
@@ -684,6 +697,7 @@ class ContentGenerator:
             "writer_notes": research_data.get('writer_notes', ''),
             "must_haves": must_haves,
             "competitive_edge": competitive_edge,
+            "is_first_section": not previous_sections,
         }
     
     def _build_user_message(self, context: Dict[str, Any]) -> str:
