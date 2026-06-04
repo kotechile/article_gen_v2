@@ -66,7 +66,9 @@ def _normalize_source_strategy_payload(data: dict) -> None:
     # Map legacy strategies to new options for backward compatibility
     if requested_strategy == "dossier_only":
         requested_strategy = "live_web_only"
-    elif requested_strategy in ("dossier_plus_rag", "dossier_plus_rag_plus_live_web"):
+    elif requested_strategy == "dossier_plus_rag":
+        requested_strategy = "rag_only"
+    elif requested_strategy == "dossier_plus_rag_plus_live_web":
         requested_strategy = "rag_plus_live_web"
 
     if requested_strategy in _SOURCE_STRATEGIES:

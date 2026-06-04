@@ -628,7 +628,7 @@ export const ContentStudio: React.FC = () => {
                         ragCollection: normalizedArticle.rag_collection_name || '',
                         claimsValidation: false,
                     }),
-                    claimsValidation: true,
+                    claimsValidation: hasLiveWeb,
                     writerNotes: (artData as any).writer_notes || '',
                 });
 
@@ -783,11 +783,17 @@ export const ContentStudio: React.FC = () => {
             const primaryKws = keywordList.length > 0 ? [keywordList[0]] : [];
             const secondaryKws = keywordList.length > 1 ? keywordList.slice(1) : [];
 
-            const selectedSourceMode = useRag && useLiveWeb
+            const strategyUsesRag = SOURCE_STRATEGY_REFACTOR_ENABLED
+                ? useRag
+                : Boolean(effectiveFormData.ragCollection);
+            const strategyUsesLiveWeb = SOURCE_STRATEGY_REFACTOR_ENABLED
+                ? useLiveWeb
+                : effectiveFormData.claimsValidation;
+            const selectedSourceMode = strategyUsesRag && strategyUsesLiveWeb
                 ? 'rag_plus_live_web'
-                : useRag
+                : strategyUsesRag
                 ? 'rag_only'
-                : useLiveWeb
+                : strategyUsesLiveWeb
                 ? 'live_web_only'
                 : 'none';
 
@@ -1107,15 +1113,19 @@ export const ContentStudio: React.FC = () => {
 
             let generationBrief = effectiveDescription;
             let seodirective = '';
-            const selectedSourceMode = useRag && useLiveWeb
+            const strategyUsesRag = SOURCE_STRATEGY_REFACTOR_ENABLED
+                ? useRag
+                : Boolean(formData.ragCollection);
+            const strategyUsesLiveWeb = SOURCE_STRATEGY_REFACTOR_ENABLED
+                ? useLiveWeb
+                : formData.claimsValidation;
+            const selectedSourceMode = strategyUsesRag && strategyUsesLiveWeb
                 ? 'rag_plus_live_web'
-                : useRag
+                : strategyUsesRag
                 ? 'rag_only'
-                : useLiveWeb
+                : strategyUsesLiveWeb
                 ? 'live_web_only'
                 : 'none';
-            const strategyUsesRag = useRag;
-            const strategyUsesLiveWeb = useLiveWeb;
 
             if (seoShiftEnabled && primaryKw) {
                 const geoCtx = computeGEOContext(primaryKw, article?.domain);
@@ -1259,7 +1269,7 @@ export const ContentStudio: React.FC = () => {
         return 'text-destructive';
     };
 
-    const sourceModeUsesRag = useRag;
+    const sourceModeUsesRag = SOURCE_STRATEGY_REFACTOR_ENABLED ? useRag : Boolean(formData.ragCollection);
 
     return (
         <div className="max-w-5xl mx-auto space-y-6">

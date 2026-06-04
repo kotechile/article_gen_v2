@@ -60,7 +60,7 @@ class LLMConfig:
 class RAGConfig:
     """RAG configuration."""
     enabled: bool = True
-    endpoint: str = "http://localhost:8080/query_hybrid_enhanced"
+    endpoint: str = "http://localhost:8081/query_hybrid_enhanced"
     collection: Optional[str] = None
     timeout: int = 30
     max_retries: int = 3

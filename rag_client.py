@@ -509,7 +509,7 @@ def create_rag_client(
 if __name__ == "__main__":
     # Example usage
     client = create_rag_client(
-        endpoint="http://localhost:8080/query_hybrid_enhanced",
+        endpoint="http://localhost:8081/query_hybrid_enhanced",
         collection="research_documents",
         max_results=5,
         similarity_threshold=0.7

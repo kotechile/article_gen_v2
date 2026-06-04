@@ -144,7 +144,9 @@ def _normalize_source_strategy(research_data: Dict[str, Any]) -> Dict[str, Any]:
     # Map legacy strategies for compatibility
     if requested == "dossier_only":
         requested = "live_web_only"
-    elif requested in ("dossier_plus_rag", "dossier_plus_rag_plus_live_web"):
+    elif requested == "dossier_plus_rag":
+        requested = "rag_only"
+    elif requested == "dossier_plus_rag_plus_live_web":
         requested = "rag_plus_live_web"
 
     if requested in _SOURCE_STRATEGIES:
@@ -1000,7 +1002,7 @@ def _create_support_section_llm_client(research_data: Dict[str, Any]):
         temperature=0.2,
         timeout=45,
         max_retries=1,
-        max_tokens=900,
+        max_tokens=2000,
     )
 
 
@@ -3465,20 +3467,7 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
             else:
                 logger.info(f"📊 RAG Coverage: RAG disabled - Linkup will be used if enabled")
 
-        # Safety fallback for strict source strategy:
-        # If dossier_plus_rag yields zero citation-grade evidence from both dossier and RAG,
-        # automatically allow live web collection to avoid a hard stop on otherwise valid runs.
-        if (
-            source_strategy_enabled
-            and source_caps["strategy"] == "dossier_plus_rag"
-            and len(dossier_evidence) == 0
-            and len(rag_evidence) == 0
-        ):
-            logger.warning(
-                "Source strategy '%s' produced no citation-grade dossier/RAG evidence; enabling live web fallback for this run.",
-                source_caps["strategy"],
-            )
-            research_data['claims_research_enabled'] = True
+        # Safety fallback removed to strictly respect the user's RAG-only request.
         
         # Collect evidence from web search if claims research is enabled
         # Default to True (consistent with app.py) - web search should run unless explicitly disabled
@@ -4164,9 +4153,12 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
             # Determine if we need Linkup
             need_linkup = False
             
-            if source_strategy_enabled and source_caps["use_live_web"]:
-                need_linkup = True
-                logger.info(f"  - Source strategy enables live web refresh - using Linkup/Tavily for section")
+            if source_strategy_enabled:
+                need_linkup = source_caps["use_live_web"]
+                if need_linkup:
+                    logger.info(f"  - Source strategy enables live web refresh - using Linkup/Tavily for section")
+                else:
+                    logger.info(f"  - Source strategy disables live web refresh - skipping Linkup/Tavily for section")
             elif rag_enabled:
                 # If RAG is enabled, assess coverage to see if Linkup is needed
                 # Use lower thresholds for section-specific evidence (sections need less evidence than full article)
