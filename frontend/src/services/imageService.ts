@@ -120,7 +120,7 @@ export async function uploadImageToSupabase(file: File, userId: string): Promise
         const safeName = sanitizeFilename(file.name);
         const storagePath = `articleImages/${userId}/upload_${ts}_${safeName || `image.${ext}`}`;
 
-        const { error: uploadError } = await supabase
+        const uploadPromise = supabase
             .storage
             .from('User Files')
             .upload(storagePath, file, {
@@ -128,6 +128,13 @@ export async function uploadImageToSupabase(file: File, userId: string): Promise
                 upsert: false,
                 contentType: file.type || 'image/jpeg'
             });
+
+        const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Supabase upload timeout')), 15000)
+        );
+
+        const result = await Promise.race([uploadPromise, timeoutPromise]) as any;
+        const uploadError = result?.error;
 
         if (!uploadError) {
             const { data } = supabase.storage.from('User Files').getPublicUrl(storagePath);
