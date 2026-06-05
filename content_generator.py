@@ -488,31 +488,10 @@ class ContentGenerator:
         return get_tone_specific_instructions(tone)
 
     def _get_writer_notes_instructions(self, context: Dict[str, Any]) -> str:
-        notes = context.get('writer_notes')
-        if not notes:
-            return ""
-        
-        is_first_section = context.get('is_first_section', False)
-        if is_first_section:
-            return f"""
-                    ========================================
-                    MANDATORY: WEAVE IN WRITER'S REFLECTIONS & PERSONAL STORY
-                    ========================================
-                    The writer has provided this personal story and reflection explaining why this tool/strategy matters:
-                    "{notes}"
-                    
-                    Since this is the introduction/first section of the article, you MUST prominently weave this personal story and firsthand experience naturally into the text in the author's own voice (using first-person "I" or "we", e.g., "At giniloh.com, we built...", "Personally, I used to panic..."). Start with this personal angle or integrate it as a key opening hook. This is mandatory and must be prominent and well-integrated.
-                    """
-        else:
-            return f"""
-                    ========================================
-                    WRITER'S REFLECTIONS REFERENCE (WEAVE IN IF APPROPRIATE)
-                    ========================================
-                    The writer has provided these reflections:
-                    "{notes}"
-                    
-                    If highly relevant to this specific section, you may weave in aspects of these reflections in the author's voice. Otherwise, focus on the technical details of this section. Avoid repeating the same personal story if already shared in the introduction.
-                    """
+        # Writer notes / reflections are not woven in at the section draft generation stage
+        # to ensure the content stays focused on the primary description.
+        # They will instead be woven in during the final review/polishing pass.
+        return ""
 
     def _get_readability_instructions(self) -> str:
         return """
@@ -718,17 +697,8 @@ class ContentGenerator:
         draft_title_line = f"Draft Title: {context['draft_title']}\n" if context.get('draft_title') else ""
         
         # Build writer notes (personal touch reflections)
+        # We do not pass writer notes here during section generation; we do it during the final polishing review
         writer_notes_part = ""
-        if context.get('writer_notes'):
-            writer_notes_part = f"""
-========================================
-WRITER'S REFLECTIONS & PERSONAL TOUCH (MUST WEAVE IN)
-========================================
-The writer has provided these specific reflections, opinions, personal experiences, or book references. 
-You MUST weave these concepts naturally into the article as if they are the writer's own reflections or added value.
-Do NOT just quote them literally; express these ideas in the writer's voice as firsthand thoughts, personal touch, or professional opinions:
-{context['writer_notes']}
-"""
         
         # Build competitor insights block
         competitor_part = ""
