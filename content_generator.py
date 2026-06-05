@@ -266,9 +266,11 @@ class ContentGenerator:
             if source_type == 'rag':
                 # Use full content for RAG - it contains structured, valuable information
                 content = ev.get('content', '').strip()
+                type_label = " [SOURCE TYPE: INTERNAL RAG DATABASE]"
             else:
                 # For web sources, use longer snippet (1000 chars instead of 300)
                 content = ev.get('content', '')[:1000] if ev.get('content') else ''
+                type_label = " [SOURCE TYPE: WEB SEARCH]"
             # Get source URL
             source = ev.get('source') or ev.get('url', 'Unknown URL')
             
@@ -280,9 +282,9 @@ class ContentGenerator:
             # Format with proper citation marker
             # For RAG sources, include full content; for others, truncate if needed
             if source_type == 'rag' and content:
-                formatted_evidence.append(f"[^{i}] {title}\n{content}\n(Source: {source}){instruction_marker}")
+                formatted_evidence.append(f"[^{i}]{type_label} {title}\n{content}\n(Source: {source}){instruction_marker}")
             else:
-                formatted_evidence.append(f"[^{i}] {title}{': ' + content + '...' if content else ''} (Source: {source}){instruction_marker}")
+                formatted_evidence.append(f"[^{i}]{type_label} {title}{': ' + content + '...' if content else ''} (Source: {source}){instruction_marker}")
         
         self.logger.info(f"Formatting {len(formatted_evidence)} evidence items for content generation")
         return "\n".join(formatted_evidence)
@@ -569,6 +571,7 @@ class ContentGenerator:
         
         return """
                     CITATION INSTRUCTIONS (CRITICAL):
+                    - PRIORITIZE INTERNAL RAG DATABASE SOURCES: When writing this section, you MUST prioritize and rely primarily on evidence labeled "[SOURCE TYPE: INTERNAL RAG DATABASE]". Only use evidence labeled "[SOURCE TYPE: WEB SEARCH]" or general knowledge to supplement information/data points that are completely missing from the RAG sources.
                     - If evidence sources are provided above, you MUST use citations when referencing information from them
                     - Reference evidence by number: [^1], [^2], [^3], etc. matching the evidence list position
                     - Cite sources frequently - whenever using statistics, data, examples, or claims from evidence
