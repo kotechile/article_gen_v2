@@ -14,7 +14,19 @@ import type {
     ImageProviderModel
 } from '../types/image';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+const getApiBaseUrl = () => {
+    if (import.meta.env.VITE_API_URL) {
+        return import.meta.env.VITE_API_URL;
+    }
+    // If running in browser and not on localhost, use current origin + /api
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+        return `${window.location.origin}/api`;
+    }
+    return 'http://localhost:5001';
+};
+
+const API_BASE_URL = getApiBaseUrl();
+
 const API_KEY = import.meta.env.VITE_API_KEY || 'dev-key';
 
 const getHeaders = (headers: Record<string, string> = {}) => ({
