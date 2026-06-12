@@ -227,14 +227,31 @@ def sync_wordpress_posts():
                 except Exception as cat_err:
                      debug_logs.append(f"Error fetching categories: {cat_err}")
                 
-                # Fetch recent posts (e.g., last 20)
+                # Fetch all posts (page by page, per_page=100)
                 debug_logs.append(f"Fetching posts for {domain}...")
+                posts = []
+                page = 1
                 try:
-                    posts = client.get_posts(per_page=20)
+                    while True:
+                        try:
+                            page_posts = client.get_posts(page=page, per_page=100)
+                            if not page_posts:
+                                break
+                            posts.extend(page_posts)
+                            if len(page_posts) < 100:
+                                break
+                            page += 1
+                        except Exception as page_err:
+                            # If it's a 400 error (invalid page / out of bounds), we reached the end.
+                            if hasattr(page_err, 'response') and page_err.response is not None and page_err.response.status_code == 400:
+                                break
+                            raise page_err
                     debug_logs.append(f"Fetched {len(posts)} posts for {domain}")
                 except Exception as fetch_err:
                     debug_logs.append(f"Error fetching posts for {domain}: {str(fetch_err)}")
-                    continue
+                    # If we failed to get any posts, skip. Otherwise process what we got.
+                    if not posts:
+                        continue
                 
                 if not posts:
                     debug_logs.append(f"No posts found for {domain}")
@@ -247,6 +264,10 @@ def sync_wordpress_posts():
                     excerpt = post.get('excerpt', {}).get('rendered', '')
                     link = post.get('link', '')
                     post_id = post.get('id')
+                    
+                    # Remove "cms." subdomain from the link if present
+                    if link:
+                        link = link.replace('://cms.', '://')
                     
                     records.append({
                         "user_id": user_id,

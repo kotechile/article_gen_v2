@@ -320,6 +320,11 @@ export const ArticleEditor: React.FC = () => {
     const [isSuggesting, setIsSuggesting] = useState(false);
     const [isDirty, setIsDirty] = useState(false);
 
+    // Autosave & shortcut states
+    const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving' | 'error'>('saved');
+    const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
+    const isMac = React.useMemo(() => typeof window !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent), []);
+
     // Warn on unsaved changes (Browser Navigation)
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -331,6 +336,8 @@ export const ArticleEditor: React.FC = () => {
         window.addEventListener('beforeunload', handleBeforeUnload);
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [isDirty]);
+
+
 
     // Warn on unsaved changes (In-App Navigation)
     // NOTE: useBlocker requires Data Router (createBrowserRouter). 
@@ -371,6 +378,26 @@ export const ArticleEditor: React.FC = () => {
         ).size;
     }, [citationAuthorityMeta, selectedCitations]);
     const isCuratedReferenceView = selectedCitations.size > 0 && selectedCitations.size < citations.length;
+
+    const isInitialLoad = useRef(true);
+
+    // Track metadata changes to mark editor as dirty
+    useEffect(() => {
+        if (loading) return;
+        if (isInitialLoad.current) {
+            isInitialLoad.current = false;
+            setIsDirty(false);
+            return;
+        }
+        setIsDirty(true);
+    }, [title, hook, thesis, deck, featuredImage, loading]);
+
+    // Update save status indicator based on dirty state
+    useEffect(() => {
+        if (isDirty) {
+            setSaveStatus('unsaved');
+        }
+    }, [isDirty]);
 
     const materializeEditorHtml = React.useCallback((html: string) => {
         let processed = materializeInfographicHtml(html);
@@ -836,20 +863,56 @@ export const ArticleEditor: React.FC = () => {
         showInTextCitations
     ]);
 
-    const handleSave = async () => {
+    const handleSave = React.useCallback(async () => {
         if (!user || !id || !editor) return;
         setSaving(true);
+        setSaveStatus('saving');
         try {
             await persistArticle();
+            setSaveStatus('saved');
+            const now = new Date();
+            setLastSavedTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
             alert('Changes saved successfully!');
-            // navigate('/my-articles'); // Keep user on page
         } catch (error) {
             console.error('Error saving article:', error);
+            setSaveStatus('error');
             alert('Failed to save changes');
         } finally {
             setSaving(false);
         }
-    };
+    }, [user, id, editor, persistArticle]);
+
+    // Autosave Effect (debounced 3 seconds)
+    useEffect(() => {
+        if (!isDirty || loading || saving) return;
+
+        const timer = setTimeout(async () => {
+            setSaveStatus('saving');
+            try {
+                await persistArticle();
+                setSaveStatus('saved');
+                const now = new Date();
+                setLastSavedTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+            } catch (err) {
+                console.error('Autosave failed:', err);
+                setSaveStatus('error');
+            }
+        }, 3000);
+
+        return () => clearTimeout(timer);
+    }, [isDirty, loading, saving, persistArticle]);
+
+    // Keyboard shortcut (⌘S / Ctrl+S)
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                e.preventDefault();
+                handleSave();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [handleSave]);
 
     const applyReferenceChanges = async (selectedIndices: Set<number>, showInText: boolean) => {
         if (!editor) return;
@@ -1359,6 +1422,22 @@ export const ArticleEditor: React.FC = () => {
                             </h1>
                         </div>
                         <div className="flex items-center gap-3">
+                            {/* Save Status Indicator */}
+                            <div className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-full bg-muted/60 text-muted-foreground border border-border">
+                                <span className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                                    saveStatus === 'saved' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
+                                    saveStatus === 'saving' ? 'bg-amber-500 animate-pulse' :
+                                    saveStatus === 'unsaved' ? 'bg-amber-400' :
+                                    'bg-destructive'
+                                }`} />
+                                <span className="font-medium whitespace-nowrap">
+                                    {saveStatus === 'saved' && (lastSavedTime ? `Saved at ${lastSavedTime}` : 'Saved')}
+                                    {saveStatus === 'saving' && 'Saving...'}
+                                    {saveStatus === 'unsaved' && 'Unsaved changes'}
+                                    {saveStatus === 'error' && 'Failed to save'}
+                                </span>
+                            </div>
+
                             <button
                                 onClick={() => {
                                     // Update article data with current editor content before opening modal
@@ -1844,6 +1923,24 @@ export const ArticleEditor: React.FC = () => {
                     className="fixed z-50 bg-popover text-popover-foreground border border-border shadow-xl rounded-xl py-2 min-w-[240px] flex flex-col gap-1"
                     style={{ top: contextMenu.y, left: contextMenu.x }}
                 >
+                    {/* Save Action */}
+                    <div className="px-2 pb-1 border-b border-border mb-1">
+                        <button
+                            onClick={() => {
+                                handleSave();
+                                setContextMenu(null);
+                            }}
+                            disabled={saving}
+                            className="w-full text-left px-3 py-1.5 hover:bg-primary/10 hover:text-primary text-foreground rounded-lg text-sm flex items-center justify-between font-semibold transition"
+                        >
+                            <span className="flex items-center gap-3">
+                                {saving ? <Loader2 className="w-4 h-4 animate-spin text-primary" /> : <Save className="w-4 h-4 text-primary" />}
+                                Save Changes
+                            </span>
+                            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-normal">{isMac ? '⌘S' : 'Ctrl+S'}</span>
+                        </button>
+                    </div>
+
                     {/* Basic Formatting */}
                     <div className="px-2 pb-1 border-b border-border mb-1">
                         <button onClick={() => { editor?.chain().focus().toggleBold().run(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">

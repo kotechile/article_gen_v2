@@ -79,7 +79,7 @@ class ResearchInternalLinkFitService(ResearchRebuildBaseService):
             filters={},
             user_id=UUID(str(user_id)),
             order_by={"created_at": "desc"},
-            limit=100,
+            limit=1000,
         )
         keyword_seed = " ".join(
             [
@@ -110,6 +110,10 @@ class ResearchInternalLinkFitService(ResearchRebuildBaseService):
             if score < 0.18:
                 continue
 
+            matched_link = row.get("link") or ""
+            if "://cms." in matched_link:
+                matched_link = matched_link.replace("://cms.", "://")
+
             seen_titles.add(normalized_title)
             results.append(
                 {
@@ -121,7 +125,7 @@ class ResearchInternalLinkFitService(ResearchRebuildBaseService):
                     "match_reason_codes": ["title_token_overlap_filtered"],
                     "match_metadata": {
                         "matched_title": title,
-                        "matched_link": row.get("link"),
+                        "matched_link": matched_link,
                         "overlap_tokens": sorted(overlap_tokens),
                     },
                 }

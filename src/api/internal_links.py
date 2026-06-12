@@ -36,8 +36,17 @@ def suggest_internal_links():
         if not posts:
              return jsonify({'matches': []}), 200
 
-        # Prepare candidates list for prompt
-        candidates = [{"id": p['id'], "title": p['title'], "link": p['link']} for p in posts]
+        # Prepare candidates list for prompt (cleaning any cms. subdomains)
+        candidates = []
+        for p in posts:
+            link = p.get('link') or ''
+            if '://cms.' in link:
+                link = link.replace('://cms.', '://')
+            candidates.append({
+                "id": p['id'],
+                "title": p['title'],
+                "link": link
+            })
         candidates_str = json.dumps([{"title": c["title"], "link": c["link"]} for c in candidates], indent=2)
 
         # 2. Initialize LLM Client
@@ -94,6 +103,10 @@ def suggest_internal_links():
 
         try:
             matches = json.loads(content_response)
+            # Clean matching links of any cms. subdomains
+            for match in matches:
+                if isinstance(match, dict) and match.get('link'):
+                    match['link'] = match['link'].replace('://cms.', '://')
         except json.JSONDecodeError:
             logger.error(f"Failed to parse LLM response: {content_response}")
             return jsonify({'error': 'Failed to parse suggestions'}), 500
