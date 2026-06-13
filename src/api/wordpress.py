@@ -198,6 +198,15 @@ def sync_wordpress_posts():
 
         debug_logs = []
         debug_logs.append(f"Found {len(sites)} sites to sync")
+        
+        # Clear all existing imported posts for this user to avoid stale/orphaned posts from deleted or inactive sites
+        try:
+            supabase.table("wordpress_imported_posts").delete().eq("user_id", user_id).execute()
+            debug_logs.append("Cleared old imported posts for user to ensure clean sync")
+        except Exception as clear_err:
+            logger.warning(f"Failed to clear old posts: {clear_err}")
+            debug_logs.append(f"Warning: Could not clear old posts: {str(clear_err)}")
+
         total_posts_saved = 0
         
         # 2. Iterate each site
@@ -280,10 +289,7 @@ def sync_wordpress_posts():
                 
                 if records:
                     debug_logs.append(f"Saving {len(records)} records for {domain}")
-                    # Delete old posts for this site (simple sync)
-                    supabase.table("wordpress_imported_posts").delete().eq("wordpress_detail_id", site_id).execute()
-                    
-                    # Insert new
+                    # Insert new (old posts were already cleared at the start of the sync process)
                     supabase.table("wordpress_imported_posts").insert(records).execute()
                     total_posts_saved += len(records)
                     debug_logs.append(f"Saved records for {domain}")
