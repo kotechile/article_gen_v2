@@ -3570,10 +3570,19 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                         return added
 
                     strategy_query = keyword_strategy_text or keywords
-                    if target_intent:
-                        normalized_query = ' '.join(f"{brief} {strategy_query} intent {target_intent}".split())
-                    else:
-                        normalized_query = ' '.join(f"{brief} {strategy_query}".split())
+                    # Clean up the search query to avoid passing long multi-paragraph briefs to the search APIs.
+                    # We use the draft title if available, or fall back to the first sentence of the brief.
+                    brief_sentences = brief.split('.')
+                    brief_context = brief_sentences[0].strip() if brief_sentences else brief
+                    draft_title = research_data.get('draft_title', '')
+                    query_base = draft_title if draft_title else brief_context
+                    
+                    # Ensure query_base is not empty and not excessively long
+                    if len(query_base) > 150:
+                        query_base = query_base[:150].strip() + "..."
+                    
+                    normalized_query = ' '.join(f"{strategy_query} {query_base}".split())
+                    logger.info(f"  - Web Search Query: '{normalized_query}'")
                     severe_insufficient = (
                         rag_coverage.get('source_count', 0) < optimization_config.deep_trigger_min_sources or
                         rag_coverage.get('avg_relevance', 0.0) < optimization_config.deep_trigger_min_avg_relevance or
