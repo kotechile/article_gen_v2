@@ -3362,7 +3362,7 @@ def _collect_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict
                     rag_query = RAGQuery(
                         query=rag_query_text,
                         collection=rag_collection,
-                        max_results=10,  # Increased from 5 to 10 for better global coverage
+                        max_results=15,  # Increased from 10 to 15 for better global coverage
                         balance_emphasis=research_data.get('rag_balance_emphasis', 'auto')
                     )
                     
@@ -4106,7 +4106,7 @@ def _collect_section_evidence(section_outline: Dict[str, Any], research_data: Di
                     rag_query = RAGQuery(
                         query=section_query,
                         collection=rag_collection,
-                        max_results=3,
+                        max_results=5,
                         similarity_threshold=0.78 if is_generic_section else 0.7,
                         balance_emphasis=research_data.get('rag_balance_emphasis', 'auto')
                     )
