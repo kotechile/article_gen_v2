@@ -16,7 +16,7 @@ import { TableHeader } from '@tiptap/extension-table-header';
 import { TableRow } from '@tiptap/extension-table-row';
 import CharacterCount from '@tiptap/extension-character-count';
 import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn } from 'lucide-react';
-import axios from 'axios';
+import { apiClient } from '../api-client';
 import { assembleArticleHtml } from '../lib/contentParser';
 import { AddImageModal } from '../components/AddImageModal';
 import { ReferenceSelector } from '../components/ReferenceSelector';
@@ -1112,12 +1112,12 @@ export const ArticleEditor: React.FC = () => {
             setIsSuggesting(true);
             // Optional: Toast "Analyzing content..."
 
-            const response = await axios.post(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/internal-links/suggest`, {
+            const response = await apiClient.post<any>('/internal-links/suggest', {
                 content: editor.getText(),
                 user_id: user.id
             });
 
-            const matches = response.data.matches;
+            const matches = response.matches;
 
             if (!matches || matches.length === 0) {
                 alert("No relevant internal links found.");
