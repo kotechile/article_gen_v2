@@ -272,8 +272,14 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                             </div>
                         </div>
 
-                        <div className="flex justify-center">
+                        <div className="flex flex-col items-center gap-3">
                             <Loader2 className="w-8 h-8 animate-spin text-indigo-200 dark:text-indigo-900" />
+                            <button
+                                onClick={onClose}
+                                className="mt-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-xl text-xs font-semibold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                            >
+                                Force Close / Reset
+                            </button>
                         </div>
                     </div>
                 )}
