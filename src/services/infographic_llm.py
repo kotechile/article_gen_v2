@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 from html import escape
 from typing import Any, Optional
 
+from faicons import icon_svg
+
+
 SAFE_FALLBACK_ICONS = (
     "fa-solid fa-circle-info",
     "fa-solid fa-lightbulb",
@@ -413,6 +416,27 @@ def _icon_svg_inner(icon_class_string: str) -> str:
             '<path d="M24 28v-6c0-5 3-10 8-10s8 5 8 10v6" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>'
         )
 
+    # Dynamic Resolution using faicons
+    style = "solid"
+    if "fa-regular" in token_set:
+        style = "regular"
+    elif "fa-brands" in token_set:
+        style = "brands"
+
+    name = ""
+    for token in token_set:
+        if token.startswith("fa-") and token not in ["fa-solid", "fa-regular", "fa-brands"]:
+            name = token.replace("fa-", "")
+            break
+
+    if name:
+        try:
+            full_svg = icon_svg(name, style=style)
+            if full_svg:
+                return str(full_svg).strip()
+        except Exception:
+            pass
+
     return (
         '<circle cx="32" cy="32" r="22" fill="none" stroke="currentColor" stroke-width="4"/>'
         '<path d="M32 24v16" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>'
@@ -427,6 +451,14 @@ def build_fontawesome_icon_markup(icon_class_string: str, extra_classes: Optiona
     class_tokens.extend(_helper_classes_for_icon(icon_class_string).split())
     class_attr = escape(" ".join(dict.fromkeys(class_tokens)), quote=True)
     svg_inner = _icon_svg_inner(icon_class_string)
+    
+    if svg_inner.strip().startswith("<svg"):
+        return (
+            f'<span class="{class_attr}" aria-hidden="true">'
+            f'{svg_inner}'
+            f"</span>"
+        )
+        
     return (
         f'<span class="{class_attr}" aria-hidden="true">'
         f'<svg viewBox="0 0 64 64" focusable="false" aria-hidden="true">{svg_inner}</svg>'

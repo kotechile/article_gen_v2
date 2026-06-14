@@ -72,3 +72,5 @@ playwright
 # transformers>=4.32.0   # For local model inference
 llama-index
 tavily-python
+faicons
+

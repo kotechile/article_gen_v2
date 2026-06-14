@@ -196,3 +196,17 @@ def test_write_infographic_render_debug_artifacts_writes_html_and_css(tmp_path):
 
     assert Path(paths["html_path"]).read_text(encoding="utf-8") == "<div>hello</div>"
     assert Path(paths["css_path"]).read_text(encoding="utf-8") == ".foo { color: red; }"
+
+
+def test_build_fontawesome_icon_markup_with_faicons_dynamic_resolution():
+    # Test a solid icon that is NOT in the 9 hardcoded ones
+    markup = build_fontawesome_icon_markup("fa-solid fa-graduation-cap")
+    assert 'class="cg-fa-icon cg-fa-icon--solid"' in markup
+    assert '<svg viewBox="0 0 640 512"' in markup
+    assert 'aria-hidden="true"' in markup
+    
+    # Test a brand icon
+    markup_brand = build_fontawesome_icon_markup("fa-brands fa-apple")
+    assert 'class="cg-fa-icon cg-fa-icon--brands"' in markup_brand
+    assert '<svg viewBox="0 0 384 512"' in markup_brand
+
