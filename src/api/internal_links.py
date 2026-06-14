@@ -3,6 +3,7 @@ from supabase_client import get_supabase_client, get_default_llm_provider
 from llm_client import create_llm_client
 import logging
 import json
+import re
 
 internal_links_bp = Blueprint('internal_links', __name__)
 logger = logging.getLogger(__name__)
@@ -36,12 +37,13 @@ def suggest_internal_links():
         if not posts:
              return jsonify({'matches': []}), 200
 
-        # Prepare candidates list for prompt (cleaning any cms. subdomains)
+        # Prepare candidates list for prompt (cleaning any cms. subdomains and date patterns)
         candidates = []
         for p in posts:
             link = p.get('link') or ''
             if '://cms.' in link:
                 link = link.replace('://cms.', '://')
+            link = re.sub(r'/(\d{4}/\d{2}/\d{2}/|\d{4}/\d{2}/)', '/', link)
             candidates.append({
                 "id": p['id'],
                 "title": p['title'],
@@ -103,10 +105,11 @@ def suggest_internal_links():
 
         try:
             matches = json.loads(content_response)
-            # Clean matching links of any cms. subdomains
+            # Clean matching links of any cms. subdomains and date patterns
             for match in matches:
                 if isinstance(match, dict) and match.get('link'):
                     match['link'] = match['link'].replace('://cms.', '://')
+                    match['link'] = re.sub(r'/(\d{4}/\d{2}/\d{2}/|\d{4}/\d{2}/)', '/', match['link'])
         except json.JSONDecodeError:
             logger.error(f"Failed to parse LLM response: {content_response}")
             return jsonify({'error': 'Failed to parse suggestions'}), 500

@@ -274,9 +274,10 @@ def sync_wordpress_posts():
                     link = post.get('link', '')
                     post_id = post.get('id')
                     
-                    # Remove "cms." subdomain from the link if present
+                    # Remove "cms." subdomain and date patterns from the link if present
                     if link:
                         link = link.replace('://cms.', '://')
+                        link = re.sub(r'/(\d{4}/\d{2}/\d{2}/|\d{4}/\d{2}/)', '/', link)
                     
                     records.append({
                         "user_id": user_id,

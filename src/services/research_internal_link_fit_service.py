@@ -113,6 +113,7 @@ class ResearchInternalLinkFitService(ResearchRebuildBaseService):
             matched_link = row.get("link") or ""
             if "://cms." in matched_link:
                 matched_link = matched_link.replace("://cms.", "://")
+            matched_link = re.sub(r'/(\d{4}/\d{2}/\d{2}/|\d{4}/\d{2}/)', '/', matched_link)
 
             seen_titles.add(normalized_title)
             results.append(
