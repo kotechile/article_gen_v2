@@ -10,10 +10,9 @@ from faicons import icon_svg
 
 
 SAFE_FALLBACK_ICONS = (
-    "fa-solid fa-circle-info",
+    "fa-solid fa-gears",
     "fa-solid fa-lightbulb",
     "fa-solid fa-chart-column",
-    "fa-solid fa-gears",
     "fa-solid fa-bolt",
     "fa-solid fa-star",
 )
@@ -287,6 +286,20 @@ def normalize_infographic_icon(
             "normalized": f"{style_prefix} {icon_token}",
             "status": "accepted",
         }
+
+    # Verify if it is any other valid icon supported by the faicons library
+    if style_prefix and icon_token:
+        style_short = style_prefix.replace("fa-", "")
+        name = icon_token.replace("fa-", "")
+        try:
+            if icon_svg(name, style=style_short):
+                return f"{style_prefix} {icon_token}", {
+                    "raw": raw_text,
+                    "normalized": f"{style_prefix} {icon_token}",
+                    "status": "accepted",
+                }
+        except Exception:
+            pass
 
     fallback = choose_icon_fallback(item_text=item_text, description_text=description_text, index=index)
     return fallback, {
