@@ -225,35 +225,93 @@ export const fetchWordPressCategories = async (
 };
 
 /**
- * Upload featured image to WordPress media library
+ * Helper to upload any image (inline or featured) to WordPress, optionally resizing it.
  */
-export const uploadFeaturedImage = async (
+export const uploadImageToWordPress = async (
     imageUrl: string,
     site: WordPressSite,
-    metadata: { alt?: string; title?: string; caption?: string }
-): Promise<{ mediaId: number | null; error?: string }> => {
+    metadata: { alt?: string; title?: string; caption?: string },
+    resize = true,
+    maxWidth = 1200
+): Promise<{ mediaId: number | null; url?: string; error?: string }> => {
     try {
-        // Fetch the image as a blob
-        const imageResponse = await fetch(imageUrl);
-        if (!imageResponse.ok) {
-            console.warn('Failed to fetch featured image', {
-                imageUrl,
-                status: imageResponse.status,
-                statusText: imageResponse.statusText,
-            });
-            return {
-                mediaId: null,
-                error: `Source image fetch failed. ${describeFeaturedImageFetchFailure(imageResponse.status)}`
-            };
+        let imageBlob: Blob;
+
+        if (imageUrl.startsWith('data:')) {
+            // It's a data URI. Let's parse it.
+            const parts = imageUrl.split(',');
+            const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+            const bstr = atob(parts[1]);
+            let n = bstr.length;
+            const u8arr = new Uint8Array(n);
+            while (n--) {
+                u8arr[n] = bstr.charCodeAt(n);
+            }
+            imageBlob = new Blob([u8arr], { type: mime });
+        } else {
+            // Fetch the image
+            const imageResponse = await fetch(imageUrl);
+            if (!imageResponse.ok) {
+                return {
+                    mediaId: null,
+                    error: `Source image fetch failed. ${describeFeaturedImageFetchFailure(imageResponse.status)}`
+                };
+            }
+            imageBlob = await imageResponse.blob();
         }
 
-        const imageBlob = await imageResponse.blob();
+        // Resize if requested and format is resizable (not SVG/GIF)
+        if (resize && imageBlob.type !== 'image/svg+xml' && imageBlob.type !== 'image/gif') {
+            try {
+                const img = new Image();
+                const objectUrl = URL.createObjectURL(imageBlob);
+                
+                await new Promise<void>((resolve, reject) => {
+                    img.onload = () => resolve();
+                    img.onerror = () => reject(new Error('Failed to load image for resizing'));
+                    img.src = objectUrl;
+                });
+
+                let width = img.naturalWidth || img.width;
+                let height = img.naturalHeight || img.height;
+
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    ctx.drawImage(img, 0, 0, width, height);
+                    const resizedBlob = await new Promise<Blob | null>((resolve) => {
+                        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.85);
+                    });
+                    if (resizedBlob) {
+                        imageBlob = resizedBlob;
+                    }
+                }
+                URL.revokeObjectURL(objectUrl);
+            } catch (resizeErr) {
+                console.warn('Image resizing failed, uploading original image instead:', resizeErr);
+            }
+        }
+
         const credentials = btoa(`${site.wpUserName}:${site.wordpress_key}`);
         const apiBaseUrl = getWordPressApiBaseUrl(site);
 
         // Upload to WordPress media library
         const formData = new FormData();
-        formData.append('file', imageBlob, 'featured-image.jpg');
+        // Determine original extension or fallback to jpg
+        let filename = 'image.jpg';
+        if (imageBlob.type === 'image/png') filename = 'image.png';
+        else if (imageBlob.type === 'image/webp') filename = 'image.webp';
+        else if (imageBlob.type === 'image/gif') filename = 'image.gif';
+        else if (imageBlob.type === 'image/svg+xml') filename = 'image.svg';
+
+        formData.append('file', imageBlob, filename);
         if (metadata.alt) formData.append('alt_text', metadata.alt);
         if (metadata.title) formData.append('title', metadata.title);
         if (metadata.caption) formData.append('caption', metadata.caption);
@@ -267,12 +325,6 @@ export const uploadFeaturedImage = async (
         });
 
         if (!uploadResponse.ok) {
-            console.warn('Failed to upload featured image to WordPress', {
-                siteDomain: site.domain,
-                apiBaseUrl,
-                status: uploadResponse.status,
-                statusText: uploadResponse.statusText,
-            });
             return {
                 mediaId: null,
                 error: `WordPress media upload failed. ${describeFeaturedImageUploadFailure(uploadResponse.status)}`
@@ -280,19 +332,29 @@ export const uploadFeaturedImage = async (
         }
 
         const mediaData: WordPressMediaResponse = await uploadResponse.json();
-        return { mediaId: mediaData.id };
+        return { 
+            mediaId: mediaData.id, 
+            url: mediaData.source_url 
+        };
     } catch (error) {
-        console.error('Error uploading featured image:', {
-            imageUrl,
-            siteDomain: site.domain,
-            apiBaseUrl: getWordPressApiBaseUrl(site),
-            error,
-        });
+        console.error('Error uploading image to WordPress:', error);
         return {
             mediaId: null,
             error: describeFeaturedImageException(error)
         };
     }
+};
+
+/**
+ * Upload featured image to WordPress media library
+ */
+export const uploadFeaturedImage = async (
+    imageUrl: string,
+    site: WordPressSite,
+    metadata: { alt?: string; title?: string; caption?: string }
+): Promise<{ mediaId: number | null; error?: string }> => {
+    const res = await uploadImageToWordPress(imageUrl, site, metadata, true, 1200);
+    return { mediaId: res.mediaId, error: res.error };
 };
 
 /**
@@ -602,6 +664,72 @@ const generateSlug = (title: string, maxLength: number): string => {
 };
 
 /**
+ * Scans HTML content for <img> tags, downloads, resizes and uploads them to WordPress media,
+ * and updates their src attribute with the WordPress media URLs.
+ */
+export const processAndUploadInlineImages = async (
+    htmlContent: string,
+    site: WordPressSite
+): Promise<{ html: string; warnings: string[] }> => {
+    const warnings: string[] = [];
+    if (!htmlContent) return { html: htmlContent, warnings };
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlContent, 'text/html');
+    const images = doc.querySelectorAll('img');
+
+    if (images.length === 0) {
+        return { html: htmlContent, warnings };
+    }
+
+    const domainHost = normalizeHost(site.domain);
+
+    for (let i = 0; i < images.length; i++) {
+        const img = images[i];
+        const src = img.getAttribute('src') || '';
+
+        // Skip data URIs (e.g. SVGs generated inline)
+        if (src.startsWith('data:')) {
+            continue;
+        }
+
+        // Skip if already a WordPress URL for this site
+        if (src.includes('/wp-content/uploads') || src.includes(domainHost)) {
+            continue;
+        }
+
+        // Only upload external images (http/https)
+        if (src.startsWith('http://') || src.startsWith('https://')) {
+            console.log(`Uploading inline image ${i + 1}/${images.length}: ${src}`);
+            const alt = img.getAttribute('alt') || '';
+            const title = img.getAttribute('title') || '';
+            const caption = img.getAttribute('data-caption') || '';
+
+            const result = await uploadImageToWordPress(
+                src,
+                site,
+                { alt, title, caption },
+                true, // resize
+                1200 // max width
+            );
+
+            if (result.url) {
+                img.setAttribute('src', result.url);
+                console.log(`Successfully uploaded and replaced: ${src} -> ${result.url}`);
+            } else {
+                console.warn(`Failed to upload inline image: ${src}`, result.error);
+                warnings.push(`Inline image ${i + 1} (${src.substring(0, 40)}...) could not be uploaded: ${result.error}`);
+            }
+        }
+    }
+
+    return {
+        html: doc.body.innerHTML,
+        warnings
+    };
+};
+
+/**
  * Publish article to WordPress
  */
 export const publishToWordPress = async (
@@ -641,7 +769,12 @@ export const publishToWordPress = async (
         }
 
         // Prepare post data
-        const styledContent = formatArticleBody(articleData);
+        const rawContent = formatArticleBody(articleData);
+        const inlineImageResult = await processAndUploadInlineImages(rawContent, site);
+        const styledContent = inlineImageResult.html;
+        if (inlineImageResult.warnings.length > 0) {
+            publishWarnings.push(...inlineImageResult.warnings);
+        }
 
         // Calculate max slug length for 90-char URL limit
         // URL = https://domain.com/slug

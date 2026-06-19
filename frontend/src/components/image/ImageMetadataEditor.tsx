@@ -24,6 +24,8 @@ export const ImageMetadataEditor: React.FC<ImageMetadataEditorProps> = ({
         MediaAltText: initialMetadata.MediaAltText || '',
         mediaTitle: initialMetadata.mediaTitle || '',
         mediaCaption: initialMetadata.mediaCaption || '',
+        width: initialMetadata.width || '100%',
+        alignment: initialMetadata.alignment || 'center',
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -40,7 +42,11 @@ export const ImageMetadataEditor: React.FC<ImageMetadataEditorProps> = ({
             } as ImageMetadata;
 
             const saved = await saveImageMetadata(fullMetadata);
-            onSave(saved);
+            onSave({
+                ...saved,
+                width: metadata.width,
+                alignment: metadata.alignment
+            });
         } catch (err: any) {
             setError(err.message || 'Failed to save image metadata');
         } finally {
@@ -117,6 +123,39 @@ export const ImageMetadataEditor: React.FC<ImageMetadataEditorProps> = ({
                         className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-white"
                         placeholder="Optional caption to display below the image..."
                     />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            Image Size (Width)
+                        </label>
+                        <select
+                            value={metadata.width || '100%'}
+                            onChange={(e) => setMetadata({ ...metadata, width: e.target.value })}
+                            className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-white"
+                        >
+                            <option value="100%">Full Width (100%)</option>
+                            <option value="75%">Large (75%)</option>
+                            <option value="50%">Medium (50%)</option>
+                            <option value="25%">Small (25%)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            Horizontal Alignment
+                        </label>
+                        <select
+                            value={metadata.alignment || 'center'}
+                            onChange={(e) => setMetadata({ ...metadata, alignment: e.target.value as any })}
+                            className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-white"
+                        >
+                            <option value="center">Center (No Wrap)</option>
+                            <option value="left">Left (Wrap Text)</option>
+                            <option value="right">Right (Wrap Text)</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 

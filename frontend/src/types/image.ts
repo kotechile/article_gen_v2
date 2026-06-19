@@ -21,6 +21,8 @@ export interface ImageMetadata {
     caption?: string;
 
     created_at?: string;
+    width?: string;
+    alignment?: 'left' | 'center' | 'right';
 }
 
 export interface AIImageRequest {

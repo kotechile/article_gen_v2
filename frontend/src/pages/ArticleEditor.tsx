@@ -66,6 +66,58 @@ const CustomBulletList = BulletList.extend({
     }
 });
 
+const CustomImage = TiptapImage.extend({
+    addAttributes() {
+        return {
+            ...this.parent?.(),
+            width: {
+                default: '100%',
+                renderHTML: attributes => {
+                    if (!attributes.width) return {};
+                    const widthStyle = `width: ${attributes.width}; max-width: 100%;`;
+                    let floatStyle = '';
+                    let marginStyle = 'margin-top: 2rem; margin-bottom: 2rem;';
+                    let displayStyle = 'display: block; margin-left: auto; margin-right: auto;';
+
+                    if (attributes.alignment === 'left') {
+                        floatStyle = 'float: left;';
+                        marginStyle = 'margin-right: 1.5rem; margin-bottom: 1.5rem; margin-top: 0.5rem;';
+                        displayStyle = 'display: inline-block;';
+                    } else if (attributes.alignment === 'right') {
+                        floatStyle = 'float: right;';
+                        marginStyle = 'margin-left: 1.5rem; margin-bottom: 1.5rem; margin-top: 0.5rem;';
+                        displayStyle = 'display: inline-block;';
+                    }
+
+                    return {
+                        style: `${widthStyle} ${floatStyle} ${marginStyle} ${displayStyle}`
+                    };
+                },
+                parseHTML: element => {
+                    return element.getAttribute('width') || element.style.width || '100%';
+                },
+            },
+            alignment: {
+                default: 'center',
+                renderHTML: attributes => {
+                    if (attributes.alignment === 'left') {
+                        return { class: 'align-left' };
+                    }
+                    if (attributes.alignment === 'right') {
+                        return { class: 'align-right' };
+                    }
+                    return { class: 'align-center' };
+                },
+                parseHTML: element => {
+                    if (element.classList.contains('align-left') || element.style.float === 'left') return 'left';
+                    if (element.classList.contains('align-right') || element.style.float === 'right') return 'right';
+                    return 'center';
+                },
+            },
+        };
+    },
+});
+
 
 interface ToolbarButtonProps {
     onClick: () => void;
@@ -420,7 +472,7 @@ export const ArticleEditor: React.FC = () => {
             bulletList: false, // We use CustomBulletList
         }),
         CustomBulletList,
-        TiptapImage.configure({
+        CustomImage.configure({
             HTMLAttributes: {
                 class: 'rounded-lg max-w-full h-auto my-8 border border-border shadow-sm',
             },
@@ -1212,8 +1264,10 @@ export const ArticleEditor: React.FC = () => {
             const { to } = editor.state.selection;
             editor.chain().focus().setTextSelection(to).setImage({
                 src: imageUrl,
-                alt: metadata.MediaAltText || metadata.mediaTitle || ''
-            }).run();
+                alt: metadata.MediaAltText || metadata.mediaTitle || '',
+                width: metadata.width || '100%',
+                alignment: metadata.alignment || 'center'
+            } as any).run();
         } else if (imagePickMode === 'featured') {
             setFeaturedImage({
                 url: imageUrl,
