@@ -34,7 +34,28 @@ export const ReferenceSelector: React.FC<ReferenceSelectorProps> = ({
     const authorityMeta = useMemo(() => rankCitationDomains(citations), [citations]);
     const uniqueDomainCount = useMemo(() => new Set(authorityMeta.map((item) => item.domain)).size, [authorityMeta]);
 
-    const inferredInitialMode = initialSelected.size < citations.length ? 'curated' : 'all';
+    // Compute inferred initial mode helper
+    const getInferredInitialMode = (): 'all' | 'curated' | 'manual' => {
+        if (initialSelected.size === citations.length) return 'all';
+        // Check if matches curated
+        const limit = initialSelected.size;
+        const ranked = citations
+            .map((_, index) => ({
+                index,
+                domainRank: authorityMeta[index]?.domainRank ?? Number.MAX_SAFE_INTEGER,
+                domainFrequency: authorityMeta[index]?.domainFrequency ?? 0,
+            }))
+            .sort((a, b) => {
+                if (a.domainRank !== b.domainRank) return a.domainRank - b.domainRank;
+                if (a.domainFrequency !== b.domainFrequency) return b.domainFrequency - a.domainFrequency;
+                return a.index - b.index;
+            })
+            .slice(0, limit)
+            .map((item) => item.index);
+        const matchesCurated = ranked.length > 0 && ranked.every(idx => initialSelected.has(idx));
+        return matchesCurated ? 'curated' : 'manual';
+    };
+
     const inferredInitialCitationLimit = Math.max(
         1,
         Math.min(
@@ -43,8 +64,9 @@ export const ReferenceSelector: React.FC<ReferenceSelectorProps> = ({
         )
     );
 
-    const [filterMode, setFilterMode] = useState<'all' | 'curated'>(inferredInitialMode);
+    const [filterMode, setFilterMode] = useState<'all' | 'curated' | 'manual'>(getInferredInitialMode());
     const [topCitationLimit, setTopCitationLimit] = useState<number>(inferredInitialCitationLimit);
+    const [manualSelection, setManualSelection] = useState<Set<number>>(new Set(initialSelected));
     const [showInText, setShowInText] = useState(initialShowInText);
     const [isApplying, setIsApplying] = useState(false);
 
@@ -68,9 +90,26 @@ export const ReferenceSelector: React.FC<ReferenceSelectorProps> = ({
         return new Set(ranked);
     }, [authorityMeta, citations, topCitationLimit]);
 
-    const appliedSelection = filterMode === 'all'
-        ? new Set(citations.map((_, i) => i))
-        : curatedIndices;
+    const appliedSelection = useMemo(() => {
+        if (filterMode === 'all') {
+            return new Set(citations.map((_, i) => i));
+        }
+        if (filterMode === 'curated') {
+            return curatedIndices;
+        }
+        return manualSelection;
+    }, [filterMode, citations, curatedIndices, manualSelection]);
+
+    const handleToggleReference = (index: number) => {
+        const next = new Set(appliedSelection);
+        if (next.has(index)) {
+            next.delete(index);
+        } else {
+            next.add(index);
+        }
+        setManualSelection(next);
+        setFilterMode('manual');
+    };
 
     const handleApply = async () => {
         try {
@@ -82,9 +121,9 @@ export const ReferenceSelector: React.FC<ReferenceSelectorProps> = ({
         }
     };
 
-    const currentDomainSummary = filterMode === 'all'
-        ? uniqueDomainCount
-        : new Set(Array.from(appliedSelection).map((idx) => authorityMeta[idx]?.domain)).size;
+    const currentDomainSummary = useMemo(() => {
+        return new Set(Array.from(appliedSelection).map((idx) => authorityMeta[idx]?.domain)).size;
+    }, [appliedSelection, authorityMeta]);
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -107,7 +146,7 @@ export const ReferenceSelector: React.FC<ReferenceSelectorProps> = ({
                         Current research contains <strong>{citations.length}</strong> references across <strong>{uniqueDomainCount}</strong> domains.
                     </p>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <button
                             type="button"
                             onClick={() => setFilterMode('all')}
@@ -122,7 +161,18 @@ export const ReferenceSelector: React.FC<ReferenceSelectorProps> = ({
                             className={`rounded-xl border p-3 text-left transition ${filterMode === 'curated' ? 'border-primary bg-primary/10 text-foreground' : 'border-border hover:bg-muted text-muted-foreground'}`}
                         >
                             <div className="font-semibold">Curated View</div>
-                            <div className="text-xs mt-1">Show references from top-ranked source domains only.</div>
+                            <div className="text-xs mt-1">Show references from top-ranked domains only.</div>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setManualSelection(new Set(appliedSelection));
+                                setFilterMode('manual');
+                            }}
+                            className={`rounded-xl border p-3 text-left transition ${filterMode === 'manual' ? 'border-primary bg-primary/10 text-foreground' : 'border-border hover:bg-muted text-muted-foreground'}`}
+                        >
+                            <div className="font-semibold">Manual Selection</div>
+                            <div className="text-xs mt-1">Pick and choose reference links manually.</div>
                         </button>
                     </div>
 
@@ -176,10 +226,20 @@ export const ReferenceSelector: React.FC<ReferenceSelectorProps> = ({
                                 return (
                                     <div
                                         key={index}
-                                        className={`flex items-start gap-4 p-4 rounded-xl border transition ${included ? 'border-primary/50 bg-primary/5' : 'border-border opacity-60'}`}
+                                        onClick={() => handleToggleReference(index)}
+                                        className={`flex items-start gap-4 p-4 rounded-xl border transition cursor-pointer select-none ${included ? 'border-primary/50 bg-primary/5' : 'border-border opacity-70 hover:opacity-100 hover:bg-muted/30'}`}
                                     >
-                                        <div className={`mt-1 text-xs font-bold px-2 py-1 rounded ${included ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}>
-                                            [{index + 1}]
+                                        <div className="flex items-center gap-3 mt-1">
+                                            <input
+                                                type="checkbox"
+                                                checked={included}
+                                                onChange={() => handleToggleReference(index)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                                            />
+                                            <div className={`text-xs font-bold px-2 py-1 rounded ${included ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                                                [{index + 1}]
+                                            </div>
                                         </div>
 
                                         <div className="flex-1 min-w-0">
@@ -213,6 +273,7 @@ export const ReferenceSelector: React.FC<ReferenceSelectorProps> = ({
                                                     href={citation.url}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
+                                                    onClick={(e) => e.stopPropagation()}
                                                     className="text-xs text-primary hover:underline truncate block"
                                                 >
                                                     {citation.url}
