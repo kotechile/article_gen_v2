@@ -674,33 +674,41 @@ export const processAndUploadInlineImages = async (
     const warnings: string[] = [];
     if (!htmlContent) return { html: htmlContent, warnings };
 
+    console.log("[processAndUploadInlineImages] Scanning content for inline images. Content length:", htmlContent.length);
+
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlContent, 'text/html');
     const images = doc.querySelectorAll('img');
+
+    console.log("[processAndUploadInlineImages] Found total <img> tags:", images.length);
 
     if (images.length === 0) {
         return { html: htmlContent, warnings };
     }
 
     const domainHost = normalizeHost(site.domain);
+    console.log("[processAndUploadInlineImages] Target site domainHost:", domainHost);
 
     for (let i = 0; i < images.length; i++) {
         const img = images[i];
-        const src = img.getAttribute('src') || '';
+        const src = (img.getAttribute('src') || '').trim();
+        console.log(`[processAndUploadInlineImages] Image ${i+1}/${images.length} src:`, src);
 
         // Skip data URIs (e.g. SVGs generated inline)
         if (src.startsWith('data:')) {
+            console.log(`[processAndUploadInlineImages] Skipping image ${i+1} because it starts with data: (Data URI)`);
             continue;
         }
 
         // Skip if already a WordPress URL for this site
-        if (src.includes('/wp-content/uploads') || src.includes(domainHost)) {
+        if (src.includes('/wp-content/uploads') || (domainHost && src.includes(domainHost))) {
+            console.log(`[processAndUploadInlineImages] Skipping image ${i+1} because it is already a WordPress URL (contains /wp-content/uploads or ${domainHost})`);
             continue;
         }
 
         // Only upload external images (http/https)
         if (src.startsWith('http://') || src.startsWith('https://')) {
-            console.log(`Uploading inline image ${i + 1}/${images.length}: ${src}`);
+            console.log(`[processAndUploadInlineImages] Uploading image ${i+1} to WordPress: ${src}`);
             const alt = img.getAttribute('alt') || '';
             const title = img.getAttribute('title') || '';
             const caption = img.getAttribute('data-caption') || '';
@@ -715,11 +723,13 @@ export const processAndUploadInlineImages = async (
 
             if (result.url) {
                 img.setAttribute('src', result.url);
-                console.log(`Successfully uploaded and replaced: ${src} -> ${result.url}`);
+                console.log(`[processAndUploadInlineImages] Successfully uploaded and replaced image ${i+1}: ${src} -> ${result.url}`);
             } else {
-                console.warn(`Failed to upload inline image: ${src}`, result.error);
+                console.warn(`[processAndUploadInlineImages] Failed to upload image ${i+1}: ${src}`, result.error);
                 warnings.push(`Inline image ${i + 1} (${src.substring(0, 40)}...) could not be uploaded: ${result.error}`);
             }
+        } else {
+            console.log(`[processAndUploadInlineImages] Skipping image ${i+1} because it does not start with http:// or https://`);
         }
     }
 
