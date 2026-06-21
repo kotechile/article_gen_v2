@@ -89,7 +89,7 @@ describe('MathNode Tiptap Extension', () => {
         editor.commands.setContent('<p>$$a^2+b^2=c^2$$</p>');
         const pos = editor.state.doc.content.size - 1;
         editor.commands.setTextSelection(pos);
-        const handled = editor.view.someProp('handleTextInput', f => f(editor.view, pos, pos, ' '));
+        editor.view.someProp('handleTextInput', f => f(editor.view, pos, pos, ' ', {} as any));
         expect(editor.getHTML()).toContain('data-math="a^2+b^2=c^2"');
         expect(editor.getHTML()).toContain('data-display-mode="true"');
     });
@@ -99,7 +99,7 @@ describe('MathNode Tiptap Extension', () => {
         editor.commands.setContent('<p>$x=y$</p>');
         const pos = editor.state.doc.content.size - 1;
         editor.commands.setTextSelection(pos);
-        editor.view.someProp('handleTextInput', f => f(editor.view, pos, pos, ' '));
+        editor.view.someProp('handleTextInput', f => f(editor.view, pos, pos, ' ', {} as any));
         expect(editor.getHTML()).toContain('data-math="x=y"');
         expect(editor.getHTML()).toContain('data-display-mode="false"');
     });
@@ -116,7 +116,7 @@ describe('MathNode Tiptap Extension', () => {
         expect(pasteRules?.length).toBe(1);
         
         const rule = pasteRules![0];
-        const regex = rule.find;
+        const regex = rule.find as RegExp;
         
         const text = 'Here is $$a^2+b^2=c^2$$ and $x=y$';
         const matches = [...text.matchAll(regex)];
