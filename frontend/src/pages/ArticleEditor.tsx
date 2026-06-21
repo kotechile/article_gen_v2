@@ -5,9 +5,11 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
 
 import { useEditor, EditorContent } from '@tiptap/react';
-import { Extension } from '@tiptap/core';
+import { Extension, Node, mergeAttributes } from '@tiptap/core';
 import BulletList from '@tiptap/extension-bullet-list';
 import StarterKit from '@tiptap/starter-kit';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import TiptapImage from '@tiptap/extension-image';
 // import TiptapLink from '@tiptap/extension-link'; // Already in StarterKit 3.x
 import { Table } from '@tiptap/extension-table';
@@ -117,6 +119,128 @@ const CustomImage = TiptapImage.extend({
         };
     },
 });
+
+const MathNode = Node.create({
+    name: 'math',
+    group: 'inline',
+    inline: true,
+    selectable: true,
+    atom: true,
+
+    addAttributes() {
+        return {
+            latex: {
+                default: '',
+            },
+            displayMode: {
+                default: false,
+            },
+        };
+    },
+
+    parseHTML() {
+        return [
+            {
+                tag: 'span[data-math]',
+                getAttrs: element => {
+                    const el = element as HTMLElement;
+                    return {
+                        latex: el.getAttribute('data-math') || '',
+                        displayMode: el.getAttribute('data-display-mode') === 'true',
+                    };
+                },
+            },
+        ];
+    },
+
+    renderHTML({ HTMLAttributes }) {
+        return [
+            'span',
+            mergeAttributes(HTMLAttributes, {
+                'data-math': HTMLAttributes.latex,
+                'data-display-mode': HTMLAttributes.displayMode ? 'true' : 'false',
+                class: HTMLAttributes.displayMode ? 'math-block' : 'math-inline',
+            }),
+            HTMLAttributes.displayMode ? `$$${HTMLAttributes.latex}$$` : `$${HTMLAttributes.latex}$`,
+        ];
+    },
+
+    addNodeView() {
+        return ({ node }) => {
+            const dom = document.createElement('span');
+            const displayMode = node.attrs.displayMode;
+            dom.className = displayMode ? 'math-block-view my-6 py-2 block text-center' : 'math-inline-view inline-block px-1';
+            dom.setAttribute('data-math', node.attrs.latex);
+            dom.setAttribute('data-display-mode', displayMode ? 'true' : 'false');
+
+            try {
+                katex.render(node.attrs.latex, dom, {
+                    displayMode: displayMode,
+                    throwOnError: false,
+                });
+            } catch (err) {
+                dom.textContent = node.attrs.latex;
+            }
+
+            return {
+                dom,
+            };
+        };
+    },
+});
+
+const convertTextMathToHtmlMath = (html: string): string => {
+    if (!html) return html;
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    const walk = (node: ChildNode) => {
+        if (node.nodeType === window.Node.TEXT_NODE) {
+            const parent = node.parentNode;
+            if (!parent || parent.nodeName === 'SCRIPT' || parent.nodeName === 'STYLE' || parent.nodeName === 'TEXTAREA' || (parent as HTMLElement).hasAttribute?.('data-math')) {
+                return;
+            }
+
+            const text = node.textContent || '';
+            // Regex matches $$...$$ first, then $...$
+            const regex = /(\$\$[\s\S]+?\$\$|\$[^\$]+?\$)/g;
+            const parts = text.split(regex);
+            
+            if (parts.length > 1) {
+                const fragment = document.createDocumentFragment();
+                parts.forEach(part => {
+                    if (part.startsWith('$$') && part.endsWith('$$')) {
+                        const latex = part.slice(2, -2).trim();
+                        const span = document.createElement('span');
+                        span.setAttribute('data-math', latex);
+                        span.setAttribute('data-display-mode', 'true');
+                        span.className = 'math-block';
+                        span.textContent = `$$${latex}$$`;
+                        fragment.appendChild(span);
+                    } else if (part.startsWith('$') && part.endsWith('$')) {
+                        const latex = part.slice(1, -1).trim();
+                        const span = document.createElement('span');
+                        span.setAttribute('data-math', latex);
+                        span.setAttribute('data-display-mode', 'false');
+                        span.className = 'math-inline';
+                        span.textContent = `$${latex}$`;
+                        fragment.appendChild(span);
+                    } else if (part) {
+                        fragment.appendChild(document.createTextNode(part));
+                    }
+                });
+                parent.replaceChild(fragment, node);
+            }
+        } else {
+            const children = Array.from(node.childNodes);
+            children.forEach(walk);
+        }
+    };
+
+    walk(doc.body);
+    return doc.body.innerHTML;
+};
 
 
 interface ToolbarButtonProps {
@@ -457,7 +581,7 @@ export const ArticleEditor: React.FC = () => {
         return beautifyTablesHtml(processed);
     }, [articleData]);
     const normalizeEditorHtml = React.useCallback(
-        (html: string) => ensureIntroKeyTakeaways(normalizeInfographicHtmlForEditor(html), articleData),
+        (html: string) => convertTextMathToHtmlMath(ensureIntroKeyTakeaways(normalizeInfographicHtmlForEditor(html), articleData)),
         [articleData],
     );
 
@@ -486,6 +610,7 @@ export const ArticleEditor: React.FC = () => {
         CharacterCount,
         HeadingIdExtension,
         InfographicBlock,
+        MathNode,
     ], []);
 
     const editor = useEditor({

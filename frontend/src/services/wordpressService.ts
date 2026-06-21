@@ -740,6 +740,31 @@ export const processAndUploadInlineImages = async (
 };
 
 /**
+ * Scans HTML content for <span data-math> elements and converts them
+ * into clean standard LaTeX notation (e.g. $$formula$$ or $formula$) for WordPress.
+ */
+export const cleanMathHtmlForWordPress = (htmlContent: string): string => {
+    if (!htmlContent) return htmlContent;
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlContent, 'text/html');
+    const mathSpans = doc.querySelectorAll('span[data-math]');
+
+    mathSpans.forEach((span) => {
+        const latex = span.getAttribute('data-math') || '';
+        const isDisplayMode = span.getAttribute('data-display-mode') === 'true';
+
+        // Replace the element with standard LaTeX delimiters
+        // Block math gets wrapped in newlines for cleaner rendering, inline stays in-line.
+        const mathText = isDisplayMode ? `\n$$\n${latex}\n$$\n` : `$${latex}$`;
+        const textNode = doc.createTextNode(mathText);
+        span.parentNode?.replaceChild(textNode, span);
+    });
+
+    return doc.body.innerHTML;
+};
+
+/**
  * Publish article to WordPress
  */
 export const publishToWordPress = async (
@@ -781,10 +806,13 @@ export const publishToWordPress = async (
         // Prepare post data
         const rawContent = formatArticleBody(articleData);
         const inlineImageResult = await processAndUploadInlineImages(rawContent, site);
-        const styledContent = inlineImageResult.html;
+        let styledContent = inlineImageResult.html;
         if (inlineImageResult.warnings.length > 0) {
             publishWarnings.push(...inlineImageResult.warnings);
         }
+
+        // Clean up math node spans to standard WordPress-friendly LaTeX notation
+        styledContent = cleanMathHtmlForWordPress(styledContent);
 
         // Calculate max slug length for 90-char URL limit
         // URL = https://domain.com/slug
