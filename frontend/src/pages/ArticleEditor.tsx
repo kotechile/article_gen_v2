@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
 
 import { useEditor, EditorContent } from '@tiptap/react';
-import { Extension, Node, mergeAttributes } from '@tiptap/core';
+import { Extension, Node, mergeAttributes, InputRule, PasteRule } from '@tiptap/core';
 import BulletList from '@tiptap/extension-bullet-list';
 import StarterKit from '@tiptap/starter-kit';
 import katex from 'katex';
@@ -120,7 +120,7 @@ const CustomImage = TiptapImage.extend({
     },
 });
 
-const MathNode = Node.create({
+export const MathNode = Node.create({
     name: 'math',
     group: 'inline',
     inline: true,
@@ -148,6 +148,77 @@ const MathNode = Node.create({
                         latex: el.getAttribute('data-math') || '',
                         displayMode: el.getAttribute('data-display-mode') === 'true',
                     };
+                },
+            },
+            {
+                tag: 'span.katex',
+                getAttrs: element => {
+                    const el = element as HTMLElement;
+                    // Find annotation encoding="application/x-tex"
+                    const annotation = el.querySelector('annotation[encoding="application/x-tex"]');
+                    if (annotation && annotation.textContent) {
+                        const isDisplay = el.querySelector('.katex-display') !== null || el.classList.contains('katex-display');
+                        return {
+                            latex: annotation.textContent.trim(),
+                            displayMode: isDisplay,
+                        };
+                    }
+                    return false;
+                },
+            },
+            {
+                tag: 'mjx-container',
+                getAttrs: element => {
+                    const el = element as HTMLElement;
+                    const tex = el.getAttribute('data-tex');
+                    if (tex) {
+                        const isDisplay = el.getAttribute('display') === 'true' || el.classList.contains('mjx-display') || el.style.display === 'block';
+                        return {
+                            latex: tex.trim(),
+                            displayMode: isDisplay,
+                        };
+                    }
+                    return false;
+                },
+            },
+            {
+                tag: 'script[type^="math/tex"]',
+                getAttrs: element => {
+                    const el = element as HTMLScriptElement;
+                    const type = el.getAttribute('type') || '';
+                    const isDisplay = type.includes('mode=display');
+                    return {
+                        latex: el.textContent?.trim() || '',
+                        displayMode: isDisplay,
+                    };
+                },
+            },
+            {
+                tag: 'span.MathJax',
+                getAttrs: element => {
+                    const el = element as HTMLElement;
+                    const script = el.querySelector('script[type^="math/tex"]');
+                    if (script && script.textContent) {
+                        const type = script.getAttribute('type') || '';
+                        const isDisplay = type.includes('mode=display');
+                        return {
+                            latex: script.textContent.trim(),
+                            displayMode: isDisplay,
+                        };
+                    }
+                    const parent = el.parentElement;
+                    if (parent) {
+                        const siblingScript = parent.querySelector('script[type^="math/tex"]');
+                        if (siblingScript && siblingScript.textContent) {
+                            const type = siblingScript.getAttribute('type') || '';
+                            const isDisplay = type.includes('mode=display');
+                            return {
+                                latex: siblingScript.textContent.trim(),
+                                displayMode: isDisplay,
+                            };
+                        }
+                    }
+                    return false;
                 },
             },
         ];
@@ -186,6 +257,51 @@ const MathNode = Node.create({
                 dom,
             };
         };
+    },
+
+    addInputRules() {
+        return [
+            new InputRule({
+                find: /\$\$(.+?)\$\$\s$/,
+                handler: ({ state, range, match }) => {
+                    const start = range.from;
+                    const end = range.to;
+                    const latex = match[1].trim();
+                    if (!latex) return;
+                    state.tr.replaceWith(start, end, this.type.create({ latex, displayMode: true }));
+                },
+            }),
+            new InputRule({
+                find: /(?:^|[^$])\$([^$]+?)\$\s$/,
+                handler: ({ state, range, match }) => {
+                    const latex = match[1].trim();
+                    if (!latex) return;
+                    let start = range.from;
+                    let end = range.to;
+                    if (match[0] && !match[0].startsWith('$')) {
+                        start += 1;
+                    }
+                    state.tr.replaceWith(start, end, this.type.create({ latex, displayMode: false }));
+                },
+            }),
+        ];
+    },
+
+    addPasteRules() {
+        return [
+            new PasteRule({
+                find: /(\$\$[\s\S]+?\$\$|\$[^\$]+?\$)/g,
+                handler: ({ state, range, match }) => {
+                    const matchStr = match[0];
+                    const displayMode = matchStr.startsWith('$$') && matchStr.endsWith('$$');
+                    const latex = displayMode ? matchStr.slice(2, -2).trim() : matchStr.slice(1, -1).trim();
+                    if (!latex) return;
+                    const start = range.from;
+                    const end = range.to;
+                    state.tr.replaceWith(start, end, this.type.create({ latex, displayMode }));
+                },
+            }),
+        ];
     },
 });
 
