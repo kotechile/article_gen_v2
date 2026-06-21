@@ -2068,20 +2068,20 @@ class DataForSEOAPI:
                         if item.get("type") == "organic":
                             analysis["organic_results"].append({
                                 "position": item.get("rank_group", 0),
-                                "title": item.get("title", ""),
-                                "description": item.get("description", ""),
-                                "url": item.get("url", ""),
-                                "domain": item.get("domain", ""),
-                                "title_length": len(item.get("title", "")),
-                                "description_length": len(item.get("description", ""))
+                                "title": item.get("title") or "",
+                                "description": item.get("description") or "",
+                                "url": item.get("url") or "",
+                                "domain": item.get("domain") or "",
+                                "title_length": len(item.get("title") or ""),
+                                "description_length": len(item.get("description") or "")
                             })
                         elif item.get("type") == "paid":
                             analysis["paid_results"].append({
                                 "position": item.get("rank_group", 0),
-                                "title": item.get("title", ""),
-                                "description": item.get("description", ""),
-                                "url": item.get("url", ""),
-                                "domain": item.get("domain", "")
+                                "title": item.get("title") or "",
+                                "description": item.get("description") or "",
+                                "url": item.get("url") or "",
+                                "domain": item.get("domain") or ""
                             })
                         elif item.get("type") == "related_searches":
                             if "items" in item:

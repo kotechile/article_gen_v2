@@ -118,19 +118,26 @@ class GoogleAutocompleteService:
                     headers=headers
                 ) as response:
                     if response.status == 200:
-                        # Parse the JSONP response from Google
                         text = await response.text()
+                        import json
                         
-                        # Google returns JSONP format: window.google.ac.h(..., [...])
-                        # Extract the suggestions array
-                        import re
-                        json_match = re.search(r'\[(.*?)\]', text)
-                        if json_match:
-                            suggestions_text = json_match.group(0)
-                            import json
-                            suggestions_data = json.loads(suggestions_text)
-                            
-                            # Extract actual suggestions (usually in the second array)
+                        suggestions_data = None
+                        try:
+                            # Try parsing standard JSON first
+                            suggestions_data = json.loads(text)
+                        except Exception:
+                            # Fallback to regex if it's JSONP format
+                            import re
+                            # Use greedy match for outer brackets to handle nested arrays
+                            json_match = re.search(r'\[.*\]', text)
+                            if json_match:
+                                try:
+                                    suggestions_data = json.loads(json_match.group(0))
+                                except Exception as err:
+                                    logger.warning(f"Failed to load regex matched JSON: {err}")
+                        
+                        if suggestions_data is not None:
+                            # Extract actual suggestions (usually in the second array for client=firefox)
                             if len(suggestions_data) >= 2 and isinstance(suggestions_data[1], list):
                                 suggestions = suggestions_data[1]
                             else:
