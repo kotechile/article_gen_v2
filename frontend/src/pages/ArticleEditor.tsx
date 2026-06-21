@@ -151,10 +151,11 @@ export const MathNode = Node.create({
                 },
             },
             {
-                tag: 'span.katex',
+                tag: '.katex',
                 getAttrs: element => {
                     const el = element as HTMLElement;
-                    // Find annotation encoding="application/x-tex"
+                    
+                    // 1. Try annotation tag
                     const annotation = el.querySelector('annotation[encoding="application/x-tex"]');
                     if (annotation && annotation.textContent) {
                         const isDisplay = el.querySelector('.katex-display') !== null || el.classList.contains('katex-display');
@@ -163,6 +164,40 @@ export const MathNode = Node.create({
                             displayMode: isDisplay,
                         };
                     }
+                    
+                    // 2. Try any annotation tag fallback
+                    const anyAnnotation = el.querySelector('annotation');
+                    if (anyAnnotation && anyAnnotation.textContent) {
+                        const isDisplay = el.querySelector('.katex-display') !== null || el.classList.contains('katex-display');
+                        return {
+                            latex: anyAnnotation.textContent.trim(),
+                            displayMode: isDisplay,
+                        };
+                    }
+                    
+                    // 3. Try math alttext
+                    const mathEl = el.querySelector('math');
+                    if (mathEl) {
+                        const alt = mathEl.getAttribute('alttext');
+                        if (alt) {
+                            const isDisplay = el.querySelector('.katex-display') !== null || el.classList.contains('katex-display');
+                            return {
+                                latex: alt.trim(),
+                                displayMode: isDisplay,
+                            };
+                        }
+                    }
+                    
+                    // 4. Try aria-label
+                    const ariaLabel = el.getAttribute('aria-label');
+                    if (ariaLabel) {
+                        const isDisplay = el.querySelector('.katex-display') !== null || el.classList.contains('katex-display');
+                        return {
+                            latex: ariaLabel.trim(),
+                            displayMode: isDisplay,
+                        };
+                    }
+                    
                     return false;
                 },
             },
@@ -194,9 +229,20 @@ export const MathNode = Node.create({
                 },
             },
             {
-                tag: 'span.MathJax',
+                tag: '.MathJax',
                 getAttrs: element => {
                     const el = element as HTMLElement;
+                    
+                    // 1. Try data-tex attribute (sometimes present on wrapper)
+                    const dataTex = el.getAttribute('data-tex');
+                    if (dataTex) {
+                        return {
+                            latex: dataTex.trim(),
+                            displayMode: el.classList.contains('MathJax_Display') || el.style.display === 'block',
+                        };
+                    }
+                    
+                    // 2. Try script tag child/sibling
                     const script = el.querySelector('script[type^="math/tex"]');
                     if (script && script.textContent) {
                         const type = script.getAttribute('type') || '';
@@ -206,6 +252,7 @@ export const MathNode = Node.create({
                             displayMode: isDisplay,
                         };
                     }
+                    
                     const parent = el.parentElement;
                     if (parent) {
                         const siblingScript = parent.querySelector('script[type^="math/tex"]');
@@ -217,6 +264,40 @@ export const MathNode = Node.create({
                                 displayMode: isDisplay,
                             };
                         }
+                    }
+                    
+                    return false;
+                },
+            },
+            {
+                tag: 'img',
+                getAttrs: element => {
+                    const el = element as HTMLImageElement;
+                    const alt = el.getAttribute('alt') || '';
+                    const src = el.getAttribute('src') || '';
+                    const className = el.className || '';
+                    
+                    // Check if it's a math image
+                    const isMathImage = 
+                        className.includes('math') || 
+                        className.includes('latex') || 
+                        src.includes('latex') || 
+                        src.includes('chart.apis.google.com/chart?cht=tx') ||
+                        alt.startsWith('$') || 
+                        alt.startsWith('\\');
+                        
+                    if (isMathImage && alt) {
+                        let latex = alt.trim();
+                        const isDisplay = latex.startsWith('$$') && latex.endsWith('$$');
+                        if (isDisplay) {
+                            latex = latex.slice(2, -2).trim();
+                        } else if (latex.startsWith('$') && latex.endsWith('$')) {
+                            latex = latex.slice(1, -1).trim();
+                        }
+                        return {
+                            latex: latex,
+                            displayMode: isDisplay || className.includes('block') || src.includes('display=true'),
+                        };
                     }
                     return false;
                 },
@@ -276,6 +357,16 @@ export const MathNode = Node.create({
                 handler: ({ state, range, match }) => {
                     const latex = match[1].trim();
                     if (!latex) return;
+                    
+                    // Safety checks to avoid false positive currency matches
+                    if (latex.length > 100) return;
+                    if (/[.!?]\s+[A-Z]/.test(latex)) return;
+                    if (latex.includes('\n')) return;
+                    if (latex.includes(' ')) {
+                        const hasMathSymbol = /[=+\-*/\\_^{}<>]/.test(latex) || latex.includes('\\times') || latex.includes('\\div');
+                        if (!hasMathSymbol) return;
+                    }
+                    
                     let start = range.from;
                     let end = range.to;
                     if (match[0] && !match[0].startsWith('$')) {
@@ -296,6 +387,18 @@ export const MathNode = Node.create({
                     const displayMode = matchStr.startsWith('$$') && matchStr.endsWith('$$');
                     const latex = displayMode ? matchStr.slice(2, -2).trim() : matchStr.slice(1, -1).trim();
                     if (!latex) return;
+                    
+                    // Safety checks for inline math to avoid false positive currency matches
+                    if (!displayMode) {
+                        if (latex.length > 100) return;
+                        if (/[.!?]\s+[A-Z]/.test(latex)) return;
+                        if (latex.includes('\n')) return;
+                        if (latex.includes(' ')) {
+                            const hasMathSymbol = /[=+\-*/\\_^{}<>]/.test(latex) || latex.includes('\\times') || latex.includes('\\div');
+                            if (!hasMathSymbol) return;
+                        }
+                    }
+                    
                     const start = range.from;
                     const end = range.to;
                     state.tr.replaceWith(start, end, this.type.create({ latex, displayMode }));
@@ -744,6 +847,13 @@ export const ArticleEditor: React.FC = () => {
                     event.preventDefault();
                     setContextMenu({ x: event.clientX, y: event.clientY });
                     return true;
+                },
+                paste: (_view, event) => {
+                    const html = event.clipboardData?.getData('text/html');
+                    const text = event.clipboardData?.getData('text/plain');
+                    console.log('%c[CLIPBOARD HTML]', 'color: blue; font-weight: bold;', html);
+                    console.log('%c[CLIPBOARD TEXT]', 'color: green; font-weight: bold;', text);
+                    return false;
                 }
             }
         },

@@ -127,4 +127,11 @@ describe('MathNode Tiptap Extension', () => {
         expect(matches[1][0]).toBe('$x=y$');
         expect(matches[1][1]).toBe('$x=y$');
     });
+
+    it('parses math images with alt tag containing LaTeX', () => {
+        const editor = createEditor();
+        editor.commands.setContent('<p>Image math: <img class="latex-formula" src="https://latex.codecogs.com/png.latex?x%5E2" alt="x^2" /></p>');
+        expect(editor.getHTML()).toContain('data-math="x^2"');
+        expect(editor.getHTML()).toContain('class="math-inline"');
+    });
 });
