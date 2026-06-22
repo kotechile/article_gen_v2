@@ -701,8 +701,9 @@ export const processAndUploadInlineImages = async (
         }
 
         // Skip if already a WordPress URL for this site
-        if (src.includes('/wp-content/uploads') || (domainHost && src.includes(domainHost))) {
-            console.log(`[processAndUploadInlineImages] Skipping image ${i+1} because it is already a WordPress URL (contains /wp-content/uploads or ${domainHost})`);
+        const isAlreadyWordPressUrl = src.includes('/wp-content/uploads') && (!domainHost || src.includes(domainHost));
+        if (isAlreadyWordPressUrl) {
+            console.log(`[processAndUploadInlineImages] Skipping image ${i+1} because it is already a WordPress URL for this site (contains /wp-content/uploads and matches host)`);
             continue;
         }
 
