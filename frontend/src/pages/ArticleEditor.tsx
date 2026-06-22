@@ -11,7 +11,7 @@ import StarterKit from '@tiptap/starter-kit';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import TiptapImage from '@tiptap/extension-image';
-// import TiptapLink from '@tiptap/extension-link'; // Already in StarterKit 3.x
+import Link from '@tiptap/extension-link';
 import { Table } from '@tiptap/extension-table';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
@@ -116,7 +116,30 @@ const CustomImage = TiptapImage.extend({
                     return 'center';
                 },
             },
+            link: {
+                default: null,
+                parseHTML: element => {
+                    const anchor = element.closest('a');
+                    if (anchor) {
+                        return anchor.getAttribute('href');
+                    }
+                    return element.getAttribute('data-link') || null;
+                },
+                renderHTML: attributes => {
+                    if (!attributes.link) return {};
+                    return { 'data-link': attributes.link };
+                }
+            }
         };
+    },
+
+    renderHTML({ HTMLAttributes }) {
+        const { link, ...rest } = HTMLAttributes;
+        const imgElement = ['img', mergeAttributes(this.options.HTMLAttributes, rest)] as any;
+        if (link) {
+            return ['a', { href: link, target: '_blank', rel: 'noopener noreferrer', class: 'image-link' }, imgElement] as any;
+        }
+        return imgElement;
     },
 });
 
@@ -732,13 +755,16 @@ export const ArticleEditor: React.FC = () => {
 
     const extensions = React.useMemo(() => [
         StarterKit.configure({
-            link: {
-                openOnClick: true,
-            },
             heading: {
                 levels: [1, 2, 3],
             },
             bulletList: false, // We use CustomBulletList
+        }),
+        Link.configure({
+            openOnClick: true,
+            HTMLAttributes: {
+                class: 'text-indigo-600 dark:text-indigo-400 underline hover:text-indigo-800 transition-colors',
+            },
         }),
         CustomBulletList,
         CustomImage.configure({
@@ -1417,15 +1443,30 @@ export const ArticleEditor: React.FC = () => {
     };
 
     const setLink = () => {
-        const previousUrl = editor?.getAttributes('link').href;
+        if (!editor) return;
+
+        if (editor.isActive('image')) {
+            const previousUrl = editor.getAttributes('image').link || '';
+            const url = window.prompt('Image Link URL', previousUrl);
+
+            if (url === null) return;
+            if (url === '') {
+                editor.chain().focus().updateAttributes('image', { link: null }).run();
+                return;
+            }
+            editor.chain().focus().updateAttributes('image', { link: url }).run();
+            return;
+        }
+
+        const previousUrl = editor.getAttributes('link').href;
         const url = window.prompt('URL', previousUrl);
 
         if (url === null) return;
         if (url === '') {
-            editor?.chain().focus().extendMarkRange('link').unsetLink().run();
+            editor.chain().focus().extendMarkRange('link').unsetLink().run();
             return;
         }
-        editor?.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+        editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
     };
 
     const addMath = () => {
@@ -1576,7 +1617,8 @@ export const ArticleEditor: React.FC = () => {
                 src: imageUrl,
                 alt: metadata.MediaAltText || metadata.mediaTitle || '',
                 width: metadata.width || '100%',
-                alignment: metadata.alignment || 'center'
+                alignment: metadata.alignment || 'center',
+                link: metadata.link || null
             } as any).run();
         } else if (imagePickMode === 'featured') {
             setFeaturedImage({
@@ -1584,7 +1626,8 @@ export const ArticleEditor: React.FC = () => {
                 author: metadata.ImageAuthor || '',
                 alt: metadata.MediaAltText || '',
                 title: metadata.mediaTitle || '',
-                caption: metadata.mediaCaption || ''
+                caption: metadata.mediaCaption || '',
+                link: metadata.link || ''
             });
         }
         setIsAddImageModalOpen(false);

@@ -23,6 +23,7 @@ export interface ImageMetadata {
     created_at?: string;
     width?: string;
     alignment?: 'left' | 'center' | 'right';
+    link?: string;
 }
 
 export interface AIImageRequest {

@@ -26,6 +26,7 @@ export const ImageMetadataEditor: React.FC<ImageMetadataEditorProps> = ({
         mediaCaption: initialMetadata.mediaCaption || '',
         width: initialMetadata.width || '100%',
         alignment: initialMetadata.alignment || 'center',
+        link: initialMetadata.link || '',
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -45,7 +46,8 @@ export const ImageMetadataEditor: React.FC<ImageMetadataEditorProps> = ({
             onSave({
                 ...saved,
                 width: metadata.width,
-                alignment: metadata.alignment
+                alignment: metadata.alignment,
+                link: metadata.link
             });
         } catch (err: any) {
             setError(err.message || 'Failed to save image metadata');
@@ -122,6 +124,22 @@ export const ImageMetadataEditor: React.FC<ImageMetadataEditorProps> = ({
                         rows={2}
                         className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-white"
                         placeholder="Optional caption to display below the image..."
+                    />
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Link URL
+                        <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
+                            (Clicking the image will navigate to this URL)
+                        </span>
+                    </label>
+                    <input
+                        type="url"
+                        value={metadata.link || ''}
+                        onChange={(e) => setMetadata({ ...metadata, link: e.target.value })}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-white"
+                        placeholder="https://example.com/destination..."
                     />
                 </div>
 
