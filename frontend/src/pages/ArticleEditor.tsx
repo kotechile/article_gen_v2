@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
 
 import { useEditor, EditorContent } from '@tiptap/react';
-import { Extension, Node, mergeAttributes, InputRule, PasteRule } from '@tiptap/core';
+import { Extension, Node, mergeAttributes, InputRule } from '@tiptap/core';
 import BulletList from '@tiptap/extension-bullet-list';
 import StarterKit from '@tiptap/starter-kit';
 import katex from 'katex';
@@ -379,86 +379,12 @@ export const MathNode = Node.create({
     },
 
     addPasteRules() {
-        return [
-            new PasteRule({
-                find: /(\$\$[\s\S]+?\$\$|\$[^\$]+?\$)/g,
-                handler: ({ state, range, match }) => {
-                    const matchStr = match[0];
-                    const displayMode = matchStr.startsWith('$$') && matchStr.endsWith('$$');
-                    const latex = displayMode ? matchStr.slice(2, -2).trim() : matchStr.slice(1, -1).trim();
-                    if (!latex) return;
-                    
-                    // Safety checks for inline math to avoid false positive currency matches
-                    if (!displayMode) {
-                        if (latex.length > 100) return;
-                        if (/[.!?]\s+[A-Z]/.test(latex)) return;
-                        if (latex.includes('\n')) return;
-                        if (latex.includes(' ')) {
-                            const hasMathSymbol = /[=+\-*/\\_^{}<>]/.test(latex) || latex.includes('\\times') || latex.includes('\\div');
-                            if (!hasMathSymbol) return;
-                        }
-                    }
-                    
-                    const start = range.from;
-                    const end = range.to;
-                    state.tr.replaceWith(start, end, this.type.create({ latex, displayMode }));
-                },
-            }),
-        ];
+        return [];
     },
 });
 
 const convertTextMathToHtmlMath = (html: string): string => {
-    if (!html) return html;
-
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-
-    const walk = (node: ChildNode) => {
-        if (node.nodeType === window.Node.TEXT_NODE) {
-            const parent = node.parentNode;
-            if (!parent || parent.nodeName === 'SCRIPT' || parent.nodeName === 'STYLE' || parent.nodeName === 'TEXTAREA' || (parent as HTMLElement).hasAttribute?.('data-math')) {
-                return;
-            }
-
-            const text = node.textContent || '';
-            // Regex matches $$...$$ first, then $...$
-            const regex = /(\$\$[\s\S]+?\$\$|\$[^\$]+?\$)/g;
-            const parts = text.split(regex);
-            
-            if (parts.length > 1) {
-                const fragment = document.createDocumentFragment();
-                parts.forEach(part => {
-                    if (part.startsWith('$$') && part.endsWith('$$')) {
-                        const latex = part.slice(2, -2).trim();
-                        const span = document.createElement('span');
-                        span.setAttribute('data-math', latex);
-                        span.setAttribute('data-display-mode', 'true');
-                        span.className = 'math-block';
-                        span.textContent = `$$${latex}$$`;
-                        fragment.appendChild(span);
-                    } else if (part.startsWith('$') && part.endsWith('$')) {
-                        const latex = part.slice(1, -1).trim();
-                        const span = document.createElement('span');
-                        span.setAttribute('data-math', latex);
-                        span.setAttribute('data-display-mode', 'false');
-                        span.className = 'math-inline';
-                        span.textContent = `$${latex}$`;
-                        fragment.appendChild(span);
-                    } else if (part) {
-                        fragment.appendChild(document.createTextNode(part));
-                    }
-                });
-                parent.replaceChild(fragment, node);
-            }
-        } else {
-            const children = Array.from(node.childNodes);
-            children.forEach(walk);
-        }
-    };
-
-    walk(doc.body);
-    return doc.body.innerHTML;
+    return html;
 };
 
 

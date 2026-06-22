@@ -104,8 +104,7 @@ describe('MathNode Tiptap Extension', () => {
         expect(editor.getHTML()).toContain('data-display-mode="false"');
     });
 
-    it('defines paste rules with correct regex matching', () => {
-        // Mock this.type to be passed to call()
+    it('defines no automatic paste rules', () => {
         const mockContext = {
             type: {
                 create: (attrs: any) => attrs,
@@ -113,19 +112,7 @@ describe('MathNode Tiptap Extension', () => {
         };
         const pasteRules = MathNode.config.addPasteRules?.call(mockContext as any);
         expect(pasteRules).toBeDefined();
-        expect(pasteRules?.length).toBe(1);
-        
-        const rule = pasteRules![0];
-        const regex = rule.find as RegExp;
-        
-        const text = 'Here is $$a^2+b^2=c^2$$ and $x=y$';
-        const matches = [...text.matchAll(regex)];
-        
-        expect(matches.length).toBe(2);
-        expect(matches[0][0]).toBe('$$a^2+b^2=c^2$$');
-        expect(matches[0][1]).toBe('$$a^2+b^2=c^2$$');
-        expect(matches[1][0]).toBe('$x=y$');
-        expect(matches[1][1]).toBe('$x=y$');
+        expect(pasteRules?.length).toBe(0);
     });
 
     it('parses math images with alt tag containing LaTeX', () => {
