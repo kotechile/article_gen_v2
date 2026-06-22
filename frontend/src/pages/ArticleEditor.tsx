@@ -17,7 +17,7 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableRow } from '@tiptap/extension-table-row';
 import CharacterCount from '@tiptap/extension-character-count';
-import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn } from 'lucide-react';
+import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn, Sigma } from 'lucide-react';
 import { apiClient } from '../api-client';
 import { assembleArticleHtml } from '../lib/contentParser';
 import { AddImageModal } from '../components/AddImageModal';
@@ -1502,6 +1502,39 @@ export const ArticleEditor: React.FC = () => {
         editor?.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
     };
 
+    const addMath = () => {
+        if (!editor) return;
+        
+        const isMathActive = editor.isActive('math');
+        const attrs = editor.getAttributes('math');
+        const currentLatex = isMathActive ? attrs.latex : '';
+        const currentDisplayMode = isMathActive ? attrs.displayMode : false;
+        
+        // Get current selected text if not active
+        const { from, to } = editor.state.selection;
+        const selectionText = isMathActive ? '' : editor.state.doc.textBetween(from, to).trim();
+        
+        const latex = window.prompt('Enter LaTeX formula:', currentLatex || selectionText);
+        if (latex === null) return;
+        
+        if (latex.trim() === '') {
+            if (isMathActive) {
+                editor.chain().focus().deleteSelection().run();
+            }
+            return;
+        }
+        
+        const mode = window.confirm(`Click OK for Block Equation ($$formula$$) or Cancel for Inline Equation ($formula$).\n\nCurrent is: ${currentDisplayMode ? 'Block' : 'Inline'}`);
+        
+        editor.chain().focus().insertContent({
+            type: 'math',
+            attrs: {
+                latex: latex.trim(),
+                displayMode: mode,
+            }
+        }).run();
+    };
+
     const addTable = () => {
         editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
     };
@@ -2013,6 +2046,12 @@ export const ArticleEditor: React.FC = () => {
                                     onClick={addImage}
                                     icon={<ImageIcon className="w-4 h-4" />}
                                     tooltip="Add Image"
+                                />
+                                <ToolbarButton
+                                    onClick={addMath}
+                                    isActive={editor?.isActive('math')}
+                                    icon={<Sigma className="w-4 h-4" />}
+                                    tooltip="Insert / Edit LaTeX Formula"
                                 />
                                 <ToolbarButton
                                     onClick={handleGenerateInfographic}
