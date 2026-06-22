@@ -12,9 +12,10 @@ export default defineConfig({
     }),
   ],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+      { find: /^victory-vendor\/(d3-[a-z-]+)$/, replacement: path.resolve(__dirname, "./node_modules/victory-vendor/es/$1.js") }
+    ],
   },
   server: {
     proxy: {
