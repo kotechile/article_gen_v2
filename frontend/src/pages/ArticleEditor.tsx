@@ -134,7 +134,7 @@ const CustomImage = TiptapImage.extend({
     },
 
     renderHTML({ HTMLAttributes }) {
-        const { link, ...rest } = HTMLAttributes;
+        const { 'data-link': link, ...rest } = HTMLAttributes;
         const imgElement = ['img', mergeAttributes(this.options.HTMLAttributes, rest)] as any;
         if (link) {
             return ['a', { href: link, target: '_blank', rel: 'noopener noreferrer', class: 'image-link' }, imgElement] as any;
@@ -805,6 +805,18 @@ export const ArticleEditor: React.FC = () => {
                     const text = event.clipboardData?.getData('text/plain');
                     console.log('%c[CLIPBOARD HTML]', 'color: blue; font-weight: bold;', html);
                     console.log('%c[CLIPBOARD TEXT]', 'color: green; font-weight: bold;', text);
+                    return false;
+                },
+                click: (_view, event) => {
+                    const target = event.target as HTMLElement;
+                    if (target.tagName === 'IMG') {
+                        const anchor = target.closest('a');
+                        const link = anchor?.getAttribute('href') || target.getAttribute('data-link');
+                        if (link) {
+                            window.open(link, '_blank');
+                            return true;
+                        }
+                    }
                     return false;
                 }
             }
