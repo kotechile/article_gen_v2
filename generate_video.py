@@ -58,10 +58,41 @@ def scrape_article(url):
     
     return title_text, body_text
 
+def clean_json_response(text):
+    """Strips markdown fences and extra whitespace to ensure clean JSON parsing."""
+    text = text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    return text.strip()
+
 def generate_video_blueprint(title, body_text, primary=None, secondary=None, background=None):
-    """Uses OpenAI GPT-4o to parse the article and return the RemotionVideoPayload JSON structure."""
-    print("🧠 Analyzing article content using GPT-4o to generate script, scenes, and subtitles...")
+    """Uses the resolved default LLM from Supabase to parse the article and return the RemotionVideoPayload JSON structure."""
     
+    # 1. Resolve Default LLM
+    try:
+        from supabase_client import resolve_llm_provider
+        from llm_client_direct import create_llm_client
+        resolved = resolve_llm_provider(task_role="article_generation")
+        provider = resolved.get("provider")
+        model = resolved.get("model")
+        api_key = resolved.get("api_key")
+    except Exception as e:
+        print(f"⚠️ Failed to import/use Supabase provider resolver: {e}")
+        provider, model, api_key = None, None, None
+
+    # Fallback to OpenAI env settings if Supabase resolution failed
+    if not provider or not model or not api_key:
+        print("⚠️ Falling back to default env-configured OpenAI GPT-4o...")
+        provider = "openai"
+        model = "gpt-4o"
+        api_key = OPENAI_API_KEY
+
+    print(f"🧠 Analyzing article content using resolved LLM: {provider}/{model}...")
+
     system_prompt = """
 You are an expert automated video scriptwriter and motion graphics designer.
 Your task is to take an article's title and text content, and output a highly structured JSON blueprint for a 30-second vertical video (YouTube Shorts layout) matching this exact JSON schema:
@@ -77,17 +108,16 @@ Your task is to take an article's title and text content, and output a highly st
       "background": "Dark background color (e.g. #0B0C10)"
     }
   },
-  "subtitles": [
-    { "text": "Short word or 2-3 word phrase", "relativeWeight": 1 }
-  ],
   "scenes": [
     {
-      "sceneId": "unique_scene_id",
+      "sceneId": "scene_1",
       "type": "framework_hero" | "comparison_table" | "kpi_metric" | "broll_image",
-      "relativeWeight": 2,
+      "durationInSeconds": 7.5,
       "heading": "Sleek heading for this scene",
       "subheading": "Optional subheading describing context",
-      "visualKeyword": "A high-quality image search keyword representing this scene",
+      "voiceoverScript": "Specific voiceover words spoken strictly during this scene segment (around 15-18 words, matching the duration).",
+      "imagePrompt": "Detailed, highly specific image prompt describing a concrete graphic or illustration representing the concepts in this scene. Incorporate descriptive details from the article paragraphs.",
+      "visualKeyword": "A high-quality fallback keyword representing this scene",
       "tableData": {
         "headers": ["Header1", "Header2"],
         "rows": [["Cell1", "Cell2"], ["Cell3", "Cell4"]]
@@ -101,37 +131,28 @@ Your task is to take an article's title and text content, and output a highly st
 }
 
 Instructions:
-1. "subtitles" is a list of sequential word-by-word or short phrases (2-3 words max per subtitle) that make up the spoken voiceover script of the video. The script must be engaging, informative, and take exactly 30 seconds to speak (around 65-75 words).
-2. "relativeWeight" in subtitles is the estimated relative length of that phrase. Keep it around 1-3.
-3. "scenes" is a list of sequential visual layouts that display on screen. You must generate exactly 4 scenes. The types must showcase the platform features (include at least one framework_hero, one kpi_metric, one comparison_table, and one broll_image).
-4. "relativeWeight" in scenes represents how long the scene displays relative to others. Ensure the sum of all scene relativeWeights maps to the 30-second duration.
-5. "visualKeyword" will be used to automatically fetch high-quality stock b-roll images (e.g., "tech", "growth-chart", "workspace").
-6. Provide raw JSON output, without any markdown formatting wrappers or ```json tags.
+1. You must generate exactly 4 scenes. The sum of "durationInSeconds" across all 4 scenes must be exactly 30.0 (e.g., 7.5 seconds per scene).
+2. The scene "type" list must include at least one framework_hero, one kpi_metric, one comparison_table, and one broll_image to showcase layout variety.
+3. The "voiceoverScript" represents the voiceover spoken *only* during that scene. Keep the language hook-driven, high-retention, and natural to read. Speakable word count per scene should be around 15 to 20 words maximum to match the 7.5s pacing.
+4. Do not simply summarize headers. Read the body paragraphs, extract concrete metrics, analogies, or arguments, and write the voiceover and "imagePrompt" based on those specific details.
+5. Provide raw JSON output, without any markdown formatting wrappers or ```json tags.
 """
 
     user_prompt = f"Article Title: {title}\nArticle Body:\n{body_text}"
     
-    url = "https://api.openai.com/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": "gpt-4o",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "temperature": 0.7,
-        "response_format": {"type": "json_object"}
-    }
-    
-    response = requests.post(url, headers=headers, json=data)
-    if response.status_code != 200:
-        raise Exception(f"OpenAI GPT-4o API failed: {response.text}")
-        
-    result = response.json()
-    blueprint = json.loads(result['choices'][0]['message']['content'])
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    try:
+        client = create_llm_client(provider=provider, model=model, api_key=api_key)
+        response = client.generate(messages=messages)
+        raw_content = clean_json_response(response.content)
+        blueprint = json.loads(raw_content)
+    except Exception as e:
+        print(f"❌ LLM blueprint generation failed: {e}. Falling back to default mock blueprint.")
+        raise e
 
     # Override colors if customized in CLI parameters
     if primary:
@@ -377,8 +398,10 @@ def download_broll_images(blueprint):
         
         # 2. Try Flux image generation first
         if selected_config:
-            # Construct a descriptive, high-quality prompt for the scene
-            flux_prompt = f"Sleek modern 3D tech graphic illustration about '{heading}'. {subheading}. Niche concept: {keyword}. Cyberpunk synthwave dark mode color scheme, high resolution, clean layout."
+            # Use the LLM's custom imagePrompt if available, otherwise construct a fallback
+            flux_prompt = scene.get('imagePrompt')
+            if not flux_prompt:
+                flux_prompt = f"Sleek modern 3D tech graphic illustration about '{heading}'. {subheading}. Niche concept: {keyword}. Cyberpunk synthwave dark mode color scheme, high resolution, clean layout."
             try:
                 image_content = generate_image_via_flux(selected_config, flux_prompt)
                 print(f"✔ Successfully generated custom image for Scene {idx + 1} via Flux.")
@@ -419,36 +442,63 @@ def download_broll_images(blueprint):
             scene['visualAssetUrl'] = "background.mp3"  # Fallback to no-image mode if everything failed
 
 def align_timings(blueprint, caption_position):
-    """Calculates frame timings for subtitles and scenes based on relative weights."""
+    """Calculates frame timings for subtitles and scenes, keeping subtitles bound to their scene frame ranges."""
     fps = 30
     total_frames = 30 * fps # 30 seconds = 900 frames
     
-    # 1. Align Subtitles
-    subtitles = blueprint['subtitles']
-    total_sub_weight = sum(s.get('relativeWeight', 1) for s in subtitles)
-    current_frame = 0
-    for s in subtitles:
-        weight = s.get('relativeWeight', 1)
-        duration = int((weight / total_sub_weight) * total_frames)
-        s['startFrame'] = current_frame
-        s['endFrame'] = current_frame + duration
-        current_frame = s['endFrame'] + 1
-        
-        if 'relativeWeight' in s:
-            del s['relativeWeight']
-            
-    # 2. Align Scenes
     scenes = blueprint['scenes']
-    total_scene_weight = sum(sc.get('relativeWeight', 1) for sc in scenes)
-    current_frame = 0
+    subtitles = []
+    
+    current_scene_start_frame = 0
+    
     for sc in scenes:
-        weight = sc.get('relativeWeight', 1)
-        duration = int((weight / total_scene_weight) * total_frames)
-        sc['durationInFrames'] = duration
-        current_frame += duration
+        # Calculate duration of this scene in frames
+        duration_sec = sc.get('durationInSeconds', 7.5)
+        scene_frames = int(duration_sec * fps)
+        sc['durationInFrames'] = scene_frames
         
-        if 'relativeWeight' in sc:
-            del sc['relativeWeight']
+        scene_end_frame = current_scene_start_frame + scene_frames - 1
+        
+        # Parse the voiceover script for this scene and split into 2-3 word subtitle segments
+        script_text = sc.get('voiceoverScript', '')
+        words = script_text.split()
+        chunks = []
+        chunk_size = 3
+        for i in range(0, len(words), chunk_size):
+            chunks.append(" ".join(words[i:i+chunk_size]))
+            
+        if chunks:
+            # Distribute subtitle segments evenly within this scene's duration
+            chunk_duration = scene_frames // len(chunks)
+            chunk_start = current_scene_start_frame
+            for c_idx, chunk in enumerate(chunks):
+                chunk_end = chunk_start + chunk_duration - 1
+                if c_idx == len(chunks) - 1:
+                    chunk_end = scene_end_frame
+                    
+                subtitles.append({
+                    "text": chunk,
+                    "startFrame": chunk_start,
+                    "endFrame": chunk_end
+                })
+                chunk_start = chunk_end + 1
+        else:
+            # Fallback subtitle matching scene heading if script is empty
+            subtitles.append({
+                "text": sc.get('heading', ''),
+                "startFrame": current_scene_start_frame,
+                "endFrame": scene_end_frame
+            })
+            
+        current_scene_start_frame += scene_frames
+        
+        # Clean up temporary fields
+        if 'durationInSeconds' in sc:
+            del sc['durationInSeconds']
+        if 'voiceoverScript' in sc:
+            del sc['voiceoverScript']
+        if 'imagePrompt' in sc:
+            del sc['imagePrompt']
         if 'visualKeyword' in sc:
             del sc['visualKeyword']
 
@@ -495,7 +545,7 @@ def main():
         )
         
         # Step 3: Voiceover
-        full_script = " ".join([s['text'] for s in blueprint['subtitles']])
+        full_script = " ".join([sc.get('voiceoverScript', '') for sc in blueprint['scenes']])
         if args.provider == "elevenlabs" or len(args.voice) > 15: # heuristic for ElevenLabs Voice ID hashes
             generate_voiceover_elevenlabs(full_script, args.voice)
         else:
