@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Settings, ChevronLeft, ChevronRight, LogOut, BookOpen, Menu, Wrench, FlaskConical, Rocket } from "lucide-react"
+import { Settings, ChevronLeft, ChevronRight, LogOut, BookOpen, Menu, Wrench, FlaskConical, Rocket, Video } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -116,6 +116,13 @@ export function Sidebar({ className }: SidebarProps) {
                                 label="Content Library"
                                 isCollapsed={isCollapsed}
                                 active={pathname?.startsWith("/my-articles")}
+                            />
+                            <NavItem
+                                href="/video-studio"
+                                icon={<Video className="h-5 w-5" />}
+                                label="Video Studio"
+                                isCollapsed={isCollapsed}
+                                active={pathname?.startsWith("/video-studio")}
                             />
                             <NavItem
                                 href="/software-ideas"

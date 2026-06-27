@@ -17,6 +17,7 @@ import { ResearchPipeline } from './pages/ResearchPipeline';
 import { TopicDetail } from './pages/TopicDetail';
 import { Settings } from './pages/Settings';
 import { SoftwareIdeas } from './pages/SoftwareIdeas';
+import { VideoStudio } from './pages/VideoStudio';
 
 function App() {
   return (
@@ -32,6 +33,7 @@ function App() {
               <Route path="/research-tools" element={<ResearchTools />} />
               <Route path="/research-pipeline" element={<ResearchPipeline />} />
               <Route path="/my-articles" element={<MyArticles />} />
+              <Route path="/video-studio" element={<VideoStudio />} />
               <Route path="/software-ideas" element={<SoftwareIdeas />} />
               <Route path="/knowledge-gaps" element={<KnowledgeGaps />} />
               <Route path="/content-studio" element={<ContentStudio />} />

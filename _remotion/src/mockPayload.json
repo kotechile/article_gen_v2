@@ -1,0 +1,169 @@
+{
+  "metadata": {
+    "title": "Is a $3,000 Espresso Maker Worth It?",
+    "format": "vertical",
+    "totalDurationInSeconds": 30,
+    "brandColors": {
+      "primary": "#FF5733",
+      "secondary": "#2ECC71",
+      "background": "#1C1C1C"
+    }
+  },
+  "audioTrackUrl": "voiceover.mp3",
+  "subtitles": [
+    {
+      "text": "Is a $3,000",
+      "startFrame": 0,
+      "endFrame": 36
+    },
+    {
+      "text": "espresso maker",
+      "startFrame": 37,
+      "endFrame": 73
+    },
+    {
+      "text": "worth the investment?",
+      "startFrame": 74,
+      "endFrame": 146
+    },
+    {
+      "text": "With coffee prices",
+      "startFrame": 147,
+      "endFrame": 183
+    },
+    {
+      "text": "on the rise,",
+      "startFrame": 184,
+      "endFrame": 220
+    },
+    {
+      "text": "home brewers",
+      "startFrame": 221,
+      "endFrame": 257
+    },
+    {
+      "text": "are gaining traction.",
+      "startFrame": 258,
+      "endFrame": 330
+    },
+    {
+      "text": "Specialty coffee",
+      "startFrame": 331,
+      "endFrame": 367
+    },
+    {
+      "text": "shifts spending habits.",
+      "startFrame": 368,
+      "endFrame": 440
+    },
+    {
+      "text": "Home machines",
+      "startFrame": 441,
+      "endFrame": 477
+    },
+    {
+      "text": "offer long-term savings",
+      "startFrame": 478,
+      "endFrame": 550
+    },
+    {
+      "text": "and premium taste.",
+      "startFrame": 551,
+      "endFrame": 587
+    },
+    {
+      "text": "The Third Wave",
+      "startFrame": 588,
+      "endFrame": 624
+    },
+    {
+      "text": "coffee movement",
+      "startFrame": 625,
+      "endFrame": 661
+    },
+    {
+      "text": "has educated consumers.",
+      "startFrame": 662,
+      "endFrame": 734
+    },
+    {
+      "text": "Demand for quality",
+      "startFrame": 735,
+      "endFrame": 771
+    },
+    {
+      "text": "brews at home",
+      "startFrame": 772,
+      "endFrame": 808
+    },
+    {
+      "text": "is surging.",
+      "startFrame": 809,
+      "endFrame": 845
+    },
+    {
+      "text": "Is it time",
+      "startFrame": 846,
+      "endFrame": 882
+    },
+    {
+      "text": "to invest?",
+      "startFrame": 883,
+      "endFrame": 919
+    }
+  ],
+  "scenes": [
+    {
+      "sceneId": "scene_1",
+      "type": "framework_hero",
+      "heading": "Is a $3,000 Espresso Maker Worth It?",
+      "subheading": "Exploring the Value",
+      "visualAssetUrl": "scene_1.jpg",
+      "durationInFrames": 270
+    },
+    {
+      "sceneId": "scene_2",
+      "type": "kpi_metric",
+      "heading": "Coffee Prices Rise",
+      "subheading": "Impact on Consumers",
+      "kpiData": {
+        "value": "+23%",
+        "label": "Coffee Price Increase"
+      },
+      "visualAssetUrl": "scene_2.jpg",
+      "durationInFrames": 180
+    },
+    {
+      "sceneId": "scene_3",
+      "type": "comparison_table",
+      "heading": "Home vs Cafe Costs",
+      "subheading": "Which Saves More?",
+      "tableData": {
+        "headers": [
+          "Home Brewing",
+          "Cafe"
+        ],
+        "rows": [
+          [
+            "$0.50 per cup",
+            "$4.50 per cup"
+          ],
+          [
+            "Initial $3,000",
+            "No upfront"
+          ]
+        ]
+      },
+      "visualAssetUrl": "scene_3.jpg",
+      "durationInFrames": 180
+    },
+    {
+      "sceneId": "scene_4",
+      "type": "broll_image",
+      "heading": "Join the Third Wave",
+      "subheading": "Elevate Your Coffee Experience",
+      "visualAssetUrl": "scene_4.jpg",
+      "durationInFrames": 270
+    }
+  ]
+}
