@@ -13,10 +13,22 @@ dotenv.load_dotenv(dotenv_path)
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 
+# Fallback to Supabase database if keys are not in environment
+if not OPENAI_API_KEY or not ELEVENLABS_API_KEY:
+    try:
+        from supabase_client import get_api_key
+        if not OPENAI_API_KEY:
+            OPENAI_API_KEY = get_api_key('openai')
+        if not ELEVENLABS_API_KEY:
+            ELEVENLABS_API_KEY = get_api_key('elevenlabs')
+    except Exception as e:
+        pass
+
 if not OPENAI_API_KEY:
-    print("❌ ERROR: OPENAI_API_KEY not found in content_generator/.env")
-    print("Please make sure you have your OpenAI API key set up to proceed.")
+    print("❌ ERROR: OPENAI_API_KEY not found in environment or Supabase database.")
+    print("Please configure your API keys in the database to proceed.")
     sys.exit(1)
+
 
 def scrape_article(url):
     """Scrapes the article URL and extracts title and main text content."""
@@ -186,40 +198,225 @@ def generate_voiceover_elevenlabs(script_text, voice_id):
         f.write(response.content)
     print(f"✔ Saved ElevenLabs voiceover track to: {voiceover_path}")
 
-def download_broll_images(blueprint):
-    """Downloads stock illustrations from Unsplash based on keywords."""
-    print("🖼 Downloading stock B-Roll image assets matching scene keywords...")
-    for idx, scene in enumerate(blueprint['scenes']):
-        keyword = scene.get('visualKeyword', 'business')
+def get_flux_config():
+    """Queries Supabase to find active Flux models and their API keys."""
+    print("🔑 Fetching Flux API configuration from Supabase...")
+    try:
+        from supabase_client import get_supabase_client
+        client = get_supabase_client()
+        if not client:
+            print("⚠️ Supabase client could not be initialized.")
+            return []
+            
+        res = client.table('llm_providers_image').select('*').eq('is_active', True).execute()
+        flux_models = []
+        for row in (res.data or []):
+            m_name = str(row.get('model_name') or '').lower()
+            provider = str(row.get('provider') or '').lower()
+            if 'flux' in m_name or 'flux' in provider or 'flix' in m_name:
+                flux_models.append(row)
+                
+        configured_models = []
+        for model in flux_models:
+            key_id = model.get('api_keys_id')
+            if not key_id:
+                continue
+            key_res = client.table('api_keys').select('key_value').eq('id', key_id).execute()
+            if key_res.data and key_res.data[0].get('key_value'):
+                configured_models.append({
+                    'model_name': model.get('model_name'),
+                    'display_name': model.get('display_name'),
+                    'provider': model.get('provider'),
+                    'api_key': key_res.data[0]['key_value']
+                })
+        return configured_models
+    except Exception as e:
+        print(f"⚠️ Error fetching Flux config from Supabase: {e}")
+        return []
+
+def generate_image_via_flux(model_config, prompt):
+    """Triggers image generation via Flux API (supports fluxapi.ai and kie.ai) and returns image bytes."""
+    provider = str(model_config.get('provider') or '').lower()
+    model = model_config.get('model_name')
+    api_key = model_config.get('api_key')
+    
+    print(f"🎨 Finally using Flux Model: '{model_config.get('display_name')}' [Model: '{model}', Provider: '{provider}']")
+    print(f"   Prompt: '{prompt}'")
+    
+    if 'kie' in provider or 'flux-2' in model:
+        # KIE implementation
+        create_url = "https://api.kie.ai/api/v1/jobs/createTask"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        create_payload = {
+            "model": model,
+            "input": {
+                "prompt": prompt,
+                "aspect_ratio": "9:16",
+                "resolution": "1K",
+                "nsfw_checker": False
+            }
+        }
+        r = requests.post(create_url, headers=headers, json=create_payload, timeout=30)
+        r.raise_for_status()
+        res_data = r.json()
+        task_id = ((res_data.get("data") or {}).get("taskId") or "").strip()
+        if not task_id:
+            raise Exception(f"KIE did not return taskId: {res_data}")
+            
+        poll_url = "https://api.kie.ai/api/v1/jobs/recordInfo"
+        import time
+        for _ in range(60):
+            time.sleep(2)
+            poll_resp = requests.get(poll_url, headers={"Authorization": f"Bearer {api_key}"}, params={"taskId": task_id}, timeout=15)
+            poll_resp.raise_for_status()
+            poll_data = poll_resp.json()
+            data = poll_data.get("data") or {}
+            state = str(data.get("state") or "").lower()
+            if state == "success":
+                result_json = data.get("resultJson")
+                parsed_result = {}
+                if isinstance(result_json, dict):
+                    parsed_result = result_json
+                elif isinstance(result_json, str) and result_json.strip():
+                    parsed_result = json.loads(result_json)
+                image_url = (parsed_result.get("resultUrls") or [None])[0]
+                if not image_url:
+                    raise Exception(f"No resultUrls found: {poll_data}")
+                img_r = requests.get(image_url, timeout=30)
+                img_r.raise_for_status()
+                return img_r.content
+            elif state == "fail":
+                raise Exception(f"KIE generation failed: {data.get('failMsg')}")
+        raise Exception("KIE generation timed out")
+    else:
+        # fluxapi.ai implementation
+        generate_url = 'https://api.fluxapi.ai/api/v1/flux/kontext/generate'
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json'
+        }
+        body = {
+            "prompt": prompt,
+            "enableTranslation": True,
+            "aspectRatio": "9:16",
+            "outputFormat": "jpeg",
+            "model": model
+        }
+        r = requests.post(generate_url, headers=headers, json=body, timeout=30)
+        r.raise_for_status()
+        res_data = r.json()
         
-        # Select high quality matching Unsplash URL based on scene keyword
-        unsplash_url = f"https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1080&auto=format&fit=crop&q=80" # data
-        if "tech" in keyword or "code" in keyword:
-            unsplash_url = "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=1080&auto=format&fit=crop&q=80"
-        elif "growth" in keyword or "chart" in keyword or "kpi" in keyword:
-            unsplash_url = "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1080&auto=format&fit=crop&q=80"
-        elif "office" in keyword or "workspace" in keyword:
-            unsplash_url = "https://images.unsplash.com/photo-1497366216548-37526070297c?w=1080&auto=format&fit=crop&q=80"
-        elif "money" in keyword or "dollar" in keyword or "cost" in keyword:
-            unsplash_url = "https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=1080&auto=format&fit=crop&q=80"
-        elif "coffee" in keyword or "espresso" in keyword:
-            unsplash_url = "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=1080&auto=format&fit=crop&q=80"
+        # Defensive check for taskId in different possible structures
+        data_obj = res_data.get('data') or {}
+        task_id = data_obj.get('taskId') or res_data.get('taskId')
+        if not task_id:
+            raise Exception(f"FluxAPI did not return taskId: {res_data}")
+            
+        polling_url = f"https://api.fluxapi.ai/api/v1/flux/kontext/record-info?taskId={task_id}"
+        import time
+        for _ in range(60):
+            time.sleep(2)
+            poll_resp = requests.get(polling_url, timeout=15)
+            poll_resp.raise_for_status()
+            poll_data = poll_resp.json()
+            data_sec = poll_data.get("data") or {}
+            
+            # Check success flag
+            success_flag = poll_data.get("success")
+            if success_flag is None:
+                success_flag = data_sec.get("success")
+                
+            status_code = poll_data.get("status") or data_sec.get("status")
+            
+            # If success == 1 or completed
+            if success_flag == 1 or str(status_code).lower() in ("completed", "done", "success"):
+                image_url = poll_data.get("imageUrl") or data_sec.get("imageUrl")
+                if not image_url:
+                    # check resultUrl / imgUrl
+                    image_url = poll_data.get("resultUrl") or data_sec.get("resultUrl")
+                if not image_url:
+                    raise Exception(f"Task succeeded but image URL is missing: {poll_data}")
+                img_r = requests.get(image_url, timeout=30)
+                img_r.raise_for_status()
+                return img_r.content
+            elif success_flag == -1 or str(status_code).lower() in ("failed", "fail"):
+                err_msg = poll_data.get("errorMessage") or data_sec.get("errorMessage") or "Unknown error"
+                raise Exception(f"FluxAPI generation failed: {err_msg}")
+        raise Exception("FluxAPI generation timed out")
+
+def download_broll_images(blueprint):
+    """Downloads custom images generated via Flux, falling back to Unsplash stock photos on failure."""
+    print("🖼 Setting up B-Roll image assets for scenes...")
+    
+    # 1. Fetch available Flux configurations
+    flux_configs = get_flux_config()
+    selected_config = None
+    if flux_configs:
+        print(f"📢 Found {len(flux_configs)} active Flux model configuration(s) in DB.")
+        # Prioritize KIE.ai model since user mentioned issues with fluxapi.ai
+        kie_configs = [c for c in flux_configs if 'kie' in str(c.get('provider')).lower()]
+        if kie_configs:
+            selected_config = kie_configs[0]
+        else:
+            selected_config = flux_configs[0]
+    else:
+        print("⚠️ No active Flux configurations found in Supabase. Falling back to Unsplash.")
+
+    for idx, scene in enumerate(blueprint['scenes']):
+        heading = scene.get('heading', '')
+        subheading = scene.get('subheading', '')
+        keyword = scene.get('visualKeyword', 'business')
         
         dest_filename = f"scene_{idx + 1}.jpg"
         dest_path = os.path.join(os.path.dirname(__file__), '_remotion', 'public', dest_filename)
         
-        print(f"   Downloading image for keyword '{keyword}' -> {dest_filename}")
-        try:
-            r = requests.get(unsplash_url, timeout=10)
-            if r.status_code == 200:
-                with open(dest_path, 'wb') as f:
-                    f.write(r.content)
-                scene['visualAssetUrl'] = dest_filename
-            else:
-                scene['visualAssetUrl'] = "background.mp3"
-        except Exception as e:
-            print(f"   ⚠️ Image download failed, using fallback. Error: {e}")
-            scene['visualAssetUrl'] = "background.mp3"
+        image_content = None
+        
+        # 2. Try Flux image generation first
+        if selected_config:
+            # Construct a descriptive, high-quality prompt for the scene
+            flux_prompt = f"Sleek modern 3D tech graphic illustration about '{heading}'. {subheading}. Niche concept: {keyword}. Cyberpunk synthwave dark mode color scheme, high resolution, clean layout."
+            try:
+                image_content = generate_image_via_flux(selected_config, flux_prompt)
+                print(f"✔ Successfully generated custom image for Scene {idx + 1} via Flux.")
+            except Exception as e:
+                print(f"⚠️ Flux image generation failed for Scene {idx + 1}: {e}")
+                print("Falling back to Unsplash for this scene...")
+        
+        # 3. Fall back to Unsplash stock photo if Flux failed or was not configured
+        if image_content is None:
+            unsplash_url = "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1080&auto=format&fit=crop&q=80" # default data
+            if "tech" in keyword or "code" in keyword:
+                unsplash_url = "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=1080&auto=format&fit=crop&q=80"
+            elif "growth" in keyword or "chart" in keyword or "kpi" in keyword:
+                unsplash_url = "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1080&auto=format&fit=crop&q=80"
+            elif "office" in keyword or "workspace" in keyword:
+                unsplash_url = "https://images.unsplash.com/photo-1497366216548-37526070297c?w=1080&auto=format&fit=crop&q=80"
+            elif "money" in keyword or "dollar" in keyword or "cost" in keyword:
+                unsplash_url = "https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=1080&auto=format&fit=crop&q=80"
+            elif "coffee" in keyword or "espresso" in keyword:
+                unsplash_url = "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=1080&auto=format&fit=crop&q=80"
+                
+            print(f"   Downloading stock Unsplash image for keyword '{keyword}' -> {dest_filename}")
+            try:
+                r = requests.get(unsplash_url, timeout=10)
+                if r.status_code == 200:
+                    image_content = r.content
+                else:
+                    print(f"   ⚠️ Unsplash download failed (HTTP {r.status_code})")
+            except Exception as e:
+                print(f"   ⚠️ Unsplash download failed. Error: {e}")
+                
+        # 4. Save to destination
+        if image_content:
+            with open(dest_path, 'wb') as f:
+                f.write(image_content)
+            scene['visualAssetUrl'] = dest_filename
+        else:
+            scene['visualAssetUrl'] = "background.mp3"  # Fallback to no-image mode if everything failed
 
 def align_timings(blueprint, caption_position):
     """Calculates frame timings for subtitles and scenes based on relative weights."""
