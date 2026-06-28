@@ -6,6 +6,7 @@ import {
   useVideoConfig,
   AbsoluteFill,
 } from "remotion";
+import { useResilientAsset } from "../../utils/fetchWithRetry";
 
 interface ComparisonTableProps {
   heading: string;
@@ -16,6 +17,7 @@ interface ComparisonTableProps {
   brandColors: { primary: string; secondary: string; background: string };
   format: "landscape" | "vertical";
   durationInFrames: number;
+  visualAssetUrl?: string;
 }
 
 export const ComparisonTable: React.FC<ComparisonTableProps> = ({
@@ -24,8 +26,10 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
   brandColors,
   format,
   durationInFrames,
+  visualAssetUrl,
 }) => {
   const frame = useCurrentFrame();
+  const { localUrl } = useResilientAsset(visualAssetUrl);
   const { fps } = useVideoConfig();
 
   const headers = tableData?.headers || [];
@@ -72,6 +76,18 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
         color: "#ffffff",
       }}
     >
+      {/* Background Image with overlay */}
+      {localUrl && (
+        <AbsoluteFill className="z-0">
+          <img
+            src={localUrl}
+            alt="background"
+            className="w-full h-full object-cover"
+          />
+          {/* Overlay to guarantee contrast */}
+          <div className="absolute inset-0 bg-black/75 backdrop-blur-[1px]" />
+        </AbsoluteFill>
+      )}
       {/* Table Title */}
       <h2
         className={`${headingSize} font-bold font-display text-center mb-8`}

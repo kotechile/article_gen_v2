@@ -63,6 +63,7 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
                   kpiData={kpiData}
                   brandColors={brandColors}
                   format={format}
+                  visualAssetUrl={visualAssetUrl}
                 />
               )}
               {type === "comparison_table" && (
@@ -72,6 +73,7 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
                   brandColors={brandColors}
                   format={format}
                   durationInFrames={durationInFrames}
+                  visualAssetUrl={visualAssetUrl}
                 />
               )}
               {type === "broll_image" && (

@@ -6,6 +6,7 @@ import {
   useVideoConfig,
   AbsoluteFill,
 } from "remotion";
+import { useResilientAsset } from "../../utils/fetchWithRetry";
 
 interface KpiMetricProps {
   heading: string;
@@ -15,6 +16,7 @@ interface KpiMetricProps {
   };
   brandColors: { primary: string; secondary: string; background: string };
   format: "landscape" | "vertical";
+  visualAssetUrl?: string;
 }
 
 /**
@@ -41,8 +43,10 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
   kpiData,
   brandColors,
   format,
+  visualAssetUrl,
 }) => {
   const frame = useCurrentFrame();
+  const { localUrl } = useResilientAsset(visualAssetUrl);
   const { fps } = useVideoConfig();
 
   const labelText = kpiData?.label || "";
@@ -89,9 +93,22 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
         color: "#ffffff",
       }}
     >
+      {/* Background Image with overlay */}
+      {localUrl && (
+        <AbsoluteFill className="z-0">
+          <img
+            src={localUrl}
+            alt="background"
+            className="w-full h-full object-cover"
+          />
+          {/* Overlay to guarantee contrast */}
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-[1px]" />
+        </AbsoluteFill>
+      )}
+
       {/* Background ambient glow */}
       <div
-        className="absolute rounded-full opacity-20 blur-[120px] w-96 h-96"
+        className="absolute rounded-full opacity-20 blur-[120px] w-96 h-96 z-0"
         style={{
           background: `radial-gradient(circle, ${brandColors.primary} 0%, ${brandColors.secondary} 100%)`,
           transform: "translate(-10%, -10%)",
