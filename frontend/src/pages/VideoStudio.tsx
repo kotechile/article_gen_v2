@@ -2,7 +2,6 @@ import * as React from 'react';
 import { motion } from 'framer-motion';
 import { Play, Sparkles, Sliders, Palette, Video, Download, RefreshCw, Volume2, Eye } from 'lucide-react';
 import { apiClient } from '@/api-client';
-import { Button } from '@/components/ui/button';
 
 // Color Presets for easy branding selection
 const COLOR_PRESETS = [
