@@ -33,6 +33,7 @@ const {
   deploySite,
   getOrCreateBucket,
 } = require("@remotion/lambda");
+const { enableTailwind } = require("@remotion/tailwind-v4");
 
 // Default configuration
 const REGION = process.env.AWS_REGION || "us-east-1";
@@ -71,6 +72,7 @@ async function main() {
       bucketName,
       region: REGION,
       siteName: SITE_NAME,
+      webpackOverride: enableTailwind,
       options: {
         onBundleProgress: (progress) => {
           console.log(`   Bundling code: ${progress}%`);
