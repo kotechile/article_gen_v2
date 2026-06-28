@@ -116,8 +116,7 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
               left: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: "rgba(0,0,0,0.7)",
-              backdropFilter: "blur(1px)",
+              backgroundColor: "rgba(0,0,0,0.75)",
               zIndex: 1,
             }}
           />
@@ -126,10 +125,14 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
 
       {/* Background ambient glow */}
       <div
-        className="absolute rounded-full opacity-20 blur-[120px] w-96 h-96 z-0"
         style={{
-          background: `radial-gradient(circle, ${brandColors.primary} 0%, ${brandColors.secondary} 100%)`,
+          position: "absolute",
+          borderRadius: "50%",
+          width: "384px",
+          height: "384px",
+          background: `radial-gradient(circle, ${brandColors.primary}33 0%, transparent 70%)`,
           transform: "translate(-10%, -10%)",
+          zIndex: 0,
         }}
       />
 
@@ -140,8 +143,7 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
           padding: "48px 32px",
           borderRadius: "24px",
           border: "1px solid rgba(255, 255, 255, 0.1)",
-          backgroundColor: "rgba(255, 255, 255, 0.05)",
-          backdropFilter: "blur(12px)",
+          backgroundColor: "rgba(10, 10, 12, 0.95)",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",

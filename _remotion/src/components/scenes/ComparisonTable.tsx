@@ -100,8 +100,7 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
               left: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: "rgba(0,0,0,0.75)",
-              backdropFilter: "blur(1px)",
+              backgroundColor: "rgba(0,0,0,0.8)",
               zIndex: 1,
             }}
           />
@@ -132,8 +131,7 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
           overflow: "hidden",
           borderRadius: "16px",
           border: "1px solid rgba(255, 255, 255, 0.1)",
-          backgroundColor: "rgba(255, 255, 255, 0.05)",
-          backdropFilter: "blur(12px)",
+          backgroundColor: "rgba(10, 10, 12, 0.95)",
           boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
           transform: `translateY(${translateY}px)`,
           opacity,
