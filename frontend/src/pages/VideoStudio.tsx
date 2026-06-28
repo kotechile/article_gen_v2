@@ -94,6 +94,8 @@ export function VideoStudio() {
     const [captionPosition, setCaptionPosition] = React.useState<'center' | 'bottom' | 'top'>('center');
     const [aspectRatio, setAspectRatio] = React.useState<'vertical' | 'landscape'>('vertical');
     const [music, setMusic] = React.useState('background.mp3');
+    const [customMusicUrl, setCustomMusicUrl] = React.useState<string | null>(null);
+    const [uploadingMusic, setUploadingMusic] = React.useState(false);
     
     // Brand colors state
     const [primaryColor, setPrimaryColor] = React.useState('#8A2BE2');
@@ -200,6 +202,29 @@ export function VideoStudio() {
         }
     };
 
+    const handleMusicFileUpload = async (file: File) => {
+        if (!file) return;
+        setUploadingMusic(true);
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const response = await apiClient.post<any>('/v1/video/upload', formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
+            if (response.status === 'success') {
+                setCustomMusicUrl(response.relative_path);
+            } else {
+                throw new Error(response.message || 'Music upload failed');
+            }
+        } catch (err: any) {
+            alert(`Music upload failed: ${err.message}`);
+        } finally {
+            setUploadingMusic(false);
+        }
+    };
+
     // Update specific scene in the blueprint
     const updateScene = (index: number, updates: Partial<Scene>) => {
         if (!blueprint) return;
@@ -221,6 +246,7 @@ export function VideoStudio() {
         setStatusMessage('Synthesizing voiceover track & drawing visual scenes...');
 
         const finalVoice = provider === 'elevenlabs' && customVoiceId ? customVoiceId : voice;
+        const finalMusic = music === 'custom' && customMusicUrl ? customMusicUrl : music;
 
         // Ensure final blueprint has correct layout colors / format
         const finalBlueprint = {
@@ -246,7 +272,7 @@ export function VideoStudio() {
                 secondary_color: secondaryColor,
                 background_color: backgroundColor,
                 aspect_ratio: aspectRatio,
-                music: music,
+                music: finalMusic,
                 blueprint_payload: finalBlueprint,
             }, {
                 timeout: 300000,
@@ -415,9 +441,37 @@ export function VideoStudio() {
                                                 className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
                                             >
                                                 <option value="background.mp3">Cyberpunk Grid (Lo-Fi)</option>
+                                                <option value="custom">Upload Custom (.mp3)...</option>
                                                 <option value="none">No Music (Voiceover Only)</option>
                                             </select>
                                         </div>
+
+                                        {music === 'custom' && (
+                                            <div className="space-y-1 animate-scaleIn flex flex-col justify-end">
+                                                <input
+                                                    type="file"
+                                                    accept="audio/mpeg,audio/mp3"
+                                                    id="music-upload-input"
+                                                    className="hidden"
+                                                    onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (file) handleMusicFileUpload(file);
+                                                    }}
+                                                />
+                                                <label
+                                                    htmlFor="music-upload-input"
+                                                    className="h-9 px-4 rounded border border-dashed border-border bg-muted/10 flex items-center justify-center gap-1.5 text-xs font-bold text-foreground cursor-pointer hover:bg-muted/20 transition"
+                                                >
+                                                    <Upload className="h-3.5 w-3.5" />
+                                                    {uploadingMusic ? 'Uploading...' : 'Choose MP3 file'}
+                                                </label>
+                                                {customMusicUrl && (
+                                                    <span className="text-[10px] text-primary truncate max-w-xs mt-1">
+                                                        Uploaded: {customMusicUrl}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
