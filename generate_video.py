@@ -576,7 +576,8 @@ def main():
             print("💻 Triggering local render on the host...")
             render_cmd = f"cd {remotion_dir} && npx remotion render vertical output-generated.mp4 --props src/mockPayload.json"
             
-        os.system(render_cmd)
+        import subprocess
+        subprocess.run(render_cmd, shell=True, check=True)
         
         print("\n==========================================")
         print("🎉 SUCCESS! Video generated successfully!")
