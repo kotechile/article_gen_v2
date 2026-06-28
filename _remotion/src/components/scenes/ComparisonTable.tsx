@@ -64,35 +64,58 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
 
   const activeRowIndex = getActiveRowIndex();
 
-  const headingSize = format === "vertical" ? "text-2xl" : "text-4xl";
-  const tableTextSize = format === "vertical" ? "text-xs" : "text-base";
-  const paddingCell = format === "vertical" ? "px-2 py-3" : "px-6 py-4";
 
   return (
     <AbsoluteFill
-      className="flex flex-col justify-center items-center px-4 md:px-8 overflow-hidden"
       style={{
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        padding: format === "vertical" ? "16px" : "32px",
+        overflow: "hidden",
         backgroundColor: brandColors.background,
         color: "#ffffff",
       }}
     >
       {/* Background Image with overlay */}
       {localUrl && (
-        <AbsoluteFill className="z-0">
+        <AbsoluteFill style={{ zIndex: 0 }}>
           <img
             src={localUrl}
             alt="background"
-            className="w-full h-full object-cover"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
           />
           {/* Overlay to guarantee contrast */}
-          <div className="absolute inset-0 bg-black/75 backdrop-blur-[1px]" />
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0,0,0,0.75)",
+              backdropFilter: "blur(1px)",
+            }}
+          />
         </AbsoluteFill>
       )}
+
       {/* Table Title */}
       <h2
-        className={`${headingSize} font-bold font-display text-center mb-8`}
         style={{
+          fontSize: format === "vertical" ? "24px" : "36px",
+          fontWeight: "bold",
+          fontFamily: "system-ui, -apple-system, sans-serif",
+          textAlign: "center",
+          marginBottom: "32px",
           color: brandColors.secondary,
+          zIndex: 10,
+          margin: 0,
         }}
       >
         {heading}
@@ -100,14 +123,30 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
 
       {/* Table Container */}
       <div
-        className="w-full max-w-4xl overflow-hidden rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-2xl"
         style={{
+          width: "100%",
+          maxWidth: "896px",
+          overflow: "hidden",
+          borderRadius: "16px",
+          border: "1px solid rgba(255, 255, 255, 0.1)",
+          backgroundColor: "rgba(255, 255, 255, 0.05)",
+          backdropFilter: "blur(12px)",
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
           transform: `translateY(${translateY}px)`,
           opacity,
           borderColor: `${brandColors.primary}22`,
+          zIndex: 10,
         }}
       >
-        <table className={`w-full table-fixed border-collapse ${tableTextSize}`}>
+        <table
+          style={{
+            width: "100%",
+            tableLayout: "fixed",
+            borderCollapse: "collapse",
+            fontSize: format === "vertical" ? "12px" : "16px",
+            fontFamily: "system-ui, -apple-system, sans-serif",
+          }}
+        >
           <thead>
             <tr
               style={{
@@ -118,7 +157,14 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
               {headers.map((header, idx) => (
                 <th
                   key={idx}
-                  className={`${paddingCell} text-left font-display font-bold text-gray-300 uppercase tracking-wider`}
+                  style={{
+                    padding: format === "vertical" ? "12px 8px" : "16px 24px",
+                    textAlign: "left",
+                    fontWeight: "bold",
+                    color: "#d1d5db",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                  }}
                 >
                   {header}
                 </th>
@@ -129,30 +175,36 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
             {rows.map((row, rowIdx) => {
               const isActive = rowIdx === activeRowIndex;
 
-              // Apply smooth opacity and scaling to the active row
               const rowBg = isActive
                 ? `rgba(255, 255, 255, 0.08)`
                 : "transparent";
               const borderLeftColor = isActive
                 ? brandColors.secondary
                 : "transparent";
-              const textWeight = isActive ? "font-bold text-white" : "text-gray-400";
+              const textColor = isActive ? "#ffffff" : "#9ca3af";
+              const textWeight = isActive ? "bold" : "normal";
               const scale = isActive ? 1.01 : 1.0;
 
               return (
                 <tr
                   key={rowIdx}
-                  className="transition-all duration-300 border-b border-white/5"
                   style={{
                     backgroundColor: rowBg,
                     borderLeft: `4px solid ${borderLeftColor}`,
                     transform: `scale(${scale})`,
+                    borderBottom: "1px solid rgba(255,255,255,0.05)",
+                    transition: "all 0.3s",
                   }}
                 >
                   {row.map((cell, cellIdx) => (
                     <td
                       key={cellIdx}
-                      className={`${paddingCell} ${textWeight} transition-colors duration-300`}
+                      style={{
+                        padding: format === "vertical" ? "12px 8px" : "16px 24px",
+                        color: textColor,
+                        fontWeight: textWeight,
+                        transition: "colors 0.3s",
+                      }}
                     >
                       {cell}
                     </td>

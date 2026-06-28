@@ -81,28 +81,43 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
   const scale = interpolate(cardEntrance, [0, 1], [0.8, 1]);
   const opacity = interpolate(cardEntrance, [0, 1], [0, 1]);
 
-  const valueSize = format === "vertical" ? "text-8xl" : "text-9xl";
-  const headingSize = format === "vertical" ? "text-3xl" : "text-4xl";
-  const labelSize = format === "vertical" ? "text-xl" : "text-2xl";
 
   return (
     <AbsoluteFill
-      className="flex flex-col justify-center items-center px-8"
       style={{
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        padding: "32px",
         backgroundColor: brandColors.background,
         color: "#ffffff",
       }}
     >
       {/* Background Image with overlay */}
       {localUrl && (
-        <AbsoluteFill className="z-0">
+        <AbsoluteFill style={{ zIndex: 0 }}>
           <img
             src={localUrl}
             alt="background"
-            className="w-full h-full object-cover"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
           />
           {/* Overlay to guarantee contrast */}
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-[1px]" />
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0,0,0,0.7)",
+              backdropFilter: "blur(1px)",
+            }}
+          />
         </AbsoluteFill>
       )}
 
@@ -116,39 +131,80 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
       />
 
       <div
-        className="w-full max-w-2xl px-8 py-12 rounded-3xl border border-white/10 backdrop-blur-md bg-white/5 flex flex-col items-center justify-center text-center shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
         style={{
+          width: "100%",
+          maxWidth: "672px",
+          padding: "48px 32px",
+          borderRadius: "24px",
+          border: "1px solid rgba(255, 255, 255, 0.1)",
+          backgroundColor: "rgba(255, 255, 255, 0.05)",
+          backdropFilter: "blur(12px)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          textAlign: "center",
+          boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
           transform: `scale(${scale})`,
           opacity,
           borderColor: `${brandColors.primary}33`,
+          zIndex: 10,
         }}
       >
         {/* Metric Label */}
         <span
-          className={`${labelSize} font-bold font-display uppercase tracking-widest text-gray-400 mb-6`}
+          style={{
+            fontSize: format === "vertical" ? "20px" : "24px",
+            fontWeight: "bold",
+            fontFamily: "system-ui, -apple-system, sans-serif",
+            textTransform: "uppercase",
+            letterSpacing: "0.1em",
+            color: "#9ca3af",
+            marginBottom: "24px",
+            margin: 0,
+          }}
         >
           {labelText}
         </span>
 
         {/* Big Animated Metric Value */}
         <span
-          className={`${valueSize} font-extrabold tracking-tighter font-display drop-shadow-[0_0_15px_rgba(0,255,255,0.4)] mb-4`}
           style={{
+            fontSize: format === "vertical" ? "72px" : "96px",
+            fontWeight: 800,
+            fontFamily: "system-ui, -apple-system, sans-serif",
+            letterSpacing: "-0.04em",
             color: brandColors.secondary,
+            textShadow: "0 0 15px rgba(0,255,255,0.4)",
+            marginBottom: "16px",
+            margin: 0,
           }}
         >
           {formattedValue}
         </span>
 
         {/* Supporting Heading */}
-        <h3 className={`${headingSize} font-bold leading-snug max-w-lg mt-2`}>
+        <h3
+          style={{
+            fontSize: format === "vertical" ? "28px" : "36px",
+            fontWeight: "bold",
+            fontFamily: "system-ui, -apple-system, sans-serif",
+            lineHeight: 1.2,
+            maxWidth: "512px",
+            margin: 0,
+            marginTop: "8px",
+          }}
+        >
           {heading}
         </h3>
 
         {/* Highlight line */}
         <div
-          className="mt-8 h-1.5 w-32 rounded-full"
           style={{
+            marginTop: "32px",
+            height: "6px",
+            width: "128px",
+            borderRadius: "9999px",
             backgroundImage: `linear-gradient(to right, ${brandColors.primary}, ${brandColors.secondary})`,
           }}
         />

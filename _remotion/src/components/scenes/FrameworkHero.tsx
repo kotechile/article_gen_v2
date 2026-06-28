@@ -51,61 +51,100 @@ export const FrameworkHero: React.FC<FrameworkHeroProps> = ({
     extrapolateRight: "clamp",
   });
 
-  const headingSize = format === "vertical" ? "text-5xl" : "text-7xl";
-  const subheadingSize = format === "vertical" ? "text-xl" : "text-3xl";
 
   return (
     <AbsoluteFill
-      className="flex flex-col justify-center items-center overflow-hidden px-8 text-center"
       style={{
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        overflow: "hidden",
+        padding: "32px",
+        textAlign: "center",
         backgroundColor: brandColors.background,
         color: "#ffffff",
       }}
     >
       {/* Background Image with overlay */}
       {localUrl && (
-        <div className="absolute inset-0 z-0">
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}>
           <img
             src={localUrl}
             alt="background"
-            className="w-full h-full object-cover"
             style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
               transform: `scale(${bgScale})`,
             }}
           />
           {/* Overlay to guarantee contrast */}
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" />
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0,0,0,0.6)",
+              backdropFilter: "blur(2px)",
+            }}
+          />
         </div>
       )}
 
       {/* Hero Content */}
       <div
-        className="relative z-10 flex flex-col items-center max-w-4xl"
         style={{
+          position: "relative",
+          zIndex: 10,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          maxWidth: "896px",
           transform: `translateY(${textTranslateY}px)`,
           opacity: textOpacity,
         }}
       >
         <h1
-          className={`${headingSize} font-extrabold tracking-tight font-display mb-4`}
           style={{
+            fontSize: format === "vertical" ? "48px" : "64px",
+            fontWeight: 800,
+            fontFamily: "system-ui, -apple-system, sans-serif",
+            letterSpacing: "-0.02em",
+            marginBottom: "16px",
             color: brandColors.secondary,
             textShadow: "0 4px 20px rgba(0,0,0,0.6)",
+            margin: 0,
           }}
         >
           {heading}
         </h1>
 
         {subheading && (
-          <p className={`${subheadingSize} text-gray-300 font-medium max-w-2xl`}>
+          <p
+            style={{
+              fontSize: format === "vertical" ? "20px" : "28px",
+              color: "#d1d5db",
+              fontWeight: 500,
+              maxWidth: "672px",
+              fontFamily: "system-ui, -apple-system, sans-serif",
+              margin: 0,
+              marginTop: "8px",
+            }}
+          >
             {subheading}
           </p>
         )}
 
         {/* Decorative dynamic bar */}
         <div
-          className="mt-6 h-1 w-24 rounded-full"
           style={{
+            marginTop: "24px",
+            height: "4px",
+            width: "96px",
+            borderRadius: "9999px",
             backgroundImage: `linear-gradient(to right, ${brandColors.primary}, ${brandColors.secondary})`,
             transform: `scaleX(${entranceSpring})`,
           }}

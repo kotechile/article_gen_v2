@@ -79,24 +79,33 @@ export const Subtitles: React.FC<SubtitlesProps> = ({
     ...getVerticalOffsets(),
   };
 
-  const textClass = format === "vertical" ? "text-5xl" : "text-4xl";
 
   return (
     <div style={containerStyle}>
       <div
-        className="flex flex-col items-center"
         style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
           transform: `scale(${scale}) rotate(${rotation}deg)`,
           opacity,
         }}
       >
         <span
-          className={`${textClass} font-black uppercase font-display tracking-tight text-center px-6 py-3 rounded-2xl shadow-xl`}
           style={{
             backgroundColor: "rgba(0, 0, 0, 0.85)",
             border: `2px solid ${brandColors.secondary}`,
             color: "#ffffff",
             textShadow: `0 0 10px ${brandColors.secondary}66`,
+            fontSize: format === "vertical" ? "48px" : "36px",
+            fontWeight: 900,
+            textTransform: "uppercase",
+            fontFamily: "system-ui, -apple-system, sans-serif",
+            letterSpacing: "-0.02em",
+            textAlign: "center",
+            padding: "12px 24px",
+            borderRadius: "16px",
+            boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)",
           }}
         >
           {activeSubtitle.text}

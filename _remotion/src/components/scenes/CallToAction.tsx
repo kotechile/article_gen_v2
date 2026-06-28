@@ -52,75 +52,133 @@ export const CallToAction: React.FC<CallToActionProps> = ({
     [1.0, 1.05]
   );
 
-  const headingSize = format === "vertical" ? "text-4xl" : "text-6xl";
-  const subheadingSize = format === "vertical" ? "text-lg" : "text-2xl";
-  const buttonPadding = format === "vertical" ? "px-8 py-4 text-base" : "px-12 py-5 text-xl";
 
   return (
     <AbsoluteFill
-      className="flex flex-col justify-center items-center px-8 text-center overflow-hidden"
       style={{
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        overflow: "hidden",
+        padding: "32px",
+        textAlign: "center",
         backgroundColor: brandColors.background,
         color: "#ffffff",
       }}
     >
       {/* Background Image with overlay */}
       {localUrl && (
-        <div className="absolute inset-0 z-0">
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}>
           <img
             src={localUrl}
             alt="background"
-            className="w-full h-full object-cover"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
           />
           {/* Dark overlay to focus on call to action */}
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-[2px]" />
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0,0,0,0.8)",
+              backdropFilter: "blur(2px)",
+            }}
+          />
         </div>
       )}
 
       {/* Content wrapper */}
       <div
-        className="relative z-10 flex flex-col items-center max-w-3xl"
         style={{
+          position: "relative",
+          zIndex: 10,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          maxWidth: "768px",
           transform: `translateY(${contentTranslateY}px)`,
           opacity: contentOpacity,
         }}
       >
         {/* Glow behind headline */}
         <div
-          className="absolute -top-10 rounded-full opacity-20 blur-[80px] w-64 h-64 z-0"
           style={{
+            position: "absolute",
+            top: "-40px",
+            borderRadius: "9999px",
+            opacity: 0.2,
+            filter: "blur(80px)",
+            width: "256px",
+            height: "256px",
             background: `radial-gradient(circle, ${brandColors.primary} 0%, ${brandColors.secondary} 100%)`,
+            zIndex: 0,
           }}
         />
 
         <h1
-          className={`${headingSize} font-extrabold tracking-tight font-display mb-4 z-10`}
           style={{
+            fontSize: format === "vertical" ? "36px" : "56px",
+            fontWeight: 800,
+            fontFamily: "system-ui, -apple-system, sans-serif",
+            letterSpacing: "-0.02em",
+            marginBottom: "16px",
             color: brandColors.secondary,
             textShadow: "0 4px 20px rgba(0,0,0,0.6)",
+            zIndex: 10,
+            margin: 0,
           }}
         >
           {heading}
         </h1>
 
         {subheading && (
-          <p className={`${subheadingSize} text-gray-300 font-medium max-w-xl mb-8 z-10`}>
+          <p
+            style={{
+              fontSize: format === "vertical" ? "18px" : "24px",
+              color: "#d1d5db",
+              fontWeight: 500,
+              maxWidth: "576px",
+              fontFamily: "system-ui, -apple-system, sans-serif",
+              marginBottom: "32px",
+              zIndex: 10,
+              margin: 0,
+              marginTop: "8px",
+            }}
+          >
             {subheading}
           </p>
         )}
 
         {/* Dynamic manual Call to Action button */}
         <div
-          className="z-10 rounded-full p-[2px] shadow-2xl transition-transform"
           style={{
+            zIndex: 10,
+            borderRadius: "9999px",
+            padding: "2px",
+            boxShadow: `0 0 25px ${brandColors.primary}44`,
             backgroundImage: `linear-gradient(135deg, ${brandColors.primary} 0%, ${brandColors.secondary} 100%)`,
             transform: `scale(${pulseFactor})`,
-            boxShadow: `0 0 25px ${brandColors.primary}44`,
+            transition: "transform 0.3s",
           }}
         >
           <div
-            className={`${buttonPadding} rounded-full bg-black/90 font-bold uppercase tracking-wider text-white border border-transparent`}
             style={{
+              padding: format === "vertical" ? "16px 32px" : "20px 48px",
+              fontSize: format === "vertical" ? "16px" : "20px",
+              borderRadius: "9999px",
+              backgroundColor: "rgba(0, 0, 0, 0.9)",
+              fontWeight: "bold",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              color: "#ffffff",
+              border: "1px solid transparent",
               textShadow: "0 2px 4px rgba(0,0,0,0.5)",
             }}
           >

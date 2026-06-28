@@ -58,14 +58,29 @@ export const BRollImage: React.FC<BRollImageProps> = ({
   const overlayY = interpolate(overlayEntrance, [0, 1], [30, 0]);
   const overlayOpacity = interpolate(overlayEntrance, [0, 1], [0, 1]);
 
-  const cardPositionClass =
-    format === "vertical" ? "bottom-24 left-6 right-6" : "bottom-12 left-12 max-w-xl";
+  const cardStyle: React.CSSProperties = {
+    position: "absolute",
+    zIndex: 20,
+    padding: "24px",
+    borderRadius: "16px",
+    border: "1px solid rgba(255, 255, 255, 0.1)",
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    backdropFilter: "blur(12px)",
+    boxShadow: "0 10px 15px -3px rgba(0,0,0,0.3)",
+    transform: `translateY(${overlayY}px)`,
+    opacity: overlayOpacity,
+    borderColor: `${brandColors.secondary}22`,
+    bottom: format === "vertical" ? "96px" : "48px",
+    left: format === "vertical" ? "24px" : "48px",
+    right: format === "vertical" ? "24px" : "auto",
+    maxWidth: format === "vertical" ? "auto" : "576px",
+  };
 
   return (
     <AbsoluteFill
-      className="overflow-hidden"
       style={{
         backgroundColor: brandColors.background,
+        overflow: "hidden",
       }}
     >
       {/* Resilient B-Roll Image */}
@@ -73,43 +88,64 @@ export const BRollImage: React.FC<BRollImageProps> = ({
         <img
           src={localUrl}
           alt="B-Roll"
-          className="w-full h-full object-cover"
           style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
             transform: `scale(${scale}) translate(${translateX}px, ${translateY}px)`,
           }}
         />
       ) : (
         // Fallback gradient if no asset provided
         <div
-          className="w-full h-full opacity-60"
           style={{
+            width: "100%",
+            height: "100%",
+            opacity: 0.6,
             background: `linear-gradient(135deg, ${brandColors.background} 0%, ${brandColors.primary} 100%)`,
           }}
         />
       )}
 
       {/* Dark overlay gradient from bottom */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent z-10" />
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.2) 50%, transparent 100%)",
+          zIndex: 10,
+        }}
+      />
 
       {/* Overlay Caption Card */}
-      <div
-        className={`absolute z-20 p-6 rounded-2xl border border-white/10 bg-black/40 backdrop-blur-md shadow-lg ${cardPositionClass}`}
-        style={{
-          transform: `translateY(${overlayY}px)`,
-          opacity: overlayOpacity,
-          borderColor: `${brandColors.secondary}22`,
-        }}
-      >
+      <div style={cardStyle}>
         <h3
-          className="text-2xl font-bold font-display leading-tight mb-2"
           style={{
+            fontSize: "24px",
+            fontWeight: "bold",
+            fontFamily: "system-ui, -apple-system, sans-serif",
+            lineHeight: 1.2,
+            marginBottom: "8px",
             color: brandColors.secondary,
+            margin: 0,
           }}
         >
           {heading}
         </h3>
         {subheading && (
-          <p className="text-sm font-medium text-gray-300">
+          <p
+            style={{
+              fontSize: "14px",
+              fontWeight: 500,
+              color: "#d1d5db",
+              margin: 0,
+              fontFamily: "system-ui, -apple-system, sans-serif",
+              marginTop: "4px",
+            }}
+          >
             {subheading}
           </p>
         )}
