@@ -196,14 +196,14 @@ def generate_voiceover_elevenlabs(script_text, voice_id):
         return generate_voiceover_openai(script_text, "onyx")
 
     print(f"🎙 Generating realistic ElevenLabs voiceover (Voice ID: {voice_id})...")
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
     headers = {
         "xi-api-key": ELEVENLABS_API_KEY,
         "Content-Type": "application/json"
     }
     data = {
         "text": script_text,
-        "model_id": "eleven_monolingual_v1",
+        "model_id": "eleven_v3",
         "voice_settings": {
             "stability": 0.5,
             "similarity_boost": 0.75
