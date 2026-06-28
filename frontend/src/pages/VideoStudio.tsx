@@ -415,7 +415,6 @@ export function VideoStudio() {
                                                 className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
                                             >
                                                 <option value="background.mp3">Cyberpunk Grid (Lo-Fi)</option>
-                                                <option value="corporate.mp3">Corporate Motivation</option>
                                                 <option value="none">No Music (Voiceover Only)</option>
                                             </select>
                                         </div>

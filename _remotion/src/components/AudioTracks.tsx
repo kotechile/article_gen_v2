@@ -22,7 +22,8 @@ export const AudioTracks: React.FC<AudioTracksProps> = ({
 
   // Resilience: Preload both audio assets to guarantee synchronization
   const { localUrl: voiceoverLocalUrl } = useResilientAsset(voiceoverUrl);
-  const { localUrl: bgLocalUrl } = useResilientAsset(backgroundMusicUrl || DEFAULT_BG_MUSIC_URL);
+  const isNone = !backgroundMusicUrl || backgroundMusicUrl === "none" || backgroundMusicUrl.endsWith("/none");
+  const { localUrl: bgLocalUrl } = useResilientAsset(isNone ? undefined : (backgroundMusicUrl || DEFAULT_BG_MUSIC_URL));
 
   // Lookahead and Release buffers (in frames) for audio ducking
   // 6 frames lookahead (0.2s), 12 frames release (0.4s)
