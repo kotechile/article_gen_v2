@@ -67,6 +67,7 @@ interface Scene {
         value: string;
         label: string;
     };
+    imageSizePercent?: number;
 }
 
 interface Blueprint {
