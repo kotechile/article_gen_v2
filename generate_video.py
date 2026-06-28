@@ -95,12 +95,12 @@ def generate_video_blueprint(title, body_text, primary=None, secondary=None, bac
 
     system_prompt = """
 You are an expert automated video scriptwriter and motion graphics designer.
-Your task is to take an article's title and text content, and output a highly structured JSON blueprint for a 30-second vertical video (YouTube Shorts layout) matching this exact JSON schema:
+Your task is to take an article's title and text content, and output a highly structured JSON blueprint for a 30-second vertical or landscape video matching this exact JSON schema:
 
 {
   "metadata": {
     "title": "Title of the video",
-    "format": "vertical",
+    "format": "vertical" | "landscape",
     "totalDurationInSeconds": 30,
     "brandColors": {
       "primary": "Hex color code matching the article mood (e.g. #8A2BE2)",
@@ -111,11 +111,11 @@ Your task is to take an article's title and text content, and output a highly st
   "scenes": [
     {
       "sceneId": "scene_1",
-      "type": "framework_hero" | "comparison_table" | "kpi_metric" | "broll_image",
-      "durationInSeconds": 7.5,
+      "type": "framework_hero" | "comparison_table" | "kpi_metric" | "broll_image" | "call_to_action",
+      "durationInSeconds": 6.0,
       "heading": "Sleek heading for this scene",
       "subheading": "Optional subheading describing context",
-      "voiceoverScript": "Specific voiceover words spoken strictly during this scene segment (around 15-18 words, matching the duration).",
+      "voiceoverScript": "Specific voiceover words spoken strictly during this scene segment (around 12-15 words, matching the duration).",
       "imagePrompt": "Detailed, highly specific image prompt describing a concrete graphic or illustration representing the concepts in this scene. Incorporate descriptive details from the article paragraphs.",
       "visualKeyword": "A high-quality fallback keyword representing this scene",
       "tableData": {
@@ -131,9 +131,9 @@ Your task is to take an article's title and text content, and output a highly st
 }
 
 Instructions:
-1. You must generate exactly 4 scenes. The sum of "durationInSeconds" across all 4 scenes must be exactly 30.0 (e.g., 7.5 seconds per scene).
-2. The scene "type" list must include at least one framework_hero, one kpi_metric, one comparison_table, and one broll_image to showcase layout variety.
-3. The "voiceoverScript" represents the voiceover spoken *only* during that scene. Keep the language hook-driven, high-retention, and natural to read. Speakable word count per scene should be around 15 to 20 words maximum to match the 7.5s pacing.
+1. You must generate exactly 5 scenes. The sum of "durationInSeconds" across all 5 scenes must be exactly 30.0 (e.g., 6.0 seconds per scene).
+2. The scene "type" list must include one framework_hero, one kpi_metric, one comparison_table, one broll_image, and the final 5th scene must be a call_to_action scene to capture user attention and drive action.
+3. The "voiceoverScript" represents the voiceover spoken *only* during that scene. Keep the language hook-driven, high-retention, and natural to read. Speakable word count per scene should be around 12 to 15 words maximum to match the 6.0s pacing.
 4. Do not simply summarize headers. Read the body paragraphs, extract concrete metrics, analogies, or arguments, and write the voiceover and "imagePrompt" based on those specific details.
 5. Provide raw JSON output, without any markdown formatting wrappers or ```json tags.
 """
@@ -391,6 +391,12 @@ def download_broll_images(blueprint):
         subheading = scene.get('subheading', '')
         keyword = scene.get('visualKeyword', 'business')
         
+        # Check if the scene already has a user-defined custom image URL/path set
+        existing_asset = scene.get('visualAssetUrl')
+        if existing_asset and not existing_asset.startswith("scene_"):
+            print(f"✔ Scene {idx + 1} has user-defined visual asset: {existing_asset}. Skipping auto-generation.")
+            continue
+            
         dest_filename = f"scene_{idx + 1}.jpg"
         dest_path = os.path.join(os.path.dirname(__file__), '_remotion', 'public', dest_filename)
         
@@ -543,22 +549,37 @@ def main():
     parser.add_argument("--host-url", help="Fully qualified domain of the backend server (to resolve remote assets for AWS Lambda)")
     parser.add_argument("--music", default="background.mp3", help="Background music selection")
     parser.add_argument("--render-on-lambda", action="store_true", help="Render video on AWS Lambda instead of locally")
+    parser.add_argument("--blueprint-only", action="store_true", help="Only generate the blueprint JSON structure from LLM, then print to stdout and exit")
+    parser.add_argument("--blueprint-payload", help="Path to a pre-existing blueprint JSON file to compile the video from directly")
     
     args = parser.parse_args()
     
     try:
-        # Step 1: Scrape
-        title, body_text = scrape_article(args.url)
-        
-        # Step 2: Blueprint
-        blueprint = generate_video_blueprint(
-            title, 
-            body_text, 
-            primary=args.primary, 
-            secondary=args.secondary, 
-            background=args.background
-        )
-        
+        if args.blueprint_payload:
+            # Skip Step 1 and 2, load the user-supplied blueprint directly
+            print(f"📂 Loading pre-existing blueprint payload from: {args.blueprint_payload}...")
+            with open(args.blueprint_payload, 'r') as f:
+                blueprint = json.load(f)
+        else:
+            # Step 1: Scrape
+            title, body_text = scrape_article(args.url)
+            
+            # Step 2: Blueprint
+            blueprint = generate_video_blueprint(
+                title, 
+                body_text, 
+                primary=args.primary, 
+                secondary=args.secondary, 
+                background=args.background
+            )
+            
+            if args.blueprint_only:
+                # Output raw JSON blueprint to stdout and exit
+                print("\n=== BLUEPRINT_JSON_START ===")
+                print(json.dumps(blueprint, indent=2))
+                print("=== BLUEPRINT_JSON_END ===")
+                return
+
         # Step 3: Voiceover
         full_script = " ".join([sc.get('voiceoverScript', '') for sc in blueprint['scenes']])
         if args.provider == "elevenlabs" or len(args.voice) > 15: # heuristic for ElevenLabs Voice ID hashes

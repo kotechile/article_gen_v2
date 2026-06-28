@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
-import { Play, Sparkles, Sliders, Palette, Video, Download, RefreshCw, Volume2, Eye } from 'lucide-react';
+import { Play, Sparkles, Sliders, Palette, Video, Download, RefreshCw, Volume2, Eye, ArrowLeft, Upload, Edit, EyeOff, Layout } from 'lucide-react';
 import { apiClient } from '@/api-client';
 
 // Color Presets for easy branding selection
@@ -49,7 +49,43 @@ const VOICE_PRESETS = [
     { name: 'Nicole (ElevenLabs - Narrative)', value: 'piYvJZ4mWaZgI3LLhx4t', provider: 'elevenlabs' },
 ];
 
+interface Scene {
+    sceneId: string;
+    type: 'framework_hero' | 'comparison_table' | 'kpi_metric' | 'broll_image' | 'call_to_action';
+    heading: string;
+    subheading?: string;
+    voiceoverScript: string;
+    imagePrompt?: string;
+    visualAssetUrl?: string;
+    visualKeyword?: string;
+    tableData?: {
+        headers: string[];
+        rows: string[][];
+    };
+    kpiData?: {
+        value: string;
+        label: string;
+    };
+}
+
+interface Blueprint {
+    metadata: {
+        title: string;
+        format: 'vertical' | 'landscape';
+        totalDurationInSeconds: number;
+        brandColors: {
+            primary: string;
+            secondary: string;
+            background: string;
+        };
+    };
+    scenes: Scene[];
+}
+
 export function VideoStudio() {
+    // Step configuration
+    const [step, setStep] = React.useState<'config' | 'editor'>('config');
+
     const [url, setUrl] = React.useState('');
     const [provider, setProvider] = React.useState<'openai' | 'elevenlabs'>('openai');
     const [voice, setVoice] = React.useState('onyx');
@@ -63,11 +99,18 @@ export function VideoStudio() {
     const [secondaryColor, setSecondaryColor] = React.useState('#00FFFF');
     const [backgroundColor, setBackgroundColor] = React.useState('#0B0C10');
 
+    // Blueprint blueprint content
+    const [blueprint, setBlueprint] = React.useState<Blueprint | null>(null);
+
     // Status tracking
     const [generating, setGenerating] = React.useState(false);
     const [statusMessage, setStatusMessage] = React.useState('');
     const [videoUrl, setVideoUrl] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
+
+    // Visual mode for each scene index: 'auto' | 'upload'
+    const [sceneModes, setSceneModes] = React.useState<Record<number, 'auto' | 'upload'>>({});
+    const [uploadingIndex, setUploadingIndex] = React.useState<number | null>(null);
 
     // Apply color presets helper
     const handleApplyPreset = (preset: typeof COLOR_PRESETS[0]) => {
@@ -86,21 +129,113 @@ export function VideoStudio() {
         }
     };
 
-    // Trigger video compilation API
-    const handleGenerate = async (e: React.FormEvent) => {
+    // Step 1: Ingest URL and generate Blueprint JSON
+    const handleGenerateBlueprint = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!url) return;
 
         setGenerating(true);
         setVideoUrl(null);
         setError(null);
-        setStatusMessage('Reading article content & generating script...');
-
-        // Determine final voice string (custom vs preset)
-        const finalVoice = provider === 'elevenlabs' && customVoiceId ? customVoiceId : voice;
+        setStatusMessage('Reading article content & mapping video blueprint...');
 
         try {
-            // Call Flask backend
+            const response = await apiClient.post<any>('/v1/video/blueprint', {
+                url,
+                primary_color: primaryColor,
+                secondary_color: secondaryColor,
+                background_color: backgroundColor,
+            });
+
+            if (response.status === 'success' && response.blueprint) {
+                setBlueprint(response.blueprint);
+                // Initialize visual mode for all scenes as auto
+                const modes: Record<number, 'auto' | 'upload'> = {};
+                response.blueprint.scenes.forEach((_: any, idx: number) => {
+                    modes[idx] = 'auto';
+                });
+                setSceneModes(modes);
+                setStep('editor');
+            } else {
+                throw new Error(response.message || 'Failed to construct script blueprint');
+            }
+        } catch (err: any) {
+            console.error('Blueprint generation error:', err);
+            const backendError = err.response?.data;
+            const errMsg = backendError?.message || err.message || 'Failed to analyze article and plan scenes.';
+            setError(errMsg);
+        } finally {
+            setGenerating(false);
+            setStatusMessage('');
+        }
+    };
+
+    // Handle scene file upload
+    const handleSceneFileUpload = async (index: number, file: File) => {
+        if (!file) return;
+
+        setUploadingIndex(index);
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await apiClient.post<any>('/v1/video/upload', formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
+
+            if (response.status === 'success') {
+                updateScene(index, {
+                    visualAssetUrl: response.relative_path,
+                });
+            } else {
+                throw new Error(response.message || 'File upload failed');
+            }
+        } catch (err: any) {
+            alert(`Upload failed: ${err.message}`);
+        } finally {
+            setUploadingIndex(null);
+        }
+    };
+
+    // Update specific scene in the blueprint
+    const updateScene = (index: number, updates: Partial<Scene>) => {
+        if (!blueprint) return;
+        const newScenes = [...blueprint.scenes];
+        newScenes[index] = { ...newScenes[index], ...updates };
+        setBlueprint({
+            ...blueprint,
+            scenes: newScenes,
+        });
+    };
+
+    // Step 2: Render video using compiled blueprint
+    const handleRenderVideo = async () => {
+        if (!blueprint) return;
+
+        setGenerating(true);
+        setVideoUrl(null);
+        setError(null);
+        setStatusMessage('Synthesizing voiceover track & drawing visual scenes...');
+
+        const finalVoice = provider === 'elevenlabs' && customVoiceId ? customVoiceId : voice;
+
+        // Ensure final blueprint has correct layout colors / format
+        const finalBlueprint = {
+            ...blueprint,
+            metadata: {
+                ...blueprint.metadata,
+                format: aspectRatio,
+                brandColors: {
+                    primary: primaryColor,
+                    secondary: secondaryColor,
+                    background: backgroundColor,
+                },
+            },
+        };
+
+        try {
             const response = await apiClient.post<any>('/v1/generate-video', {
                 url,
                 voice: finalVoice,
@@ -110,17 +245,17 @@ export function VideoStudio() {
                 secondary_color: secondaryColor,
                 background_color: backgroundColor,
                 aspect_ratio: aspectRatio,
-                music: music
+                music: music,
+                blueprint_payload: finalBlueprint,
             }, {
-                timeout: 300000 // 5 minutes client-side timeout
+                timeout: 300000,
             });
 
             if (response.status === 'success') {
-                setStatusMessage('Rendering completed! Fetching video file...');
-                // The URL is served relative to client proxy base
+                setStatusMessage('Rendering completed! Loading preview...');
                 setVideoUrl('/api/v1/video/download');
             } else {
-                throw new Error(response.message || 'Generation failed');
+                throw new Error(response.message || 'Video render failed');
             }
         } catch (err: any) {
             console.error('Video generation error:', err);
@@ -144,301 +279,553 @@ export function VideoStudio() {
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.25 }}
-                    className="mb-8"
+                    className="mb-8 flex items-center justify-between"
                 >
-                    <div className="flex items-center gap-2">
-                        <Video className="h-6 w-6 text-primary animate-pulse" />
-                        <h1 className="text-2xl font-semibold tracking-tight text-foreground">ArtiVids Studio</h1>
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <Video className="h-6 w-6 text-primary animate-pulse" />
+                            <h1 className="text-2xl font-semibold tracking-tight text-foreground">ArtiVids Studio</h1>
+                        </div>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            Two-step script planning and video compilation studio.
+                        </p>
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                        Programmatic Article-to-Video engine with dynamic Remotion layouts.
-                    </p>
+
+                    {step === 'editor' && (
+                        <button
+                            onClick={() => setStep('config')}
+                            className="inline-flex h-9 px-4 items-center gap-1.5 rounded-lg border border-border bg-muted/30 text-xs font-semibold text-foreground hover:bg-muted cursor-pointer transition"
+                        >
+                            <ArrowLeft className="h-3.5 w-3.5" />
+                            Restart Script
+                        </button>
+                    )}
                 </motion.div>
 
-                <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-                    {/* Settings Form Column */}
-                    <div className="lg:col-span-7 space-y-6">
-                        <form onSubmit={handleGenerate} className="space-y-6 rounded-xl border border-border bg-muted/20 p-6">
-                            {/* URL Ingestion */}
-                            <div className="space-y-2">
-                                <label className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-                                    <Sparkles className="h-4 w-4 text-secondary" />
-                                    Article URL
-                                </label>
-                                <input
-                                    type="url"
-                                    required
-                                    value={url}
-                                    onChange={(e) => setUrl(e.target.value)}
-                                    placeholder="https://myblog.com/is-a-3000-espresso-maker-worth-it"
-                                    className="h-10 w-full rounded-lg border border-border bg-background px-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary/50"
-                                />
-                            </div>
+                {error && (
+                    <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm text-center mb-6">
+                        <strong>Generation Error:</strong> {error}
+                    </div>
+                )}
 
-                            {/* Voice Setup */}
-                            <div className="space-y-4 border-t border-border pt-4">
-                                <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
-                                    <Volume2 className="h-4 w-4 text-primary" />
-                                    Audio & Voice Settings
-                                </h3>
+                {step === 'config' ? (
+                    <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
+                        {/* Configuration Form */}
+                        <div className="lg:col-span-7 space-y-6">
+                            <form onSubmit={handleGenerateBlueprint} className="space-y-6 rounded-xl border border-border bg-muted/20 p-6">
+                                {/* URL Ingestion */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                                        <Sparkles className="h-4 w-4 text-secondary" />
+                                        Article URL
+                                    </label>
+                                    <input
+                                        type="url"
+                                        required
+                                        value={url}
+                                        onChange={(e) => setUrl(e.target.value)}
+                                        placeholder="https://myblog.com/is-a-3000-espresso-maker-worth-it"
+                                        className="h-10 w-full rounded-lg border border-border bg-background px-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary/50"
+                                    />
+                                </div>
 
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1">
-                                        <label className="text-xs text-muted-foreground">Provider</label>
-                                        <select
-                                            value={provider}
-                                            onChange={(e) => setProvider(e.target.value as any)}
-                                            className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
-                                        >
-                                            <option value="openai">OpenAI (TTS-1)</option>
-                                            <option value="elevenlabs">ElevenLabs</option>
-                                        </select>
+                                {/* Voice Setup */}
+                                <div className="space-y-4 border-t border-border pt-4">
+                                    <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                                        <Volume2 className="h-4 w-4 text-primary" />
+                                        Audio & Voice Settings
+                                    </h3>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-1">
+                                            <label className="text-xs text-muted-foreground">Provider</label>
+                                            <select
+                                                value={provider}
+                                                onChange={(e) => setProvider(e.target.value as any)}
+                                                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
+                                            >
+                                                <option value="openai">OpenAI (TTS-1)</option>
+                                                <option value="elevenlabs">ElevenLabs</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <label className="text-xs text-muted-foreground">Select Preset</label>
+                                            <select
+                                                value={voice}
+                                                onChange={handleVoiceChange}
+                                                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
+                                            >
+                                                {VOICE_PRESETS.map((v) => (
+                                                    <option key={v.value} value={v.value}>
+                                                        {v.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
                                     </div>
 
-                                    <div className="space-y-1">
-                                        <label className="text-xs text-muted-foreground">Select Preset</label>
-                                        <select
-                                            value={voice}
-                                            onChange={handleVoiceChange}
-                                            className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
-                                        >
-                                            {VOICE_PRESETS.map((v) => (
-                                                <option key={v.value} value={v.value}>
-                                                    {v.name}
-                                                </option>
-                                            ))}
-                                            {provider === 'elevenlabs' && (
-                                                <option value="custom">Custom Voice ID...</option>
-                                            )}
-                                        </select>
+                                    {provider === 'elevenlabs' && (
+                                        <div className="space-y-1 animate-scaleIn">
+                                            <label className="text-xs text-muted-foreground">Custom ElevenLabs Voice ID</label>
+                                            <input
+                                                type="text"
+                                                value={customVoiceId}
+                                                onChange={(e) => setCustomVoiceId(e.target.value)}
+                                                placeholder="e.g. pNInz6obpgDQGcFmaJgB"
+                                                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none focus:border-primary/50"
+                                            />
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-1">
+                                            <label className="text-xs text-muted-foreground">Caption Alignment</label>
+                                            <select
+                                                value={captionPosition}
+                                                onChange={(e) => setCaptionPosition(e.target.value as any)}
+                                                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
+                                            >
+                                                <option value="center">Center</option>
+                                                <option value="bottom">Bottom (Standard)</option>
+                                                <option value="top">Top</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <label className="text-xs text-muted-foreground">Aspect Ratio</label>
+                                            <select
+                                                value={aspectRatio}
+                                                onChange={(e) => setAspectRatio(e.target.value as any)}
+                                                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
+                                            >
+                                                <option value="vertical">Vertical Shorts (9:16)</option>
+                                                <option value="landscape">Landscape YouTube (16:9)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-1">
+                                            <label className="text-xs text-muted-foreground">Background Music</label>
+                                            <select
+                                                value={music}
+                                                onChange={(e) => setMusic(e.target.value)}
+                                                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
+                                            >
+                                                <option value="background.mp3">Cyberpunk Grid (Lo-Fi)</option>
+                                                <option value="corporate.mp3">Corporate Motivation</option>
+                                                <option value="none">No Music (Voiceover Only)</option>
+                                            </select>
+                                        </div>
                                     </div>
                                 </div>
 
-                                {provider === 'elevenlabs' && voice === 'custom' && (
-                                    <div className="space-y-1 animate-fadeIn">
-                                        <label className="text-xs text-muted-foreground">Custom Voice ID</label>
-                                        <input
-                                            value={customVoiceId}
-                                            onChange={(e) => setCustomVoiceId(e.target.value)}
-                                            placeholder="Enter ElevenLabs Voice ID hash"
-                                            className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
-                                        />
+                                {/* Branding Presets */}
+                                <div className="space-y-4 border-t border-border pt-4">
+                                    <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                                        <Palette className="h-4 w-4 text-secondary" />
+                                        Brand & Design Customization
+                                    </h3>
+
+                                    {/* Presets Grid */}
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {COLOR_PRESETS.map((preset) => (
+                                            <button
+                                                key={preset.name}
+                                                type="button"
+                                                onClick={() => handleApplyPreset(preset)}
+                                                className="rounded-lg border border-border bg-muted/40 p-2.5 hover:bg-muted cursor-pointer transition text-left"
+                                            >
+                                                <span className="block text-[10px] font-bold text-foreground truncate mb-1.5">
+                                                    {preset.name}
+                                                </span>
+                                                <div className="flex gap-1.5">
+                                                    <span className="w-3.5 h-3.5 rounded-full border border-black/30" style={{ backgroundColor: preset.primary }} />
+                                                    <span className="w-3.5 h-3.5 rounded-full border border-black/30" style={{ backgroundColor: preset.secondary }} />
+                                                    <span className="w-3.5 h-3.5 rounded-full border border-black/30" style={{ backgroundColor: preset.background }} />
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {/* Manual Pickers */}
+                                    <div className="grid grid-cols-3 gap-4 pt-2">
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] uppercase font-bold text-muted-foreground">Primary Accent</label>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="color"
+                                                    value={primaryColor}
+                                                    onChange={(e) => setPrimaryColor(e.target.value)}
+                                                    className="w-8 h-8 rounded border border-border bg-transparent outline-none cursor-pointer"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={primaryColor}
+                                                    onChange={(e) => setPrimaryColor(e.target.value)}
+                                                    className="h-8 w-full rounded border border-border bg-background px-2 text-xs outline-none"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] uppercase font-bold text-muted-foreground">Secondary Accent</label>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="color"
+                                                    value={secondaryColor}
+                                                    onChange={(e) => setSecondaryColor(e.target.value)}
+                                                    className="w-8 h-8 rounded border border-border bg-transparent outline-none cursor-pointer"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={secondaryColor}
+                                                    onChange={(e) => setSecondaryColor(e.target.value)}
+                                                    className="h-8 w-full rounded border border-border bg-background px-2 text-xs outline-none"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] uppercase font-bold text-muted-foreground">Canvas Background</label>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="color"
+                                                    value={backgroundColor}
+                                                    onChange={(e) => setBackgroundColor(e.target.value)}
+                                                    className="w-8 h-8 rounded border border-border bg-transparent outline-none cursor-pointer"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={backgroundColor}
+                                                    onChange={(e) => setBackgroundColor(e.target.value)}
+                                                    className="h-8 w-full rounded border border-border bg-background px-2 text-xs outline-none"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    disabled={generating || !url}
+                                    className="w-full h-11 rounded-lg text-white font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 transition cursor-pointer"
+                                    style={{ backgroundColor: primaryColor }}
+                                >
+                                    {generating ? (
+                                        <>
+                                            <RefreshCw className="h-5 w-5 animate-spin" />
+                                            {statusMessage || 'Planning blueprint...'}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Sparkles className="h-5 w-5 fill-white" />
+                                            Generate Script & Blueprint
+                                        </>
+                                    )}
+                                </button>
+                            </form>
+                        </div>
+
+                        {/* Right Preview Intro Column */}
+                        <div className="lg:col-span-5 flex flex-col items-center">
+                            <div className="w-full max-w-sm rounded-xl border border-border bg-muted/10 p-6 flex flex-col items-center min-h-[500px] justify-center relative shadow-lg text-center">
+                                {generating && (
+                                    <div className="absolute inset-0 z-10 bg-background/80 backdrop-blur-sm rounded-xl flex flex-col items-center justify-center text-center p-6">
+                                        <div className="relative w-16 h-16 mb-4">
+                                            <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
+                                            <div className="absolute inset-0 rounded-full border-4 border-t-primary animate-spin" />
+                                        </div>
+                                        <h4 className="text-base font-bold text-foreground mb-2">Analyzing Article</h4>
+                                        <p className="text-xs text-muted-foreground max-w-xs">{statusMessage}</p>
                                     </div>
                                 )}
-                            </div>
 
-                            {/* Layout & Audio Settings */}
-                            <div className="space-y-4 border-t border-border pt-4">
-                                <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
-                                    <Sliders className="h-4 w-4 text-cyan-400" />
-                                    Layout & Subtitles
-                                </h3>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1">
-                                        <label className="text-xs text-muted-foreground">Aspect Ratio</label>
-                                        <select
-                                            value={aspectRatio}
-                                            onChange={(e) => setAspectRatio(e.target.value as any)}
-                                            className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
-                                        >
-                                            <option value="vertical">Vertical (9:16 Shorts/Tiktok)</option>
-                                            <option value="landscape">Landscape (16:9 YouTube Video)</option>
-                                        </select>
+                                <div className="text-muted-foreground flex flex-col items-center p-6">
+                                    <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mb-4 border border-border">
+                                        <Sliders className="h-6 w-6 text-muted-foreground animate-pulse" />
                                     </div>
-
-                                    <div className="space-y-1">
-                                        <label className="text-xs text-muted-foreground">Subtitle Placement</label>
-                                        <select
-                                            value={captionPosition}
-                                            onChange={(e) => setCaptionPosition(e.target.value as any)}
-                                            className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
-                                        >
-                                            <option value="center">Center Safe-Zone (30%)</option>
-                                            <option value="bottom">Bottom Overlay (subtitles)</option>
-                                            <option value="top">Top Header Overlay</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1">
-                                    <label className="text-xs text-muted-foreground">Background Music Track</label>
-                                    <select
-                                        value={music}
-                                        onChange={(e) => setMusic(e.target.value)}
-                                        className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
-                                    >
-                                        <option value="background.mp3">Tech Synth (Default)</option>
-                                        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3">Inspiring Corporate (Quiet)</option>
-                                        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3">Upbeat Electronica (Energetic)</option>
-                                        <option value="">No Background Music (Mute)</option>
-                                    </select>
+                                    <h3 className="text-sm font-bold text-foreground mb-1">Interactive Planning</h3>
+                                    <p className="text-xs max-w-xs">
+                                        Paste the article link and click "Generate Script & Blueprint". You can preview, edit, customize images, or choose custom uploads before compilation.
+                                    </p>
                                 </div>
                             </div>
-
-                            {/* Colors */}
-                            <div className="space-y-4 border-t border-border pt-4">
-                                <div className="flex items-center justify-between">
-                                    <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
-                                        <Palette className="h-4 w-4 text-amber-400" />
-                                        Brand Colors
+                        </div>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
+                        {/* Step 2: Interactive Blueprint Scene Editor */}
+                        <div className="lg:col-span-7 space-y-6">
+                            <div className="rounded-xl border border-border bg-muted/20 p-6 space-y-6">
+                                <div className="flex items-center justify-between border-b border-border pb-4">
+                                    <h3 className="text-base font-bold text-foreground flex items-center gap-1.5">
+                                        <Layout className="h-5 w-5 text-secondary" />
+                                        Interactive Scene Timeline
                                     </h3>
+                                    <span className="text-xs bg-primary/10 text-primary px-2.5 py-1 rounded-full font-bold">
+                                        {blueprint?.scenes.length || 0} Scenes Planned
+                                    </span>
                                 </div>
 
-                                {/* Color Presets */}
-                                <div className="flex gap-2">
-                                    {COLOR_PRESETS.map((preset) => (
-                                        <button
-                                            key={preset.name}
-                                            type="button"
-                                            onClick={() => handleApplyPreset(preset)}
-                                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-border bg-background hover:bg-muted text-xs text-foreground transition"
-                                        >
-                                            <span
-                                                className="w-2.5 h-2.5 rounded-full inline-block"
-                                                style={{ backgroundColor: preset.primary }}
-                                            />
-                                            {preset.name}
-                                        </button>
+                                <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
+                                    {blueprint?.scenes.map((scene, idx) => (
+                                        <div key={scene.sceneId} className="p-4 rounded-xl border border-border bg-background shadow-md space-y-4">
+                                            <div className="flex items-center justify-between border-b border-border pb-2">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="w-6 h-6 rounded-full bg-primary text-white text-xs font-bold flex items-center justify-center">
+                                                        {idx + 1}
+                                                    </span>
+                                                    <span className="text-xs font-semibold text-foreground uppercase tracking-wider">
+                                                        {scene.type.replace('_', ' ')}
+                                                    </span>
+                                                </div>
+                                                <span className="text-xs text-muted-foreground">{scene.durationInSeconds} Seconds</span>
+                                            </div>
+
+                                            {/* Text Customization */}
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-1">
+                                                    <label className="text-[10px] font-bold text-muted-foreground uppercase">Heading Text</label>
+                                                    <input
+                                                        type="text"
+                                                        value={scene.heading}
+                                                        onChange={(e) => updateScene(idx, { heading: e.target.value })}
+                                                        className="h-8 w-full rounded border border-border bg-muted/20 px-2 text-xs outline-none focus:border-primary/50 text-foreground"
+                                                    />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <label className="text-[10px] font-bold text-muted-foreground uppercase">Subheading / Label</label>
+                                                    <input
+                                                        type="text"
+                                                        value={scene.subheading || ''}
+                                                        onChange={(e) => updateScene(idx, { subheading: e.target.value })}
+                                                        className="h-8 w-full rounded border border-border bg-muted/20 px-2 text-xs outline-none focus:border-primary/50 text-foreground"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Voiceover Edit */}
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-bold text-muted-foreground uppercase">Voiceover Words</label>
+                                                <textarea
+                                                    rows={2}
+                                                    value={scene.voiceoverScript}
+                                                    onChange={(e) => updateScene(idx, { voiceoverScript: e.target.value })}
+                                                    className="w-full rounded border border-border bg-muted/20 p-2 text-xs outline-none focus:border-primary/50 text-foreground resize-none"
+                                                />
+                                            </div>
+
+                                            {/* Table / KPI Meta Editing */}
+                                            {scene.type === 'comparison_table' && scene.tableData && (
+                                                <div className="p-3 rounded-lg border border-dashed border-border bg-muted/5 space-y-2">
+                                                    <span className="text-[10px] font-bold uppercase text-foreground">Edit Table Data</span>
+                                                    <div className="grid grid-cols-3 gap-2">
+                                                        {scene.tableData.headers.map((h, hidx) => (
+                                                            <input
+                                                                key={hidx}
+                                                                type="text"
+                                                                value={h}
+                                                                onChange={(e) => {
+                                                                    const newHeaders = [...(scene.tableData?.headers || [])];
+                                                                    newHeaders[hidx] = e.target.value;
+                                                                    updateScene(idx, {
+                                                                        tableData: {
+                                                                            headers: newHeaders,
+                                                                            rows: scene.tableData?.rows || [],
+                                                                        },
+                                                                    });
+                                                                }}
+                                                                className="h-7 rounded border border-border bg-background px-2 text-[10px] outline-none text-foreground font-bold"
+                                                            />
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {scene.type === 'kpi_metric' && scene.kpiData && (
+                                                <div className="p-3 rounded-lg border border-dashed border-border bg-muted/5 grid grid-cols-2 gap-4">
+                                                    <div className="space-y-1">
+                                                        <label className="text-[10px] font-bold uppercase text-muted-foreground">Metric Value</label>
+                                                        <input
+                                                            type="text"
+                                                            value={scene.kpiData.value}
+                                                            onChange={(e) => {
+                                                                updateScene(idx, {
+                                                                    kpiData: {
+                                                                        value: e.target.value,
+                                                                        label: scene.kpiData?.label || '',
+                                                                    },
+                                                                });
+                                                            }}
+                                                            className="h-7 w-full rounded border border-border bg-background px-2 text-[10px] outline-none text-foreground font-bold"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <label className="text-[10px] font-bold uppercase text-muted-foreground">Metric label</label>
+                                                        <input
+                                                            type="text"
+                                                            value={scene.kpiData.label}
+                                                            onChange={(e) => {
+                                                                updateScene(idx, {
+                                                                    kpiData: {
+                                                                        value: scene.kpiData?.value || '',
+                                                                        label: e.target.value,
+                                                                    },
+                                                                });
+                                                            }}
+                                                            className="h-7 w-full rounded border border-border bg-background px-2 text-[10px] outline-none text-foreground"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Visual Asset Control */}
+                                            <div className="space-y-2 pt-2 border-t border-border">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-[10px] font-bold text-muted-foreground uppercase">Background Image Selection</span>
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSceneModes({ ...sceneModes, [idx]: 'auto' })}
+                                                            className={`px-2.5 py-1 rounded text-[10px] font-semibold transition cursor-pointer ${
+                                                                sceneModes[idx] === 'auto'
+                                                                    ? 'bg-secondary text-background font-bold'
+                                                                    : 'bg-muted/40 text-muted-foreground hover:bg-muted'
+                                                            }`}
+                                                        >
+                                                            Auto AI (Flux)
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSceneModes({ ...sceneModes, [idx]: 'upload' })}
+                                                            className={`px-2.5 py-1 rounded text-[10px] font-semibold transition cursor-pointer ${
+                                                                sceneModes[idx] === 'upload'
+                                                                    ? 'bg-secondary text-background font-bold'
+                                                                    : 'bg-muted/40 text-muted-foreground hover:bg-muted'
+                                                            }`}
+                                                        >
+                                                            Upload Custom
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {sceneModes[idx] === 'auto' ? (
+                                                    <div className="space-y-1">
+                                                        <label className="text-[9px] text-muted-foreground">Flux AI Image Prompt</label>
+                                                        <input
+                                                            type="text"
+                                                            value={scene.imagePrompt || ''}
+                                                            onChange={(e) => updateScene(idx, { imagePrompt: e.target.value })}
+                                                            placeholder="Flux image description prompt..."
+                                                            className="h-8 w-full rounded border border-border bg-muted/20 px-2 text-xs outline-none focus:border-primary/50 text-foreground"
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-3">
+                                                        <input
+                                                            type="file"
+                                                            accept="image/*"
+                                                            id={`upload-${scene.sceneId}`}
+                                                            className="hidden"
+                                                            onChange={(e) => {
+                                                                const file = e.target.files?.[0];
+                                                                if (file) handleSceneFileUpload(idx, file);
+                                                            }}
+                                                        />
+                                                        <label
+                                                            htmlFor={`upload-${scene.sceneId}`}
+                                                            className="h-8 px-4 rounded border border-dashed border-border bg-muted/10 flex items-center justify-center gap-1 text-[10px] font-bold text-foreground cursor-pointer hover:bg-muted/20 transition"
+                                                        >
+                                                            <Upload className="h-3 w-3" />
+                                                            {uploadingIndex === idx ? 'Uploading...' : 'Choose custom image'}
+                                                        </label>
+                                                        {scene.visualAssetUrl && (
+                                                            <span className="text-[10px] text-primary truncate max-w-xs">
+                                                                Uploaded: {scene.visualAssetUrl}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
                                     ))}
                                 </div>
 
-                                <div className="grid grid-cols-3 gap-4 pt-2">
-                                    <div className="space-y-1">
-                                        <label className="text-xs text-muted-foreground">Primary Color</label>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="color"
-                                                value={primaryColor}
-                                                onChange={(e) => setPrimaryColor(e.target.value)}
-                                                className="w-8 h-8 rounded border border-border bg-transparent outline-none cursor-pointer"
-                                            />
-                                            <input
-                                                type="text"
-                                                value={primaryColor}
-                                                onChange={(e) => setPrimaryColor(e.target.value)}
-                                                className="h-8 w-full rounded border border-border bg-background px-2 text-xs outline-none"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-1">
-                                        <label className="text-xs text-muted-foreground">Secondary Color</label>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="color"
-                                                value={secondaryColor}
-                                                onChange={(e) => setSecondaryColor(e.target.value)}
-                                                className="w-8 h-8 rounded border border-border bg-transparent outline-none cursor-pointer"
-                                            />
-                                            <input
-                                                type="text"
-                                                value={secondaryColor}
-                                                onChange={(e) => setSecondaryColor(e.target.value)}
-                                                className="h-8 w-full rounded border border-border bg-background px-2 text-xs outline-none"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-1">
-                                        <label className="text-xs text-muted-foreground">Background</label>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="color"
-                                                value={backgroundColor}
-                                                onChange={(e) => setBackgroundColor(e.target.value)}
-                                                className="w-8 h-8 rounded border border-border bg-transparent outline-none cursor-pointer"
-                                            />
-                                            <input
-                                                type="text"
-                                                value={backgroundColor}
-                                                onChange={(e) => setBackgroundColor(e.target.value)}
-                                                className="h-8 w-full rounded border border-border bg-background px-2 text-xs outline-none"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleRenderVideo}
+                                    disabled={generating}
+                                    className="w-full h-11 rounded-lg text-white font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 transition cursor-pointer"
+                                    style={{ backgroundColor: primaryColor }}
+                                >
+                                    {generating ? (
+                                        <>
+                                            <RefreshCw className="h-5 w-5 animate-spin" />
+                                            {statusMessage || 'Rendering Final Video...'}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Play className="h-5 w-5 fill-white" />
+                                            Compile Final Video
+                                        </>
+                                    )}
+                                </button>
                             </div>
+                        </div>
 
-                            {/* Submit */}
-                            <button
-                                type="submit"
-                                disabled={generating || !url}
-                                className="w-full h-11 rounded-lg text-white font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 transition cursor-pointer"
-                                style={{ backgroundColor: primaryColor }}
-                            >
-                                {generating ? (
-                                    <>
-                                        <RefreshCw className="h-5 w-5 animate-spin" />
-                                        {statusMessage || 'Compiling Video...'}
-                                    </>
-                                ) : (
-                                    <>
-                                        <Play className="h-5 w-5 fill-white" />
-                                        Compile Video Blueprint
-                                    </>
+                        {/* Rendering Preview Output Column */}
+                        <div className="lg:col-span-5 flex flex-col items-center">
+                            <div className="w-full max-w-sm rounded-xl border border-border bg-muted/10 p-6 flex flex-col items-center min-h-[500px] justify-center relative shadow-lg">
+                                {generating && (
+                                    <div className="absolute inset-0 z-10 bg-background/80 backdrop-blur-sm rounded-xl flex flex-col items-center justify-center text-center p-6">
+                                        <div className="relative w-16 h-16 mb-4">
+                                            <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
+                                            <div className="absolute inset-0 rounded-full border-4 border-t-primary animate-spin" />
+                                        </div>
+                                        <h4 className="text-base font-bold text-foreground mb-2">Rendering Serverlessly</h4>
+                                        <p className="text-xs text-muted-foreground max-w-xs">{statusMessage}</p>
+                                    </div>
                                 )}
-                            </button>
-                        </form>
-                    </div>
 
-                    {/* Render Preview Column */}
-                    <div className="lg:col-span-5 flex flex-col items-center">
-                        <div className="w-full max-w-sm rounded-xl border border-border bg-muted/10 p-6 flex flex-col items-center min-h-[500px] justify-center relative shadow-lg">
-                            {generating && (
-                                <div className="absolute inset-0 z-10 bg-background/80 backdrop-blur-sm rounded-xl flex flex-col items-center justify-center text-center p-6">
-                                    <div className="relative w-16 h-16 mb-4">
-                                        <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
-                                        <div className="absolute inset-0 rounded-full border-4 border-t-primary animate-spin" />
+                                {videoUrl ? (
+                                    <div className="w-full flex flex-col items-center animate-scaleIn">
+                                        {/* Video Preview */}
+                                        <div className="w-[280px] h-[500px] rounded-2xl overflow-hidden border border-border bg-black shadow-2xl relative flex items-center justify-center group mb-4">
+                                            <video
+                                                controls
+                                                src={videoUrl}
+                                                className="w-full h-full object-cover"
+                                                poster="/thumbnail.jpg"
+                                            />
+                                        </div>
+
+                                        {/* Download button */}
+                                        <a
+                                            href={videoUrl}
+                                            download="output-generated.mp4"
+                                            className="inline-flex h-10 px-6 items-center justify-center rounded-lg bg-secondary hover:bg-secondary/95 text-background font-bold gap-2 shadow-lg transition"
+                                        >
+                                            <Download className="h-4 w-4" />
+                                            Download MP4 Video
+                                        </a>
                                     </div>
-                                    <h4 className="text-base font-bold text-foreground mb-2">Rendering Serverlessly</h4>
-                                    <p className="text-xs text-muted-foreground max-w-xs">{statusMessage}</p>
-                                </div>
-                            )}
-
-                            {error && (
-                                <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs max-w-sm text-center mb-4">
-                                    <strong>Generation Error:</strong> {error}
-                                </div>
-                            )}
-
-                            {videoUrl ? (
-                                <div className="w-full flex flex-col items-center animate-scaleIn">
-                                    {/* Video Preview */}
-                                    <div className="w-[280px] h-[500px] rounded-2xl overflow-hidden border border-border bg-black shadow-2xl relative flex items-center justify-center group mb-4">
-                                        <video
-                                            controls
-                                            src={videoUrl}
-                                            className="w-full h-full object-cover"
-                                            poster="/thumbnail.jpg"
-                                        />
+                                ) : (
+                                    <div className="text-center text-muted-foreground flex flex-col items-center p-6">
+                                        <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mb-4 border border-border">
+                                            <Eye className="h-6 w-6 text-muted-foreground" />
+                                        </div>
+                                        <h3 className="text-sm font-bold text-foreground mb-1">Live Video Blueprint</h3>
+                                        <p className="text-xs max-w-xs">
+                                            Edit your script and scenes on the left, customize background images (Flux prompts or uploads), then compile to render.
+                                        </p>
                                     </div>
-
-                                    {/* Download button */}
-                                    <a
-                                        href={videoUrl}
-                                        download="output-generated.mp4"
-                                        className="inline-flex h-10 px-6 items-center justify-center rounded-lg bg-secondary hover:bg-secondary/95 text-background font-bold gap-2 shadow-lg transition"
-                                    >
-                                        <Download className="h-4 w-4" />
-                                        Download MP4 Video
-                                    </a>
-                                </div>
-                            ) : (
-                                <div className="text-center text-muted-foreground flex flex-col items-center p-6">
-                                    <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mb-4 border border-border">
-                                        <Eye className="h-6 w-6 text-muted-foreground" />
-                                    </div>
-                                    <h3 className="text-sm font-bold text-foreground mb-1">Live Video Blueprint</h3>
-                                    <p className="text-xs max-w-xs">
-                                        Provide an article URL on the left and click "Compile" to generate. Your finished video preview will load here.
-                                    </p>
-                                </div>
-                            )}
+                                )}
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
             </div>
         </div>
     );

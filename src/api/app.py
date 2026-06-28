@@ -149,10 +149,128 @@ def create_app(config_name: str = None) -> Flask:
         })
 
     # Video Generation endpoints
+    @app.route('/api/v1/video/blueprint', methods=['POST'])
+    def generate_video_blueprint_api():
+        """Scrape an article and generate the video blueprint JSON."""
+        import subprocess
+        import json
+        try:
+            data = request.get_json() or {}
+            url = data.get('url')
+            if not url:
+                return jsonify({'error': 'missing_parameter', 'message': 'url is required'}), 400
+                
+            primary = data.get('primary_color')
+            secondary = data.get('secondary_color')
+            background = data.get('background_color')
+            
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # root dir
+            script_path = os.path.join(base_dir, "generate_video.py")
+            cmd = [
+                "python3",
+                script_path,
+                url,
+                "--blueprint-only"
+            ]
+            if primary:
+                cmd += ["--primary", primary]
+            if secondary:
+                cmd += ["--secondary", secondary]
+            if background:
+                cmd += ["--background", background]
+                
+            logger = logging.getLogger(__name__)
+            logger.info(f"Generating video blueprint: {' '.join(cmd)}")
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            
+            if result.returncode != 0:
+                logger.error(f"Blueprint generation failed.\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}")
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Blueprint generation failed',
+                    'stderr': result.stderr,
+                    'stdout': result.stdout
+                }), 500
+                
+            # Parse JSON blueprint from script output
+            stdout = result.stdout
+            start_marker = "=== BLUEPRINT_JSON_START ==="
+            end_marker = "=== BLUEPRINT_JSON_END ==="
+            if start_marker in stdout and end_marker in stdout:
+                json_str = stdout.split(start_marker)[1].split(end_marker)[0].strip()
+                blueprint = json.loads(json_str)
+                return jsonify({
+                    'status': 'success',
+                    'blueprint': blueprint
+                })
+            else:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Could not parse blueprint from output',
+                    'stdout': stdout
+                }), 500
+                
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error during blueprint generation: {str(e)}", exc_info=True)
+            return jsonify({
+                'status': 'error',
+                'message': str(e)
+            }), 500
+
+    @app.route('/api/v1/video/upload', methods=['POST'])
+    def upload_video_asset_api():
+        """Upload custom image files for video scenes."""
+        import uuid
+        from werkzeug.utils import secure_filename
+        try:
+            if 'file' not in request.files:
+                return jsonify({'error': 'no_file', 'message': 'No file part in the request'}), 400
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({'error': 'empty_file', 'message': 'No file selected for uploading'}), 400
+                
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # root dir
+            uploads_dir = os.path.join(base_dir, "_remotion", "public", "uploads")
+            os.makedirs(uploads_dir, exist_ok=True)
+            
+            # Generate a secure unique name to avoid conflicts
+            ext = os.path.splitext(secure_filename(file.filename))[1] or ".jpg"
+            unique_filename = f"custom_{uuid.uuid4().hex}{ext}"
+            file_path = os.path.join(uploads_dir, unique_filename)
+            file.save(file_path)
+            
+            # Return relative path for mockPayload.json and absolute static url for Lambda
+            relative_url = f"uploads/{unique_filename}"
+            
+            # Dynamic host url resolution
+            host_url = request.host_url.rstrip('/')
+            if "localhost" not in host_url and "127.0.0.1" not in host_url:
+                host_url = host_url.replace("http://", "https://")
+            
+            full_url = f"{host_url}/api/v1/video/static/{relative_url}"
+            
+            return jsonify({
+                'status': 'success',
+                'relative_path': relative_url,
+                'url': full_url
+            })
+            
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error during asset upload: {str(e)}", exc_info=True)
+            return jsonify({
+                'status': 'error',
+                'message': str(e)
+            }), 500
+
     @app.route('/api/v1/generate-video', methods=['POST'])
     def generate_video_api():
-        """Endpoint to trigger video generation from article URL."""
+        """Endpoint to trigger video generation from article URL or direct blueprint."""
         import subprocess
+        import json
+        import uuid
         try:
             data = request.get_json() or {}
             url = data.get('url')
@@ -167,15 +285,26 @@ def create_app(config_name: str = None) -> Flask:
             background = data.get('background_color')
             aspect_ratio = data.get('aspect_ratio', 'vertical')
             music = data.get('music', 'background.mp3')
+            blueprint_payload = data.get('blueprint_payload')
             
             # Resolve host_url from request dynamically
             host_url = request.host_url.rstrip('/')
             if "localhost" not in host_url and "127.0.0.1" not in host_url:
                 host_url = host_url.replace("http://", "https://")
             
-            # Build subprocess command
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # root dir
             script_path = os.path.join(base_dir, "generate_video.py")
+            
+            temp_payload_path = None
+            
+            # If a custom blueprint is provided, write it to a temporary file
+            if blueprint_payload:
+                temp_filename = f"temp_blueprint_{uuid.uuid4().hex}.json"
+                temp_payload_path = os.path.join(base_dir, "_remotion", temp_filename)
+                with open(temp_payload_path, 'w') as f:
+                    json.dump(blueprint_payload, f, indent=2)
+            
+            # Build subprocess command
             cmd = [
                 "python3",
                 script_path,
@@ -188,12 +317,16 @@ def create_app(config_name: str = None) -> Flask:
                 "--render-on-lambda"
             ]
             
-            if primary:
-                cmd += ["--primary", primary]
-            if secondary:
-                cmd += ["--secondary", secondary]
-            if background:
-                cmd += ["--background", background]
+            if temp_payload_path:
+                cmd += ["--blueprint-payload", temp_payload_path]
+            else:
+                if primary:
+                    cmd += ["--primary", primary]
+                if secondary:
+                    cmd += ["--secondary", secondary]
+                if background:
+                    cmd += ["--background", background]
+            
             if music:
                 cmd += ["--music", music]
                 
@@ -202,6 +335,13 @@ def create_app(config_name: str = None) -> Flask:
             
             # Run the script synchronously with a timeout of 300s
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            # Clean up the temp blueprint file if created
+            if temp_payload_path and os.path.exists(temp_payload_path):
+                try:
+                    os.remove(temp_payload_path)
+                except Exception as ex:
+                    logger.warning(f"Failed to remove temp blueprint file: {ex}")
             
             if result.returncode != 0:
                 logger.error(f"Video generation script failed.\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}")
