@@ -170,6 +170,8 @@ def create_app(config_name: str = None) -> Flask:
             
             # Resolve host_url from request dynamically
             host_url = request.host_url.rstrip('/')
+            if "localhost" not in host_url and "127.0.0.1" not in host_url:
+                host_url = host_url.replace("http://", "https://")
             
             # Build subprocess command
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # root dir
