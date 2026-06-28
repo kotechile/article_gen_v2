@@ -9,6 +9,7 @@ export interface RemotionVideoPayload {
       background: string;
     };
     captionPosition?: "center" | "bottom" | "top";
+    backgroundMusicUrl?: string;
   };
   audioTrackUrl: string; // URL to compiled ElevenLabs voiceover asset
   subtitles: Array<{

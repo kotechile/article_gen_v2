@@ -4,6 +4,7 @@ import {
   spring,
   useCurrentFrame,
   useVideoConfig,
+  AbsoluteFill,
 } from "remotion";
 
 interface ComparisonTableProps {
@@ -64,8 +65,8 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
   const paddingCell = format === "vertical" ? "px-2 py-3" : "px-6 py-4";
 
   return (
-    <div
-      className="absolute inset-0 flex flex-col justify-center items-center px-4 md:px-8 overflow-hidden"
+    <AbsoluteFill
+      className="flex flex-col justify-center items-center px-4 md:px-8 overflow-hidden"
       style={{
         backgroundColor: brandColors.background,
         color: "#ffffff",
@@ -146,6 +147,6 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
           </tbody>
         </table>
       </div>
-    </div>
+    </AbsoluteFill>
   );
 };

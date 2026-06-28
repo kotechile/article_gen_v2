@@ -1,5 +1,5 @@
 import React from "react";
-import { Series } from "remotion";
+import { Series, AbsoluteFill } from "remotion";
 import { RemotionVideoPayload } from "./types/schema";
 import { getAdjustedScenes } from "./utils/timing";
 import { FrameworkHero } from "./components/scenes/FrameworkHero";
@@ -23,8 +23,8 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
   const adjustedScenes = getAdjustedScenes(scenes, totalDurationInFrames);
 
   return (
-    <div
-      className="w-full h-full relative font-sans overflow-hidden"
+    <AbsoluteFill
+      className="font-sans overflow-hidden"
       style={{
         backgroundColor: brandColors.background,
       }}
@@ -96,6 +96,6 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
         format={format}
         captionPosition={captionPosition}
       />
-    </div>
+    </AbsoluteFill>
   );
 };

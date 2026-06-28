@@ -4,6 +4,7 @@ import {
   spring,
   useCurrentFrame,
   useVideoConfig,
+  AbsoluteFill,
 } from "remotion";
 import { useResilientAsset } from "../../utils/fetchWithRetry";
 
@@ -61,8 +62,8 @@ export const BRollImage: React.FC<BRollImageProps> = ({
     format === "vertical" ? "bottom-24 left-6 right-6" : "bottom-12 left-12 max-w-xl";
 
   return (
-    <div
-      className="absolute inset-0 overflow-hidden"
+    <AbsoluteFill
+      className="overflow-hidden"
       style={{
         backgroundColor: brandColors.background,
       }}
@@ -113,6 +114,6 @@ export const BRollImage: React.FC<BRollImageProps> = ({
           </p>
         )}
       </div>
-    </div>
+    </AbsoluteFill>
   );
 };

@@ -4,6 +4,7 @@ import {
   spring,
   useCurrentFrame,
   useVideoConfig,
+  AbsoluteFill,
 } from "remotion";
 import { useResilientAsset } from "../../utils/fetchWithRetry";
 
@@ -54,8 +55,8 @@ export const FrameworkHero: React.FC<FrameworkHeroProps> = ({
   const subheadingSize = format === "vertical" ? "text-xl" : "text-3xl";
 
   return (
-    <div
-      className="absolute inset-0 flex flex-col justify-center items-center overflow-hidden px-8 text-center"
+    <AbsoluteFill
+      className="flex flex-col justify-center items-center overflow-hidden px-8 text-center"
       style={{
         backgroundColor: brandColors.background,
         color: "#ffffff",
@@ -88,9 +89,8 @@ export const FrameworkHero: React.FC<FrameworkHeroProps> = ({
         <h1
           className={`${headingSize} font-extrabold tracking-tight font-display mb-4`}
           style={{
-            backgroundImage: `linear-gradient(to right, ${brandColors.primary}, ${brandColors.secondary})`,
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
+            color: brandColors.secondary,
+            textShadow: "0 4px 20px rgba(0,0,0,0.6)",
           }}
         >
           {heading}
@@ -111,6 +111,6 @@ export const FrameworkHero: React.FC<FrameworkHeroProps> = ({
           }}
         />
       </div>
-    </div>
+    </AbsoluteFill>
   );
 };
