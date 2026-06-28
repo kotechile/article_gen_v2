@@ -441,7 +441,7 @@ def download_broll_images(blueprint):
         else:
             scene['visualAssetUrl'] = "background.mp3"  # Fallback to no-image mode if everything failed
 
-def align_timings(blueprint, caption_position):
+def align_timings(blueprint, caption_position, aspect_ratio="vertical", host_url=None, music="background.mp3"):
     """Calculates frame timings for subtitles and scenes, keeping subtitles bound to their scene frame ranges."""
     fps = 30
     total_frames = 30 * fps # 30 seconds = 900 frames
@@ -451,7 +451,7 @@ def align_timings(blueprint, caption_position):
     
     current_scene_start_frame = 0
     
-    for sc in scenes:
+    for idx, sc in enumerate(scenes):
         # Calculate duration of this scene in frames
         duration_sec = sc.get('durationInSeconds', 7.5)
         scene_frames = int(duration_sec * fps)
@@ -492,6 +492,13 @@ def align_timings(blueprint, caption_position):
             
         current_scene_start_frame += scene_frames
         
+        # Set dynamic asset url (local vs remote host for lambda)
+        asset_filename = sc.get('visualAssetUrl', f"scene_{idx + 1}.jpg")
+        if host_url:
+            sc['visualAssetUrl'] = f"{host_url}/api/v1/video/static/{asset_filename}"
+        else:
+            sc['visualAssetUrl'] = asset_filename
+        
         # Clean up temporary fields
         if 'durationInSeconds' in sc:
             del sc['durationInSeconds']
@@ -502,16 +509,21 @@ def align_timings(blueprint, caption_position):
         if 'visualKeyword' in sc:
             del sc['visualKeyword']
 
+    # Finalize URLs
+    final_voiceover = f"{host_url}/api/v1/video/static/voiceover.mp3" if host_url else "voiceover.mp3"
+    final_music = f"{host_url}/api/v1/video/static/{music}" if host_url and not music.startswith("http") else music
+
     # Finalize payload
     payload = {
         "metadata": {
             "title": blueprint['metadata']['title'],
-            "format": "vertical",
+            "format": aspect_ratio,
             "totalDurationInSeconds": 30,
             "brandColors": blueprint['metadata']['brandColors'],
-            "captionPosition": caption_position
+            "captionPosition": caption_position,
+            "backgroundMusicUrl": final_music
         },
-        "audioTrackUrl": "voiceover.mp3",
+        "audioTrackUrl": final_voiceover,
         "subtitles": subtitles,
         "scenes": scenes
     }
@@ -527,6 +539,9 @@ def main():
     parser.add_argument("--primary", help="Primary brand color (hex code e.g. #FF5733)")
     parser.add_argument("--secondary", help="Secondary brand color (hex code e.g. #33FF57)")
     parser.add_argument("--background", help="Background brand color (hex code e.g. #111111)")
+    parser.add_argument("--aspect-ratio", default="vertical", choices=["vertical", "landscape"], help="Aspect ratio for the output video (vertical or landscape)")
+    parser.add_argument("--host-url", help="Fully qualified domain of the backend server (to resolve remote assets for AWS Lambda)")
+    parser.add_argument("--music", default="background.mp3", help="Background music selection")
     parser.add_argument("--render-on-lambda", action="store_true", help="Render video on AWS Lambda instead of locally")
     
     args = parser.parse_args()
@@ -555,7 +570,13 @@ def main():
         download_broll_images(blueprint)
         
         # Step 5: Align Timings & Caption Position
-        payload = align_timings(blueprint, args.caption_position)
+        payload = align_timings(
+            blueprint, 
+            args.caption_position, 
+            aspect_ratio=args.aspect_ratio, 
+            host_url=args.host_url, 
+            music=args.music
+        )
         
         # Step 6: Save JSON payload
         payload_path = os.path.join(os.path.dirname(__file__), '_remotion', 'src', 'mockPayload.json')
@@ -566,15 +587,16 @@ def main():
         # Step 7: Trigger Remotion Render
         print("\n🚀 Starting Remotion compilation engine...")
         remotion_dir = os.path.join(os.path.dirname(__file__), '_remotion')
+        comp_id = args.aspect_ratio
         
         if getattr(args, 'render_on_lambda', False):
             # Your deployed S3 site serve URL
             serve_url = "https://remotionlambda-useast1-n9j3q72d18.s3.us-east-1.amazonaws.com/sites/artivids-engine/index.html"
             print(f"☁ Triggering AWS Lambda serverless render (Serve URL: {serve_url})...")
-            render_cmd = f"cd {remotion_dir} && npx remotion lambda render {serve_url} vertical --region=us-east-1 --props=src/mockPayload.json --concurrency=4 output-generated.mp4"
+            render_cmd = f"cd {remotion_dir} && npx remotion lambda render {serve_url} {comp_id} --region=us-east-1 --props=src/mockPayload.json --concurrency=4 output-generated.mp4"
         else:
             print("💻 Triggering local render on the host...")
-            render_cmd = f"cd {remotion_dir} && npx remotion render vertical output-generated.mp4 --props src/mockPayload.json"
+            render_cmd = f"cd {remotion_dir} && npx remotion render {comp_id} output-generated.mp4 --props src/mockPayload.json"
             
         # Load AWS credentials from _remotion/.env into the subprocess environment
         env = os.environ.copy()

@@ -24,7 +24,7 @@ class AuthMiddleware:
         # Skip auth for health check and video download endpoints
         if request.endpoint in ['health.health_check', 'health.detailed_health_check', 
                                'health.readiness_check', 'health.liveness_check',
-                               'download_video']:
+                               'download_video', 'serve_video_static']:
             return None
         
         # Skip auth for OPTIONS requests (CORS preflight)

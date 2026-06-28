@@ -30,7 +30,11 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
       }}
     >
       {/* Audio Layer with ducking */}
-      <AudioTracks voiceoverUrl={audioTrackUrl} subtitles={subtitles} />
+      <AudioTracks 
+        voiceoverUrl={audioTrackUrl} 
+        subtitles={subtitles} 
+        backgroundMusicUrl={metadata.backgroundMusicUrl} 
+      />
 
       {/* Video Scenes Layer */}
       <Series>

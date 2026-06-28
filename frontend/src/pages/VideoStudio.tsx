@@ -55,6 +55,8 @@ export function VideoStudio() {
     const [voice, setVoice] = React.useState('onyx');
     const [customVoiceId, setCustomVoiceId] = React.useState('');
     const [captionPosition, setCaptionPosition] = React.useState<'center' | 'bottom' | 'top'>('center');
+    const [aspectRatio, setAspectRatio] = React.useState<'vertical' | 'landscape'>('vertical');
+    const [music, setMusic] = React.useState('background.mp3');
     
     // Brand colors state
     const [primaryColor, setPrimaryColor] = React.useState('#8A2BE2');
@@ -106,7 +108,9 @@ export function VideoStudio() {
                 caption_position: captionPosition,
                 primary_color: primaryColor,
                 secondary_color: secondaryColor,
-                background_color: backgroundColor
+                background_color: backgroundColor,
+                aspect_ratio: aspectRatio,
+                music: music
             }, {
                 timeout: 300000 // 5 minutes client-side timeout
             });
@@ -224,23 +228,51 @@ export function VideoStudio() {
                                 )}
                             </div>
 
-                            {/* Caption Positioning & Layout */}
+                            {/* Layout & Audio Settings */}
                             <div className="space-y-4 border-t border-border pt-4">
                                 <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
                                     <Sliders className="h-4 w-4 text-cyan-400" />
-                                    Subtitles Positioning
+                                    Layout & Subtitles
                                 </h3>
 
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <label className="text-xs text-muted-foreground">Aspect Ratio</label>
+                                        <select
+                                            value={aspectRatio}
+                                            onChange={(e) => setAspectRatio(e.target.value as any)}
+                                            className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
+                                        >
+                                            <option value="vertical">Vertical (9:16 Shorts/Tiktok)</option>
+                                            <option value="landscape">Landscape (16:9 YouTube Video)</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <label className="text-xs text-muted-foreground">Subtitle Placement</label>
+                                        <select
+                                            value={captionPosition}
+                                            onChange={(e) => setCaptionPosition(e.target.value as any)}
+                                            className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
+                                        >
+                                            <option value="center">Center Safe-Zone (30%)</option>
+                                            <option value="bottom">Bottom Overlay (subtitles)</option>
+                                            <option value="top">Top Header Overlay</option>
+                                        </select>
+                                    </div>
+                                </div>
+
                                 <div className="space-y-1">
-                                    <label className="text-xs text-muted-foreground">Subtitle Height Placement</label>
+                                    <label className="text-xs text-muted-foreground">Background Music Track</label>
                                     <select
-                                        value={captionPosition}
-                                        onChange={(e) => setCaptionPosition(e.target.value as any)}
+                                        value={music}
+                                        onChange={(e) => setMusic(e.target.value)}
                                         className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
                                     >
-                                        <option value="center">Center Safe-Zone (PRD default center 30%)</option>
-                                        <option value="bottom">Bottom Overlay (typical subtitles)</option>
-                                        <option value="top">Top Header Overlay (leaves center clear)</option>
+                                        <option value="background.mp3">Tech Synth (Default)</option>
+                                        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3">Inspiring Corporate (Quiet)</option>
+                                        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3">Upbeat Electronica (Energetic)</option>
+                                        <option value="">No Background Music (Mute)</option>
                                     </select>
                                 </div>
                             </div>

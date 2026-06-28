@@ -165,6 +165,11 @@ def create_app(config_name: str = None) -> Flask:
             primary = data.get('primary_color')
             secondary = data.get('secondary_color')
             background = data.get('background_color')
+            aspect_ratio = data.get('aspect_ratio', 'vertical')
+            music = data.get('music', 'background.mp3')
+            
+            # Resolve host_url from request dynamically
+            host_url = request.host_url.rstrip('/')
             
             # Build subprocess command
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # root dir
@@ -176,6 +181,8 @@ def create_app(config_name: str = None) -> Flask:
                 "--voice", voice,
                 "--provider", provider,
                 "--caption-position", caption_position,
+                "--aspect-ratio", aspect_ratio,
+                "--host-url", host_url,
                 "--render-on-lambda"
             ]
             
@@ -185,6 +192,8 @@ def create_app(config_name: str = None) -> Flask:
                 cmd += ["--secondary", secondary]
             if background:
                 cmd += ["--background", background]
+            if music:
+                cmd += ["--music", music]
                 
             logger = logging.getLogger(__name__)
             logger.info(f"Triggering video generation: {' '.join(cmd)}")
@@ -224,6 +233,14 @@ def create_app(config_name: str = None) -> Flask:
         if os.path.exists(video_path):
             return send_file(video_path, mimetype='video/mp4', as_attachment=True, download_name='output-generated.mp4')
         return jsonify({'error': 'file_not_found', 'message': 'Generated video file not found'}), 404
+
+    @app.route('/api/v1/video/static/<path:filename>', methods=['GET'])
+    def serve_video_static(filename):
+        """Endpoint to serve video assets (images/audio) to Remotion Lambda."""
+        from flask import send_from_directory
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # root dir
+        public_dir = os.path.join(base_dir, "_remotion", "public")
+        return send_from_directory(public_dir, filename)
     
     # API documentation endpoint
     @app.route('/api/v1/docs')

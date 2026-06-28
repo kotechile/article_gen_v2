@@ -6,6 +6,7 @@ import { RemotionVideoPayload } from "../types/schema";
 interface AudioTracksProps {
   voiceoverUrl: string;
   subtitles: RemotionVideoPayload["subtitles"];
+  backgroundMusicUrl?: string;
 }
 
 // Default royalty-free background track url
@@ -15,12 +16,13 @@ const DEFAULT_BG_MUSIC_URL =
 export const AudioTracks: React.FC<AudioTracksProps> = ({
   voiceoverUrl,
   subtitles,
+  backgroundMusicUrl,
 }) => {
   const frame = useCurrentFrame();
 
   // Resilience: Preload both audio assets to guarantee synchronization
   const { localUrl: voiceoverLocalUrl } = useResilientAsset(voiceoverUrl);
-  const { localUrl: bgLocalUrl } = useResilientAsset(DEFAULT_BG_MUSIC_URL);
+  const { localUrl: bgLocalUrl } = useResilientAsset(backgroundMusicUrl || DEFAULT_BG_MUSIC_URL);
 
   // Lookahead and Release buffers (in frames) for audio ducking
   // 6 frames lookahead (0.2s), 12 frames release (0.4s)
