@@ -116,7 +116,7 @@ Your task is to take an article's title and text content, and output a highly st
       "heading": "Sleek heading for this scene",
       "subheading": "Optional subheading describing context",
       "voiceoverScript": "Specific voiceover words spoken strictly during this scene segment (around 12-15 words, matching the duration).",
-      "imagePrompt": "Detailed, highly specific image prompt describing a concrete graphic or illustration representing the concepts in this scene. Incorporate descriptive details from the article paragraphs.",
+      "imagePrompt": "Detailed, highly specific image prompt describing a premium conceptual photographic visual representing this scene. Focus on lighting, materials, and a refined professional style (e.g. cinematic studio lighting, dramatic shadows, dark metallic textures, textured aluminum, polished chrome, glowing sapphire accents). Avoid flat or cartoonish looks.",
       "visualKeyword": "A high-quality fallback keyword representing this scene",
       "tableData": {
         "headers": ["Header1", "Header2"],
@@ -135,7 +135,8 @@ Instructions:
 2. The scene "type" list must include one framework_hero, one kpi_metric, one comparison_table, one broll_image, and the final 5th scene must be a call_to_action scene to capture user attention and drive action.
 3. The "voiceoverScript" represents the voiceover spoken *only* during that scene. Keep the language hook-driven, high-retention, and natural to read. Speakable word count per scene should be around 12 to 15 words maximum to match the 6.0s pacing.
 4. Do not simply summarize headers. Read the body paragraphs, extract concrete metrics, analogies, or arguments, and write the voiceover and "imagePrompt" based on those specific details.
-5. Provide raw JSON output, without any markdown formatting wrappers or ```json tags.
+5. The "imagePrompt" must describe a premium, high-end, conceptual photographic style. Instruct the image generator with specifics like 'cinematic studio lighting', 'dramatic shadows', 'dark metallic environment', 'textured aluminum', 'polished dark chrome', and 'glowing neon/sapphire accents'. Ground metaphors physically rather than cartoonishly (e.g., an industrial balance scale instead of a flat vector scale).
+6. Provide raw JSON output, without any markdown formatting wrappers or ```json tags.
 """
 
     user_prompt = f"Article Title: {title}\nArticle Body:\n{body_text}"
@@ -407,7 +408,7 @@ def download_broll_images(blueprint):
             # Use the LLM's custom imagePrompt if available, otherwise construct a fallback
             flux_prompt = scene.get('imagePrompt')
             if not flux_prompt:
-                flux_prompt = f"Sleek modern 3D tech graphic illustration about '{heading}'. {subheading}. Niche concept: {keyword}. Cyberpunk synthwave dark mode color scheme, high resolution, clean layout."
+                flux_prompt = f"Professional conceptual tech photography representing '{heading}' ({subheading}). Cinematic studio lighting, dramatic shadows, dark metallic environment. Polished dark chrome, textured aluminum, glowing sapphire accents. High-end enterprise-grade layout, realistic physical textures, octanerender style."
             try:
                 image_content = generate_image_via_flux(selected_config, flux_prompt)
                 print(f"✔ Successfully generated custom image for Scene {idx + 1} via Flux.")
