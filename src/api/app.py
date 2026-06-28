@@ -189,8 +189,8 @@ def create_app(config_name: str = None) -> Flask:
             logger = logging.getLogger(__name__)
             logger.info(f"Triggering video generation: {' '.join(cmd)}")
             
-            # Run the script synchronously with a timeout of 120s
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            # Run the script synchronously with a timeout of 300s
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
             if result.returncode != 0:
                 logger.error(f"Video generation script failed: {result.stderr}")
