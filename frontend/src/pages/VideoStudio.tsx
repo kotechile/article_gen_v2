@@ -120,7 +120,13 @@ export function VideoStudio() {
             }
         } catch (err: any) {
             console.error('Video generation error:', err);
-            setError(err.response?.data?.message || err.message || 'An error occurred during video rendering.');
+            const backendError = err.response?.data;
+            let errMsg = backendError?.message || err.message || 'An error occurred during video rendering.';
+            if (backendError?.stderr || backendError?.stdout) {
+                const details = backendError.stderr || backendError.stdout;
+                errMsg += ` (Backend Details: ${details.slice(-300)})`;
+            }
+            setError(errMsg);
         } finally {
             setGenerating(false);
             setStatusMessage('');

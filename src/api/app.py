@@ -193,7 +193,7 @@ def create_app(config_name: str = None) -> Flask:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
             if result.returncode != 0:
-                logger.error(f"Video generation script failed: {result.stderr}")
+                logger.error(f"Video generation script failed.\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}")
                 return jsonify({
                     'status': 'error',
                     'message': 'Video generation failed',
