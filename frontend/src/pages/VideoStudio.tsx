@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
-import { Play, Sparkles, Sliders, Palette, Video, Download, RefreshCw, Volume2, Eye, ArrowLeft, Upload, Edit, EyeOff, Layout } from 'lucide-react';
+import { Play, Sparkles, Sliders, Palette, Video, Download, RefreshCw, Volume2, Eye, ArrowLeft, Upload, Layout } from 'lucide-react';
 import { apiClient } from '@/api-client';
 
 // Color Presets for easy branding selection
@@ -52,6 +52,7 @@ const VOICE_PRESETS = [
 interface Scene {
     sceneId: string;
     type: 'framework_hero' | 'comparison_table' | 'kpi_metric' | 'broll_image' | 'call_to_action';
+    durationInSeconds: number;
     heading: string;
     subheading?: string;
     voiceoverScript: string;
