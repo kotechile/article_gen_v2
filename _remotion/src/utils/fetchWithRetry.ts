@@ -34,10 +34,13 @@ export async function fetchAssetWithRetry(
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      const blob = await response.blob();
-      const localUrl = URL.createObjectURL(blob);
-      assetCache[url] = localUrl;
-      return localUrl;
+      // Read the blob to ensure the browser has fully downloaded/cached the asset in memory
+      await response.blob();
+      
+      // On AWS Lambda, returning blob: URLs throws "Can only download URLs starting with http:// or https://"
+      // Returning the original URL allows Chrome to cache it but Node.js to download it natively.
+      assetCache[url] = url;
+      return url;
     } catch (e) {
       if (attempt === retries) {
         throw new Error(
