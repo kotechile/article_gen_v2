@@ -38,7 +38,7 @@ const { enableTailwind } = require("@remotion/tailwind-v4");
 // Default configuration
 const REGION = process.env.AWS_REGION || "us-east-1";
 const MEMORY_SIZE_MB = 3008; // Adjusted to account limit (max 3008MB)
-const TIMEOUT_SECONDS = 120; // 2 minutes timeout
+const TIMEOUT_SECONDS = 300; // 5 minutes timeout
 const SITE_NAME = "artivids-engine";
 
 async function main() {
