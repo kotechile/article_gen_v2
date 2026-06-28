@@ -571,7 +571,7 @@ def main():
             # Your deployed S3 site serve URL
             serve_url = "https://remotionlambda-useast1-n9j3q72d18.s3.us-east-1.amazonaws.com/sites/artivids-engine/index.html"
             print(f"☁ Triggering AWS Lambda serverless render (Serve URL: {serve_url})...")
-            render_cmd = f"cd {remotion_dir} && npx remotion lambda render {serve_url} vertical --region=us-east-1 --props=src/mockPayload.json --concurrency=1 output-generated.mp4"
+            render_cmd = f"cd {remotion_dir} && npx remotion lambda render {serve_url} vertical --region=us-east-1 --props=src/mockPayload.json output-generated.mp4"
         else:
             print("💻 Triggering local render on the host...")
             render_cmd = f"cd {remotion_dir} && npx remotion render vertical output-generated.mp4 --props src/mockPayload.json"
