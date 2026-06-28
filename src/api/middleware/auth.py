@@ -21,9 +21,10 @@ class AuthMiddleware:
     @staticmethod
     def before_request():
         """Process request before handling."""
-        # Skip auth for health check endpoints
+        # Skip auth for health check and video download endpoints
         if request.endpoint in ['health.health_check', 'health.detailed_health_check', 
-                               'health.readiness_check', 'health.liveness_check']:
+                               'health.readiness_check', 'health.liveness_check',
+                               'download_video']:
             return None
         
         # Skip auth for OPTIONS requests (CORS preflight)
