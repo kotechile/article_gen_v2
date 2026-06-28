@@ -147,6 +147,83 @@ def create_app(config_name: str = None) -> Flask:
                 "docs": "/api/v1/docs"
             }
         })
+
+    # Video Generation endpoints
+    @app.route('/api/v1/generate-video', methods=['POST'])
+    def generate_video_api():
+        """Endpoint to trigger video generation from article URL."""
+        import subprocess
+        try:
+            data = request.get_json() or {}
+            url = data.get('url')
+            if not url:
+                return jsonify({'error': 'missing_parameter', 'message': 'url is required'}), 400
+                
+            voice = data.get('voice', 'onyx')
+            provider = data.get('provider', 'openai')
+            caption_position = data.get('caption_position', 'center')
+            primary = data.get('primary_color')
+            secondary = data.get('secondary_color')
+            background = data.get('background_color')
+            
+            # Build subprocess command
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # root dir
+            script_path = os.path.join(base_dir, "generate_video.py")
+            cmd = [
+                "python3",
+                script_path,
+                url,
+                "--voice", voice,
+                "--provider", provider,
+                "--caption-position", caption_position,
+                "--render-on-lambda"
+            ]
+            
+            if primary:
+                cmd += ["--primary", primary]
+            if secondary:
+                cmd += ["--secondary", secondary]
+            if background:
+                cmd += ["--background", background]
+                
+            logger = logging.getLogger(__name__)
+            logger.info(f"Triggering video generation: {' '.join(cmd)}")
+            
+            # Run the script synchronously with a timeout of 120s
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            
+            if result.returncode != 0:
+                logger.error(f"Video generation script failed: {result.stderr}")
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Video generation failed',
+                    'stderr': result.stderr,
+                    'stdout': result.stdout
+                }), 500
+                
+            return jsonify({
+                'status': 'success',
+                'message': 'Video generated successfully',
+                'video_url': '/api/v1/video/download'
+            })
+            
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error during video generation: {str(e)}", exc_info=True)
+            return jsonify({
+                'status': 'error',
+                'message': str(e)
+            }), 500
+
+    @app.route('/api/v1/video/download', methods=['GET'])
+    def download_video():
+        """Endpoint to download the generated video."""
+        from flask import send_file
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # root dir
+        video_path = os.path.join(base_dir, "_remotion", "output-generated.mp4")
+        if os.path.exists(video_path):
+            return send_file(video_path, mimetype='video/mp4', as_attachment=True, download_name='output-generated.mp4')
+        return jsonify({'error': 'file_not_found', 'message': 'Generated video file not found'}), 404
     
     # API documentation endpoint
     @app.route('/api/v1/docs')

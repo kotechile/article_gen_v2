@@ -323,10 +323,11 @@ export function VideoStudio() {
                             </div>
 
                             {/* Submit */}
-                            <Button
+                            <button
                                 type="submit"
                                 disabled={generating || !url}
-                                className="w-full h-11 rounded-lg bg-primary hover:bg-primary/95 text-white font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
+                                className="w-full h-11 rounded-lg text-white font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 transition cursor-pointer"
+                                style={{ backgroundColor: primaryColor }}
                             >
                                 {generating ? (
                                     <>
@@ -339,7 +340,7 @@ export function VideoStudio() {
                                         Compile Video Blueprint
                                     </>
                                 )}
-                            </Button>
+                            </button>
                         </form>
                     </div>
 
