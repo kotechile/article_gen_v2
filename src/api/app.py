@@ -333,8 +333,8 @@ def create_app(config_name: str = None) -> Flask:
             logger = logging.getLogger(__name__)
             logger.info(f"Triggering video generation: {' '.join(cmd)}")
             
-            # Run the script synchronously with a timeout of 300s
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            # Run the script synchronously with a timeout of 600s
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             
             # Clean up the temp blueprint file if created
             if temp_payload_path and os.path.exists(temp_payload_path):
