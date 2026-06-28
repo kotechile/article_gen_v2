@@ -576,8 +576,18 @@ def main():
             print("💻 Triggering local render on the host...")
             render_cmd = f"cd {remotion_dir} && npx remotion render vertical output-generated.mp4 --props src/mockPayload.json"
             
+        # Load AWS credentials from _remotion/.env into the subprocess environment
+        env = os.environ.copy()
+        remotion_env_path = os.path.join(remotion_dir, '.env')
+        if os.path.exists(remotion_env_path):
+            print(f"🔑 Loading AWS credentials from {remotion_env_path}...")
+            remotion_env_vars = dotenv.dotenv_values(remotion_env_path)
+            for k, v in remotion_env_vars.items():
+                if v:
+                    env[k] = v
+                    
         import subprocess
-        subprocess.run(render_cmd, shell=True, check=True)
+        subprocess.run(render_cmd, shell=True, check=True, env=env)
         
         print("\n==========================================")
         print("🎉 SUCCESS! Video generated successfully!")
