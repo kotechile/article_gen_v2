@@ -802,6 +802,21 @@ export function VideoStudio() {
                                                         )}
                                                     </div>
                                                 )}
+                                                <div className="space-y-1 mt-2">
+                                                    <label className="text-[9px] text-muted-foreground flex justify-between">
+                                                        <span>Image Screen Scale (Fit/Centering Size)</span>
+                                                        <span className="font-bold text-primary">{scene.imageSizePercent || 100}%</span>
+                                                    </label>
+                                                    <input
+                                                        type="range"
+                                                        min="30"
+                                                        max="100"
+                                                        step="5"
+                                                        value={scene.imageSizePercent || 100}
+                                                        onChange={(e) => updateScene(idx, { imageSizePercent: parseInt(e.target.value) })}
+                                                        className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
                                     ))}

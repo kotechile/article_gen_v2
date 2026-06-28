@@ -17,6 +17,7 @@ interface KpiMetricProps {
   brandColors: { primary: string; secondary: string; background: string };
   format: "landscape" | "vertical";
   visualAssetUrl?: string;
+  imageSizePercent?: number;
 }
 
 /**
@@ -44,6 +45,7 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
   brandColors,
   format,
   visualAssetUrl,
+  imageSizePercent,
 }) => {
   const frame = useCurrentFrame();
   const { localUrl } = useResilientAsset(visualAssetUrl);
@@ -96,14 +98,14 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
     >
       {/* Background Image with overlay */}
       {localUrl && (
-        <AbsoluteFill style={{ zIndex: 0 }}>
+        <AbsoluteFill style={{ zIndex: 0, display: "flex", justifyContent: "center", alignItems: "center" }}>
           <img
             src={localUrl}
             alt="background"
             style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
+              width: `${imageSizePercent || 100}%`,
+              height: `${imageSizePercent || 100}%`,
+              objectFit: (imageSizePercent && imageSizePercent < 100) ? "contain" : "cover",
             }}
           />
           {/* Overlay to guarantee contrast */}
@@ -116,6 +118,7 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
               bottom: 0,
               backgroundColor: "rgba(0,0,0,0.7)",
               backdropFilter: "blur(1px)",
+              zIndex: 1,
             }}
           />
         </AbsoluteFill>

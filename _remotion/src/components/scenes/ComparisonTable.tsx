@@ -18,6 +18,7 @@ interface ComparisonTableProps {
   format: "landscape" | "vertical";
   durationInFrames: number;
   visualAssetUrl?: string;
+  imageSizePercent?: number;
 }
 
 export const ComparisonTable: React.FC<ComparisonTableProps> = ({
@@ -27,6 +28,7 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
   format,
   durationInFrames,
   visualAssetUrl,
+  imageSizePercent,
 }) => {
   const frame = useCurrentFrame();
   const { localUrl } = useResilientAsset(visualAssetUrl);
@@ -80,14 +82,14 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
     >
       {/* Background Image with overlay */}
       {localUrl && (
-        <AbsoluteFill style={{ zIndex: 0 }}>
+        <AbsoluteFill style={{ zIndex: 0, display: "flex", justifyContent: "center", alignItems: "center" }}>
           <img
             src={localUrl}
             alt="background"
             style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
+              width: `${imageSizePercent || 100}%`,
+              height: `${imageSizePercent || 100}%`,
+              objectFit: (imageSizePercent && imageSizePercent < 100) ? "contain" : "cover",
             }}
           />
           {/* Overlay to guarantee contrast */}
@@ -100,6 +102,7 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({
               bottom: 0,
               backgroundColor: "rgba(0,0,0,0.75)",
               backdropFilter: "blur(1px)",
+              zIndex: 1,
             }}
           />
         </AbsoluteFill>

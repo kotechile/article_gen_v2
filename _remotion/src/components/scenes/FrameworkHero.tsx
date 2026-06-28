@@ -15,6 +15,7 @@ interface FrameworkHeroProps {
   brandColors: { primary: string; secondary: string; background: string };
   format: "landscape" | "vertical";
   durationInFrames: number;
+  imageSizePercent?: number;
 }
 
 export const FrameworkHero: React.FC<FrameworkHeroProps> = ({
@@ -24,6 +25,7 @@ export const FrameworkHero: React.FC<FrameworkHeroProps> = ({
   brandColors,
   format,
   durationInFrames,
+  imageSizePercent,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -68,14 +70,14 @@ export const FrameworkHero: React.FC<FrameworkHeroProps> = ({
     >
       {/* Background Image with overlay */}
       {localUrl && (
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 0, display: "flex", justifyContent: "center", alignItems: "center" }}>
           <img
             src={localUrl}
             alt="background"
             style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
+              width: `${imageSizePercent || 100}%`,
+              height: `${imageSizePercent || 100}%`,
+              objectFit: (imageSizePercent && imageSizePercent < 100) ? "contain" : "cover",
               transform: `scale(${bgScale})`,
             }}
           />
@@ -89,6 +91,7 @@ export const FrameworkHero: React.FC<FrameworkHeroProps> = ({
               bottom: 0,
               backgroundColor: "rgba(0,0,0,0.6)",
               backdropFilter: "blur(2px)",
+              zIndex: 1,
             }}
           />
         </div>

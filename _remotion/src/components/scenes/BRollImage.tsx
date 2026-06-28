@@ -15,6 +15,7 @@ interface BRollImageProps {
   brandColors: { primary: string; secondary: string; background: string };
   format: "landscape" | "vertical";
   durationInFrames: number;
+  imageSizePercent?: number;
 }
 
 export const BRollImage: React.FC<BRollImageProps> = ({
@@ -24,6 +25,7 @@ export const BRollImage: React.FC<BRollImageProps> = ({
   brandColors,
   format,
   durationInFrames,
+  imageSizePercent,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -85,16 +87,18 @@ export const BRollImage: React.FC<BRollImageProps> = ({
     >
       {/* Resilient B-Roll Image */}
       {localUrl ? (
-        <img
-          src={localUrl}
-          alt="B-Roll"
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            transform: `scale(${scale}) translate(${translateX}px, ${translateY}px)`,
-          }}
-        />
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", justifyContent: "center", alignItems: "center", zIndex: 0 }}>
+          <img
+            src={localUrl}
+            alt="B-Roll"
+            style={{
+              width: `${imageSizePercent || 100}%`,
+              height: `${imageSizePercent || 100}%`,
+              objectFit: (imageSizePercent && imageSizePercent < 100) ? "contain" : "cover",
+              transform: `scale(${scale}) translate(${translateX}px, ${translateY}px)`,
+            }}
+          />
+        </div>
       ) : (
         // Fallback gradient if no asset provided
         <div

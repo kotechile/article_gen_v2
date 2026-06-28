@@ -15,6 +15,7 @@ interface CallToActionProps {
   brandColors: { primary: string; secondary: string; background: string };
   format: "landscape" | "vertical";
   durationInFrames: number;
+  imageSizePercent?: number;
 }
 
 export const CallToAction: React.FC<CallToActionProps> = ({
@@ -24,6 +25,7 @@ export const CallToAction: React.FC<CallToActionProps> = ({
   brandColors,
   format,
   durationInFrames,
+  imageSizePercent,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -69,14 +71,14 @@ export const CallToAction: React.FC<CallToActionProps> = ({
     >
       {/* Background Image with overlay */}
       {localUrl && (
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 0, display: "flex", justifyContent: "center", alignItems: "center" }}>
           <img
             src={localUrl}
             alt="background"
             style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
+              width: `${imageSizePercent || 100}%`,
+              height: `${imageSizePercent || 100}%`,
+              objectFit: (imageSizePercent && imageSizePercent < 100) ? "contain" : "cover",
             }}
           />
           {/* Dark overlay to focus on call to action */}
@@ -89,6 +91,7 @@ export const CallToAction: React.FC<CallToActionProps> = ({
               bottom: 0,
               backgroundColor: "rgba(0,0,0,0.8)",
               backdropFilter: "blur(2px)",
+              zIndex: 1,
             }}
           />
         </div>

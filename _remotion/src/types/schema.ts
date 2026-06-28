@@ -24,6 +24,7 @@ export interface RemotionVideoPayload {
     heading: string;
     subheading?: string;
     visualAssetUrl?: string; // Direct link to AI generated b-roll scene
+    imageSizePercent?: number;
     tableData?: {
       headers: string[];
       rows: string[][];
