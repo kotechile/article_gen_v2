@@ -107,6 +107,8 @@ export function VideoStudio() {
                 primary_color: primaryColor,
                 secondary_color: secondaryColor,
                 background_color: backgroundColor
+            }, {
+                timeout: 300000 // 5 minutes client-side timeout
             });
 
             if (response.status === 'success') {
