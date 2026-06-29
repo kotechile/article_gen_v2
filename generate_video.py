@@ -542,7 +542,7 @@ def main():
     parser.add_argument("--primary", help="Primary brand color (hex code e.g. #FF5733)")
     parser.add_argument("--secondary", help="Secondary brand color (hex code e.g. #33FF57)")
     parser.add_argument("--background", help="Background brand color (hex code e.g. #111111)")
-    parser.add_argument("--aspect-ratio", default="vertical", choices=["vertical", "landscape"], help="Aspect ratio for the output video (vertical or landscape)")
+    parser.add_argument("--aspect-ratio", default="landscape", choices=["vertical", "landscape"], help="Aspect ratio for the output video (vertical or landscape)")
     parser.add_argument("--host-url", help="Fully qualified domain of the backend server (to resolve remote assets for AWS Lambda)")
     parser.add_argument("--music", default="background.mp3", help="Background music selection")
     parser.add_argument("--render-on-lambda", action="store_true", help="Render video on AWS Lambda instead of locally")

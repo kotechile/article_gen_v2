@@ -93,7 +93,7 @@ export function VideoStudio() {
     const [voice, setVoice] = React.useState('onyx');
     const [customVoiceId, setCustomVoiceId] = React.useState('');
     const [captionPosition, setCaptionPosition] = React.useState<'center' | 'bottom' | 'top' | 'none'>('center');
-    const [aspectRatio, setAspectRatio] = React.useState<'vertical' | 'landscape'>('vertical');
+    const [aspectRatio, setAspectRatio] = React.useState<'vertical' | 'landscape'>('landscape');
     const [music, setMusic] = React.useState('background.mp3');
     const [customMusicUrl, setCustomMusicUrl] = React.useState<string | null>(null);
     const [uploadingMusic, setUploadingMusic] = React.useState(false);
