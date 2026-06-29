@@ -16,6 +16,8 @@ interface CallToActionProps {
   format: "landscape" | "vertical";
   durationInFrames: number;
   imageSizePercent?: number;
+  imageValign?: "top" | "center" | "bottom";
+  imageHalign?: "left" | "center" | "right";
 }
 
 export const CallToAction: React.FC<CallToActionProps> = ({
@@ -26,6 +28,8 @@ export const CallToAction: React.FC<CallToActionProps> = ({
   format,
   durationInFrames,
   imageSizePercent,
+  imageValign = "center",
+  imageHalign = "center",
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -71,7 +75,17 @@ export const CallToAction: React.FC<CallToActionProps> = ({
     >
       {/* Background Image with overlay */}
       {localUrl && (
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 0, display: "flex", justifyContent: "center", alignItems: "center" }}>
+        <div style={{ 
+          position: "absolute", 
+          top: 0, 
+          left: 0, 
+          right: 0, 
+          bottom: 0, 
+          zIndex: 0, 
+          display: "flex", 
+          justifyContent: imageValign === "top" ? "flex-start" : imageValign === "bottom" ? "flex-end" : "center",
+          alignItems: imageHalign === "left" ? "flex-start" : imageHalign === "right" ? "flex-end" : "center",
+        }}>
           <img
             src={localUrl}
             alt="background"

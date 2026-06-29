@@ -18,6 +18,8 @@ interface KpiMetricProps {
   format: "landscape" | "vertical";
   visualAssetUrl?: string;
   imageSizePercent?: number;
+  imageValign?: "top" | "center" | "bottom";
+  imageHalign?: "left" | "center" | "right";
 }
 
 /**
@@ -33,6 +35,8 @@ function parseNumericKpi(kpiString: string) {
   const suffix = match[3];
   
   const numericValue = parseFloat(valueStr);
+  
+  // count decimals
   const dotIndex = valueStr.indexOf(".");
   const decimals = dotIndex === -1 ? 0 : valueStr.length - dotIndex - 1;
   
@@ -46,6 +50,8 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
   format,
   visualAssetUrl,
   imageSizePercent,
+  imageValign = "center",
+  imageHalign = "center",
 }) => {
   const frame = useCurrentFrame();
   const { localUrl } = useResilientAsset(visualAssetUrl);
@@ -66,20 +72,22 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
     },
   });
 
-  // Numbers count-up animation
-  const tickerSpring = spring({
-    frame,
+  // KPI Value ticker counting up
+  const progress = spring({
+    frame: frame - 10,
     fps,
     config: {
       damping: 18,
-      mass: 1.2,
+      mass: 0.6,
       stiffness: 70,
     },
   });
 
-  const animatedNumeric = interpolate(tickerSpring, [0, 1], [0, numericValue]);
-  const formattedValue = `${prefix}${animatedNumeric.toFixed(decimals)}${suffix}`;
+  const animatedValue = interpolate(progress, [0, 1], [0, numericValue]);
+  const formattedValue = `${prefix}${animatedValue.toFixed(decimals)}${suffix}`;
 
+  // Slide up and fade in values
+  const translateY = interpolate(cardEntrance, [0, 1], [60, 0]);
   const scale = interpolate(cardEntrance, [0, 1], [0.8, 1]);
   const opacity = interpolate(cardEntrance, [0, 1], [0, 1]);
 
@@ -91,14 +99,20 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
         flexDirection: "column",
         justifyContent: "center",
         alignItems: "center",
-        padding: "32px",
+        overflow: "hidden",
         backgroundColor: brandColors.background,
         color: "#ffffff",
+        padding: "32px",
       }}
     >
       {/* Background Image with overlay */}
       {localUrl && (
-        <AbsoluteFill style={{ zIndex: 0, display: "flex", justifyContent: "center", alignItems: "center" }}>
+        <AbsoluteFill style={{
+          zIndex: 0,
+          display: "flex",
+          justifyContent: imageValign === "top" ? "flex-start" : imageValign === "bottom" ? "flex-end" : "center",
+          alignItems: imageHalign === "left" ? "flex-start" : imageHalign === "right" ? "flex-end" : "center",
+        }}>
           <img
             src={localUrl}
             alt="background"
@@ -150,7 +164,7 @@ export const KpiMetric: React.FC<KpiMetricProps> = ({
           justifyContent: "center",
           textAlign: "center",
           boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
-          transform: `scale(${scale})`,
+          transform: `translateY(${translateY}px) scale(${scale})`,
           opacity,
           borderColor: `${brandColors.primary}33`,
           zIndex: 10,

@@ -68,6 +68,8 @@ interface Scene {
         label: string;
     };
     imageSizePercent?: number;
+    imageValign?: 'top' | 'center' | 'bottom';
+    imageHalign?: 'left' | 'center' | 'right';
 }
 
 interface Blueprint {
@@ -819,6 +821,34 @@ export function VideoStudio() {
                                                         className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
                                                     />
                                                 </div>
+                                                {scene.imageSizePercent && scene.imageSizePercent < 100 && (
+                                                    <div className="grid grid-cols-2 gap-2 mt-2">
+                                                        <div className="space-y-1">
+                                                            <label className="text-[9px] text-muted-foreground">Vertical Align</label>
+                                                            <select
+                                                                value={scene.imageValign || 'center'}
+                                                                onChange={(e) => updateScene(idx, { imageValign: e.target.value as any })}
+                                                                className="h-7 w-full rounded border border-border bg-background px-2 text-[10px] text-foreground outline-none"
+                                                            >
+                                                                <option value="top">Top</option>
+                                                                <option value="center">Center</option>
+                                                                <option value="bottom">Bottom</option>
+                                                            </select>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <label className="text-[9px] text-muted-foreground">Horizontal Align</label>
+                                                            <select
+                                                                value={scene.imageHalign || 'center'}
+                                                                onChange={(e) => updateScene(idx, { imageHalign: e.target.value as any })}
+                                                                className="h-7 w-full rounded border border-border bg-background px-2 text-[10px] text-foreground outline-none"
+                                                            >
+                                                                <option value="left">Left</option>
+                                                                <option value="center">Center</option>
+                                                                <option value="right">Right</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     ))}

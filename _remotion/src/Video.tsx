@@ -40,7 +40,7 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
       {/* Video Scenes Layer */}
       <Series>
         {adjustedScenes.map((scene) => {
-          const { sceneId, type, durationInFrames, heading, subheading, visualAssetUrl, tableData, kpiData, imageSizePercent } = scene;
+          const { sceneId, type, durationInFrames, heading, subheading, visualAssetUrl, tableData, kpiData, imageSizePercent, imageValign, imageHalign } = scene;
 
           return (
             <Series.Sequence
@@ -57,6 +57,8 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
                   format={format}
                   durationInFrames={durationInFrames}
                   imageSizePercent={imageSizePercent}
+                  imageValign={imageValign}
+                  imageHalign={imageHalign}
                 />
               )}
               {type === "kpi_metric" && (
@@ -67,6 +69,8 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
                   format={format}
                   visualAssetUrl={visualAssetUrl}
                   imageSizePercent={imageSizePercent}
+                  imageValign={imageValign}
+                  imageHalign={imageHalign}
                 />
               )}
               {type === "comparison_table" && (
@@ -78,6 +82,8 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
                   durationInFrames={durationInFrames}
                   visualAssetUrl={visualAssetUrl}
                   imageSizePercent={imageSizePercent}
+                  imageValign={imageValign}
+                  imageHalign={imageHalign}
                 />
               )}
               {type === "broll_image" && (
@@ -89,6 +95,8 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
                   format={format}
                   durationInFrames={durationInFrames}
                   imageSizePercent={imageSizePercent}
+                  imageValign={imageValign}
+                  imageHalign={imageHalign}
                 />
               )}
               {type === "call_to_action" && (
@@ -100,6 +108,8 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
                   format={format}
                   durationInFrames={durationInFrames}
                   imageSizePercent={imageSizePercent}
+                  imageValign={imageValign}
+                  imageHalign={imageHalign}
                 />
               )}
             </Series.Sequence>

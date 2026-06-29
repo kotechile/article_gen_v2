@@ -16,6 +16,8 @@ interface BRollImageProps {
   format: "landscape" | "vertical";
   durationInFrames: number;
   imageSizePercent?: number;
+  imageValign?: "top" | "center" | "bottom";
+  imageHalign?: "left" | "center" | "right";
 }
 
 export const BRollImage: React.FC<BRollImageProps> = ({
@@ -26,6 +28,8 @@ export const BRollImage: React.FC<BRollImageProps> = ({
   format,
   durationInFrames,
   imageSizePercent,
+  imageValign = "center",
+  imageHalign = "center",
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -33,28 +37,16 @@ export const BRollImage: React.FC<BRollImageProps> = ({
   // Resilience: Preload the B-Roll image asset
   const { localUrl } = useResilientAsset(visualAssetUrl);
 
-  // Ken Burns zoom effect
-  const scale = interpolate(frame, [0, durationInFrames], [1.0, 1.12], {
-    extrapolateRight: "clamp",
-  });
-
-  // Ken Burns slight pan effect
-  const translateX = interpolate(frame, [0, durationInFrames], [0, -15], {
-    extrapolateRight: "clamp",
-  });
-  const translateY = interpolate(frame, [0, durationInFrames], [0, -10], {
-    extrapolateRight: "clamp",
-  });
+  // Subtle Ken Burns slow pan animation
+  const scale = interpolate(frame, [0, durationInFrames], [1, 1.06]);
+  const translateX = interpolate(frame, [0, durationInFrames], [0, -10]);
+  const translateY = interpolate(frame, [0, durationInFrames], [0, -5]);
 
   // Title card entrance spring
   const overlayEntrance = spring({
     frame,
     fps,
-    config: {
-      damping: 15,
-      mass: 0.8,
-      stiffness: 90,
-    },
+    config: { damping: 12 },
   });
 
   const overlayY = interpolate(overlayEntrance, [0, 1], [30, 0]);
@@ -86,7 +78,17 @@ export const BRollImage: React.FC<BRollImageProps> = ({
     >
       {/* Resilient B-Roll Image */}
       {localUrl ? (
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", justifyContent: "center", alignItems: "center", zIndex: 0 }}>
+        <div style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          display: "flex",
+          justifyContent: imageValign === "top" ? "flex-start" : imageValign === "bottom" ? "flex-end" : "center",
+          alignItems: imageHalign === "left" ? "flex-start" : imageHalign === "right" ? "flex-end" : "center",
+          zIndex: 0,
+        }}>
           <img
             src={localUrl}
             alt="B-Roll"
