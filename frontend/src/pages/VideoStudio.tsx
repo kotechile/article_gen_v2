@@ -92,7 +92,7 @@ export function VideoStudio() {
     const [provider, setProvider] = React.useState<'openai' | 'elevenlabs'>('openai');
     const [voice, setVoice] = React.useState('onyx');
     const [customVoiceId, setCustomVoiceId] = React.useState('');
-    const [captionPosition, setCaptionPosition] = React.useState<'center' | 'bottom' | 'top'>('center');
+    const [captionPosition, setCaptionPosition] = React.useState<'center' | 'bottom' | 'top' | 'none'>('center');
     const [aspectRatio, setAspectRatio] = React.useState<'vertical' | 'landscape'>('vertical');
     const [music, setMusic] = React.useState('background.mp3');
     const [customMusicUrl, setCustomMusicUrl] = React.useState<string | null>(null);
@@ -417,6 +417,7 @@ export function VideoStudio() {
                                                 <option value="center">Center</option>
                                                 <option value="bottom">Bottom (Standard)</option>
                                                 <option value="top">Top</option>
+                                                <option value="none">No Captions (Hidden)</option>
                                             </select>
                                         </div>
 

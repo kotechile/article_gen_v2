@@ -11,7 +11,7 @@ interface SubtitlesProps {
   subtitles: RemotionVideoPayload["subtitles"];
   brandColors: { primary: string; secondary: string; background: string };
   format: "landscape" | "vertical";
-  captionPosition?: "center" | "bottom" | "top";
+  captionPosition?: "center" | "bottom" | "top" | "none";
 }
 
 export const Subtitles: React.FC<SubtitlesProps> = ({
@@ -30,8 +30,8 @@ export const Subtitles: React.FC<SubtitlesProps> = ({
 
   const activeSubtitle = subtitles[activeSubtitleIndex];
 
-  // If there's no subtitle active at this frame, render nothing
-  if (!activeSubtitle) {
+  // If there's no subtitle active or captions are disabled, render nothing
+  if (!activeSubtitle || captionPosition === "none") {
     return null;
   }
 

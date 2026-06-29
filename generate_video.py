@@ -507,10 +507,6 @@ def align_timings(blueprint, caption_position, aspect_ratio="vertical", host_url
             sc['visualAssetUrl'] = asset_filename
         
         # Clean up temporary fields
-        if 'durationInSeconds' in sc:
-            del sc['durationInSeconds']
-        if 'voiceoverScript' in sc:
-            del sc['voiceoverScript']
         if 'imagePrompt' in sc:
             del sc['imagePrompt']
         if 'visualKeyword' in sc:
@@ -542,7 +538,7 @@ def main():
     parser.add_argument("url", help="The URL of the article to turn into a video")
     parser.add_argument("--voice", default="onyx", help="Voice ID (ElevenLabs) or Voice Name (OpenAI: onyx, alloy, nova, shimmer, echo, fable)")
     parser.add_argument("--provider", default="openai", choices=["openai", "elevenlabs"], help="Voice generation service provider")
-    parser.add_argument("--caption-position", default="center", choices=["center", "bottom", "top"], help="Vertical position of subtitles")
+    parser.add_argument("--caption-position", default="center", choices=["center", "bottom", "top", "none"], help="Vertical position of subtitles")
     parser.add_argument("--primary", help="Primary brand color (hex code e.g. #FF5733)")
     parser.add_argument("--secondary", help="Secondary brand color (hex code e.g. #33FF57)")
     parser.add_argument("--background", help="Background brand color (hex code e.g. #111111)")
