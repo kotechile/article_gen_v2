@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
-import { Play, Sparkles, Sliders, Palette, Video, Download, RefreshCw, Volume2, Eye, ArrowLeft, Upload, Layout } from 'lucide-react';
+import { Play, Sparkles, Sliders, Palette, Video, Download, RefreshCw, Volume2, Eye, ArrowLeft, Upload, Layout, Trash2, PlusCircle } from 'lucide-react';
 import { apiClient } from '@/api-client';
 
 // Color Presets for easy branding selection
@@ -236,6 +236,53 @@ export function VideoStudio() {
         setBlueprint({
             ...blueprint,
             scenes: newScenes,
+        });
+    };
+
+    // Delete scene from blueprint
+    const deleteScene = (index: number) => {
+        if (!blueprint) return;
+        const newScenes = blueprint.scenes.filter((_, idx) => idx !== index);
+        setBlueprint({
+            ...blueprint,
+            scenes: newScenes,
+        });
+    };
+
+    // Add a new scene with default structure based on selected layout template
+    const addScene = (type: Scene['type']) => {
+        if (!blueprint) return;
+        const newScene: Scene = {
+            sceneId: `scene_${Math.random().toString(36).substring(2, 9)}`,
+            type,
+            durationInSeconds: 6.0,
+            heading: 'New Scene Title',
+            subheading: 'Scene description or label',
+            voiceoverScript: 'Spoken script details for this scene.',
+            imagePrompt: 'Cinematic studio lighting, high tech professional concept, 8K resolution.',
+            imageSizePercent: 100,
+            imageValign: 'center',
+            imageHalign: 'center',
+        };
+
+        if (type === 'comparison_table') {
+            newScene.tableData = {
+                headers: ['Feature', 'Option A', 'Option B'],
+                rows: [
+                    ['Benefit', 'High', 'Low'],
+                    ['Cost', 'Free', 'Paid']
+                ]
+            };
+        } else if (type === 'kpi_metric') {
+            newScene.kpiData = {
+                value: '95%',
+                label: 'Efficiency'
+            };
+        }
+
+        setBlueprint({
+            ...blueprint,
+            scenes: [...blueprint.scenes, newScene],
         });
     };
 
@@ -639,7 +686,17 @@ export function VideoStudio() {
                                                         {scene.type.replace('_', ' ')}
                                                     </span>
                                                 </div>
-                                                <span className="text-xs text-muted-foreground">{scene.durationInSeconds} Seconds</span>
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-xs text-muted-foreground">{scene.durationInSeconds} Seconds</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => deleteScene(idx)}
+                                                        className="text-muted-foreground hover:text-red-500 transition cursor-pointer"
+                                                        title="Delete Scene"
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </button>
+                                                </div>
                                             </div>
 
                                             {/* Text Customization */}
@@ -852,6 +909,51 @@ export function VideoStudio() {
                                             </div>
                                         </div>
                                     ))}
+                                </div>
+
+                                {/* Add Scene Section */}
+                                <div className="border border-dashed border-border rounded-xl p-4 bg-muted/5 flex flex-col items-center justify-center gap-3">
+                                    <span className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                                        <PlusCircle className="h-4 w-4 text-primary" />
+                                        Add Custom Scene Layout
+                                    </span>
+                                    <div className="flex flex-wrap justify-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => addScene('broll_image')}
+                                            className="px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-[10px] font-bold text-foreground cursor-pointer transition animate-scaleIn"
+                                        >
+                                            + Detail Image
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => addScene('framework_hero')}
+                                            className="px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-[10px] font-bold text-foreground cursor-pointer transition animate-scaleIn"
+                                        >
+                                            + Hero Slide
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => addScene('kpi_metric')}
+                                            className="px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-[10px] font-bold text-foreground cursor-pointer transition animate-scaleIn"
+                                        >
+                                            + KPI Metric
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => addScene('comparison_table')}
+                                            className="px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-[10px] font-bold text-foreground cursor-pointer transition animate-scaleIn"
+                                        >
+                                            + Table
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => addScene('call_to_action')}
+                                            className="px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-[10px] font-bold text-foreground cursor-pointer transition animate-scaleIn"
+                                        >
+                                            + Call To Action
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <button
