@@ -454,7 +454,7 @@ export function VideoStudio() {
                                             <div className="space-y-1 animate-scaleIn flex flex-col justify-end">
                                                 <input
                                                     type="file"
-                                                    accept="audio/mpeg,audio/mp3"
+                                                    accept="audio/mpeg,audio/mp3,audio/aac,audio/x-aac,.aac,.m4a"
                                                     id="music-upload-input"
                                                     className="hidden"
                                                     onChange={(e) => {
