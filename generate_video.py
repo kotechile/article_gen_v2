@@ -516,12 +516,15 @@ def align_timings(blueprint, caption_position, aspect_ratio="vertical", host_url
     final_voiceover = f"{host_url}/api/v1/video/static/voiceover.mp3" if host_url else "voiceover.mp3"
     final_music = f"{host_url}/api/v1/video/static/{music}" if host_url and not music.startswith("http") else music
 
+    # Calculate total duration in seconds from the scenes
+    total_duration = sum(sc.get('durationInSeconds', 6.0) for sc in scenes)
+
     # Finalize payload
     payload = {
         "metadata": {
             "title": blueprint['metadata']['title'],
             "format": aspect_ratio,
-            "totalDurationInSeconds": 30,
+            "totalDurationInSeconds": total_duration,
             "brandColors": blueprint['metadata']['brandColors'],
             "captionPosition": caption_position,
             "backgroundMusicUrl": final_music
