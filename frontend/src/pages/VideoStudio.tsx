@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
-import { Play, Sparkles, Sliders, Palette, Video, Download, RefreshCw, Volume2, Eye, ArrowLeft, Upload, Layout, Trash2, PlusCircle } from 'lucide-react';
+import { Play, Sparkles, Sliders, Palette, Video, Download, RefreshCw, Volume2, Eye, ArrowLeft, Upload, Layout, Trash2, PlusCircle, ChevronUp, ChevronDown } from 'lucide-react';
 import { apiClient } from '@/api-client';
 
 // Color Presets for easy branding selection
@@ -243,6 +243,24 @@ export function VideoStudio() {
     const deleteScene = (index: number) => {
         if (!blueprint) return;
         const newScenes = blueprint.scenes.filter((_, idx) => idx !== index);
+        setBlueprint({
+            ...blueprint,
+            scenes: newScenes,
+        });
+    };
+
+    // Reorder scene (Move Up / Down) in blueprint
+    const moveScene = (index: number, direction: 'up' | 'down') => {
+        if (!blueprint) return;
+        const newScenes = [...blueprint.scenes];
+        const targetIndex = direction === 'up' ? index - 1 : index + 1;
+        if (targetIndex < 0 || targetIndex >= newScenes.length) return;
+
+        // Swap the elements
+        const temp = newScenes[index];
+        newScenes[index] = newScenes[targetIndex];
+        newScenes[targetIndex] = temp;
+
         setBlueprint({
             ...blueprint,
             scenes: newScenes,
@@ -688,6 +706,24 @@ export function VideoStudio() {
                                                 </div>
                                                 <div className="flex items-center gap-3">
                                                     <span className="text-xs text-muted-foreground">{scene.durationInSeconds} Seconds</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => moveScene(idx, 'up')}
+                                                        disabled={idx === 0}
+                                                        className="text-muted-foreground hover:text-primary transition cursor-pointer disabled:opacity-30 disabled:hover:text-muted-foreground"
+                                                        title="Move Up"
+                                                    >
+                                                        <ChevronUp className="h-4 w-4" />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => moveScene(idx, 'down')}
+                                                        disabled={idx === (blueprint?.scenes.length || 0) - 1}
+                                                        className="text-muted-foreground hover:text-primary transition cursor-pointer disabled:opacity-30 disabled:hover:text-muted-foreground"
+                                                        title="Move Down"
+                                                    >
+                                                        <ChevronDown className="h-4 w-4" />
+                                                    </button>
                                                     <button
                                                         type="button"
                                                         onClick={() => deleteScene(idx)}
