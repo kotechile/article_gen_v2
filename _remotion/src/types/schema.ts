@@ -19,7 +19,7 @@ export interface RemotionVideoPayload {
   }>;
   scenes: Array<{
     sceneId: string;
-    type: "framework_hero" | "comparison_table" | "kpi_metric" | "broll_image" | "call_to_action";
+    type: "framework_hero" | "comparison_table" | "kpi_metric" | "broll_image" | "call_to_action" | "video_clip";
     durationInFrames: number;
     heading: string;
     subheading?: string;

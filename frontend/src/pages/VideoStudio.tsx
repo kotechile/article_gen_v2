@@ -51,7 +51,7 @@ const VOICE_PRESETS = [
 
 interface Scene {
     sceneId: string;
-    type: 'framework_hero' | 'comparison_table' | 'kpi_metric' | 'broll_image' | 'call_to_action';
+    type: 'framework_hero' | 'comparison_table' | 'kpi_metric' | 'broll_image' | 'call_to_action' | 'video_clip';
     durationInSeconds: number;
     heading: string;
     subheading?: string;
@@ -799,34 +799,38 @@ export function VideoStudio() {
                                             {/* Visual Asset Control */}
                                             <div className="space-y-2 pt-2 border-t border-border">
                                                 <div className="flex items-center justify-between">
-                                                    <span className="text-[10px] font-bold text-muted-foreground uppercase">Background Image Selection</span>
-                                                    <div className="flex gap-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setSceneModes({ ...sceneModes, [idx]: 'auto' })}
-                                                            className={`px-2.5 py-1 rounded text-[10px] font-semibold transition cursor-pointer ${
-                                                                sceneModes[idx] === 'auto'
-                                                                    ? 'bg-secondary text-background font-bold'
-                                                                    : 'bg-muted/40 text-muted-foreground hover:bg-muted'
-                                                            }`}
-                                                        >
-                                                            Auto AI (Flux)
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setSceneModes({ ...sceneModes, [idx]: 'upload' })}
-                                                            className={`px-2.5 py-1 rounded text-[10px] font-semibold transition cursor-pointer ${
-                                                                sceneModes[idx] === 'upload'
-                                                                    ? 'bg-secondary text-background font-bold'
-                                                                    : 'bg-muted/40 text-muted-foreground hover:bg-muted'
-                                                            }`}
-                                                        >
-                                                            Upload Custom
-                                                        </button>
-                                                    </div>
+                                                    <span className="text-[10px] font-bold text-muted-foreground uppercase">
+                                                        {scene.type === 'video_clip' ? 'Background Video Selection' : 'Background Image Selection'}
+                                                    </span>
+                                                    {scene.type !== 'video_clip' && (
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSceneModes({ ...sceneModes, [idx]: 'auto' })}
+                                                                className={`px-2.5 py-1 rounded text-[10px] font-semibold transition cursor-pointer ${
+                                                                    sceneModes[idx] === 'auto'
+                                                                        ? 'bg-secondary text-background font-bold'
+                                                                        : 'bg-muted/40 text-muted-foreground hover:bg-muted'
+                                                                }`}
+                                                            >
+                                                                Auto AI (Flux)
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSceneModes({ ...sceneModes, [idx]: 'upload' })}
+                                                                className={`px-2.5 py-1 rounded text-[10px] font-semibold transition cursor-pointer ${
+                                                                    sceneModes[idx] === 'upload'
+                                                                        ? 'bg-secondary text-background font-bold'
+                                                                        : 'bg-muted/40 text-muted-foreground hover:bg-muted'
+                                                                }`}
+                                                            >
+                                                                Upload Custom
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </div>
 
-                                                {sceneModes[idx] === 'auto' ? (
+                                                {(sceneModes[idx] === 'auto' && scene.type !== 'video_clip') ? (
                                                     <div className="space-y-1">
                                                         <label className="text-[9px] text-muted-foreground">Flux AI Image Prompt</label>
                                                         <input
@@ -841,7 +845,7 @@ export function VideoStudio() {
                                                     <div className="flex items-center gap-3">
                                                         <input
                                                             type="file"
-                                                            accept="image/*"
+                                                            accept={scene.type === 'video_clip' ? 'video/mp4,video/quicktime,.mp4,.mov' : 'image/*'}
                                                             id={`upload-${scene.sceneId}`}
                                                             className="hidden"
                                                             onChange={(e) => {
@@ -854,11 +858,15 @@ export function VideoStudio() {
                                                             className="h-8 px-4 rounded border border-dashed border-border bg-muted/10 flex items-center justify-center gap-1 text-[10px] font-bold text-foreground cursor-pointer hover:bg-muted/20 transition"
                                                         >
                                                             <Upload className="h-3 w-3" />
-                                                            {uploadingIndex === idx ? 'Uploading...' : 'Choose custom image'}
+                                                            {uploadingIndex === idx 
+                                                                ? 'Uploading...' 
+                                                                : scene.type === 'video_clip' 
+                                                                    ? 'Choose custom video (MP4)' 
+                                                                    : 'Choose custom image'}
                                                         </label>
                                                         {scene.visualAssetUrl && (
                                                             <span className="text-[10px] text-primary truncate max-w-xs">
-                                                                Uploaded: {scene.visualAssetUrl}
+                                                                Uploaded: {scene.visualAssetUrl.split('/').pop()}
                                                             </span>
                                                         )}
                                                     </div>
@@ -952,6 +960,13 @@ export function VideoStudio() {
                                             className="px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-[10px] font-bold text-foreground cursor-pointer transition animate-scaleIn"
                                         >
                                             + Call To Action
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => addScene('video_clip')}
+                                            className="px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-[10px] font-bold text-foreground cursor-pointer transition animate-scaleIn"
+                                        >
+                                            + Video Clip
                                         </button>
                                     </div>
                                 </div>

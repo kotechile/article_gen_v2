@@ -7,6 +7,7 @@ import { KpiMetric } from "./components/scenes/KpiMetric";
 import { ComparisonTable } from "./components/scenes/ComparisonTable";
 import { BRollImage } from "./components/scenes/BRollImage";
 import { CallToAction } from "./components/scenes/CallToAction";
+import { VideoClip } from "./components/scenes/VideoClip";
 import { Subtitles } from "./components/Subtitles";
 import { AudioTracks } from "./components/AudioTracks";
 
@@ -101,6 +102,19 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
               )}
               {type === "call_to_action" && (
                 <CallToAction
+                  heading={heading}
+                  subheading={subheading}
+                  visualAssetUrl={visualAssetUrl}
+                  brandColors={brandColors}
+                  format={format}
+                  durationInFrames={durationInFrames}
+                  imageSizePercent={imageSizePercent}
+                  imageValign={imageValign}
+                  imageHalign={imageHalign}
+                />
+              )}
+              {type === "video_clip" && (
+                <VideoClip
                   heading={heading}
                   subheading={subheading}
                   visualAssetUrl={visualAssetUrl}
