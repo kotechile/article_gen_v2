@@ -705,7 +705,23 @@ export function VideoStudio() {
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center gap-3">
-                                                    <span className="text-xs text-muted-foreground">{scene.durationInSeconds} Seconds</span>
+                                                    <div className="flex items-center gap-1">
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            max="60"
+                                                            step="0.5"
+                                                            value={scene.durationInSeconds}
+                                                            onChange={(e) => {
+                                                                const val = parseFloat(e.target.value);
+                                                                if (!isNaN(val) && val > 0) {
+                                                                    updateScene(idx, { durationInSeconds: val });
+                                                                }
+                                                            }}
+                                                            className="w-10 h-6 rounded border border-border bg-muted/20 text-center text-[10px] font-bold text-foreground outline-none focus:border-primary/50"
+                                                        />
+                                                        <span className="text-[10px] text-muted-foreground">Secs</span>
+                                                    </div>
                                                     <button
                                                         type="button"
                                                         onClick={() => moveScene(idx, 'up')}
