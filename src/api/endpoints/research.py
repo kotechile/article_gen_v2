@@ -327,13 +327,24 @@ def _extract_context_fragments(title: str, description: str, keyword: str, limit
     return fragments
 
 
+def _truncate_at_word_boundary(text: str, max_len: int) -> str:
+    text = text.strip()
+    if len(text) <= max_len:
+        return text
+    truncated = text[:max_len]
+    last_space = truncated.rfind(' ')
+    if last_space > 0:
+        return truncated[:last_space].strip()
+    return truncated.strip()
+
+
 def _fit_keyword_title(keyword: str, fragment: str | None = None, connector: str = "for") -> str:
     clean_keyword = _sanitize_keyword_value(keyword)
     clean_fragment = re.sub(r"\s+", " ", str(fragment or "").strip())
     if not clean_keyword:
-        return clean_fragment[:60].strip()
+        return _truncate_at_word_boundary(clean_fragment, 60)
     if not clean_fragment:
-        return clean_keyword[:60].strip()
+        return _truncate_at_word_boundary(clean_keyword, 60)
     candidate = f"{clean_keyword} {connector} {clean_fragment}".strip()
     if len(candidate) <= 60:
         return candidate
@@ -341,21 +352,30 @@ def _fit_keyword_title(keyword: str, fragment: str | None = None, connector: str
     candidate = f"{clean_keyword} {connector} {shorter_fragment}".strip()
     if len(candidate) <= 60:
         return candidate
-    return clean_keyword[:60].strip()
+    return _truncate_at_word_boundary(clean_keyword, 60)
 
 
 def _normalize_title_with_keyword(title: str, keyword: str) -> str:
     clean_title = _sanitize_refined_title(title)
     clean_keyword = _sanitize_keyword_value(keyword)
     if not clean_keyword:
-        return clean_title
+        return _truncate_at_word_boundary(clean_title, 60)
     if _contains_keyword(clean_title, clean_keyword):
-        return clean_title[:60].strip()
+        return _truncate_at_word_boundary(clean_title, 60)
     candidate = f"{clean_keyword}: {clean_title}".strip(" :")
     if len(candidate) <= 60:
         return candidate
+    
+    # Try to truncate original title to fit prefix
+    max_title_len = 60 - len(clean_keyword) - 2
+    if max_title_len > 15:
+        truncated_title = _truncate_at_word_boundary(clean_title, max_title_len)
+        candidate = f"{clean_keyword}: {truncated_title}"
+        if len(candidate) <= 60:
+            return candidate
+
     compact = f"{clean_keyword} guide".strip()
-    return compact[:60].strip()
+    return _truncate_at_word_boundary(compact, 60)
 
 
 def _normalize_description_with_keyword(description: str, keyword: str) -> str:
@@ -363,11 +383,22 @@ def _normalize_description_with_keyword(description: str, keyword: str) -> str:
     clean_description = re.sub(r'\[\s*["\']([^"\']+)["\']\s*\]', r"\1", clean_description).strip()
     clean_keyword = _sanitize_keyword_value(keyword)
     if not clean_keyword:
-        return clean_description[:320].strip()
+        return _truncate_at_word_boundary(clean_description, 320)
     if _contains_keyword(clean_description, clean_keyword):
-        return clean_description[:320].strip()
+        return _truncate_at_word_boundary(clean_description, 320)
     prefixed = f"{clean_keyword}: {clean_description}".strip(" :")
-    return prefixed[:320].strip()
+    if len(prefixed) <= 320:
+        return prefixed
+        
+    # Try to truncate description to fit prefix
+    max_desc_len = 320 - len(clean_keyword) - 2
+    if max_desc_len > 50:
+        truncated_desc = _truncate_at_word_boundary(clean_description, max_desc_len)
+        prefixed = f"{clean_keyword}: {truncated_desc}"
+        if len(prefixed) <= 320:
+            return prefixed
+
+    return _truncate_at_word_boundary(prefixed, 320)
 
 
 def _build_default_refinement_options(
@@ -384,8 +415,8 @@ def _build_default_refinement_options(
 
     if not keyword:
         return [{
-            "refined_title": base_title[:60].strip(),
-            "refined_description": base_description[:320].strip(),
+            "refined_title": _truncate_at_word_boundary(base_title, 60),
+            "refined_description": _truncate_at_word_boundary(base_description, 320),
             "rationale": "Original metadata kept because no primary keyword was provided.",
         }]
 
@@ -423,8 +454,8 @@ def _build_default_refinement_options(
     ]
     for candidate_title, candidate_description, rationale in candidates:
         options.append({
-            "refined_title": candidate_title[:60].strip(),
-            "refined_description": candidate_description[:320].strip(),
+            "refined_title": _truncate_at_word_boundary(candidate_title, 60),
+            "refined_description": _truncate_at_word_boundary(candidate_description, 320),
             "rationale": rationale,
         })
 
@@ -460,8 +491,8 @@ def _build_default_refinement_options(
             continue
         seen.add(key)
         deduped.append({
-            "refined_title": fallback_title[:60].strip(),
-            "refined_description": fallback_description[:320].strip(),
+            "refined_title": _truncate_at_word_boundary(fallback_title, 60),
+            "refined_description": _truncate_at_word_boundary(fallback_description, 320),
             "rationale": "Guaranteed fallback variant to keep three distinct keyword-aligned choices.",
         })
         if len(deduped) >= 3:
