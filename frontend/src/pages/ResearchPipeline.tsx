@@ -1,12 +1,21 @@
 import * as React from 'react'
-import { Rocket, Loader2, Target, ArrowRight, Table as TableIcon } from 'lucide-react'
+import { Rocket, Loader2, Target, ArrowRight, Table as TableIcon, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { researchPipelineService } from '@/services/research-pipeline.service'
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts'
+import { useNavigate } from 'react-router-dom'
+import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/context/auth-context'
+import { useProject } from '@/context/project-context'
+import { toast } from 'sonner'
 
 export function ResearchPipeline() {
+    const navigate = useNavigate()
+    const { user } = useAuth()
+    const { activeProject } = useProject()
+    
     const [queryText, setQueryText] = React.useState('')
     const [loading, setLoading] = React.useState(false)
     const [step, setStep] = React.useState<1 | 2 | 3>(1)
@@ -14,6 +23,84 @@ export function ResearchPipeline() {
     const [keywords, setKeywords] = React.useState<any[]>([])
     const [clusters, setClusters] = React.useState<any[]>([])
     const [error, setError] = React.useState<string | null>(null)
+    
+    const [selectedClusters, setSelectedClusters] = React.useState<Record<number, boolean>>({})
+    const [selectingClusterIdx, setSelectingClusterIdx] = React.useState<number | null>(null)
+
+    const handleSelectForArticle = async (cluster: any, idx: number) => {
+        if (!user) {
+            toast.error('You must be logged in to select an article.')
+            return
+        }
+        if (!activeProject) {
+            toast.error('Please select a project first.')
+            return
+        }
+
+        setSelectingClusterIdx(idx)
+        try {
+            const clusterKws = cluster.keywords || []
+            const sortedKws = [...clusterKws].sort((a: any, b: any) => (b.search_volume || 0) - (a.search_volume || 0))
+            const primaryKeywordObj = sortedKws[0]
+            const primaryKeyword = primaryKeywordObj?.keyword || ''
+            
+            const secondaryKeywords = clusterKws
+                .map((kw: any) => kw.keyword)
+                .filter((kwStr: string) => kwStr !== primaryKeyword)
+
+            const title = cluster.subtopic_name || cluster.cluster_title || 'Untitled Article'
+
+            const selected_keyword_metrics_json = {
+                primary: primaryKeywordObj ? {
+                    keyword: primaryKeywordObj.keyword,
+                    search_volume: primaryKeywordObj.search_volume || 0,
+                    keyword_difficulty: primaryKeywordObj.keyword_difficulty || 0,
+                    cpc: primaryKeywordObj.cpc || 0,
+                } : null,
+                secondaries: clusterKws
+                    .filter((kw: any) => kw.keyword !== primaryKeyword)
+                    .map((kw: any) => ({
+                        keyword: kw.keyword,
+                        search_volume: kw.search_volume || 0,
+                        keyword_difficulty: kw.keyword_difficulty || 0,
+                        cpc: kw.cpc || 0,
+                    }))
+            }
+
+            const { error: insertError } = await supabase
+                .from('Titles')
+                .insert([{
+                    user_id: user.id,
+                    Title: title,
+                    userDescription: cluster.primary_user_outcome || cluster.outcome || `Keywords: ${clusterKws.map((k: any) => k.keyword).join(', ')}`,
+                    status: 'New',
+                    dateCreatedOn: new Date().toISOString(),
+                    primary_keyword: primaryKeyword,
+                    primary_keywords: primaryKeyword ? [primaryKeyword] : [],
+                    secondary_keywords: secondaryKeywords,
+                    secondary_keywords_json: secondaryKeywords,
+                    Keywords: clusterKws.map((k: any) => k.keyword).join(', '),
+                    keyword_candidates_json: clusterKws.map((k: any) => k.keyword),
+                    domain: activeProject.domain || '',
+                    selected_keyword_metrics_json: selected_keyword_metrics_json,
+                }])
+
+            if (insertError) throw insertError
+
+            setSelectedClusters(prev => ({ ...prev, [idx]: true }))
+            toast.success(`Successfully added "${title}" to your article queue!`, {
+                action: {
+                    label: 'View Queue',
+                    onClick: () => navigate('/my-articles')
+                }
+            })
+        } catch (err: any) {
+            console.error('Failed to select article:', err)
+            toast.error(err.message || 'Failed to select article.')
+        } finally {
+            setSelectingClusterIdx(null)
+        }
+    }
 
     const handleExtract = async () => {
         if (!queryText) return
@@ -221,9 +308,23 @@ export function ResearchPipeline() {
                                     </div>
 
                                     <div className="mt-6 pt-6 border-t border-border">
-                                        <Button className="w-full bg-muted/50 dark:bg-white/5 hover:bg-indigo-500 hover:text-white transition-colors text-foreground font-bold">
-                                            <Target className="w-4 h-4 mr-2" />
-                                            Select for Article
+                                        <Button
+                                            onClick={() => handleSelectForArticle(cluster, idx)}
+                                            disabled={loading || selectingClusterIdx === idx || selectedClusters[idx]}
+                                            className={`w-full transition-colors font-bold ${
+                                                selectedClusters[idx]
+                                                    ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                                                    : 'bg-muted/50 dark:bg-white/5 hover:bg-indigo-500 hover:text-white text-foreground'
+                                            }`}
+                                        >
+                                            {selectingClusterIdx === idx ? (
+                                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            ) : selectedClusters[idx] ? (
+                                                <Check className="w-4 h-4 mr-2" />
+                                            ) : (
+                                                <Target className="w-4 h-4 mr-2" />
+                                            )}
+                                            {selectedClusters[idx] ? 'Added to Queue' : 'Select for Article'}
                                         </Button>
                                     </div>
                                 </div>

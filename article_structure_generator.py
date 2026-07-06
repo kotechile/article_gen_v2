@@ -578,14 +578,29 @@ class ArticleStructureGenerator:
             words_per_section = target_word_count // section_count
             min_words = max(200, int(words_per_section * 0.8))  # 80% of target
             max_words = int(words_per_section * 1.2)  # 120% of target
-            
-            # Prepare context
+                       # Prepare context
             claims_text = "\n".join([f"- {claim.get('claim', '')}" for claim in claims[:5]])
             evidence_text = f"Evidence from {len(evidence)} sources" if evidence else "Research-based insights"
             
             # Analyze evidence distribution for better section planning
             evidence_types = self._analyze_evidence_distribution(evidence)
             
+            # Prepare controversial topics context if available
+            selected_controversies = research_data.get('selected_controversies', [])
+            controversies_prompt_text = ""
+            if selected_controversies:
+                controversies_prompt_text = "\n\nCRITICAL DIRECTIVE - INTEGRATE SELECTED CONTROVERSIAL TOPICS:\n"
+                controversies_prompt_text += "The user has selected specific controversial topics and chosen a 'take' (opinion) to defend for this article. You MUST plan the article sections to address these controversies. For each controversy:\n"
+                controversies_prompt_text += "1. Dedicate a section (or integrate it cleanly as a major point in a section) that defends the chosen take.\n"
+                controversies_prompt_text += "2. The section must also present the alternative viewpoints fairly, leaving the reader to think and make their own choice in the end.\n"
+                for index, c in enumerate(selected_controversies):
+                    controversies_prompt_text += f"- Controversy {index+1}: \"{c.get('title')}\"\n"
+                    controversies_prompt_text += f"  * Summary of debate: {c.get('summary')}\n"
+                    controversies_prompt_text += f"  * Chosen Take to defend: \"{c.get('selected_take_text')}\"\n"
+                    takes_list = c.get('takes', []) or []
+                    alt_takes = [t.get('text') for t in takes_list if t.get('text') != c.get('selected_take_text')]
+                    controversies_prompt_text += f"  * Alternative viewpoints to mention and leave open: {alt_takes}\n"
+
             messages = [
                 {
                     "role": "system",
@@ -600,7 +615,7 @@ class ArticleStructureGenerator:
                     - Order sections logically with smooth transitions
                     - Include practical, actionable content
                     - Distribute evidence and claims evenly across sections
-                    - Integrate Competitor Insights: Incorporate all "Competitor Must-Haves" across the sections, and dedicate specific focus or sub-points to highlight our "Competitive Edge".
+                    - Integrate Competitor Insights: Incorporate all "Competitor Must-Haves" across the sections, and dedicate specific focus or sub-points to highlight our "Competitive Edge".{controversies_prompt_text}
                     
                     ⚠️ CRITICAL: AVOID GENERIC SECTION TITLES ⚠️
                     - DO NOT use generic titles like: "Getting Started", "Step-by-Step Process", "Key Concepts", "Practical Applications", "Understanding the Fundamentals", "Real-World Implementation"
@@ -632,7 +647,7 @@ class ArticleStructureGenerator:
                     - "step_by_step": Instructional content (only use if the article is actually a step-by-step guide)
                     - "comparison": Side-by-side comparisons
                     - "table": Data-rich content with tables
-
+ 
                     TABLE PLANNING RULES:
                     - Across the entire article, plan between 1 and 4 sections with "table" or "comparison" content types (so at least one table/comparison is always included to explain concepts and numbers).
                     - Plan tables/comparisons for sections where structured comparison, data presentation, concepts, or numbers add genuine value.
@@ -657,13 +672,14 @@ class ArticleStructureGenerator:
                 {
                     "role": "user",
                     "content": f"""Article Brief: {brief}
-
+ 
 Key Claims to Address:
 {claims_text}
-
+ 
 Evidence Available: {evidence_text}
 Target Word Count: {target_word_count}
 Tone: {tone}
+{controversies_prompt_text}
 
 Create {section_count} topic-specific sections that directly relate to this article's content. Each section title should be unique to this topic, not a generic template. Analyze the brief and claims to determine what sections make sense for THIS specific article."""
                 }

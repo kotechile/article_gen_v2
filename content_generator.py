@@ -680,6 +680,7 @@ class ContentGenerator:
             "must_haves": must_haves,
             "competitive_edge": competitive_edge,
             "is_first_section": not previous_sections,
+            "selected_controversies": research_data.get('selected_controversies', []),
         }
     
     def _build_user_message(self, context: Dict[str, Any]) -> str:
@@ -716,6 +717,22 @@ class ContentGenerator:
                 competitor_part += "Our Competitive Edge (EMPHASIZE these unique value angles/gaps competitors missed):\n"
                 competitor_part += "\n".join(f"- {item}" for item in edge) + "\n"
 
+        # Build controversies block
+        controversies_part = ""
+        selected_controversies = context.get('selected_controversies') or []
+        if selected_controversies:
+            controversies_part = "\n========================================\nCONTROVERSIAL TOPICS & WRITER'S TAKES TO DEVELOP\n========================================\n"
+            controversies_part += "The user has selected specific controversial topics and chosen the writer's take (opinion) to defend. If this section is related to any of these controversies, you MUST:\n"
+            controversies_part += "1. Find strong arguments to defend the writer's chosen take.\n"
+            controversies_part += "2. Acknowledge and state the alternative viewpoints/takes fairly.\n"
+            controversies_part += "3. Present it in a way that lets the reader wonder and reflect on their own take in the end.\n\n"
+            for index, c in enumerate(selected_controversies):
+                controversies_part += f"Controversy {index+1}: \"{c.get('title')}\"\n"
+                controversies_part += f"- Chosen Take to defend: \"{c.get('selected_take_text')}\"\n"
+                takes = c.get('takes', []) or []
+                alt_takes = [t.get('text') for t in takes if t.get('text') != c.get('selected_take_text')]
+                controversies_part += f"- Alternative viewpoints to mention and leave open: {alt_takes}\n\n"
+
         return f"""Section: {context['title']}
 {subtitle_line}========================================
 TONE REMINDER - CRITICAL
@@ -742,6 +759,7 @@ Summary: {context.get('dossier_summary', '')}
 Primary Claims: {', '.join(context.get('dossier_claims', []))}
 Unresolved Questions: {', '.join(context.get('dossier_unresolved_questions', []))}
 {competitor_part}
+{controversies_part}
 CRITICAL: If the evidence above contains specific examples (especially those marked with instruction_topic), you MUST include those exact examples in your content. Do not create generic examples - use the researched examples provided in the evidence.
 {self._get_citation_instructions(context)}
 

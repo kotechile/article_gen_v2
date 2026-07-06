@@ -62,6 +62,7 @@ PIPELINE_STAGES = [
     'CLAIM_EXTRACTION',
     'EVIDENCE_COLLECTION',
     'EVIDENCE_RANKING',
+    'CONTROVERSY_IDENTIFICATION',
     'STRUCTURE_GENERATION',
     'CONTENT_GENERATION',
     'CITATION_GENERATION',
@@ -2401,46 +2402,116 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
             'error': None
         }
         
-        # Stage 1: Keyword Intelligence
-        result = _process_stage(
-            self,
-            result,
-            'KEYWORD_INTELLIGENCE',
-            10,
-            'Selecting article keyword strategy...',
-            lambda r: _run_keyword_intelligence(r, self)
-        )
+        # Check if we are resuming from a pending controversies selection
+        selected_controversies = research_data.get('selected_controversies')
+        if not selected_controversies and article_id:
+            try:
+                supabase = get_supabase_client()
+                if supabase:
+                    db_res = supabase.table('Titles').select('idea_metadata').eq('id', article_id).limit(1).execute()
+                    if db_res.data:
+                        meta = db_res.data[0].get('idea_metadata') or {}
+                        if isinstance(meta, str):
+                            meta = json.loads(meta)
+                        selected_controversies = meta.get('selected_controversies')
+            except Exception as e:
+                logger.warning(f"Failed to check selected_controversies from DB: {e}")
 
-        # Stage 2: Claim Extraction
-        result = _process_stage(
-            self, 
-            result, 
-            'CLAIM_EXTRACTION', 
-            18,
-            'Extracting claims from research brief...',
-            _extract_claims
-        )
-        
-        # Stage 3: Evidence Collection
-        result = _process_stage(
-            self,
-            result,
-            'EVIDENCE_COLLECTION',
-            30,
-            'Collecting evidence from RAG and web search...',
-            _collect_evidence
-        )
-        
-        # Stage 4: Evidence Ranking
-        result = _process_stage(
-            self,
-            result,
-            'EVIDENCE_RANKING',
-            42,
-            'Ranking and assessing evidence quality...',
-            _rank_evidence
-        )
-        
+        is_resuming = bool(selected_controversies)
+
+        if is_resuming:
+            # Load pre-collected research data
+            if article_id:
+                try:
+                    supabase = get_supabase_client()
+                    if supabase:
+                        # Set status back to 'Generating'
+                        supabase.table('Titles').update({'status': 'Generating'}).eq('id', article_id).execute()
+                        
+                        db_res = supabase.table('Titles').select('idea_metadata').eq('id', article_id).limit(1).execute()
+                        if db_res.data:
+                            meta = db_res.data[0].get('idea_metadata') or {}
+                            if isinstance(meta, str):
+                                meta = json.loads(meta)
+                            result['claims'] = meta.get('research_claims', [])
+                            result['evidence'] = meta.get('research_evidence', [])
+                            
+                            # Merge selected_controversies into idea_metadata in DB
+                            meta['selected_controversies'] = selected_controversies
+                            supabase.table('Titles').update({'idea_metadata': meta}).eq('id', article_id).execute()
+                            logger.info(f"Loaded {len(result['claims'])} claims and {len(result['evidence'])} evidence items for article {article_id}")
+                except Exception as e:
+                    logger.error(f"Failed to load research claims/evidence for resumption: {e}")
+            
+            # Make sure selected_controversies is in research_data
+            research_data['selected_controversies'] = selected_controversies
+            result['research_data'] = research_data
+
+        if not is_resuming:
+            # Stage 1: Keyword Intelligence
+            result = _process_stage(
+                self,
+                result,
+                'KEYWORD_INTELLIGENCE',
+                10,
+                'Selecting article keyword strategy...',
+                lambda r: _run_keyword_intelligence(r, self)
+            )
+
+            # Stage 2: Claim Extraction
+            result = _process_stage(
+                self, 
+                result, 
+                'CLAIM_EXTRACTION', 
+                18,
+                'Extracting claims from research brief...',
+                _extract_claims
+            )
+            
+            # Stage 3: Evidence Collection
+            result = _process_stage(
+                self,
+                result,
+                'EVIDENCE_COLLECTION',
+                30,
+                'Collecting evidence from RAG and web search...',
+                _collect_evidence
+            )
+            
+            # Stage 4: Evidence Ranking
+            result = _process_stage(
+                self,
+                result,
+                'EVIDENCE_RANKING',
+                42,
+                'Ranking and assessing evidence quality...',
+                _rank_evidence
+            )
+
+            # Identify Controversies if enabled
+            if research_data.get('identify_controversies'):
+                result = _process_stage(
+                    self,
+                    result,
+                    'CONTROVERSY_IDENTIFICATION',
+                    45,
+                    'Identifying controversial topics and alternative takes...',
+                    lambda r: _identify_controversies_stage(r, self)
+                )
+                
+                # Complete task early so frontend knows research phase is complete
+                result.update({
+                    'status': TASK_STATUS['SUCCESS'],
+                    'current_stage': 'CONTROVERSY_IDENTIFICATION',
+                    'progress': 50,
+                    'completed_at': datetime.utcnow().isoformat(),
+                    'message': 'Controversial topics identified successfully! Pending user take selection.',
+                    'pending_controversies': True,
+                    'controversies': result.get('controversies', []),
+                    'research_data': research_data
+                })
+                return result
+
         # Stage 5: Structure Generation
         result = _process_stage(
             self,
@@ -3905,6 +3976,133 @@ def _rank_evidence(result: Dict[str, Any], task_instance: Any = None) -> Dict[st
             'claim_bundles': [],
             'stage_data': {'ranked_sources': 0, 'claim_bundles': 0, 'error': str(e)}
         }
+
+def _identify_controversies_stage(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
+    """Identify controversial topics related to the article brief and evidence."""
+    try:
+        if task_instance:
+            task_instance.update_state(
+                state=TASK_STATUS['PROGRESS'],
+                meta={
+                    'current_stage': 'CONTROVERSY_IDENTIFICATION',
+                    'progress': 45,
+                    'message': 'Identifying controversial topics and alternative takes...'
+                }
+            )
+        
+        logger.info("🔍 Starting controversy identification stage...")
+        research_data = result.get('research_data', {})
+        claims = result.get('claims', [])
+        evidence = result.get('evidence', [])
+        article_id = research_data.get('article_id')
+        
+        brief = research_data.get('brief', '')
+        keywords = research_data.get('keywords', '')
+        
+        claims_text = "\n".join([f"- {c.get('claim', '')}" for c in claims[:6]])
+        evidence_text = "\n".join([f"- Source: {e.get('title', 'Unknown')} - {e.get('content', '')[:200]}..." for e in evidence[:4]])
+        
+        provider = research_data.get('provider', 'gemini')
+        model = research_data.get('model', 'gemini-2.5-flash')
+        api_key = get_llm_api_key(provider, model)
+        
+        llm_client = create_llm_client(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            temperature=0.7,
+            timeout=60
+        )
+        
+        messages = [
+            {
+                "role": "system",
+                "content": """You are an expert editor and research analyst.
+Your task is to analyze the article topic, brief, key claims, and research evidence to identify 3 to 5 potential controversial topics/debates relevant to this content.
+
+For each controversial topic, you must provide:
+1. A concise, clear title (e.g., "The use of iPads by kids").
+2. A summary of the controversy (the conflict, who debates it, and why).
+3. Exactly 3 alternative positions/takes that a writer could choose to support.
+   - Option 1: A conservative / traditional / cautious perspective.
+   - Option 2: A balanced / moderate / controlled perspective.
+   - Option 3: A progressive / permissive / tech-first perspective.
+
+Format your response strictly as a JSON object with this schema:
+{
+    "controversies": [
+        {
+            "id": "controversy_1",
+            "title": "Title of controversy",
+            "summary": "Summary of the debate",
+            "takes": [
+                {"id": "take_1", "text": "Detailed statement of viewpoint 1"},
+                {"id": "take_2", "text": "Detailed statement of viewpoint 2"},
+                {"id": "take_3", "text": "Detailed statement of viewpoint 3"}
+            ]
+        }
+    ]
+}
+Do not include any text, markdown code blocks, or explanations before or after the JSON.
+"""
+            },
+            {
+                "role": "user",
+                "content": f"Article Topic/Brief: {brief}\nKeywords: {keywords}\nKey Claims: {claims_text}\nResearch Evidence Summary: {evidence_text}"
+            }
+        ]
+        
+        response = llm_client.generate(messages)
+        response_text = response.content.strip()
+        
+        # Extract JSON if LLM returned markdown blocks
+        import json
+        import re
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if json_match:
+            response_text = json_match.group(0)
+            
+        data = json.loads(response_text)
+        controversies = data.get('controversies', [])
+        
+        if article_id:
+            supabase = get_supabase_client()
+            if supabase:
+                # Fetch existing metadata
+                db_res = supabase.table('Titles').select('idea_metadata').eq('id', article_id).limit(1).execute()
+                existing_metadata = {}
+                if db_res.data:
+                    existing_metadata = db_res.data[0].get('idea_metadata') or {}
+                    if isinstance(existing_metadata, str):
+                        try:
+                            existing_metadata = json.loads(existing_metadata)
+                        except Exception:
+                            existing_metadata = {}
+                if not isinstance(existing_metadata, dict):
+                    existing_metadata = {}
+                
+                # Merge new fields
+                existing_metadata['controversy_options'] = controversies
+                existing_metadata['research_claims'] = claims
+                existing_metadata['research_evidence'] = evidence
+                existing_metadata['research_completed_at'] = datetime.utcnow().isoformat()
+                
+                # Save metadata and set status to 'Pending Controversies'
+                supabase.table('Titles').update({
+                    'idea_metadata': existing_metadata,
+                    'status': 'Pending Controversies'
+                }).eq('id', article_id).execute()
+                logger.info(f"Saved controversies to article {article_id} and updated status to Pending Controversies")
+                
+        return {
+            'controversies': controversies,
+            'stage_data': {
+                'identified_controversies_count': len(controversies)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error in identify controversies stage: {str(e)}", exc_info=True)
+        raise RuntimeError(f"Controversy identification failed: {str(e)}") from e
 
 def _generate_structure(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
     """Generate article structure using comprehensive structure generator."""

@@ -603,6 +603,8 @@ def create_research_task():
             'seo_primary_keyword',
             'seo_secondary_keywords',
             'writer_notes',
+            'identify_controversies',
+            'selected_controversies',
         ]
         for field in extra_fields:
             if field in data and field not in task_data:
@@ -1118,6 +1120,9 @@ def get_research_status(task_id):
             result = task_status.get("result")
             if result:
                 response["result"] = result
+                if isinstance(result, dict) and result.get("pending_controversies"):
+                    response["pending_controversies"] = True
+                    response["controversy_options"] = result.get("controversies", [])
         
         # Add error if task failed
         if task_status.get("status") == "FAILURE":

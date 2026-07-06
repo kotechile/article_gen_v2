@@ -363,6 +363,7 @@ export const ContentStudio: React.FC = () => {
     const [taskId, setTaskId] = useState<string | null>(null);
     const [seoShiftEnabled, setSeoShiftEnabled] = useState(true);
     const [keywordValidationEnabled, setKeywordValidationEnabled] = useState(false);
+    const [identifyControversiesEnabled, setIdentifyControversiesEnabled] = useState(true);
     const [seoValidation, setSeoValidation] = useState<SEOValidation | null>(null);
     const [showKeywordModal, setShowKeywordModal] = useState(false);
     const [showCategoryModal, setShowCategoryModal] = useState(false);
@@ -1187,6 +1188,7 @@ export const ContentStudio: React.FC = () => {
                 rag_balance_emphasis: formData.emphasis,
                 article_id: articleId,
                 writer_notes: formData.writerNotes,
+                identify_controversies: identifyControversiesEnabled,
             };
 
             // Call Backend
@@ -1482,6 +1484,30 @@ export const ContentStudio: React.FC = () => {
                                 </label>
                                 <p className="text-xs text-muted-foreground mt-0.5">
                                     Off by default for strategic articles. Turn this on only when you want Content Studio to block generation until primary and secondary keywords are fully defined.
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Controversy Identification Toggle */}
+                        <div className={`flex items-start gap-3 p-3 rounded-xl border transition ${
+                            identifyControversiesEnabled
+                                ? 'border-primary/30 bg-primary/5'
+                                : 'border-border bg-muted/30'
+                        }`}>
+                            <input
+                                id="controversy-identification-toggle"
+                                type="checkbox"
+                                className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                                checked={identifyControversiesEnabled}
+                                onChange={(e) => setIdentifyControversiesEnabled(e.target.checked)}
+                            />
+                            <div className="flex-1">
+                                <label htmlFor="controversy-identification-toggle" className="text-sm font-medium text-foreground cursor-pointer flex items-center gap-1.5">
+                                    <Sparkles className="w-4 h-4 text-yellow-500" />
+                                    Identify controversial topics & takes
+                                </label>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    If checked, the generation pauses after research. You can pick 1-3 controversial topics and choose a writer take/opinion for the system to defend in the section development while letting readers form their own opinion.
                                 </p>
                             </div>
                         </div>
