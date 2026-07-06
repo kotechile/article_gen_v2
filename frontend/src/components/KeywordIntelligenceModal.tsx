@@ -310,8 +310,9 @@ function collectIdeaKeywordMetricMap(idea: ContentIdea): Map<string, { search_vo
     ingestSource(directCandidates);
     if (fromSelectedMetrics && typeof fromSelectedMetrics === 'object') {
         ingest(fromSelectedMetrics?.primary?.keyword, fromSelectedMetrics?.primary);
-        if (Array.isArray(fromSelectedMetrics?.secondary)) {
-            fromSelectedMetrics.secondary.forEach((row: any) => ingest(row?.keyword, row));
+        const secondaries = fromSelectedMetrics?.secondary || fromSelectedMetrics?.secondaries;
+        if (Array.isArray(secondaries)) {
+            secondaries.forEach((row: any) => ingest(row?.keyword, row));
         }
     }
     return map;

@@ -65,6 +65,14 @@ export function ResearchPipeline() {
                     keyword_difficulty: primaryKeywordObj.keyword_difficulty || 0,
                     cpc: primaryKeywordObj.cpc || 0,
                 } : null,
+                secondary: clusterKws
+                    .filter((kw: any) => kw.keyword !== primaryKeyword)
+                    .map((kw: any) => ({
+                        keyword: kw.keyword,
+                        search_volume: kw.search_volume || 0,
+                        keyword_difficulty: kw.keyword_difficulty || 0,
+                        cpc: kw.cpc || 0,
+                    })),
                 secondaries: clusterKws
                     .filter((kw: any) => kw.keyword !== primaryKeyword)
                     .map((kw: any) => ({
