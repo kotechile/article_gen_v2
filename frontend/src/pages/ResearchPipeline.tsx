@@ -88,7 +88,7 @@ export function ResearchPipeline() {
                 .insert([{
                     user_id: user.id,
                     Title: title,
-                    userDescription: cluster.primary_user_outcome || cluster.outcome || `Keywords: ${clusterKws.map((k: any) => k.keyword).join(', ')}`,
+                    userDescription: cluster.description || cluster.primary_user_outcome || cluster.outcome || `Keywords: ${clusterKws.map((k: any) => k.keyword).join(', ')}`,
                     status: 'New',
                     dateCreatedOn: new Date().toISOString(),
                     primary_keyword: primaryKeyword,
@@ -297,6 +297,12 @@ export function ResearchPipeline() {
                                         </Badge>
                                     </div>
                                     
+                                    {cluster.description && (
+                                        <p className="text-xs text-muted-foreground mb-4 leading-relaxed line-clamp-3">
+                                            {cluster.description}
+                                        </p>
+                                    )}
+
                                     <div className="flex gap-6 mb-6">
                                         <div>
                                             <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Total Vol</div>

@@ -704,28 +704,31 @@ class SemanticExpansionService:
         {context_block}
 
         Task:
-        Group these keywords into {target_clusters} distinct "Subtopics" or "Clusters".
-        Each cluster should represent a specific content theme or micro-niche.
+        Group these keywords into {target_clusters} distinct article concepts/topics.
+        Each cluster should represent a specific, compelling narrative concept (a story summary or specific theme), telling what the article will be about, even if it distances itself slightly from the literal keywords to make the article cohesive, interesting, and logically sound.
 
         IMPORTANT:
         - Create EXACTLY {target_clusters} separate clusters (not 1, not 2, but {target_clusters})
         - Each cluster should be distinct and non-overlapping
         - Distribute keywords across all clusters (don't put everything in one cluster)
         - Focus on specific micro-niches, not broad categories
-        - Name each cluster so it is obviously useful for downstream article ideation
-        - Prefer cluster names that imply a user problem, decision, comparison, framework, checklist, audit, or scenario
-        - Keep the website/category lens in mind when naming and grouping
+        - Name each cluster with a compelling, narrative title that summarizes the story it tells, rather than just repeating dry keywords. The title must make sense as a real article title.
+        - For each cluster, write a DESCRIPTION field summarizing the story this article will tell, explaining what it is about and why it matters to the reader.
+        - Prefer cluster names and descriptions that imply a user problem, decision, comparison, framework, checklist, audit, or scenario.
+        - Keep the website/category lens in mind when naming and grouping.
 
-        Output Format (use EXACTLY this format):
+        Output Format (use EXACTLY this format, with DESCRIPTION on a single line):
 
-        CLUSTER: Subtopic Name Here
+        CLUSTER: Narrative Title Summarizing the Story
+        DESCRIPTION: Narrative summary of the story this article will tell, explaining what it is about, why it matters, and the angle it will take.
         OUTCOME: One clear user outcome this cluster helps achieve
         TYPE: one of [problem, decision, comparison, checklist, framework, audit, calculator, scenario]
         INTENT_MATCH: one of [high, medium, low]
         TOOL_POTENTIAL: integer 0-100
         KEYWORDS: keyword1, keyword2, keyword3
 
-        CLUSTER: Another Subtopic Name
+        CLUSTER: Another Narrative Title
+        DESCRIPTION: ...
         OUTCOME: ...
         TYPE: ...
         INTENT_MATCH: ...
@@ -733,8 +736,9 @@ class SemanticExpansionService:
         KEYWORDS: keyword4, keyword5, keyword6
 
         Rules:
-        - Start each cluster with "CLUSTER: " followed by the name
-        - Include OUTCOME/TYPE/INTENT_MATCH/TOOL_POTENTIAL fields before KEYWORDS
+        - Start each cluster with "CLUSTER: " followed by the title
+        - Include DESCRIPTION/OUTCOME/TYPE/INTENT_MATCH/TOOL_POTENTIAL fields before KEYWORDS
+        - Write DESCRIPTION on a single line
         - List keywords on the final line starting with "KEYWORDS: "
         - Separate keywords with commas
         - Do not use markdown code blocks
@@ -868,6 +872,7 @@ class SemanticExpansionService:
                 
                 # Enrich cluster object
                 cluster['cluster_title'] = title
+                cluster['description'] = cluster.get('description') or ""
                 # CRITICAL: Store objects in BOTH keys for compatibility
                 if not matched_kw_objects and raw_kws:
                     matched_kw_objects = [{"keyword": kw, "search_volume": 0, "keyword_difficulty": 0} for kw in raw_kws]
@@ -1146,6 +1151,7 @@ class SemanticExpansionService:
         # Pattern matches "CLUSTER:" followed by name, then "KEYWORDS:" followed by comma-separated list
         pattern = (
             r'CLUSTER:\s*(.+?)\n'
+            r'DESCRIPTION:\s*(.+?)\n'
             r'OUTCOME:\s*(.+?)\n'
             r'TYPE:\s*(.+?)\n'
             r'INTENT_MATCH:\s*(.+?)\n'
@@ -1155,7 +1161,7 @@ class SemanticExpansionService:
         matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
 
         if matches:
-            for name, outcome, cluster_type, intent_match, tool_potential, keywords_str in matches:
+            for name, description, outcome, cluster_type, intent_match, tool_potential, keywords_str in matches:
                 # Clean up the keywords
                 keywords = [k.strip().strip('- ') for k in keywords_str.split(',') if k.strip()]
                 if keywords:  # Only add if we have keywords
@@ -1167,6 +1173,7 @@ class SemanticExpansionService:
                     clusters.append({
                         'subtopic_name': name.strip(),
                         'seed_keywords': keywords,
+                        'description': description.strip(),
                         'primary_user_outcome': outcome.strip(),
                         'cluster_type': cluster_type.strip().lower(),
                         'serp_intent_match': intent_match.strip().lower(),
@@ -1178,6 +1185,7 @@ class SemanticExpansionService:
             current_cluster = None
             current_keywords = []
             current_outcome = ""
+            current_description = ""
             current_type = "decision"
             current_intent_match = "medium"
             current_tool_score = 50
@@ -1188,13 +1196,14 @@ class SemanticExpansionService:
                     continue
 
                 # Check for cluster header (various formats)
-                if line.upper().startswith('CLUSTER:') or line.startswith('**') or ':' in line:
+                if line.upper().startswith('CLUSTER:') or line.startswith('**') or (':' in line and line.split(':')[0].strip().upper() == 'CLUSTER'):
                     # Save previous cluster if exists
                     if current_cluster and current_keywords:
                         clusters.append({
                             'subtopic_name': current_cluster,
                             'seed_keywords': current_keywords,
                             'primary_user_outcome': current_outcome or f"Evaluate {current_cluster} and choose next steps",
+                            'description': current_description,
                             'cluster_type': current_type,
                             'serp_intent_match': current_intent_match,
                             'tool_potential_score': current_tool_score,
@@ -1207,10 +1216,13 @@ class SemanticExpansionService:
                         current_cluster = line.strip('* ')
                     current_keywords = []
                     current_outcome = ""
+                    current_description = ""
                     current_type = "decision"
                     current_intent_match = "medium"
                     current_tool_score = 50
 
+                elif line.upper().startswith('DESCRIPTION:'):
+                    current_description = line.split(':', 1)[1].strip()
                 elif line.upper().startswith('OUTCOME:'):
                     current_outcome = line.split(':', 1)[1].strip()
                 elif line.upper().startswith('TYPE:'):
@@ -1242,6 +1254,7 @@ class SemanticExpansionService:
                     'subtopic_name': current_cluster,
                     'seed_keywords': current_keywords,
                     'primary_user_outcome': current_outcome or f"Evaluate {current_cluster} and choose next steps",
+                    'description': current_description,
                     'cluster_type': current_type,
                     'serp_intent_match': current_intent_match,
                     'tool_potential_score': current_tool_score,
