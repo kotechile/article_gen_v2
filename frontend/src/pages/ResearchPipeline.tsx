@@ -28,11 +28,19 @@ export function ResearchPipeline() {
     const [selectingClusterIdx, setSelectingClusterIdx] = React.useState<number | null>(null)
 
     const handleSelectForArticle = async (cluster: any, idx: number) => {
+        console.log('[ResearchPipeline] handleSelectForArticle button clicked', {
+            idx,
+            cluster,
+            user,
+            activeProject
+        })
         if (!user) {
+            console.warn('[ResearchPipeline] handleSelectForArticle: user is null')
             toast.error('You must be logged in to select an article.')
             return
         }
         if (!activeProject) {
+            console.warn('[ResearchPipeline] handleSelectForArticle: activeProject is null')
             toast.error('Please select a project first.')
             return
         }
@@ -67,6 +75,14 @@ export function ResearchPipeline() {
                     }))
             }
 
+            console.log('[ResearchPipeline] Inserting new article into Titles...', {
+                title,
+                primaryKeyword,
+                secondaryKeywords,
+                domain: activeProject.domain || '',
+                user_id: user.id
+            })
+
             const { error: insertError } = await supabase
                 .from('Titles')
                 .insert([{
@@ -85,7 +101,12 @@ export function ResearchPipeline() {
                     selected_keyword_metrics_json: selected_keyword_metrics_json,
                 }])
 
-            if (insertError) throw insertError
+            if (insertError) {
+                console.error('[ResearchPipeline] Supabase insert error:', insertError)
+                throw insertError
+            }
+
+            console.log('[ResearchPipeline] Successfully inserted article to queue!')
 
             setSelectedClusters(prev => ({ ...prev, [idx]: true }))
             toast.success(`Successfully added "${title}" to your article queue!`, {
@@ -95,7 +116,7 @@ export function ResearchPipeline() {
                 }
             })
         } catch (err: any) {
-            console.error('Failed to select article:', err)
+            console.error('[ResearchPipeline] Failed to select article:', err)
             toast.error(err.message || 'Failed to select article.')
         } finally {
             setSelectingClusterIdx(null)
