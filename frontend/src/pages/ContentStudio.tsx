@@ -2061,8 +2061,8 @@ export const ContentStudio: React.FC = () => {
                                             <div className="inline-flex items-center gap-2 rounded-full border border-sky-400/35 bg-sky-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-200 mb-2">
                                                 Step 1
                                             </div>
-                                            <label className="block text-sm font-semibold text-slate-100">Choose a Proposed Option</label>
-                                            <p className="text-xs text-slate-300 mt-1">
+                                            <label className="block text-sm font-semibold text-slate-100" style={{ color: '#f8fafc' }}>Choose a Proposed Option</label>
+                                            <p className="text-xs text-slate-300 mt-1" style={{ color: '#cbd5e1' }}>
                                                 Pick the closest keyword-aligned draft. The selected option will populate the editable fields below.
                                             </p>
                                         </div>
@@ -2090,7 +2090,7 @@ export const ContentStudio: React.FC = () => {
                                                     }`}
                                                 >
                                                     <div className="flex items-center justify-between gap-3 mb-2">
-                                                        <div className={`text-xs font-semibold ${selected ? 'text-emerald-300' : 'text-slate-300'}`}>Option {idx + 1}</div>
+                                                        <div className={`text-xs font-semibold ${selected ? 'text-emerald-300' : 'text-slate-300'}`} style={{ color: selected ? '#34d399' : '#cbd5e1' }}>Option {idx + 1}</div>
                                                         <div
                                                             className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
                                                                 selected
@@ -2101,8 +2101,8 @@ export const ContentStudio: React.FC = () => {
                                                             {selected ? 'Selected' : 'Preview'}
                                                         </div>
                                                     </div>
-                                                    <div className={`text-sm font-semibold line-clamp-1 ${selected ? 'text-emerald-100' : 'text-slate-100'}`}>{option.refined_title}</div>
-                                                    <div className={`text-xs line-clamp-3 mt-1.5 leading-relaxed ${selected ? 'text-emerald-300/80' : 'text-slate-300'}`}>{option.refined_description}</div>
+                                                    <div className={`text-sm font-semibold line-clamp-1 ${selected ? 'text-emerald-100' : 'text-slate-100'}`} style={{ color: selected ? '#ecfdf5' : '#f8fafc' }}>{option.refined_title}</div>
+                                                    <div className={`text-xs line-clamp-3 mt-1.5 leading-relaxed ${selected ? 'text-emerald-300/80' : 'text-slate-300'}`} style={{ color: selected ? '#a7f3d0' : '#cbd5e1' }}>{option.refined_description}</div>
                                                 </button>
                                             );
                                         })}
