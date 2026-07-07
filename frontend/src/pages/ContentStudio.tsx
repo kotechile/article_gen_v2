@@ -2154,9 +2154,8 @@ export const ContentStudio: React.FC = () => {
                             </button>
                             <button
                                 onClick={handleApproveRefinement}
-                                disabled={!refinementDraft.title.trim() || refinementDraft.title.trim().length > 60 || refinementDraft.description.trim().length < 10}
+                                disabled={!refinementDraft.title.trim() || refinementDraft.description.trim().length < 10}
                                 className="px-4 py-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                                title={refinementDraft.title.trim().length > 60 ? 'Title exceeds 60 characters' : undefined}
                             >
                                 Approve & Continue
                             </button>
