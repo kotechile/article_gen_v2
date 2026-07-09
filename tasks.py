@@ -1093,6 +1093,14 @@ def _polish_and_format_article(
         max_tokens=6000,
     )
 
+    if writer_notes:
+        personal_touch_instruction = f'Ensure the writer\'s notes/reflections/firsthand narrative ("{writer_notes}") are woven naturally and prominently into the article (preferably in the opening section or introduction). Do not quote them as external quotes; state them as the author\'s own experience or thoughts. Keep it natural, fluid, and not repetitive. Avoid clichés (e.g. staring at screens or kitchen tables).'
+    else:
+        if tone.lower() == 'friendly':
+            personal_touch_instruction = 'Ensure the article maintains a warm, friendly first-person perspective, incorporating natural and authentic personal reflections if appropriate. However, do NOT fabricate repetitive, generic clichés (e.g. "I remember sitting at my kitchen table" or "I remember staring at my laptop screen"). Keep any personal anecdotes natural, fluid, unique, and non-repetitive.'
+        else:
+            personal_touch_instruction = 'DO NOT introduce or fabricate first-person narrative, reflections, or fictional personal experiences (e.g. "I remember sitting at my kitchen table" or "I remember staring at my laptop screen"), especially since the tone is not friendly and no writer\'s notes were provided. Maintain the requested tone without forcing artificial first-person anecdotes.'
+
     prompt = f"""
 You are a professional editor and polishing agent. Your job is to format and polish the given article content (in HTML) to meet strict quality guidelines.
 Do NOT lose, omit, or modify any facts, concepts, numbers, references, or information. Keep the core meaning entirely intact.
@@ -1101,7 +1109,7 @@ Strict Quality Guidelines to enforce:
 1. **NO WALLS OF TEXT**: Keep all paragraphs short and digestible (typically 2 to 4 sentences max). If you encounter any long paragraphs, split them.
 2. **SUBHEADING STRUCTURE**: Introduce relevant, descriptive <h3> and <h4> subheadings to organize and break down any sections that are long or dense.
 3. **COMPARATIVE TABLES**: Ensure the article contains 1 to 4 clean HTML tables (<table>, <tr>, <th>, <td>) to compare concepts, list metrics, summarize numerical data, or structure information. If there are no tables in the original text, you MUST construct 1-4 relevant comparative tables based on the context of the article.
-4. **WRITER'S PERSONAL TOUCH**: Ensure the writer's notes/reflections/firsthand narrative ("{writer_notes}") are woven naturally and prominently into the article (preferably in the opening section or introduction). If they are missing or not prominent, you MUST rewrite the opening paragraphs to weave them in using first-person ("I" or "we") as firsthand narrative, even if the general tone of the article is professional or journalistic. Do not quote them as external quotes; state them as the author's own experience or thoughts.
+4. **WRITER'S PERSONAL TOUCH**: {personal_touch_instruction}
 5. **KEEP CITATION MARKERS INTACT**: Keep all in-text citation markers like [1], [2], [3], [^1], etc. exactly where they are in the text. DO NOT modify, delete, or rename them.
 
 INPUT INFORMATION:
@@ -5369,6 +5377,8 @@ Rules:
             - Make sure complex concepts are explained simply (especially for friendly tone)
             - Ensure the language matches the {tone} tone perfectly
             - Keep the content engaging and natural
+            - Avoid repetitive, cliché personal anecdotes/stories (such as "I remember sitting at my kitchen table" or "I remember staring at my laptop screen"). Make sure any personal narratives are natural, fluid, unique, and never repeat similar phrasing or concepts.
+            - If the tone is Journalistic, Professional, Academic, or Technical, ensure there are NO fabricated first-person anecdotes or fictional personal stories injected.
             - CRITICAL: Proactively split any long, dense paragraphs into smaller, bite-sized, digestible paragraphs (typically 2 to 4 sentences or 30 to 70 words each) to avoid fatigue, improve readability, and keep the layout scannable.
             - {"If this is a Key Takeaways section, make it more fluid and concise by using 3-5 short, distinct bullets with minimal overlap." if takeaways_section else "Avoid unnecessary repetition and keep each section focused."}
             - Maintain the original meaning and factual accuracy
