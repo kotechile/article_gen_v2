@@ -51,7 +51,7 @@ const VOICE_PRESETS = [
 
 interface Scene {
     sceneId: string;
-    type: 'framework_hero' | 'comparison_table' | 'kpi_metric' | 'broll_image' | 'call_to_action' | 'video_clip';
+    type: 'framework_hero' | 'comparison_table' | 'kpi_metric' | 'broll_image' | 'call_to_action' | 'video_clip' | 'outro_logo';
     durationInSeconds: number;
     heading: string;
     subheading?: string;
@@ -330,6 +330,12 @@ export function VideoStudio() {
                 value: '95%',
                 label: 'Efficiency'
             };
+        } else if (type === 'outro_logo') {
+            newScene.heading = '';
+            newScene.subheading = '';
+            newScene.voiceoverScript = '';
+            newScene.imagePrompt = 'Gini Loh Outro Logo Display';
+            newScene.durationInSeconds = 3.0;
         }
 
         setBlueprint({
@@ -1165,6 +1171,13 @@ export function VideoStudio() {
                                             className="px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-[10px] font-bold text-foreground cursor-pointer transition animate-scaleIn"
                                         >
                                             + Video Clip
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => addScene('outro_logo')}
+                                            className="px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-[10px] font-bold text-foreground cursor-pointer transition animate-scaleIn"
+                                        >
+                                            + Brand Outro
                                         </button>
                                     </div>
                                 </div>

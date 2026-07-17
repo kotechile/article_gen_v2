@@ -8,6 +8,7 @@ import { ComparisonTable } from "./components/scenes/ComparisonTable";
 import { BRollImage } from "./components/scenes/BRollImage";
 import { CallToAction } from "./components/scenes/CallToAction";
 import { VideoClip } from "./components/scenes/VideoClip";
+import { BrandOutro } from "./components/scenes/BrandOutro";
 import { Subtitles } from "./components/Subtitles";
 import { AudioTracks } from "./components/AudioTracks";
 
@@ -124,6 +125,13 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
                   imageSizePercent={imageSizePercent}
                   imageValign={imageValign}
                   imageHalign={imageHalign}
+                />
+              )}
+              {type === "outro_logo" && (
+                <BrandOutro
+                  brandColors={brandColors}
+                  format={format}
+                  durationInFrames={durationInFrames}
                 />
               )}
             </Series.Sequence>

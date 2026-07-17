@@ -113,7 +113,7 @@ The output format must be exact JSON matching this schema:
   "scenes": [
     {
       "sceneId": "scene_1",
-      "type": "framework_hero" | "comparison_table" | "kpi_metric" | "broll_image" | "call_to_action" | "video_clip",
+      "type": "framework_hero" | "comparison_table" | "kpi_metric" | "broll_image" | "call_to_action" | "video_clip" | "outro_logo",
       "durationInSeconds": 15.0,
       "heading": "Heading or title for this scene",
       "subheading": "Optional subheading or label",
@@ -133,12 +133,13 @@ The output format must be exact JSON matching this schema:
 }
 
 Instructions for Custom Scripts:
-1. Parse the user's custom script and generate the corresponding scenes. Match the scene count of the user's script (typically 5 scenes).
+1. Parse the user's custom script and generate the corresponding scenes. If the script contains or implies a final logo presentation slide or outro card (e.g. "Gini Loh logo pulses on screen"), create a separate closing scene of type "outro_logo" right after the Call to Action. This closing outro scene should typically have a duration of 3.0 to 4.0 seconds, empty voiceoverScript, and heading/subheading blank.
 2. For each scene, map the "durationInSeconds" by parsing the duration indicators in the script (e.g. 0:15 - 0:35 = 20.0 seconds).
 3. The "voiceoverScript" MUST be copied LITERALLY from the VO/Audio section of the corresponding scene. Do not rewrite, summarize, or edit the wording. Keep all spoken text exactly as written by the user.
 4. Set the scene "type" to:
    - "video_clip" or "broll_image" if the visual description or storyboard notes involve screencasts, UI interactions, cursor clicks, typing, browser views, or slider drags.
-   - "call_to_action" for the final outro scene.
+   - "call_to_action" for the final outro/CTA text and URL presentation.
+   - "outro_logo" for a dedicated final logo outro slide with no text/voiceover.
    - "comparison_table" only if the scene explicitly contains table/grid data.
    - "kpi_metric" only if the scene explicitly highlights a single large numeric KPI statistic.
 5. Place the storyboard visual sequence notes into the "imagePrompt" field so the user can see what needs to be recorded/uploaded.
