@@ -335,6 +335,9 @@ export function VideoStudio() {
             },
         };
 
+        // Calculate dynamic concurrency based on number of scenes (max 16, min 4)
+        const dynamicConcurrency = Math.min(16, Math.max(4, (blueprint?.scenes.length || 5) * 2));
+
         try {
             const response = await apiClient.post<any>('/v1/generate-video', {
                 url,
@@ -347,8 +350,9 @@ export function VideoStudio() {
                 aspect_ratio: aspectRatio,
                 music: finalMusic,
                 blueprint_payload: finalBlueprint,
+                concurrency: dynamicConcurrency,
             }, {
-                timeout: 300000,
+                timeout: 900000,
             });
 
             if (response.status === 'success') {

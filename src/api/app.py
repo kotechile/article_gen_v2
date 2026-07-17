@@ -286,6 +286,7 @@ def create_app(config_name: str = None) -> Flask:
             aspect_ratio = data.get('aspect_ratio', 'vertical')
             music = data.get('music', 'background.mp3')
             blueprint_payload = data.get('blueprint_payload')
+            concurrency = data.get('concurrency', 4)
             
             # Resolve host_url from request dynamically
             host_url = request.host_url.rstrip('/')
@@ -314,7 +315,8 @@ def create_app(config_name: str = None) -> Flask:
                 "--caption-position", caption_position,
                 "--aspect-ratio", aspect_ratio,
                 "--host-url", host_url,
-                "--render-on-lambda"
+                "--render-on-lambda",
+                "--concurrency", str(concurrency)
             ]
             
             if temp_payload_path:

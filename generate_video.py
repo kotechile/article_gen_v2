@@ -608,6 +608,7 @@ def main():
     parser.add_argument("--host-url", help="Fully qualified domain of the backend server (to resolve remote assets for AWS Lambda)")
     parser.add_argument("--music", default="background.mp3", help="Background music selection")
     parser.add_argument("--render-on-lambda", action="store_true", help="Render video on AWS Lambda instead of locally")
+    parser.add_argument("--concurrency", type=int, default=4, help="AWS Lambda rendering concurrency limit")
     parser.add_argument("--blueprint-only", action="store_true", help="Only generate the blueprint JSON structure from LLM, then print to stdout and exit")
     parser.add_argument("--blueprint-payload", help="Path to a pre-existing blueprint JSON file to compile the video from directly")
     
@@ -643,22 +644,38 @@ def main():
         public_dir = os.path.join(os.path.dirname(__file__), '_remotion', 'public')
         auto_sync = blueprint.get('metadata', {}).get('autoSyncTimings', True)
         
-        voiceover_segments = []
+        # Build audio synthesis tasks
+        tasks = []
         for idx, sc in enumerate(blueprint['scenes']):
             script_text = sc.get('voiceoverScript', '')
             seg_filename = f"scene_{idx + 1}_voice.mp3"
             seg_path = os.path.join(public_dir, seg_filename)
-            
+            tasks.append((idx, script_text, seg_path))
+
+        from concurrent.futures import ThreadPoolExecutor
+        
+        def run_voiceover_task(task):
+            idx, script_text, seg_path = task
             if script_text.strip():
-                if args.provider == "elevenlabs" or len(args.voice) > 15:
-                    generate_voiceover_elevenlabs(script_text, args.voice, seg_path)
-                else:
-                    generate_voiceover_openai(script_text, args.voice, seg_path)
-                voiceover_segments.append(seg_path)
+                try:
+                    if args.provider == "elevenlabs" or len(args.voice) > 15:
+                        generate_voiceover_elevenlabs(script_text, args.voice, seg_path)
+                    else:
+                        generate_voiceover_openai(script_text, args.voice, seg_path)
+                    return seg_path
+                except Exception as e:
+                    print(f"❌ Failed generating voiceover segment for Scene {idx + 1}: {e}")
+                    return None
             else:
-                # If there's no script, delete any old segment that might exist
                 if os.path.exists(seg_path):
                     os.remove(seg_path)
+                return None
+
+        print(f"🎙 Generating per-scene voiceovers in parallel...")
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            results = list(executor.map(run_voiceover_task, tasks))
+            
+        voiceover_segments = [path for path in results if path is not None]
 
         # Step 4: Download Images
         download_broll_images(blueprint)
@@ -726,7 +743,7 @@ def main():
             # Your deployed S3 site serve URL
             serve_url = "https://remotionlambda-useast1-n9j3q72d18.s3.us-east-1.amazonaws.com/sites/artivids-engine/index.html"
             print(f"☁ Triggering AWS Lambda serverless render (Serve URL: {serve_url})...")
-            render_cmd = f"cd {remotion_dir} && npx remotion lambda render {serve_url} {comp_id} --region=us-east-1 --props=src/mockPayload.json --concurrency=4 --timeout=300000 --function-name=remotion-render-4-0-484-mem3008mb-disk2048mb-300sec output-generated.mp4"
+            render_cmd = f"cd {remotion_dir} && npx remotion lambda render {serve_url} {comp_id} --region=us-east-1 --props=src/mockPayload.json --concurrency={args.concurrency} --timeout=900000 --function-name=remotion-render-4-0-484-mem3008mb-disk2048mb-300sec output-generated.mp4"
         else:
             print("💻 Triggering local render on the host...")
             render_cmd = f"cd {remotion_dir} && npx remotion render {comp_id} output-generated.mp4 --props src/mockPayload.json"
