@@ -293,8 +293,10 @@ def create_app(config_name: str = None) -> Flask:
         try:
             data = request.get_json() or {}
             url = data.get('url')
-            if not url:
-                return jsonify({'error': 'missing_parameter', 'message': 'url is required'}), 400
+            blueprint_payload = data.get('blueprint_payload')
+            
+            if not url and not blueprint_payload:
+                return jsonify({'error': 'missing_parameter', 'message': 'url or blueprint_payload is required'}), 400
                 
             voice = data.get('voice', 'onyx')
             provider = data.get('provider', 'openai')
@@ -304,7 +306,6 @@ def create_app(config_name: str = None) -> Flask:
             background = data.get('background_color')
             aspect_ratio = data.get('aspect_ratio', 'vertical')
             music = data.get('music', 'background.mp3')
-            blueprint_payload = data.get('blueprint_payload')
             concurrency = data.get('concurrency', 4)
             
             # Resolve host_url from request dynamically
@@ -328,7 +329,7 @@ def create_app(config_name: str = None) -> Flask:
             cmd = [
                 "python3",
                 script_path,
-                url,
+                url or "",
                 "--voice", voice,
                 "--provider", provider,
                 "--caption-position", caption_position,
