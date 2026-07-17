@@ -893,9 +893,9 @@ export function VideoStudio() {
                                                         <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Edit Table Headers</span>
                                                         <div 
                                                             className="grid gap-2"
-                                                            style={{ gridTemplateColumns: `repeat(${scene.tableData.headers.length}, minmax(0, 1fr))` }}
+                                                            style={{ gridTemplateColumns: `repeat(${scene.tableData?.headers?.length || 2}, minmax(0, 1fr))` }}
                                                         >
-                                                            {scene.tableData.headers.map((h, hidx) => (
+                                                            {(scene.tableData.headers || []).map((h, hidx) => (
                                                                 <input
                                                                     key={hidx}
                                                                     type="text"
@@ -923,7 +923,7 @@ export function VideoStudio() {
                                                                 <div 
                                                                     key={ridx} 
                                                                     className="grid gap-2"
-                                                                    style={{ gridTemplateColumns: `repeat(${scene.tableData.headers.length}, minmax(0, 1fr))` }}
+                                                                    style={{ gridTemplateColumns: `repeat(${scene.tableData?.headers?.length || 2}, minmax(0, 1fr))` }}
                                                                 >
                                                                     {row.map((cell, cidx) => (
                                                                         <input
