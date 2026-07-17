@@ -594,6 +594,8 @@ export function VideoStudio() {
                                                 className="h-9 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none"
                                             >
                                                 <option value="background.mp3">Cyberpunk Grid (Lo-Fi)</option>
+                                                <option value="Corporate_Grid_low beat.mp3">Corporate Grid (Low Beat)</option>
+                                                <option value="System_Architecture low beat.mp3">System Architecture (Low Beat)</option>
                                                 <option value="custom">Upload Custom (.mp3)...</option>
                                                 <option value="none">No Music (Voiceover Only)</option>
                                             </select>
