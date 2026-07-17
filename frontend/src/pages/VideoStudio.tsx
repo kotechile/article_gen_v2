@@ -126,6 +126,8 @@ export function VideoStudio() {
     const [primaryColor, setPrimaryColor] = React.useState('#8A2BE2');
     const [secondaryColor, setSecondaryColor] = React.useState('#00FFFF');
     const [backgroundColor, setBackgroundColor] = React.useState('#0B0C10');
+    const [brandLogoUrl, setBrandLogoUrl] = React.useState('');
+    const [uploadingLogo, setUploadingLogo] = React.useState(false);
 
     // Blueprint blueprint content
     const [blueprint, setBlueprint] = React.useState<Blueprint | null>(null);
@@ -356,7 +358,7 @@ export function VideoStudio() {
         const finalVoice = provider === 'elevenlabs' && customVoiceId ? customVoiceId : voice;
         const finalMusic = music === 'custom' && customMusicUrl ? customMusicUrl : music;
 
-        // Ensure final blueprint has correct layout colors / format
+        // Ensure final blueprint has correct layout colors / format / logo
         const finalBlueprint = {
             ...blueprint,
             metadata: {
@@ -367,6 +369,7 @@ export function VideoStudio() {
                     secondary: secondaryColor,
                     background: backgroundColor,
                 },
+                brandLogoUrl: brandLogoUrl || undefined,
             },
         };
 
@@ -733,6 +736,80 @@ export function VideoStudio() {
                                                     className="h-8 w-full rounded border border-border bg-background px-2 text-xs outline-none"
                                                 />
                                             </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Brand Logo Upload */}
+                                    <div className="space-y-2 border-t border-border pt-4 mt-2">
+                                        <label className="text-[10px] uppercase font-bold text-muted-foreground block">Brand Logo Asset</label>
+                                        <div className="flex items-center gap-4">
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                id="brand-logo-upload"
+                                                className="hidden"
+                                                onChange={async (e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (file) {
+                                                        setUploadingLogo(true);
+                                                        const formData = new FormData();
+                                                        formData.append('file', file);
+                                                        try {
+                                                            const response = await apiClient.post<any>('/v1/video/upload', formData, {
+                                                                headers: {
+                                                                    'Content-Type': 'multipart/form-data',
+                                                                },
+                                                            });
+                                                            if (response.status === 'success') {
+                                                                setBrandLogoUrl(response.relative_path);
+                                                            } else {
+                                                                throw new Error(response.message || 'Logo upload failed');
+                                                            }
+                                                        } catch (err: any) {
+                                                            alert(`Logo upload failed: ${err.message}`);
+                                                        } finally {
+                                                            setUploadingLogo(false);
+                                                        }
+                                                    }
+                                                }}
+                                            />
+                                            <label
+                                                htmlFor="brand-logo-upload"
+                                                className="h-8 px-4 rounded border border-dashed border-border bg-muted/10 flex items-center justify-center gap-1.5 text-[10px] font-bold text-foreground cursor-pointer hover:bg-muted/20 transition"
+                                            >
+                                                <Upload className="h-3.5 w-3.5" />
+                                                {uploadingLogo ? 'Uploading...' : 'Choose custom logo image'}
+                                            </label>
+
+                                            {brandLogoUrl ? (
+                                                <div className="flex items-center gap-2">
+                                                    <img 
+                                                        src={brandLogoUrl.startsWith('http') ? brandLogoUrl : `/api/static/${brandLogoUrl}`} 
+                                                        alt="Logo Thumbnail" 
+                                                        className="w-8 h-8 rounded object-cover border border-border bg-muted"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setBrandLogoUrl('')}
+                                                        className="text-[10px] text-red-500 font-bold hover:underline cursor-pointer"
+                                                    >
+                                                        Remove Custom
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center gap-2">
+                                                    <img 
+                                                        src="/api/static/gini_loh_logo.jpg" 
+                                                        alt="Default Gini Loh Logo" 
+                                                        className="w-8 h-8 rounded object-cover border border-border bg-muted opacity-60"
+                                                        onError={(e) => {
+                                                            // fallback to public folder relative path if static api server route doesn't match
+                                                            (e.target as HTMLImageElement).src = '/gini_loh_logo.jpg';
+                                                        }}
+                                                    />
+                                                    <span className="text-[10px] text-muted-foreground italic">Using default brand outro logo</span>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

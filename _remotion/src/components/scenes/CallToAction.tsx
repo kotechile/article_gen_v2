@@ -19,6 +19,7 @@ interface CallToActionProps {
   imageSizePercent?: number;
   imageValign?: "top" | "center" | "bottom";
   imageHalign?: "left" | "center" | "right";
+  brandLogoUrl?: string;
 }
 
 export const CallToAction: React.FC<CallToActionProps> = ({
@@ -31,12 +32,14 @@ export const CallToAction: React.FC<CallToActionProps> = ({
   imageSizePercent,
   imageValign = "center",
   imageHalign = "center",
+  brandLogoUrl,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  // Resilience: Preload background image
+  // Resilience: Preload background image and logo
   const { localUrl } = useResilientAsset(visualAssetUrl);
+  const { localUrl: localLogoUrl } = useResilientAsset(brandLogoUrl);
 
   // Entrance spring for CTA elements
   const entranceSpring = spring({
@@ -139,7 +142,7 @@ export const CallToAction: React.FC<CallToActionProps> = ({
 
         {/* Gini Loh Logo */}
         <img
-          src={staticFile("gini_loh_logo.jpg")}
+          src={localLogoUrl || staticFile("gini_loh_logo.jpg")}
           alt="Gini Loh Logo"
           style={{
             width: format === "vertical" ? "80px" : "112px",

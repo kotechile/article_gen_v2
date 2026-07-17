@@ -7,20 +7,26 @@ import {
   AbsoluteFill,
   staticFile,
 } from "remotion";
+import { useResilientAsset } from "../../utils/fetchWithRetry";
 
 interface BrandOutroProps {
   brandColors: { primary: string; secondary: string; background: string };
   format: "landscape" | "vertical";
   durationInFrames: number;
+  brandLogoUrl?: string;
 }
 
 export const BrandOutro: React.FC<BrandOutroProps> = ({
   brandColors,
   format,
   durationInFrames,
+  brandLogoUrl,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+
+  // Resilience: Preload custom logo
+  const { localUrl: localLogoUrl } = useResilientAsset(brandLogoUrl);
 
   // Entrance spring for logo
   const entranceSpring = spring({
@@ -79,7 +85,7 @@ export const BrandOutro: React.FC<BrandOutroProps> = ({
         }}
       >
         <img
-          src={staticFile("gini_loh_logo.jpg")}
+          src={localLogoUrl || staticFile("gini_loh_logo.jpg")}
           alt="Gini Loh Logo"
           style={{
             width: format === "vertical" ? "180px" : "240px",

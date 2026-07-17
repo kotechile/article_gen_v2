@@ -18,7 +18,7 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
   subtitles,
   scenes,
 }) => {
-  const { format, brandColors, totalDurationInSeconds, captionPosition } = metadata;
+  const { format, brandColors, totalDurationInSeconds, captionPosition, brandLogoUrl } = metadata;
   const fps = 30;
   const totalDurationInFrames = Math.round(totalDurationInSeconds * fps);
 
@@ -112,6 +112,7 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
                   imageSizePercent={imageSizePercent}
                   imageValign={imageValign}
                   imageHalign={imageHalign}
+                  brandLogoUrl={brandLogoUrl}
                 />
               )}
               {type === "video_clip" && (
@@ -129,10 +130,11 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
               )}
               {type === "outro_logo" && (
                 <BrandOutro
-                  brandColors={brandColors}
-                  format={format}
-                  durationInFrames={durationInFrames}
-                />
+                   brandColors={brandColors}
+                   format={format}
+                   durationInFrames={durationInFrames}
+                   brandLogoUrl={brandLogoUrl}
+                 />
               )}
             </Series.Sequence>
           );
