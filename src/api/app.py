@@ -238,10 +238,36 @@ def create_app(config_name: str = None) -> Flask:
                 except Exception:
                     pass
 
+    def cleanup_old_uploads():
+        """Delete uploaded files older than 24 hours to prevent VPS disk clutter."""
+        import time
+        try:
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            uploads_dir = os.path.join(base_dir, "_remotion", "public", "uploads")
+            if not os.path.exists(uploads_dir):
+                return
+                
+            now = time.time()
+            cutoff = now - (24 * 3600)  # 24 hours in seconds
+            
+            for filename in os.listdir(uploads_dir):
+                file_path = os.path.join(uploads_dir, filename)
+                if os.path.isfile(file_path):
+                    file_mtime = os.path.getmtime(file_path)
+                    if file_mtime < cutoff:
+                        try:
+                            os.remove(file_path)
+                            app.logger.info(f"🗑️ Cleaned up old upload file: {filename}")
+                        except Exception as e:
+                            app.logger.warning(f"Failed to delete old upload file {filename}: {e}")
+        except Exception as e:
+            app.logger.error(f"Error during upload cleanup: {e}")
+
     @app.route('/api/v1/video/upload', methods=['POST'])
     def upload_video_asset_api():
         """Upload custom image files for video scenes."""
         import uuid
+        import threading
         from werkzeug.utils import secure_filename
         try:
             if 'file' not in request.files:
@@ -259,6 +285,9 @@ def create_app(config_name: str = None) -> Flask:
             unique_filename = f"custom_{uuid.uuid4().hex}{ext}"
             file_path = os.path.join(uploads_dir, unique_filename)
             file.save(file_path)
+            
+            # Trigger background cleanup thread asynchronously
+            threading.Thread(target=cleanup_old_uploads, daemon=True).start()
             
             # Return relative path for mockPayload.json and absolute static url for Lambda
             relative_url = f"uploads/{unique_filename}"
