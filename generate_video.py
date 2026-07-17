@@ -165,7 +165,68 @@ Instructions:
 
     return blueprint
 
-def generate_voiceover_openai(script_text, voice):
+def get_media_duration(file_path):
+    """Returns duration in seconds using ffprobe, or 0.0 if failed."""
+    if not file_path or not os.path.exists(file_path):
+        return 0.0
+    try:
+        cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            file_path
+        ]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        return float(result.stdout.strip())
+    except Exception as e:
+        print(f"⚠️ Error reading duration for {file_path}: {e}")
+        return 0.0
+
+def concatenate_audio_files(file_list, output_path):
+    """Concatenates a list of audio files into a single file using ffmpeg."""
+    if not file_list:
+        return
+    try:
+        # Filter out any non-existent files
+        valid_files = [f for f in file_list if os.path.exists(f)]
+        if not valid_files:
+            return
+
+        concat_str = "concat:" + "|".join(valid_files)
+        cmd = [
+            'ffmpeg',
+            '-y',
+            '-i', concat_str,
+            '-acodec', 'copy',
+            output_path
+        ]
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        print(f"✔ Successfully concatenated {len(valid_files)} audio segments to {output_path}")
+    except Exception as e:
+        print(f"⚠️ ffmpeg copy concat failed: {e}. Trying re-encoding concat...")
+        try:
+            list_file_path = output_path + ".list.txt"
+            with open(list_file_path, 'w') as f:
+                for file in valid_files:
+                    f.write(f"file '{os.path.abspath(file)}'\n")
+            cmd = [
+                'ffmpeg',
+                '-y',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', list_file_path,
+                '-c:a', 'libmp3lame',
+                output_path
+            ]
+            subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            if os.path.exists(list_file_path):
+                os.remove(list_file_path)
+            print(f"✔ Successfully concatenated audio with re-encoding to {output_path}")
+        except Exception as e2:
+            print(f"❌ Audio concatenation failed completely: {e2}")
+
+def generate_voiceover_openai(script_text, voice, dest_path):
     """Uses OpenAI's TTS API to compile the voiceover track."""
     print(f"🎙 Generating voiceover using OpenAI TTS (Voice: {voice})...")
     url = "https://api.openai.com/v1/audio/speech"
@@ -184,17 +245,16 @@ def generate_voiceover_openai(script_text, voice):
     if response.status_code != 200:
         raise Exception(f"OpenAI TTS API failed: {response.text}")
     
-    voiceover_path = os.path.join(os.path.dirname(__file__), '_remotion', 'public', 'voiceover.mp3')
-    with open(voiceover_path, 'wb') as f:
+    with open(dest_path, 'wb') as f:
         f.write(response.content)
-    print(f"✔ Saved voiceover track to: {voiceover_path}")
+    print(f"✔ Saved voiceover segment to: {dest_path}")
 
-def generate_voiceover_elevenlabs(script_text, voice_id):
+def generate_voiceover_elevenlabs(script_text, voice_id, dest_path):
     """Uses ElevenLabs API to generate a premium voiceover track."""
     if not ELEVENLABS_API_KEY:
         print("⚠️ WARNING: ELEVENLABS_API_KEY not found in content_generator/.env.")
         print("Fallback: Using OpenAI TTS voice 'onyx' instead.")
-        return generate_voiceover_openai(script_text, "onyx")
+        return generate_voiceover_openai(script_text, "onyx", dest_path)
 
     print(f"🎙 Generating realistic ElevenLabs voiceover (Voice ID: {voice_id})...")
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
@@ -215,10 +275,9 @@ def generate_voiceover_elevenlabs(script_text, voice_id):
     if response.status_code != 200:
         raise Exception(f"ElevenLabs TTS API failed (Status {response.status_code}): {response.text}")
         
-    voiceover_path = os.path.join(os.path.dirname(__file__), '_remotion', 'public', 'voiceover.mp3')
-    with open(voiceover_path, 'wb') as f:
+    with open(dest_path, 'wb') as f:
         f.write(response.content)
-    print(f"✔ Saved ElevenLabs voiceover track to: {voiceover_path}")
+    print(f"✔ Saved ElevenLabs voiceover segment to: {dest_path}")
 
 def get_flux_config():
     """Queries Supabase to find active Flux models and their API keys."""
@@ -580,15 +639,68 @@ def main():
                 print("=== BLUEPRINT_JSON_END ===")
                 return
 
-        # Step 3: Voiceover
-        full_script = " ".join([sc.get('voiceoverScript', '') for sc in blueprint['scenes']])
-        if args.provider == "elevenlabs" or len(args.voice) > 15: # heuristic for ElevenLabs Voice ID hashes
-            generate_voiceover_elevenlabs(full_script, args.voice)
-        else:
-            generate_voiceover_openai(full_script, args.voice)
+        # Step 3: Voiceover & Timing Sync
+        public_dir = os.path.join(os.path.dirname(__file__), '_remotion', 'public')
+        auto_sync = blueprint.get('metadata', {}).get('autoSyncTimings', True)
         
+        voiceover_segments = []
+        for idx, sc in enumerate(blueprint['scenes']):
+            script_text = sc.get('voiceoverScript', '')
+            seg_filename = f"scene_{idx + 1}_voice.mp3"
+            seg_path = os.path.join(public_dir, seg_filename)
+            
+            if script_text.strip():
+                if args.provider == "elevenlabs" or len(args.voice) > 15:
+                    generate_voiceover_elevenlabs(script_text, args.voice, seg_path)
+                else:
+                    generate_voiceover_openai(script_text, args.voice, seg_path)
+                voiceover_segments.append(seg_path)
+            else:
+                # If there's no script, delete any old segment that might exist
+                if os.path.exists(seg_path):
+                    os.remove(seg_path)
+
         # Step 4: Download Images
         download_broll_images(blueprint)
+        
+        # Detect durations and update blueprint scene timings
+        for idx, sc in enumerate(blueprint['scenes']):
+            audio_dur = 0.0
+            video_dur = 0.0
+            
+            # 1. Get audio duration for this scene
+            seg_filename = f"scene_{idx + 1}_voice.mp3"
+            seg_path = os.path.join(public_dir, seg_filename)
+            if os.path.exists(seg_path):
+                audio_dur = get_media_duration(seg_path)
+                
+            # 2. Get custom video clip duration if the visual asset is a video
+            asset_filename = sc.get('visualAssetUrl')
+            if asset_filename:
+                asset_path = os.path.join(public_dir, asset_filename)
+                if asset_filename.lower().endswith(('.mp4', '.mov', '.webm', '.m4v')):
+                    video_dur = get_media_duration(asset_path)
+            
+            if auto_sync:
+                calculated_duration = max(audio_dur, video_dur)
+                if calculated_duration > 0.0:
+                    # Add 0.5s padding to prevent abrupt transitions
+                    sc['durationInSeconds'] = calculated_duration + 0.5
+                else:
+                    sc['durationInSeconds'] = sc.get('durationInSeconds', 6.0)
+            
+            print(f"🎬 Scene {idx + 1} timing resolved: {sc['durationInSeconds']}s (Audio: {audio_dur}s, Video: {video_dur}s)")
+
+        # Concatenate audio segments to build final voiceover.mp3
+        final_voiceover_path = os.path.join(public_dir, 'voiceover.mp3')
+        if voiceover_segments:
+            concatenate_audio_files(voiceover_segments, final_voiceover_path)
+        else:
+            try:
+                cmd = ['ffmpeg', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono', '-t', '1', final_voiceover_path]
+                subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            except Exception:
+                pass
         
         # Step 5: Align Timings & Caption Position
         payload = align_timings(

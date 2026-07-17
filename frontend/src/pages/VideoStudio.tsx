@@ -82,6 +82,7 @@ interface Blueprint {
             secondary: string;
             background: string;
         };
+        autoSyncTimings?: boolean;
     };
     scenes: Scene[];
 }
@@ -154,7 +155,11 @@ export function VideoStudio() {
             });
 
             if (response.status === 'success' && response.blueprint) {
-                setBlueprint(response.blueprint);
+                const bp = response.blueprint;
+                if (bp.metadata && bp.metadata.autoSyncTimings === undefined) {
+                    bp.metadata.autoSyncTimings = true;
+                }
+                setBlueprint(bp);
                 // Initialize visual mode for all scenes as auto
                 const modes: Record<number, 'auto' | 'upload'> = {};
                 response.blueprint.scenes.forEach((_: any, idx: number) => {
@@ -539,8 +544,32 @@ export function VideoStudio() {
                                                         Uploaded: {customMusicUrl}
                                                     </span>
                                                 )}
+                                    </div>
+
+                                    {/* Auto-Sync Timings toggle */}
+                                    <div className="pt-2 border-t border-border/50">
+                                        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={blueprint?.metadata?.autoSyncTimings ?? true}
+                                                onChange={(e) => {
+                                                    if (blueprint) {
+                                                        setBlueprint({
+                                                            ...blueprint,
+                                                            metadata: {
+                                                                ...blueprint.metadata,
+                                                                autoSyncTimings: e.target.checked
+                                                            }
+                                                        });
+                                                    }
+                                                }}
+                                                className="w-4 h-4 rounded border-border text-primary focus:ring-primary bg-background cursor-pointer accent-primary"
+                                            />
+                                            <div className="flex flex-col">
+                                                <span className="text-xs font-bold text-foreground">Auto-Sync Timings</span>
+                                                <span className="text-[10px] text-muted-foreground">Automatically detect and calculate scene durations from voiceover scripts and video files upon compilation</span>
                                             </div>
-                                        )}
+                                        </label>
                                     </div>
                                 </div>
 
@@ -705,12 +734,13 @@ export function VideoStudio() {
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center gap-3">
-                                                    <div className="flex items-center gap-1">
+                                                    <div className="flex items-center gap-1" title={blueprint?.metadata?.autoSyncTimings ?? true ? "Auto-Sync is enabled: duration will be calculated from voiceover speech length and custom video files upon compile" : undefined}>
                                                         <input
                                                             type="number"
                                                             min="1"
                                                             max="60"
                                                             step="0.5"
+                                                            disabled={blueprint?.metadata?.autoSyncTimings ?? true}
                                                             value={scene.durationInSeconds}
                                                             onChange={(e) => {
                                                                 const val = parseFloat(e.target.value);
@@ -718,9 +748,9 @@ export function VideoStudio() {
                                                                     updateScene(idx, { durationInSeconds: val });
                                                                 }
                                                             }}
-                                                            className="w-10 h-6 rounded border border-border bg-muted/20 text-center text-[10px] font-bold text-foreground outline-none focus:border-primary/50"
+                                                            className="w-10 h-6 rounded border border-border bg-muted/20 text-center text-[10px] font-bold text-foreground outline-none focus:border-primary/50 disabled:opacity-60 disabled:cursor-not-allowed"
                                                         />
-                                                        <span className="text-[10px] text-muted-foreground">Secs</span>
+                                                        <span className="text-[10px] text-muted-foreground">{blueprint?.metadata?.autoSyncTimings ?? true ? "Auto" : "Secs"}</span>
                                                     </div>
                                                     <button
                                                         type="button"
