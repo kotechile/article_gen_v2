@@ -5,6 +5,7 @@ import {
   useCurrentFrame,
   useVideoConfig,
   AbsoluteFill,
+  staticFile,
 } from "remotion";
 import { useResilientAsset } from "../../utils/fetchWithRetry";
 
@@ -133,6 +134,21 @@ export const CallToAction: React.FC<CallToActionProps> = ({
             height: "256px",
             background: `radial-gradient(circle, ${brandColors.primary}33 0%, transparent 70%)`,
             zIndex: 0,
+          }}
+        />
+
+        {/* Gini Loh Logo */}
+        <img
+          src={staticFile("gini_loh_logo.jpg")}
+          alt="Gini Loh Logo"
+          style={{
+            width: format === "vertical" ? "80px" : "112px",
+            height: format === "vertical" ? "80px" : "112px",
+            borderRadius: "24px",
+            boxShadow: `0 8px 30px rgba(0, 0, 0, 0.5), 0 0 15px ${brandColors.secondary}22`,
+            border: `2px solid ${brandColors.secondary}44`,
+            marginBottom: "24px",
+            zIndex: 10,
           }}
         />
 
