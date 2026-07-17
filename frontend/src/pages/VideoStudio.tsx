@@ -888,27 +888,71 @@ export function VideoStudio() {
 
                                             {/* Table / KPI Meta Editing */}
                                             {scene.type === 'comparison_table' && scene.tableData && (
-                                                <div className="p-3 rounded-lg border border-dashed border-border bg-muted/5 space-y-2">
-                                                    <span className="text-[10px] font-bold uppercase text-foreground">Edit Table Data</span>
-                                                    <div className="grid grid-cols-3 gap-2">
-                                                        {scene.tableData.headers.map((h, hidx) => (
-                                                            <input
-                                                                key={hidx}
-                                                                type="text"
-                                                                value={h}
-                                                                onChange={(e) => {
-                                                                    const newHeaders = [...(scene.tableData?.headers || [])];
-                                                                    newHeaders[hidx] = e.target.value;
-                                                                    updateScene(idx, {
-                                                                        tableData: {
-                                                                            headers: newHeaders,
-                                                                            rows: scene.tableData?.rows || [],
-                                                                        },
-                                                                    });
-                                                                }}
-                                                                className="h-7 rounded border border-border bg-background px-2 text-[10px] outline-none text-foreground font-bold"
-                                                            />
-                                                        ))}
+                                                <div className="p-3 rounded-lg border border-dashed border-border bg-muted/5 space-y-3">
+                                                    <div>
+                                                        <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Edit Table Headers</span>
+                                                        <div 
+                                                            className="grid gap-2"
+                                                            style={{ gridTemplateColumns: `repeat(${scene.tableData.headers.length}, minmax(0, 1fr))` }}
+                                                        >
+                                                            {scene.tableData.headers.map((h, hidx) => (
+                                                                <input
+                                                                    key={hidx}
+                                                                    type="text"
+                                                                    value={h}
+                                                                    onChange={(e) => {
+                                                                        const newHeaders = [...(scene.tableData?.headers || [])];
+                                                                        newHeaders[hidx] = e.target.value;
+                                                                        updateScene(idx, {
+                                                                            tableData: {
+                                                                                headers: newHeaders,
+                                                                                rows: scene.tableData?.rows || [],
+                                                                            },
+                                                                        });
+                                                                    }}
+                                                                    className="h-7 rounded border border-border bg-background px-2 text-[10px] outline-none text-foreground font-bold"
+                                                                />
+                                                            ))}
+                                                        </div>
+                                                    </div>
+
+                                                    <div>
+                                                        <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-1">Edit Table Rows</span>
+                                                        <div className="space-y-2">
+                                                            {(scene.tableData.rows || []).map((row, ridx) => (
+                                                                <div 
+                                                                    key={ridx} 
+                                                                    className="grid gap-2"
+                                                                    style={{ gridTemplateColumns: `repeat(${scene.tableData.headers.length}, minmax(0, 1fr))` }}
+                                                                >
+                                                                    {row.map((cell, cidx) => (
+                                                                        <input
+                                                                            key={cidx}
+                                                                            type="text"
+                                                                            value={cell}
+                                                                            onChange={(e) => {
+                                                                                const newRows = (scene.tableData?.rows || []).map((r, r_i) => {
+                                                                                    if (r_i === ridx) {
+                                                                                        const newRow = [...r];
+                                                                                        newRow[cidx] = e.target.value;
+                                                                                        return newRow;
+                                                                                    }
+                                                                                    return r;
+                                                                                });
+                                                                                updateScene(idx, {
+                                                                                    tableData: {
+                                                                                        headers: scene.tableData?.headers || [],
+                                                                                        rows: newRows,
+                                                                                    },
+                                                                                });
+                                                                            }}
+                                                                            className="h-7 rounded border border-border bg-background px-2 text-[10px] outline-none text-foreground"
+                                                                            placeholder={`Row ${ridx + 1} Col ${cidx + 1}`}
+                                                                        />
+                                                                    ))}
+                                                                </div>
+                                                            ))}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             )}
