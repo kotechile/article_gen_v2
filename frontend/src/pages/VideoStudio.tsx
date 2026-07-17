@@ -91,7 +91,9 @@ export function VideoStudio() {
     // Step configuration
     const [step, setStep] = React.useState<'config' | 'editor'>('config');
 
+    const [inputMode, setInputMode] = React.useState<'url' | 'script'>('url');
     const [url, setUrl] = React.useState('');
+    const [scriptText, setScriptText] = React.useState('');
     const [provider, setProvider] = React.useState<'openai' | 'elevenlabs'>('openai');
     const [voice, setVoice] = React.useState('onyx');
     const [customVoiceId, setCustomVoiceId] = React.useState('');
@@ -136,19 +138,21 @@ export function VideoStudio() {
         }
     };
 
-    // Step 1: Ingest URL and generate Blueprint JSON
+    // Step 1: Ingest URL/Script and generate Blueprint JSON
     const handleGenerateBlueprint = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!url) return;
+        if (inputMode === 'url' && !url) return;
+        if (inputMode === 'script' && !scriptText) return;
 
         setGenerating(true);
         setVideoUrl(null);
         setError(null);
-        setStatusMessage('Reading article content & mapping video blueprint...');
+        setStatusMessage(inputMode === 'url' ? 'Reading article content & mapping video blueprint...' : 'Analyzing custom script & structuring scenes...');
 
         try {
             const response = await apiClient.post<any>('/v1/video/blueprint', {
-                url,
+                url: inputMode === 'url' ? url : 'custom',
+                script_text: inputMode === 'script' ? scriptText : undefined,
                 primary_color: primaryColor,
                 secondary_color: secondaryColor,
                 background_color: backgroundColor,
@@ -418,19 +422,56 @@ export function VideoStudio() {
                         <div className="lg:col-span-7 space-y-6">
                             <form onSubmit={handleGenerateBlueprint} className="space-y-6 rounded-xl border border-border bg-muted/20 p-6">
                                 {/* URL Ingestion */}
-                                <div className="space-y-2">
+                                {/* URL / Script Ingestion */}
+                                <div className="space-y-3">
                                     <label className="text-sm font-semibold text-foreground flex items-center gap-1.5">
                                         <Sparkles className="h-4 w-4 text-secondary" />
-                                        Article URL
+                                        Video Input Content Source
                                     </label>
-                                    <input
-                                        type="url"
-                                        required
-                                        value={url}
-                                        onChange={(e) => setUrl(e.target.value)}
-                                        placeholder="https://myblog.com/is-a-3000-espresso-maker-worth-it"
-                                        className="h-10 w-full rounded-lg border border-border bg-background px-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary/50"
-                                    />
+                                    <div className="flex gap-2 rounded-lg bg-muted/40 p-1 border border-border/50 max-w-sm">
+                                        <button
+                                            type="button"
+                                            onClick={() => setInputMode('url')}
+                                            className={`flex-1 py-1.5 text-xs font-bold rounded-md transition cursor-pointer ${
+                                                inputMode === 'url'
+                                                    ? 'bg-background text-foreground shadow-sm border border-border/10'
+                                                    : 'text-muted-foreground hover:text-foreground'
+                                            }`}
+                                        >
+                                            Article URL
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setInputMode('script')}
+                                            className={`flex-1 py-1.5 text-xs font-bold rounded-md transition cursor-pointer ${
+                                                inputMode === 'script'
+                                                    ? 'bg-background text-foreground shadow-sm border border-border/10'
+                                                    : 'text-muted-foreground hover:text-foreground'
+                                            }`}
+                                        >
+                                            Custom Script Text
+                                        </button>
+                                    </div>
+
+                                    {inputMode === 'url' ? (
+                                        <input
+                                            type="url"
+                                            required
+                                            value={url}
+                                            onChange={(e) => setUrl(e.target.value)}
+                                            placeholder="https://myblog.com/is-a-3000-espresso-maker-worth-it"
+                                            className="h-10 w-full rounded-lg border border-border bg-background px-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary/50"
+                                        />
+                                    ) : (
+                                        <textarea
+                                            required
+                                            rows={8}
+                                            value={scriptText}
+                                            onChange={(e) => setScriptText(e.target.value)}
+                                            placeholder={`Paste your custom script/storyboard. For example:\n\nScene 1: Introduction\nVO: "Is your job AI-proof? Let's check how task risk affects your career radar."\n\nScene 2: Search & Discover\nVO: "Start by searching over one thousand careers."`}
+                                            className="w-full rounded-lg border border-border bg-background p-3 text-xs text-foreground outline-none transition placeholder:text-muted-foreground/60 focus:border-primary/50 font-mono resize-y"
+                                        />
+                                    )}
                                 </div>
 
                                 {/* Voice Setup */}

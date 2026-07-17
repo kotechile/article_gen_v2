@@ -69,7 +69,7 @@ def clean_json_response(text):
         text = text[:-3]
     return text.strip()
 
-def generate_video_blueprint(title, body_text, primary=None, secondary=None, background=None):
+def generate_video_blueprint(title, body_text, primary=None, secondary=None, background=None, is_script=False):
     """Uses the resolved default LLM from Supabase to parse the article and return the RemotionVideoPayload JSON structure."""
     
     # 1. Resolve Default LLM
@@ -139,7 +139,10 @@ Instructions:
 6. Provide raw JSON output, without any markdown formatting wrappers or ```json tags.
 """
 
-    user_prompt = f"Article Title: {title}\nArticle Body:\n{body_text}"
+    if is_script:
+        user_prompt = f"Input Custom Script / Storyboard:\n{body_text}\n\nIMPORTANT: The content above is already a structured script/storyboard. You must extract its scenes, visual descriptions, and spoken voiceover scripts exactly as written. Map them directly to the 5 scenes in the JSON schema. Do not rewrite, summarize, or edit the wording of the voiceover scripts; preserve them 100% literally."
+    else:
+        user_prompt = f"Article Title: {title}\nArticle Body:\n{body_text}"
     
     messages = [
         {"role": "system", "content": system_prompt},
@@ -597,7 +600,8 @@ def align_timings(blueprint, caption_position, aspect_ratio="vertical", host_url
 
 def main():
     parser = argparse.ArgumentParser(description="ArtiVids Automated Article-to-Video Engine")
-    parser.add_argument("url", help="The URL of the article to turn into a video")
+    parser.add_argument("url", nargs="?", default="", help="The URL of the article to turn into a video")
+    parser.add_argument("--script-file", help="Path to a text file containing custom script/storyboard text to parse")
     parser.add_argument("--voice", default="onyx", help="Voice ID (ElevenLabs) or Voice Name (OpenAI: onyx, alloy, nova, shimmer, echo, fable)")
     parser.add_argument("--provider", default="openai", choices=["openai", "elevenlabs"], help="Voice generation service provider")
     parser.add_argument("--caption-position", default="center", choices=["center", "bottom", "top", "none"], help="Vertical position of subtitles")
@@ -621,8 +625,18 @@ def main():
             with open(args.blueprint_payload, 'r') as f:
                 blueprint = json.load(f)
         else:
-            # Step 1: Scrape
-            title, body_text = scrape_article(args.url)
+            is_script = False
+            if args.script_file:
+                print(f"📄 Loading custom script text file from: {args.script_file}...")
+                with open(args.script_file, 'r', encoding='utf-8') as f:
+                    body_text = f.read()
+                title = "Custom Script"
+                is_script = True
+            else:
+                if not args.url:
+                    print("❌ Error: Must provide either an article URL or a --script-file script path.")
+                    sys.exit(1)
+                title, body_text = scrape_article(args.url)
             
             # Step 2: Blueprint
             blueprint = generate_video_blueprint(
@@ -630,7 +644,8 @@ def main():
                 body_text, 
                 primary=args.primary, 
                 secondary=args.secondary, 
-                background=args.background
+                background=args.background,
+                is_script=is_script
             )
             
             if args.blueprint_only:

@@ -151,14 +151,19 @@ def create_app(config_name: str = None) -> Flask:
     # Video Generation endpoints
     @app.route('/api/v1/video/blueprint', methods=['POST'])
     def generate_video_blueprint_api():
-        """Scrape an article and generate the video blueprint JSON."""
+        """Scrape an article or parse a custom script and generate the video blueprint JSON."""
         import subprocess
         import json
+        import os
+        import uuid
+        temp_script_path = None
         try:
             data = request.get_json() or {}
             url = data.get('url')
-            if not url:
-                return jsonify({'error': 'missing_parameter', 'message': 'url is required'}), 400
+            script_text = data.get('script_text')
+            
+            if not url and not script_text:
+                return jsonify({'error': 'missing_parameter', 'message': 'Either url or script_text is required'}), 400
                 
             primary = data.get('primary_color')
             secondary = data.get('secondary_color')
@@ -166,12 +171,20 @@ def create_app(config_name: str = None) -> Flask:
             
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # root dir
             script_path = os.path.join(base_dir, "generate_video.py")
-            cmd = [
-                "python3",
-                script_path,
-                url,
-                "--blueprint-only"
-            ]
+            
+            cmd = ["python3", script_path]
+            
+            if script_text:
+                temp_filename = f"temp_script_{uuid.uuid4().hex}.txt"
+                temp_script_path = os.path.join(base_dir, "_remotion", temp_filename)
+                with open(temp_script_path, 'w', encoding='utf-8') as f:
+                    f.write(script_text)
+                cmd += ["--script-file", temp_script_path]
+            else:
+                cmd += [url]
+                
+            cmd += ["--blueprint-only"]
+            
             if primary:
                 cmd += ["--primary", primary]
             if secondary:
@@ -218,6 +231,12 @@ def create_app(config_name: str = None) -> Flask:
                 'status': 'error',
                 'message': str(e)
             }), 500
+        finally:
+            if temp_script_path and os.path.exists(temp_script_path):
+                try:
+                    os.remove(temp_script_path)
+                except Exception:
+                    pass
 
     @app.route('/api/v1/video/upload', methods=['POST'])
     def upload_video_asset_api():
