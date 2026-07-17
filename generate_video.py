@@ -91,9 +91,62 @@ def generate_video_blueprint(title, body_text, primary=None, secondary=None, bac
         model = "gpt-4o"
         api_key = OPENAI_API_KEY
 
-    print(f"🧠 Analyzing article content using resolved LLM: {provider}/{model}...")
+    if is_script:
+        print(f"🧠 Parsing custom script content using resolved LLM: {provider}/{model}...")
+        system_prompt = """
+You are an expert automated video script/storyboard parser.
+Your task is to take a custom video storyboard/script and convert it into the standard JSON blueprint format.
+The output format must be exact JSON matching this schema:
 
-    system_prompt = """
+{
+  "metadata": {
+    "title": "Title of the video",
+    "format": "vertical" | "landscape",
+    "totalDurationInSeconds": 90,
+    "brandColors": {
+      "primary": "#8A2BE2",
+      "secondary": "#00FFFF",
+      "background": "#0B0C10"
+    },
+    "autoSyncTimings": true
+  },
+  "scenes": [
+    {
+      "sceneId": "scene_1",
+      "type": "framework_hero" | "comparison_table" | "kpi_metric" | "broll_image" | "call_to_action" | "video_clip",
+      "durationInSeconds": 15.0,
+      "heading": "Heading or title for this scene",
+      "subheading": "Optional subheading or label",
+      "voiceoverScript": "The literal voiceover script words spoken during this scene (EXTRACT LITERALLY FROM THE SCRIPT).",
+      "imagePrompt": "Description of the visual sequence or storyboard notes for this scene.",
+      "visualKeyword": "search keyword representing the scene topic",
+      "tableData": {
+        "headers": ["Col1", "Col2"],
+        "rows": [["Cell1", "Cell2"]]
+      },
+      "kpiData": {
+        "value": "Metric",
+        "label": "Label"
+      }
+    }
+  ]
+}
+
+Instructions for Custom Scripts:
+1. Parse the user's custom script and generate the corresponding scenes. Match the scene count of the user's script (typically 5 scenes).
+2. For each scene, map the "durationInSeconds" by parsing the duration indicators in the script (e.g. 0:15 - 0:35 = 20.0 seconds).
+3. The "voiceoverScript" MUST be copied LITERALLY from the VO/Audio section of the corresponding scene. Do not rewrite, summarize, or edit the wording. Keep all spoken text exactly as written by the user.
+4. Set the scene "type" to:
+   - "video_clip" or "broll_image" if the visual description or storyboard notes involve screencasts, UI interactions, cursor clicks, typing, browser views, or slider drags.
+   - "call_to_action" for the final outro scene.
+   - "comparison_table" only if the scene explicitly contains table/grid data.
+   - "kpi_metric" only if the scene explicitly highlights a single large numeric KPI statistic.
+5. Place the storyboard visual sequence notes into the "imagePrompt" field so the user can see what needs to be recorded/uploaded.
+6. Provide raw JSON output, without any markdown formatting wrappers or ```json tags.
+"""
+    else:
+        print(f"🧠 Analyzing article content using resolved LLM: {provider}/{model}...")
+        system_prompt = """
 You are an expert automated video scriptwriter and motion graphics designer.
 Your task is to take an article's title and text content, and output a highly structured JSON blueprint for a 30-second vertical or landscape video matching this exact JSON schema:
 
