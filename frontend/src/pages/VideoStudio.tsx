@@ -227,10 +227,13 @@ export function VideoStudio() {
                                 file.name.toLowerCase().endsWith('.webm') ||
                                 file.name.toLowerCase().endsWith('.m4v');
                 
-                updateScene(index, {
+                const updatedFields: Partial<Scene> = {
                     visualAssetUrl: response.relative_path,
-                    type: isVideo ? 'video_clip' : undefined
-                });
+                };
+                if (isVideo) {
+                    updatedFields.type = 'video_clip';
+                }
+                updateScene(index, updatedFields);
             } else {
                 throw new Error(response.message || 'File upload failed');
             }
@@ -786,7 +789,7 @@ export function VideoStudio() {
                                             {brandLogoUrl ? (
                                                 <div className="flex items-center gap-2">
                                                     <img 
-                                                        src={brandLogoUrl.startsWith('http') ? brandLogoUrl : `/api/static/${brandLogoUrl}`} 
+                                                        src={(brandLogoUrl && typeof brandLogoUrl === 'string' && brandLogoUrl.startsWith('http')) ? brandLogoUrl : `/api/static/${brandLogoUrl}`} 
                                                         alt="Logo Thumbnail" 
                                                         className="w-8 h-8 rounded object-cover border border-border bg-muted"
                                                     />
@@ -887,7 +890,7 @@ export function VideoStudio() {
                                                         {idx + 1}
                                                     </span>
                                                     <span className="text-xs font-semibold text-foreground uppercase tracking-wider">
-                                                        {scene.type.replace('_', ' ')}
+                                                        {(scene.type || '').replace('_', ' ')}
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center gap-3">
