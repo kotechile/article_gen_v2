@@ -39,6 +39,8 @@ services:
     #   - "5001:5001"
     depends_on:
       - redis
+    volumes:
+      - uploads_data:/app/_remotion/public/uploads
 
   worker:
     build: .
@@ -102,3 +104,4 @@ services:
 
 volumes:
   redis_data:
+  uploads_data:
