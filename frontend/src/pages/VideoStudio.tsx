@@ -548,6 +548,8 @@ export function VideoStudio() {
                                                         Uploaded: {customMusicUrl}
                                                     </span>
                                                 )}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Auto-Sync Timings toggle */}
