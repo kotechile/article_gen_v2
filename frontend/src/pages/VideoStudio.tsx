@@ -87,6 +87,25 @@ interface Blueprint {
     scenes: Scene[];
 }
 
+const shouldDefaultToUpload = (scene: Scene): boolean => {
+    const textToSearch = [
+        scene.heading,
+        scene.subheading,
+        scene.voiceoverScript,
+        scene.imagePrompt,
+        scene.visualKeyword
+    ].join(' ').toLowerCase();
+
+    const videoKeywords = [
+        'screencast', 'screencapture', 'screen capture', 'screen recording', 
+        'types', 'clicks', 'drag', 'hover', 'slider', 'interface', 
+        'browser', 'cursor', 'chart', 'plot', 'dashboard', 'donut chart',
+        'simulation', 'input', 'types chief', 'tab', 'clicks search', 'storyboard'
+    ];
+
+    return videoKeywords.some(keyword => textToSearch.includes(keyword));
+};
+
 export function VideoStudio() {
     // Step configuration
     const [step, setStep] = React.useState<'config' | 'editor'>('config');
@@ -164,10 +183,10 @@ export function VideoStudio() {
                     bp.metadata.autoSyncTimings = true;
                 }
                 setBlueprint(bp);
-                // Initialize visual mode for all scenes as auto
+                // Initialize visual mode dynamically
                 const modes: Record<number, 'auto' | 'upload'> = {};
-                response.blueprint.scenes.forEach((_: any, idx: number) => {
-                    modes[idx] = 'auto';
+                bp.scenes.forEach((scene: any, idx: number) => {
+                    modes[idx] = shouldDefaultToUpload(scene) ? 'upload' : 'auto';
                 });
                 setSceneModes(modes);
                 setStep('editor');
@@ -201,8 +220,14 @@ export function VideoStudio() {
             });
 
             if (response.status === 'success') {
+                const isVideo = file.name.toLowerCase().endsWith('.mp4') || 
+                                file.name.toLowerCase().endsWith('.mov') || 
+                                file.name.toLowerCase().endsWith('.webm') ||
+                                file.name.toLowerCase().endsWith('.m4v');
+                
                 updateScene(index, {
                     visualAssetUrl: response.relative_path,
+                    type: isVideo ? 'video_clip' : undefined
                 });
             } else {
                 throw new Error(response.message || 'File upload failed');
@@ -974,7 +999,7 @@ export function VideoStudio() {
                                                     <div className="flex items-center gap-3">
                                                         <input
                                                             type="file"
-                                                            accept={scene.type === 'video_clip' ? 'video/mp4,video/quicktime,.mp4,.mov' : 'image/*'}
+                                                            accept="image/*,video/mp4,video/quicktime,.mp4,.mov,.webm,.m4v"
                                                             id={`upload-${scene.sceneId}`}
                                                             className="hidden"
                                                             onChange={(e) => {
