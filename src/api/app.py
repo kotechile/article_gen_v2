@@ -437,7 +437,30 @@ def create_app(config_name: str = None) -> Flask:
             def run_generation_bg(tid, command, temp_path):
                 try:
                     import subprocess
-                    res = subprocess.run(command, capture_output=True, text=True, timeout=600)
+                    stdout_path = f"/tmp/video_gen_stdout_{tid}.log"
+                    stderr_path = f"/tmp/video_gen_stderr_{tid}.log"
+                    
+                    with open(stdout_path, "w") as out_f, open(stderr_path, "w") as err_f:
+                        res = subprocess.run(command, stdout=out_f, stderr=err_f, text=True, timeout=900)
+                    
+                    # Read outputs
+                    stdout_content = ""
+                    stderr_content = ""
+                    try:
+                        if os.path.exists(stdout_path):
+                            with open(stdout_path, "r") as f:
+                                stdout_content = f.read()
+                            os.remove(stdout_path)
+                    except Exception:
+                        pass
+                        
+                    try:
+                        if os.path.exists(stderr_path):
+                            with open(stderr_path, "r") as f:
+                                stderr_content = f.read()
+                            os.remove(stderr_path)
+                    except Exception:
+                        pass
                     
                     if temp_path and os.path.exists(temp_path):
                         try:
@@ -449,8 +472,8 @@ def create_app(config_name: str = None) -> Flask:
                         video_tasks[tid] = {
                             'status': 'error',
                             'message': 'Video generation failed',
-                            'stderr': res.stderr,
-                            'stdout': res.stdout
+                            'stderr': stderr_content,
+                            'stdout': stdout_content
                         }
                     else:
                         video_tasks[tid] = {
@@ -459,6 +482,14 @@ def create_app(config_name: str = None) -> Flask:
                             'video_url': '/api/v1/video/download'
                         }
                 except Exception as ex:
+                    # Clean up temp files if they exist
+                    for p in [f"/tmp/video_gen_stdout_{tid}.log", f"/tmp/video_gen_stderr_{tid}.log"]:
+                        try:
+                            if os.path.exists(p):
+                                os.remove(p)
+                        except Exception:
+                            pass
+                            
                     video_tasks[tid] = {
                         'status': 'error',
                         'message': str(ex)
