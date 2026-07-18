@@ -631,6 +631,11 @@ def align_timings(blueprint, caption_position, aspect_ratio="vertical", host_url
     # Finalize URLs
     final_voiceover = f"{host_url}/api/v1/video/static/voiceover.mp3" if host_url else "voiceover.mp3"
     final_music = f"{host_url}/api/v1/video/static/{music}" if host_url and not music.startswith("http") else music
+    
+    orig_logo = blueprint['metadata'].get('brandLogoUrl')
+    final_logo = None
+    if orig_logo:
+        final_logo = f"{host_url}/api/v1/video/static/{orig_logo}" if host_url and not orig_logo.startswith("http") else orig_logo
 
     # Calculate total duration in seconds from the scenes
     total_duration = sum(sc.get('durationInSeconds', 6.0) for sc in scenes)
@@ -643,7 +648,8 @@ def align_timings(blueprint, caption_position, aspect_ratio="vertical", host_url
             "totalDurationInSeconds": total_duration,
             "brandColors": blueprint['metadata']['brandColors'],
             "captionPosition": caption_position,
-            "backgroundMusicUrl": final_music
+            "backgroundMusicUrl": final_music,
+            "brandLogoUrl": final_logo
         },
         "audioTrackUrl": final_voiceover,
         "subtitles": subtitles,

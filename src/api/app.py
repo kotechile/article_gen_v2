@@ -299,6 +299,33 @@ def create_app(config_name: str = None) -> Flask:
             file_path = os.path.join(uploads_dir, unique_filename)
             file.save(file_path)
             
+            # If it's a video file that is NOT mp4 (e.g. mov, webm, m4v), transcode it to standard h264 mp4
+            import subprocess
+            if ext.lower() in ['.mov', '.webm', '.m4v', '.qt']:
+                mp4_filename = f"custom_{int(time.time())}_{uuid.uuid4().hex}.mp4"
+                mp4_path = os.path.join(uploads_dir, mp4_filename)
+                
+                # Transcode command (H.264 video, AAC audio, YUV420p pixel format for maximum browser compatibility)
+                transcode_cmd = [
+                    "ffmpeg", "-i", file_path,
+                    "-vcodec", "libx264", "-acodec", "aac",
+                    "-pix_fmt", "yuv420p", "-y", mp4_path
+                ]
+                
+                transcode_result = subprocess.run(transcode_cmd, capture_output=True, text=True)
+                
+                if transcode_result.returncode == 0:
+                    # Successfully transcoded, delete original non-mp4 file
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
+                    unique_filename = mp4_filename
+                else:
+                    # Log error if transcoding fails
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"FFmpeg transcoding failed for {unique_filename}: {transcode_result.stderr}")
+            
             # Trigger background cleanup thread asynchronously
             threading.Thread(target=cleanup_old_uploads, daemon=True).start()
             
