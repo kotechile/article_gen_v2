@@ -408,9 +408,11 @@ def create_app(config_name: str = None) -> Flask:
                 "--caption-position", caption_position,
                 "--aspect-ratio", aspect_ratio,
                 "--host-url", host_url,
-                "--render-on-lambda",
                 "--concurrency", str(concurrency)
             ]
+            
+            if os.getenv("RENDER_ON_LAMBDA", "true").lower() == "true":
+                cmd.append("--render-on-lambda")
             
             if temp_payload_path:
                 cmd += ["--blueprint-payload", temp_payload_path]
