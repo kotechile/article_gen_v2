@@ -717,6 +717,19 @@ def main():
 
         # Step 3: Voiceover & Timing Sync
         public_dir = os.path.join(os.path.dirname(__file__), '_remotion', 'public')
+        
+        # Clean up any existing scene voiceovers/merged audios from previous runs
+        import glob
+        for f in glob.glob(os.path.join(public_dir, "scene_*_voice.mp3")):
+            try:
+                os.remove(f)
+            except Exception:
+                pass
+        try:
+            os.remove(os.path.join(public_dir, 'voiceover.mp3'))
+        except Exception:
+            pass
+
         auto_sync = blueprint.get('metadata', {}).get('autoSyncTimings', True)
         
         # Build audio synthesis tasks
@@ -731,6 +744,12 @@ def main():
         
         def run_voiceover_task(task):
             idx, script_text, seg_path = task
+            # Delete any existing file at this path first
+            if os.path.exists(seg_path):
+                try:
+                    os.remove(seg_path)
+                except Exception:
+                    pass
             if script_text.strip():
                 try:
                     if args.provider == "elevenlabs" or len(args.voice) > 15:
@@ -740,14 +759,13 @@ def main():
                     return seg_path
                 except Exception as e:
                     print(f"❌ Failed generating voiceover segment for Scene {idx + 1}: {e}")
-                    return None
+                    raise e
             else:
-                if os.path.exists(seg_path):
-                    os.remove(seg_path)
                 return None
 
         print(f"🎙 Generating per-scene voiceovers in parallel...")
         with ThreadPoolExecutor(max_workers=5) as executor:
+            # We wrap in list() to force evaluation and catch any propagated exception
             results = list(executor.map(run_voiceover_task, tasks))
             
         voiceover_segments = [path for path in results if path is not None]

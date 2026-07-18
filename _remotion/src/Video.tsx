@@ -126,6 +126,7 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
                   imageSizePercent={imageSizePercent}
                   imageValign={imageValign}
                   imageHalign={imageHalign}
+                  hasBackgroundMusic={Boolean(metadata.backgroundMusicUrl && metadata.backgroundMusicUrl.trim())}
                 />
               )}
               {type === "outro_logo" && (

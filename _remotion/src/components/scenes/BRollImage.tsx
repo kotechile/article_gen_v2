@@ -96,7 +96,8 @@ export const BRollImage: React.FC<BRollImageProps> = ({
               width: `${imageSizePercent || 100}%`,
               height: `${imageSizePercent || 100}%`,
               objectFit: (imageSizePercent && imageSizePercent < 100) ? "contain" : "cover",
-              transform: `scale(${scale}) translate(${translateX}px, ${translateY}px)`,
+              willChange: "transform",
+              transform: `scale(${scale}) translate3d(${translateX}px, ${translateY}px, 0)`,
             }}
           />
         </div>

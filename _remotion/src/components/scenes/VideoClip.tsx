@@ -19,6 +19,7 @@ interface VideoClipProps {
   imageSizePercent?: number;
   imageValign?: "top" | "center" | "bottom";
   imageHalign?: "left" | "center" | "right";
+  hasBackgroundMusic?: boolean;
 }
 
 export const VideoClip: React.FC<VideoClipProps> = ({
@@ -31,6 +32,7 @@ export const VideoClip: React.FC<VideoClipProps> = ({
   imageSizePercent,
   imageValign = "center",
   imageHalign = "center",
+  hasBackgroundMusic = false,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -85,6 +87,7 @@ export const VideoClip: React.FC<VideoClipProps> = ({
         }}>
           <Video
             src={localUrl}
+            muted={hasBackgroundMusic}
             style={{
               width: `${imageSizePercent || 100}%`,
               height: `${imageSizePercent || 100}%`,
