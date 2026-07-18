@@ -33,7 +33,10 @@ export const Login: React.FC = () => {
 
     const handleGoogleLogin = async () => {
         try {
-            const redirectUrl = `${import.meta.env.VITE_SITE_URL || window.location.origin}/auth/callback`;
+            const origin = window.location.origin;
+            const redirectUrl = origin.includes('localhost') || origin.includes('127.0.0.1')
+                ? `${origin}/auth/callback`
+                : `${import.meta.env.VITE_SITE_URL || origin}/auth/callback`;
             console.log('Initiating Google Login...');
             console.log('Using redirectUrl:', redirectUrl);
 
