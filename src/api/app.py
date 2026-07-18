@@ -253,8 +253,20 @@ def create_app(config_name: str = None) -> Flask:
             for filename in os.listdir(uploads_dir):
                 file_path = os.path.join(uploads_dir, filename)
                 if os.path.isfile(file_path):
-                    file_mtime = os.path.getmtime(file_path)
-                    if file_mtime < cutoff:
+                    # Robust check: parse timestamp from filename: custom_{timestamp}_{uuid}.ext
+                    parts = filename.split('_')
+                    file_time = None
+                    if len(parts) >= 3 and parts[0] == 'custom':
+                        try:
+                            file_time = int(parts[1])
+                        except ValueError:
+                            pass
+                    
+                    if file_time is None:
+                        # Fallback to filesystem mtime
+                        file_time = os.path.getmtime(file_path)
+                        
+                    if file_time < cutoff:
                         try:
                             os.remove(file_path)
                             app.logger.info(f"🗑️ Cleaned up old upload file: {filename}")
@@ -267,6 +279,7 @@ def create_app(config_name: str = None) -> Flask:
     def upload_video_asset_api():
         """Upload custom image files for video scenes."""
         import uuid
+        import time
         import threading
         from werkzeug.utils import secure_filename
         try:
@@ -280,9 +293,9 @@ def create_app(config_name: str = None) -> Flask:
             uploads_dir = os.path.join(base_dir, "_remotion", "public", "uploads")
             os.makedirs(uploads_dir, exist_ok=True)
             
-            # Generate a secure unique name to avoid conflicts
+            # Generate a secure unique name containing upload timestamp to avoid clock drift issues
             ext = os.path.splitext(secure_filename(file.filename))[1] or ".jpg"
-            unique_filename = f"custom_{uuid.uuid4().hex}{ext}"
+            unique_filename = f"custom_{int(time.time())}_{uuid.uuid4().hex}{ext}"
             file_path = os.path.join(uploads_dir, unique_filename)
             file.save(file_path)
             
