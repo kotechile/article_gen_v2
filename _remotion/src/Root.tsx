@@ -11,7 +11,7 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="landscape"
         component={VideoMain as any}
-        fps={30}
+        fps={60}
         width={1920}
         height={1080}
         defaultProps={mockPayload as any}
@@ -20,7 +20,7 @@ export const RemotionRoot: React.FC = () => {
           const totalDurationInSeconds =
             payload.metadata?.totalDurationInSeconds ?? 15;
           return {
-            durationInFrames: Math.round(totalDurationInSeconds * 30),
+            durationInFrames: Math.round(totalDurationInSeconds * 60),
             props: payload,
           };
         }}
@@ -30,7 +30,7 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="vertical"
         component={VideoMain as any}
-        fps={30}
+        fps={60}
         width={1080}
         height={1920}
         defaultProps={mockPayload as any}
@@ -39,7 +39,7 @@ export const RemotionRoot: React.FC = () => {
           const totalDurationInSeconds =
             payload.metadata?.totalDurationInSeconds ?? 15;
           return {
-            durationInFrames: Math.round(totalDurationInSeconds * 30),
+            durationInFrames: Math.round(totalDurationInSeconds * 60),
             props: payload,
           };
         }}

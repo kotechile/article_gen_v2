@@ -58,11 +58,11 @@ export function getAdjustedScenes(
   } else {
     console.warn(
       `Audio duration (${totalDurationInFrames}f) is shorter than scenes prefix sum (${otherScenesSum}f).` +
-        ` Clamping last scene to 30 frames (1s) to avoid rendering issues.`
+        ` Clamping last scene to 60 frames (1s) to avoid rendering issues.`
     );
     newScenes[lastIndex] = {
       ...newScenes[lastIndex],
-      durationInFrames: 30,
+      durationInFrames: 60,
     };
   }
 

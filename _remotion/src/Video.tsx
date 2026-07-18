@@ -1,5 +1,5 @@
 import React from "react";
-import { Series, AbsoluteFill } from "remotion";
+import { Series, AbsoluteFill, useVideoConfig } from "remotion";
 import { RemotionVideoPayload } from "./types/schema";
 import { getAdjustedScenes } from "./utils/timing";
 import { FrameworkHero } from "./components/scenes/FrameworkHero";
@@ -19,7 +19,7 @@ export const VideoMain: React.FC<RemotionVideoPayload> = ({
   scenes,
 }) => {
   const { format, brandColors, totalDurationInSeconds, captionPosition, brandLogoUrl } = metadata;
-  const fps = 30;
+  const { fps } = useVideoConfig();
   const totalDurationInFrames = Math.round(totalDurationInSeconds * fps);
 
   // Mismatch Enforcement: adjust scene lengths to align exactly with total voiceover audio duration

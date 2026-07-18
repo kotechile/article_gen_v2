@@ -7,6 +7,12 @@ import argparse
 from bs4 import BeautifulSoup
 import dotenv
 
+# Ensure /opt/homebrew/bin is in PATH on macOS for ffmpeg/ffprobe detection
+if sys.platform == 'darwin':
+    paths = os.environ.get('PATH', '').split(os.path.pathsep)
+    if '/opt/homebrew/bin' not in paths:
+        os.environ['PATH'] = '/opt/homebrew/bin' + os.path.pathsep + os.environ.get('PATH', '')
+
 # Load environment variables from the same directory
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 dotenv.load_dotenv(dotenv_path)
@@ -593,8 +599,7 @@ def download_broll_images(blueprint):
 
 def align_timings(blueprint, caption_position, aspect_ratio="vertical", host_url=None, music="background.mp3"):
     """Calculates frame timings for subtitles and scenes, keeping subtitles bound to their scene frame ranges."""
-    fps = 30
-    total_frames = 30 * fps # 30 seconds = 900 frames
+    fps = 60
     
     scenes = blueprint['scenes']
     subtitles = []
@@ -617,15 +622,24 @@ def align_timings(blueprint, caption_position, aspect_ratio="vertical", host_url
         for i in range(0, len(words), chunk_size):
             chunks.append(" ".join(words[i:i+chunk_size]))
             
+        audio_dur = sc.get('audioDuration', 0.0)
+        
         if chunks:
-            # Distribute subtitle segments evenly within this scene's duration
-            chunk_duration = scene_frames // len(chunks)
+            # Distribute subtitle segments over the actual voiceover duration if available
+            subtitle_duration_sec = audio_dur if audio_dur > 0.0 else duration_sec
+            subtitle_frames = int(subtitle_duration_sec * fps)
+            subtitle_frames = min(subtitle_frames, scene_frames)  # Guard to stay within scene bounds
+            
+            chunk_duration = subtitle_frames // len(chunks)
             chunk_start = current_scene_start_frame
             for c_idx, chunk in enumerate(chunks):
                 chunk_end = chunk_start + chunk_duration - 1
                 if c_idx == len(chunks) - 1:
-                    chunk_end = scene_end_frame
+                    chunk_end = current_scene_start_frame + subtitle_frames - 1
                     
+                # Ensure no sub overlaps next scene boundary
+                chunk_end = min(chunk_end, scene_end_frame)
+                
                 subtitles.append({
                     "text": chunk,
                     "startFrame": chunk_start,
@@ -811,6 +825,7 @@ def main():
             seg_path = os.path.join(public_dir, seg_filename)
             if os.path.exists(seg_path):
                 audio_dur = get_media_duration(seg_path)
+            sc['audioDuration'] = audio_dur
                 
             # 2. Get custom video clip duration if the visual asset is a video
             asset_filename = sc.get('visualAssetUrl')
@@ -844,10 +859,11 @@ def main():
                     video_dur = get_media_duration(asset_path)
             
             if auto_sync:
-                calculated_duration = max(audio_dur, video_dur)
-                if calculated_duration > 0.0:
-                    # Add 0.5s padding to prevent abrupt transitions
-                    sc['durationInSeconds'] = calculated_duration + 0.5
+                # Prioritize audio (voiceover) duration so scene transitions when the voice finishes!
+                if audio_dur > 0.0:
+                    sc['durationInSeconds'] = audio_dur + 0.5
+                elif video_dur > 0.0:
+                    sc['durationInSeconds'] = video_dur + 0.5
                 else:
                     sc['durationInSeconds'] = sc.get('durationInSeconds', 6.0)
             
