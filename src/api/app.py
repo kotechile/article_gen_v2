@@ -22,6 +22,10 @@ from ..utils.config import get_config
 from ..utils.logging import setup_logging
 
 
+# Global store for background video generation tasks
+video_tasks = {}
+
+
 def create_app(config_name: str = None) -> Flask:
     """
     Create and configure Flask application.
@@ -421,32 +425,55 @@ def create_app(config_name: str = None) -> Flask:
             if music:
                 cmd += ["--music", music]
                 
-            logger = logging.getLogger(__name__)
-            logger.info(f"Triggering video generation: {' '.join(cmd)}")
+            import uuid
+            import threading
             
-            # Run the script synchronously with a timeout of 600s
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-            
-            # Clean up the temp blueprint file if created
-            if temp_payload_path and os.path.exists(temp_payload_path):
+            task_id = str(uuid.uuid4())
+            video_tasks[task_id] = {
+                'status': 'running',
+                'message': 'Video generation started in the background...'
+            }
+
+            def run_generation_bg(tid, command, temp_path):
                 try:
-                    os.remove(temp_payload_path)
+                    import subprocess
+                    res = subprocess.run(command, capture_output=True, text=True, timeout=600)
+                    
+                    if temp_path and os.path.exists(temp_path):
+                        try:
+                            os.remove(temp_path)
+                        except Exception:
+                            pass
+                            
+                    if res.returncode != 0:
+                        video_tasks[tid] = {
+                            'status': 'error',
+                            'message': 'Video generation failed',
+                            'stderr': res.stderr,
+                            'stdout': res.stdout
+                        }
+                    else:
+                        video_tasks[tid] = {
+                            'status': 'success',
+                            'message': 'Video generated successfully',
+                            'video_url': '/api/v1/video/download'
+                        }
                 except Exception as ex:
-                    logger.warning(f"Failed to remove temp blueprint file: {ex}")
+                    video_tasks[tid] = {
+                        'status': 'error',
+                        'message': str(ex)
+                    }
+
+            logger = logging.getLogger(__name__)
+            logger.info(f"Triggering background video generation (Task ID: {task_id}): {' '.join(cmd)}")
             
-            if result.returncode != 0:
-                logger.error(f"Video generation script failed.\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}")
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Video generation failed',
-                    'stderr': result.stderr,
-                    'stdout': result.stdout
-                }), 500
-                
+            # Start background thread
+            threading.Thread(target=run_generation_bg, args=(task_id, cmd, temp_payload_path), daemon=True).start()
+            
             return jsonify({
-                'status': 'success',
-                'message': 'Video generated successfully',
-                'video_url': '/api/v1/video/download'
+                'status': 'pending',
+                'task_id': task_id,
+                'message': 'Video generation started asynchronously.'
             })
             
         except Exception as e:
@@ -474,6 +501,14 @@ def create_app(config_name: str = None) -> Flask:
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # root dir
         public_dir = os.path.join(base_dir, "_remotion", "public")
         return send_from_directory(public_dir, filename)
+    
+    @app.route('/api/v1/video/status/<task_id>', methods=['GET'])
+    def get_video_status(task_id):
+        """Endpoint to check background video generation progress/status."""
+        task = video_tasks.get(task_id)
+        if not task:
+            return jsonify({'status': 'error', 'message': 'Task not found'}), 404
+        return jsonify(task)
     
     # API documentation endpoint
     @app.route('/api/v1/docs')
