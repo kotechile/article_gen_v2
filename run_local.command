@@ -48,7 +48,8 @@ pip install -r requirements.txt
 
 # Start backend in the background
 echo "🔥 Starting Flask backend (port 5001)..."
-python3 src/api/app.py > /tmp/artivids_backend.log 2>&1 &
+export PYTHONPATH=.
+python3 -m src.api.app > /tmp/artivids_backend.log 2>&1 &
 BACKEND_PID=$!
 
 # Navigate to frontend
