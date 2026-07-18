@@ -298,13 +298,26 @@ def generate_voiceover_openai(script_text, voice, dest_path):
         "response_format": "mp3"
     }
     
-    response = requests.post(url, headers=headers, json=data)
-    if response.status_code != 200:
-        raise Exception(f"OpenAI TTS API failed: {response.text}")
-    
-    with open(dest_path, 'wb') as f:
-        f.write(response.content)
-    print(f"✔ Saved voiceover segment to: {dest_path}")
+    import time
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=45)
+            if response.status_code == 200:
+                with open(dest_path, 'wb') as f:
+                    f.write(response.content)
+                print(f"✔ Saved voiceover segment to: {dest_path}")
+                return
+            elif response.status_code == 429:
+                print(f"⚠️ OpenAI TTS rate limit hit (Attempt {attempt + 1}/{max_retries}). Retrying in 3s...")
+                time.sleep(3)
+            else:
+                raise Exception(f"OpenAI TTS API failed (Status {response.status_code}): {response.text}")
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise e
+            print(f"⚠️ OpenAI TTS error (Attempt {attempt + 1}/{max_retries}): {e}. Retrying in 3s...")
+            time.sleep(3)
 
 def generate_voiceover_elevenlabs(script_text, voice_id, dest_path):
     """Uses ElevenLabs API to generate a premium voiceover track."""
@@ -328,13 +341,26 @@ def generate_voiceover_elevenlabs(script_text, voice_id, dest_path):
         }
     }
     
-    response = requests.post(url, headers=headers, json=data)
-    if response.status_code != 200:
-        raise Exception(f"ElevenLabs TTS API failed (Status {response.status_code}): {response.text}")
-        
-    with open(dest_path, 'wb') as f:
-        f.write(response.content)
-    print(f"✔ Saved ElevenLabs voiceover segment to: {dest_path}")
+    import time
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=45)
+            if response.status_code == 200:
+                with open(dest_path, 'wb') as f:
+                    f.write(response.content)
+                print(f"✔ Saved ElevenLabs voiceover segment to: {dest_path}")
+                return
+            elif response.status_code == 429 or "too_many_concurrent_requests" in response.text:
+                print(f"⚠️ ElevenLabs concurrent/rate limit hit (Attempt {attempt + 1}/{max_retries}). Retrying in 4s...")
+                time.sleep(4)
+            else:
+                raise Exception(f"ElevenLabs TTS API failed (Status {response.status_code}): {response.text}")
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise e
+            print(f"⚠️ ElevenLabs generation error (Attempt {attempt + 1}/{max_retries}): {e}. Retrying in 4s...")
+            time.sleep(4)
 
 def get_flux_config():
     """Queries Supabase to find active Flux models and their API keys."""
@@ -763,8 +789,9 @@ def main():
             else:
                 return None
 
-        print(f"🎙 Generating per-scene voiceovers in parallel...")
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        max_workers = 2 if (args.provider == "elevenlabs" or len(args.voice) > 15) else 5
+        print(f"🎙 Generating per-scene voiceovers in parallel (max workers: {max_workers})...")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # We wrap in list() to force evaluation and catch any propagated exception
             results = list(executor.map(run_voiceover_task, tasks))
             
