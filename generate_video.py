@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import requests
+import subprocess
 import argparse
 from bs4 import BeautifulSoup
 import dotenv
@@ -902,7 +903,6 @@ def main():
                 if v:
                     env[k] = v
                     
-        import subprocess
         subprocess.run(render_cmd, shell=True, check=True, env=env)
         
         print("\n==========================================")
