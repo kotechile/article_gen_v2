@@ -376,8 +376,8 @@ export function VideoStudio() {
             },
         };
 
-        // Calculate dynamic concurrency based on number of scenes (max 16, min 4)
-        const dynamicConcurrency = Math.min(16, Math.max(4, (blueprint?.scenes.length || 5) * 2));
+        // Calculate dynamic concurrency based on number of scenes (max 5, min 2) to prevent AWS TooManyRequestsException
+        const dynamicConcurrency = Math.min(5, Math.max(2, Math.floor((blueprint?.scenes.length || 5) / 2)));
 
         try {
             const response = await apiClient.post<any>('/v1/generate-video', {
@@ -408,7 +408,11 @@ export function VideoStudio() {
             let errMsg = backendError?.message || err.message || 'An error occurred during video rendering.';
             if (backendError?.stderr || backendError?.stdout) {
                 const details = backendError.stderr || backendError.stdout;
-                errMsg += ` (Backend Details: ${details.slice(-300)})`;
+                if (details.includes('TooManyRequestsException') || details.includes('Rate Exceeded')) {
+                    errMsg = "AWS Lambda Rate Limit Exceeded. AWS has temporarily throttled rendering concurrency. Please wait a few seconds and try again (we have automatically lowered the rendering speed to bypass this).";
+                } else {
+                    errMsg += ` (Backend Details: ${details.slice(-1500)})`;
+                }
             }
             setError(errMsg);
         } finally {
