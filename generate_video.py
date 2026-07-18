@@ -784,7 +784,10 @@ def main():
                                 "-vcodec", "libx264", "-acodec", "aac",
                                 "-pix_fmt", "yuv420p", "-y", mp4_path
                             ]
-                            subprocess.run(transcode_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                            try:
+                                subprocess.run(transcode_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                            except Exception as transcode_err:
+                                print(f"⚠️ FFmpeg on-the-fly transcoding failed: {transcode_err}")
                         
                         if os.path.exists(mp4_path):
                             sc['visualAssetUrl'] = mp4_filename
