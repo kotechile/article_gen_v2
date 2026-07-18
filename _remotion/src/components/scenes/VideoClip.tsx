@@ -5,7 +5,7 @@ import {
   useCurrentFrame,
   useVideoConfig,
   AbsoluteFill,
-  OffthreadVideo,
+  Video,
 } from "remotion";
 import { useResilientAsset } from "../../utils/fetchWithRetry";
 
@@ -83,7 +83,7 @@ export const VideoClip: React.FC<VideoClipProps> = ({
           alignItems: imageHalign === "left" ? "flex-start" : imageHalign === "right" ? "flex-end" : "center",
           zIndex: 0,
         }}>
-          <OffthreadVideo
+          <Video
             src={localUrl}
             style={{
               width: `${imageSizePercent || 100}%`,
