@@ -769,6 +769,27 @@ def main():
             # 2. Get custom video clip duration if the visual asset is a video
             asset_filename = sc.get('visualAssetUrl')
             if asset_filename:
+                # Proactively transcode non-mp4 videos (e.g. mov, webm) to mp4 on the fly for Lambda compatibility
+                if asset_filename.lower().endswith(('.mov', '.webm', '.m4v', '.qt')):
+                    orig_path = os.path.join(public_dir, asset_filename)
+                    if os.path.exists(orig_path):
+                        base_name, _ = os.path.splitext(asset_filename)
+                        mp4_filename = f"{base_name}.mp4"
+                        mp4_path = os.path.join(public_dir, mp4_filename)
+                        
+                        if not os.path.exists(mp4_path):
+                            print(f"🎬 Transcoding scene {idx + 1} video from {asset_filename} to {mp4_filename} on-the-fly...")
+                            transcode_cmd = [
+                                "ffmpeg", "-i", orig_path,
+                                "-vcodec", "libx264", "-acodec", "aac",
+                                "-pix_fmt", "yuv420p", "-y", mp4_path
+                            ]
+                            subprocess.run(transcode_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        
+                        if os.path.exists(mp4_path):
+                            sc['visualAssetUrl'] = mp4_filename
+                            asset_filename = mp4_filename
+
                 asset_path = os.path.join(public_dir, asset_filename)
                 if asset_filename.lower().endswith(('.mp4', '.mov', '.webm', '.m4v')):
                     video_dur = get_media_duration(asset_path)
