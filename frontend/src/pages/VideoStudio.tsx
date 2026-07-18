@@ -1342,7 +1342,11 @@ export function VideoStudio() {
                                             <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
                                             <div className="absolute inset-0 rounded-full border-4 border-t-primary animate-spin" />
                                         </div>
-                                        <h4 className="text-base font-bold text-foreground mb-2">Rendering Serverlessly</h4>
+                                        <h4 className="text-base font-bold text-foreground mb-2">
+                                            {window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+                                                ? 'Rendering Locally on GPU' 
+                                                : 'Rendering Serverlessly'}
+                                        </h4>
                                         <p className="text-xs text-muted-foreground max-w-xs">{statusMessage}</p>
                                     </div>
                                 )}
