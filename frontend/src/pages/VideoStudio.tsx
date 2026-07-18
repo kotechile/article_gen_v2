@@ -376,8 +376,8 @@ export function VideoStudio() {
             },
         };
 
-        // Calculate dynamic concurrency based on number of scenes (max 5, min 2) to prevent AWS TooManyRequestsException
-        const dynamicConcurrency = Math.min(5, Math.max(2, Math.floor((blueprint?.scenes.length || 5) / 2)));
+        // Calculate dynamic concurrency based on number of scenes (max 10, min 6) to prevent AWS Lambda timeouts
+        const dynamicConcurrency = Math.min(10, Math.max(6, Math.floor((blueprint?.scenes.length || 5) / 2)));
 
         let isAsynchronous = false;
 
