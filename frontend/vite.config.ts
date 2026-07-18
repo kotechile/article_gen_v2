@@ -14,7 +14,8 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: "@", replacement: path.resolve(__dirname, "./src") },
-      { find: /^victory-vendor\/(d3-[a-z-]+)$/, replacement: path.resolve(__dirname, "./node_modules/victory-vendor/es/$1.js") }
+      { find: /^victory-vendor\/(d3-[a-z-]+)$/, replacement: path.resolve(__dirname, "./node_modules/victory-vendor/es/$1.js") },
+      { find: "immer", replacement: path.resolve(__dirname, "./node_modules/immer/dist/cjs/index.js") }
     ],
   },
   server: {
