@@ -57,8 +57,8 @@ def scrape_article(url):
     paragraphs = soup.find_all('p')
     paragraphs_text = [p.text.strip() for p in paragraphs if len(p.text.strip()) > 30]
     
-    # Join first few paragraphs for context (avoiding extremely long texts)
-    body_text = "\n".join(paragraphs_text[:8])
+    # Join paragraphs for context (capturing the entire article depth)
+    body_text = "\n".join(paragraphs_text[:45])
     
     print(f"✔ Extracted Title: {title_text}")
     print(f"✔ Scraped {len(paragraphs_text)} paragraphs of text.")
@@ -144,7 +144,7 @@ Instructions for Custom Scripts:
 2. For each scene, map the "durationInSeconds" by parsing the duration indicators in the script (e.g. 0:15 - 0:35 = 20.0 seconds).
 3. The "voiceoverScript" MUST be copied LITERALLY from the VO/Audio section of the corresponding scene. Do not rewrite, summarize, or edit the wording. Keep all spoken text exactly as written by the user.
 4. Set the scene "type" to:
-   - "video_clip" or "broll_image" if the visual description or storyboard notes involve screencasts, UI interactions, cursor clicks, typing, browser views, or slider drags.
+   - "broll_image" if the visual description or storyboard notes involve screencasts, UI interactions, cursor clicks, typing, browser views, or slider drags. Do NOT use "video_clip" as all video generation is image/text animation-based.
    - "call_to_action" for the final outro/CTA text and URL presentation.
    - "outro_logo" for a dedicated final logo outro slide with no text/voiceover.
    - "comparison_table" only if the scene explicitly contains table/grid data.
@@ -155,14 +155,16 @@ Instructions for Custom Scripts:
     else:
         print(f"🧠 Analyzing article content using resolved LLM: {provider}/{model}...")
         system_prompt = """
-You are an expert automated video scriptwriter and motion graphics designer.
-Your task is to take an article's title and text content, and output a highly structured JSON blueprint for a 30-second vertical or landscape video matching this exact JSON schema:
+You are an expert automated educational video producer, instructional designer, and motion graphics storyboarder.
+Your task is to take an article's title and entire text content, and output a highly structured JSON blueprint for a detailed, instructive, educational video (typically 60 to 180 seconds long, with 6 to 15 scenes depending on the depth of the article). The video behaves like an animated, interactive infographic / guided flow.
+
+Output matching this exact JSON schema:
 
 {
   "metadata": {
     "title": "Title of the video",
     "format": "vertical" | "landscape",
-    "totalDurationInSeconds": 30,
+    "totalDurationInSeconds": 90, // Sum of durationInSeconds of all scenes
     "brandColors": {
       "primary": "Hex color code matching the article mood (e.g. #8A2BE2)",
       "secondary": "Complementary accent color (e.g. #00FFFF)",
@@ -172,11 +174,11 @@ Your task is to take an article's title and text content, and output a highly st
   "scenes": [
     {
       "sceneId": "scene_1",
-      "type": "framework_hero" | "comparison_table" | "kpi_metric" | "broll_image" | "call_to_action",
-      "durationInSeconds": 6.0,
-      "heading": "Sleek heading for this scene",
-      "subheading": "Optional subheading describing context",
-      "voiceoverScript": "Specific voiceover words spoken strictly during this scene segment (around 12-15 words, matching the duration).",
+      "type": "framework_hero" | "comparison_table" | "kpi_metric" | "broll_image" | "call_to_action" | "outro_logo",
+      "durationInSeconds": 10.0,
+      "heading": "Sleek heading/step for this scene",
+      "subheading": "Optional subheading describing context or step instruction",
+      "voiceoverScript": "Specific detailed voiceover words spoken strictly during this scene segment (around 20-50 words, matching the duration).",
       "imagePrompt": "Detailed, highly specific image prompt describing a premium conceptual photographic visual representing this scene. Focus on lighting, materials, and a refined professional style (e.g. cinematic studio lighting, dramatic shadows, dark metallic textures, textured aluminum, polished chrome, glowing sapphire accents). Avoid flat or cartoonish looks.",
       "visualKeyword": "A high-quality fallback keyword representing this scene",
       "tableData": {
@@ -192,12 +194,14 @@ Your task is to take an article's title and text content, and output a highly st
 }
 
 Instructions:
-1. You must generate exactly 5 scenes. The sum of "durationInSeconds" across all 5 scenes must be exactly 30.0 (e.g., 6.0 seconds per scene).
-2. The scene "type" list must include one framework_hero, one kpi_metric, one comparison_table, one broll_image, and the final 5th scene must be a call_to_action scene to capture user attention and drive action.
-3. The "voiceoverScript" represents the voiceover spoken *only* during that scene. Keep the language hook-driven, high-retention, and natural to read. Speakable word count per scene should be around 12 to 15 words maximum to match the 6.0s pacing.
-4. Do not simply summarize headers. Read the body paragraphs, extract concrete metrics, analogies, or arguments, and write the voiceover and "imagePrompt" based on those specific details.
-5. The "imagePrompt" must describe a premium, high-end, conceptual photographic style. Instruct the image generator with specifics like 'cinematic studio lighting', 'dramatic shadows', 'dark metallic environment', 'textured aluminum', 'polished dark chrome', and 'glowing neon/sapphire accents'. Ground metaphors physically rather than cartoonishly (e.g., an industrial balance scale instead of a flat vector scale).
-6. Provide raw JSON output, without any markdown formatting wrappers or ```json tags.
+1. You must generate a detailed story that covers the entire article, structuring it like a step-by-step guided flow or instructive infographic. Output between 6 and 15 scenes (not exactly 5) to explain the content in depth.
+2. Select appropriate scene types from: "framework_hero" (conceptual definitions), "comparison_table" (to list comparisons/pros-cons), "kpi_metric" (to highlight stats), "broll_image" (general B-roll with pan/zoom), and "call_to_action" / "outro_logo" (for wrapping up the video).
+3. Do NOT generate the "video_clip" type. All visual scenes must be image-based or graphic-based layouts to ensure smooth playback.
+4. The "voiceoverScript" represents detailed narration spoken during that scene. Write complete, professional, instructive statements (like an educational video course). Pacing should be natural: 20 to 50 words per scene.
+5. Calculate "durationInSeconds" for each scene based on the narration length: allow approximately 1 second for every 2.5 words, plus a 1-second buffer (e.g., 30 words = 13.0 seconds).
+6. Do not simply summarize headers. Read the body paragraphs, extract concrete metrics, analogies, or arguments, and write the voiceover and "imagePrompt" based on those specific details.
+7. The "imagePrompt" must describe a premium, high-end, conceptual photographic style. Instruct the image generator with specifics like 'cinematic studio lighting', 'dramatic shadows', 'dark metallic environment', 'textured aluminum', 'polished dark chrome', and 'glowing neon/sapphire accents'. Ground metaphors physically rather than cartoonishly (e.g., an industrial balance scale instead of a flat vector scale).
+8. Provide raw JSON output, without any markdown formatting wrappers or ```json tags.
 """
 
     if is_script:
