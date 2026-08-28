@@ -93,6 +93,20 @@ class TestEntityExtractor(unittest.TestCase):
         self.assertIn("scale", result.search_query)
         self.assertEqual(result.object_fidelity_weight, 0.60)
 
+    @patch("requests.post")
+    def test_call_deepseek_direct(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": json.dumps({"has_physical_entity": True, "main_object": "DeepSeek GPU Server"})}}]
+        }
+        mock_post.return_value = mock_response
+
+        extractor = EntityExtractor(provider="deepseek", model="deepseek-v4-flash", api_key="sk-test-deepseek")
+        res = extractor._call_deepseek_direct("sk-test-deepseek", "deepseek-v4-flash", "test prompt")
+        self.assertIn("DeepSeek GPU Server", res)
+        mock_post.assert_called_once()
+        self.assertEqual(mock_post.call_args[0][0], "https://api.deepseek.com/chat/completions")
+
 
 if __name__ == "__main__":
     unittest.main()

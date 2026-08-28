@@ -126,29 +126,76 @@ class EntityExtractor:
                 {"role": "user", "content": prompt_content}
             ]
             litellm_model = model
-            if provider == "gemini" and not model.startswith("gemini/"):
-                litellm_model = f"gemini/{model}"
-            elif provider == "openai" and not model.startswith("openai/"):
-                litellm_model = f"openai/{model}"
+            completion_kwargs: Dict[str, Any] = {
+                "messages": messages,
+                "api_key": api_key,
+                "temperature": 0.3,
+                "max_tokens": 600
+            }
 
-            response = completion(
-                model=litellm_model,
-                messages=messages,
-                api_key=api_key,
-                temperature=0.3,
-                max_tokens=600
-            )
+            if provider in ["google", "gemini"]:
+                if not model.startswith("gemini/"):
+                    litellm_model = f"gemini/{model}"
+            elif provider == "openai":
+                if not model.startswith("openai/"):
+                    litellm_model = f"openai/{model}"
+            elif provider == "deepseek":
+                clean_model = model.replace("deepseek/", "").replace("openai/", "")
+                # Using openai/ prefix with deepseek api_base ensures full compatibility across LiteLLM versions
+                litellm_model = f"openai/{clean_model}"
+                completion_kwargs["api_base"] = "https://api.deepseek.com"
+                completion_kwargs["custom_llm_provider"] = "openai"
+            elif provider in ["anthropic", "claude"]:
+                if not model.startswith("anthropic/"):
+                    litellm_model = f"anthropic/{model}"
+            elif provider in ["kimi", "moonshot"]:
+                clean_model = model.replace("moonshot/", "").replace("kimi/", "")
+                litellm_model = f"openai/{clean_model}"
+                completion_kwargs["api_base"] = "https://api.moonshot.cn/v1"
+                completion_kwargs["custom_llm_provider"] = "openai"
+            else:
+                if "/" not in model:
+                    litellm_model = f"{provider}/{model}"
+
+            completion_kwargs["model"] = litellm_model
+
+            response = completion(**completion_kwargs)
             return response.choices[0].message.content
         except Exception as e:
             logger.warning(f"LiteLLM completion failed in entity extractor: {e}. Trying direct HTTP fallback.")
 
-        # Direct HTTP fallback for Gemini / OpenAI
+        # Direct HTTP fallback for Gemini / DeepSeek / OpenAI
         if "gemini" in provider or "google" in provider:
             return self._call_gemini_direct(api_key, model, prompt_content)
-        elif "openai" in provider:
-            return self._call_openai_direct(api_key, model, prompt_content)
+        elif "deepseek" in provider:
+            return self._call_deepseek_direct(api_key, model, prompt_content)
+        elif "openai" in provider or "kimi" in provider or "moonshot" in provider:
+            base_url = "https://api.moonshot.cn/v1/chat/completions" if "kimi" in provider or "moonshot" in provider else "https://api.openai.com/v1/chat/completions"
+            return self._call_openai_direct(api_key, model, prompt_content, base_url=base_url)
 
         raise RuntimeError(f"Unable to invoke LLM provider '{provider}' for entity extraction.")
+
+    def _call_deepseek_direct(self, api_key: str, model: str, prompt_content: str) -> str:
+        import requests
+        clean_model = model.replace("deepseek/", "").replace("openai/", "")
+        url = "https://api.deepseek.com/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": clean_model,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt_content}
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.2
+        }
+        res = requests.post(url, headers=headers, json=payload, timeout=25)
+        res.raise_for_status()
+        data = res.json()
+        return data["choices"][0]["message"]["content"]
 
     def _call_gemini_direct(self, api_key: str, model: str, prompt_content: str) -> str:
         import requests
@@ -173,11 +220,13 @@ class EntityExtractor:
         data = res.json()
         return data["candidates"][0]["content"]["parts"][0]["text"]
 
-    def _call_openai_direct(self, api_key: str, model: str, prompt_content: str) -> str:
+    def _call_openai_direct(self, api_key: str, model: str, prompt_content: str, base_url: str = "https://api.openai.com/v1/chat/completions") -> str:
         import requests
-        clean_model = model.replace("openai/", "")
-        url = "https://api.openai.com/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {api_key}"}
+        clean_model = model.replace("openai/", "").replace("kimi/", "").replace("moonshot/", "")
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
         payload = {
             "model": clean_model,
             "messages": [
@@ -187,7 +236,7 @@ class EntityExtractor:
             "response_format": {"type": "json_object"},
             "temperature": 0.2
         }
-        res = requests.post(url, headers=headers, json=payload, timeout=20)
+        res = requests.post(base_url, headers=headers, json=payload, timeout=25)
         res.raise_for_status()
         data = res.json()
         return data["choices"][0]["message"]["content"]
