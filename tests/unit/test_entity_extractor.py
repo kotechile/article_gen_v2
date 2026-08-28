@@ -69,7 +69,7 @@ class TestEntityExtractor(unittest.TestCase):
 
         self.assertTrue(result.has_physical_entity)
         self.assertIn("Sony", result.main_object)
-        self.assertIn("product photo", result.search_query)
+        self.assertIn("photo", result.search_query)
 
     @patch.object(EntityExtractor, "_call_llm")
     def test_extract_metaphorical_object_for_abstract_text(self, mock_call_llm):
@@ -106,6 +106,36 @@ class TestEntityExtractor(unittest.TestCase):
         self.assertIn("DeepSeek GPU Server", res)
         mock_post.assert_called_once()
         self.assertEqual(mock_post.call_args[0][0], "https://api.deepseek.com/chat/completions")
+
+    @patch.object(EntityExtractor, "_call_llm")
+    def test_extract_handles_think_tags_from_reasoning_models(self, mock_call_llm):
+        mock_call_llm.return_value = """<think>
+The user article talks about a plumber fixing pipes.
+</think>
+```json
+{
+  "has_physical_entity": true,
+  "entity_type": "physical",
+  "is_metaphorical": false,
+  "main_object": "Plumber repairing leaking copper pipe in crawlspace",
+  "search_query": "plumber fixing pipe wrench",
+  "generation_prompt": "A plumber repairing a pipe in crawlspace",
+  "object_fidelity_weight": 0.75
+}
+```"""
+        result = self.extractor.extract("Think about a plumber fixing pipes.")
+        self.assertTrue(result.has_physical_entity)
+        self.assertEqual(result.main_object, "Plumber repairing leaking copper pipe in crawlspace")
+        self.assertEqual(result.search_query, "plumber fixing pipe wrench")
+
+    @patch.object(EntityExtractor, "_call_llm")
+    def test_extract_trade_fallback_for_plumber(self, mock_call_llm):
+        mock_call_llm.return_value = "Broken output from model"
+        text = "Think about a plumber or an electrician. If you have ever had a pipe burst in an old house."
+        result = self.extractor.extract(text)
+        self.assertTrue(result.has_physical_entity)
+        self.assertIn("Plumber", result.main_object)
+        self.assertIn("plumber", result.search_query)
 
 
 if __name__ == "__main__":

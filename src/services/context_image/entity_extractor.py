@@ -35,42 +35,47 @@ class EntityExtractionResult:
 SYSTEM_PROMPT = """You are an expert AI visual art director and creative editorial photographer.
 Your task is to analyze an excerpt of article text and identify or conceive the most impactful visual subject:
 
-1. Physical Entity Detection vs. Metaphorical Conception:
-   - Check if there is a dominant, specific physical object or branded product mentioned (e.g., specific electronics, vehicle, wearable, hardware, gadget, tool, tangible gear, animal).
-   - If found, extract this exact entity name and set entity_type to "physical", is_metaphorical to false, and has_physical_entity to true.
+1. Physical Trades, Craftspeople & Physical Entities (TOP PRIORITY):
+   - Check if the text describes physical trades, manual craftspeople, hands-on workers, tools, or physical work:
+     * Examples: Plumber, electrician, carpenter, welder, auto mechanic, surgeon, craftsman, or robots (like Boston Dynamics Atlas).
+     * If mentioned, ALWAYS choose this physical trade worker performing their active craft!
+     * Example: If text mentions "Think about a plumber or an electrician. If you’ve ever had a pipe burst in the middle of the night in an old house... crawlspace... joint is leaking":
+       -> main_object: "Plumber repairing leaking copper pipe with wrench in crawlspace"
+       -> search_query: "plumber fixing pipe wrench"
+       -> generation_prompt: "A focused, authentic plumber with work gloves and pipe wrench repairing a leaking copper joint in a dim crawlspace, dramatic practical work light, 35mm editorial photography"
+       -> entity_type: "physical", is_metaphorical: false, has_physical_entity: true.
+   - Also check for specific consumer electronics, vehicles, hardware, tools, animals, or architecture.
 
-2. Metaphorical / Symbolic Fallback (When Text is Conceptual or Abstract):
-   - When text deals with concepts (e.g., AI partnership, job market, inflation, security, leadership, teamwork, decision-making, resilience, strategy):
-   - Check if the author uses an analogy or metaphor in the text (e.g., "in the driver's seat", "like a GPS on a road trip", "riding the wave", "climbing the mountain", "balancing act", "shield and sword").
-   - If an analogy exists in the excerpt, ANCHOR DIRECTLY on that physical object (e.g., "A driver's hands gripping a modern car steering wheel with a glowing navigation display on an open highway").
-   - If no analogy exists, invent a compelling, tangible symbolic physical object:
-     * Economic inflation / Purchasing power -> "An antique brass balancing scale weighing gold coins against a feather"
-     * Cybersecurity / Data privacy -> "A glowing titanium padlock securing optical fiber cables"
-     * Growth / Innovation -> "A green plant sprout emerging through a cracked slab of polished dark stone"
-     * Partnership / Teamwork -> "A pair of rowing oars slicing through tranquil water in unison"
-     * Resilience / Career -> "A mountain climber standing on a rocky precipice facing the morning sunrise"
+2. Metaphorical / Symbolic Fallback (ONLY When Text Has NO Physical Trades or Objects):
+   - When text deals strictly with abstract concepts (e.g. inflation, interest rates, data security, teamwork, cloud computing, leadership):
+   - If the author uses an analogy (e.g. "in the driver's seat", "like a GPS on a road trip", "riding the wave"), anchor directly on that physical metaphor.
+   - If no analogy exists, invent a tangible physical metaphor:
+     * Inflation -> "An antique brass balancing scale weighing gold coins against a feather"
+     * Cybersecurity -> "A glowing titanium padlock securing optical fiber cables"
+     * Growth -> "A green plant sprout breaking through cracked polished dark stone"
+     * Teamwork -> "A pair of rowing oars slicing through tranquil water in unison"
    - Set entity_type to "metaphorical", is_metaphorical to true, and has_physical_entity to false.
 
 3. Search Query Rules (CRITICAL FOR PHOTO RETRIEVAL):
-   - The `search_query` MUST ONLY consist of 2 to 4 simple, concrete, photographic keywords describing the physical object.
-   - Example Good Queries: "car steering wheel dashboard", "driver hands steering wheel", "antique brass scale", "rowing oars water", "surfer ocean wave", "mountain climber sunrise".
-   - Example BAD Queries (NEVER DO THIS): "AI proof jobs partnership", "strategy and purpose concept", "future of work clean studio photo", "ai technology roadmap".
-   - Search engines CANNOT find photos for abstract concepts; they ONLY index tangible physical objects!
+   - The `search_query` MUST ONLY consist of 2 to 4 simple, concrete, photographic keywords describing the physical object or tradesperson.
+   - Example Good Queries: "plumber fixing pipe wrench", "electrician wiring tools", "humanoid robot walking", "car steering wheel dashboard", "antique brass scale".
+   - NEVER use abstract phrases like "physical side of things", "AI safe zone", "future of work", "strategy".
+   - Search engines CANNOT find photos for abstract phrases; they ONLY index tangible physical objects!
 
 4. Generation Prompt:
-   - Formulate a rich, cinematic diffusion generation prompt that places the physical or metaphorical object into an engaging, realistic composition with vivid lighting, atmosphere, and 35mm editorial photography aesthetics.
+   - Formulate a rich, cinematic diffusion generation prompt that places the physical subject into an authentic composition with vivid lighting, atmosphere, and 35mm editorial photography aesthetics.
 
 5. Object Fidelity Weight:
-   - Between 0.0 and 1.0 (recommended 0.75 for physical branded products, 0.60 for metaphorical objects to allow artistic freedom).
+   - Between 0.0 and 1.0 (recommended 0.75 for physical trades and branded products, 0.60 for metaphorical objects).
 
 Respond ONLY with a valid JSON object adhering strictly to this schema:
 {
   "has_physical_entity": true/false,
   "entity_type": "physical" or "metaphorical",
   "is_metaphorical": true/false,
-  "main_object": "Specific physical entity or metaphorical object description",
-  "search_query": "2 to 4 simple words describing the physical object for photo search",
-  "generation_prompt": "Cinematic description of the object or metaphorical scene, composition, lighting, 35mm photography",
+  "main_object": "Specific physical entity, trade craftsman, or metaphorical object description",
+  "search_query": "2 to 4 simple words describing the physical object or tradesperson for photo search",
+  "generation_prompt": "Cinematic description of the subject, composition, lighting, 35mm photography",
   "object_fidelity_weight": 0.75
 }
 """
@@ -145,8 +150,9 @@ class EntityExtractor:
                     litellm_model = f"openai/{model}"
             elif provider == "deepseek":
                 clean_model = model.replace("deepseek/", "").replace("openai/", "")
+                api_model = "deepseek-chat" if clean_model in ["deepseek-v4-flash", "deepseek-v4-pro", "default"] or "flash" in clean_model else clean_model
                 # Using openai/ prefix with deepseek api_base ensures full compatibility across LiteLLM versions
-                litellm_model = f"openai/{clean_model}"
+                litellm_model = f"openai/{api_model}"
                 completion_kwargs["api_base"] = "https://api.deepseek.com"
                 completion_kwargs["custom_llm_provider"] = "openai"
             elif provider in ["anthropic", "claude"]:
@@ -164,7 +170,9 @@ class EntityExtractor:
             completion_kwargs["model"] = litellm_model
 
             response = completion(**completion_kwargs)
-            return response.choices[0].message.content
+            content = response.choices[0].message.content
+            logger.info(f"LiteLLM entity extraction output: {content[:300]}")
+            return content
         except Exception as e:
             logger.warning(f"LiteLLM completion failed in entity extractor: {e}. Trying direct HTTP fallback.")
 
@@ -182,13 +190,14 @@ class EntityExtractor:
     def _call_deepseek_direct(self, api_key: str, model: str, prompt_content: str) -> str:
         import requests
         clean_model = model.replace("deepseek/", "").replace("openai/", "")
+        api_model = "deepseek-chat" if clean_model in ["deepseek-v4-flash", "deepseek-v4-pro", "default"] or "flash" in clean_model else clean_model
         url = "https://api.deepseek.com/chat/completions"
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
         payload = {
-            "model": clean_model,
+            "model": api_model,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt_content}
@@ -199,7 +208,9 @@ class EntityExtractor:
         res = requests.post(url, headers=headers, json=payload, timeout=25)
         res.raise_for_status()
         data = res.json()
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
+        logger.info(f"Direct DeepSeek entity extraction output: {content[:300]}")
+        return content
 
     def _call_gemini_direct(self, api_key: str, model: str, prompt_content: str) -> str:
         import requests
@@ -247,12 +258,25 @@ class EntityExtractor:
 
     def _parse_json_response(self, raw_text: str, fallback_text: str) -> EntityExtractionResult:
         try:
-            cleaned = raw_text.strip()
-            # Strip markdown json code fence if present
-            if cleaned.startswith("```"):
+            logger.info(f"Raw LLM output in _parse_json_response: {raw_text[:300]}")
+            # 1. Strip think tags emitted by reasoning models (e.g. DeepSeek R1 / DeepSeek Reasoner)
+            cleaned = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
+
+            # 2. Strip markdown code fence or extract JSON object substring
+            json_match = re.search(r"(\{[\s\S]*\})", cleaned)
+            if json_match:
+                cleaned = json_match.group(1).strip()
+            elif cleaned.startswith("```"):
                 cleaned = re.sub(r"^```(?:json)?\n", "", cleaned)
-                cleaned = re.sub(r"\n```$", "", cleaned)
+                cleaned = re.sub(r"\n```$", "", cleaned).strip()
+
             data = json.loads(cleaned)
+            main_obj = str(data.get("main_object") or "").strip()
+            search_q = str(data.get("search_query") or "").strip()
+            gen_prompt = str(data.get("generation_prompt") or "").strip()
+
+            if not main_obj:
+                raise ValueError("Parsed JSON missing 'main_object'")
 
             has_physical = bool(data.get("has_physical_entity", True))
             raw_type = str(data.get("entity_type") or "").strip().lower()
@@ -263,23 +287,52 @@ class EntityExtractor:
                 has_physical_entity=not is_metaphorical and has_physical,
                 entity_type=entity_type,
                 is_metaphorical=is_metaphorical,
-                main_object=str(data.get("main_object") or "").strip(),
-                search_query=str(data.get("search_query") or "").strip(),
-                generation_prompt=str(data.get("generation_prompt") or "").strip(),
+                main_object=main_obj,
+                search_query=search_q or f"{main_obj} photo",
+                generation_prompt=gen_prompt or f"A cinematic 35mm editorial photograph of {main_obj}",
                 object_fidelity_weight=float(data.get("object_fidelity_weight", 0.60 if is_metaphorical else 0.75)),
                 raw_response=data
             )
         except Exception as e:
-            logger.error(f"Error parsing entity extractor JSON: {e}, raw text: {raw_text[:200]}")
-            # Graceful fallback heuristic
-            words = fallback_text.strip().split()
-            headline = " ".join(words[:6])
+            logger.error(f"Error parsing entity extractor JSON: {e}, raw text: {raw_text[:300]}")
+            # Intelligent fallback heuristic: search for physical trade professions, crafts, or robots in text
+            lower_text = fallback_text.lower()
+            subject = None
+            query = None
+
+            if "plumber" in lower_text:
+                subject = "Plumber repairing leaking copper pipe in crawlspace"
+                query = "plumber fixing pipe wrench"
+            elif "electrician" in lower_text:
+                subject = "Electrician inspecting electrical breaker panel"
+                query = "electrician wiring tools"
+            elif "boston dynamics" in lower_text or "atlas" in lower_text or "humanoid robot" in lower_text or "robot" in lower_text:
+                subject = "Humanoid robot performing everyday physical tasks"
+                query = "humanoid robot everyday tasks"
+            elif "mechanic" in lower_text:
+                subject = "Auto mechanic repairing car engine"
+                query = "auto mechanic workshop"
+            elif "carpenter" in lower_text:
+                subject = "Carpenter cutting wood in woodworking shop"
+                query = "carpenter workshop tools"
+            elif "surgeon" in lower_text or "doctor" in lower_text:
+                subject = "Surgeon performing surgery in modern operating room"
+                query = "surgeon operating room"
+
+            if not subject:
+                sentences = [s.strip() for s in re.split(r'[.!?\n]', fallback_text) if s.strip()]
+                candidate_sentence = sentences[0] if sentences else fallback_text
+                words = [w for w in candidate_sentence.split() if len(w) > 3 and w.isalpha()]
+                headline = " ".join(words[:3]) if words else "hands-on physical trade"
+                subject = f"{headline.capitalize()} craftsmanship"
+                query = f"{headline} craftsmanship photo"
+
             return EntityExtractionResult(
                 has_physical_entity=True,
                 entity_type="physical",
                 is_metaphorical=False,
-                main_object=headline,
-                search_query=f"{headline} product photo",
-                generation_prompt=f"A clean editorial scene showcasing {headline}, high resolution, studio lighting",
+                main_object=subject,
+                search_query=query,
+                generation_prompt=f"A cinematic 35mm editorial photograph of {subject.lower()}, authentic work environment, natural practical lighting, rich textures",
                 object_fidelity_weight=0.75
             )
