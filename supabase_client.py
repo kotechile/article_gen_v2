@@ -32,6 +32,18 @@ LLM_ROLE_RESEARCH_TOPIC_GENERATION = "research_topic_generation"
 LLM_ROLE_RESEARCH_SUBTOPIC_GENERATION = "research_subtopic_generation"
 LLM_ROLE_RESEARCH_IDEA_GENERATION = "research_idea_generation"
 
+IMAGE_APP_ARTICLE_IMAGE = "article_image"
+IMAGE_APP_INFOGRAPHICS = "infographics"
+
+_IMAGE_APP_ALIASES = {
+    "article_image": IMAGE_APP_ARTICLE_IMAGE,
+    "article-image": IMAGE_APP_ARTICLE_IMAGE,
+    "articleimage": IMAGE_APP_ARTICLE_IMAGE,
+    "article": IMAGE_APP_ARTICLE_IMAGE,
+    "infographics": IMAGE_APP_INFOGRAPHICS,
+    "infographic": IMAGE_APP_INFOGRAPHICS,
+}
+
 _LLM_ROLE_ALIASES = {
     "all_other": LLM_ROLE_ARTICLE_GENERATION,
     "article_generation": LLM_ROLE_ARTICLE_GENERATION,
@@ -264,45 +276,54 @@ def _fetch_llm_provider_rows(client: Client) -> list[dict]:
 
 
 def _fetch_llm_role_assignments(client: Client) -> dict[str, str]:
+    tables_to_try = ['llm_used_for', 'used_for']
     attempts = [
         ("role-map", "llm_provider_id,used_for"),
         ("role-map-legacy", "llm_provider_id,used_for"),
+        ("role-map-role", "llm_provider_id,role"),
+        ("role-map-app", "llm_provider_id,application"),
     ]
 
-    for label, select_fields in attempts:
-        try:
-            response = client.table('llm_used_for').select(select_fields).execute()
-            assignment_map: dict[str, str] = {}
-            for row in response.data or []:
-                provider_id = str(row.get('llm_provider_id') or '').strip()
-                if not provider_id:
-                    continue
-                normalized_roles = _normalize_used_for(row.get('used_for'))
-                if len(normalized_roles) != 1:
-                    continue
-                assignment_map[normalized_roles[0]] = provider_id
-            if assignment_map:
-                return assignment_map
-        except Exception as exc:
-            logger.warning("LLM used_for query attempt failed: %s (%s)", label, exc)
-    rows = _fetch_rows_via_postgres(
-        """
-        SELECT
-            llm_provider_id::text AS llm_provider_id,
-            used_for
-        FROM llm_used_for
-        """
-    )
-    assignment_map: dict[str, str] = {}
-    for row in rows:
-        provider_id = str(row.get('llm_provider_id') or '').strip()
-        if not provider_id:
-            continue
-        normalized_roles = _normalize_used_for(row.get('used_for'))
-        if len(normalized_roles) != 1:
-            continue
-        assignment_map[normalized_roles[0]] = provider_id
-    return assignment_map
+    for table_name in tables_to_try:
+        for label, select_fields in attempts:
+            try:
+                response = client.table(table_name).select(select_fields).execute()
+                assignment_map: dict[str, str] = {}
+                for row in response.data or []:
+                    provider_id = str(row.get('llm_provider_id') or '').strip()
+                    if not provider_id:
+                        continue
+                    role_field = row.get('used_for') or row.get('role') or row.get('application')
+                    normalized_roles = _normalize_used_for(role_field)
+                    if len(normalized_roles) != 1:
+                        continue
+                    assignment_map[normalized_roles[0]] = provider_id
+                if assignment_map:
+                    return assignment_map
+            except Exception as exc:
+                logger.debug("LLM %s query attempt failed: %s (%s)", table_name, label, exc)
+
+    for table_name in tables_to_try:
+        rows = _fetch_rows_via_postgres(
+            f"""
+            SELECT
+                llm_provider_id::text AS llm_provider_id,
+                COALESCE(used_for, role, application) AS used_for
+            FROM {table_name}
+            """
+        )
+        assignment_map: dict[str, str] = {}
+        for row in rows:
+            provider_id = str(row.get('llm_provider_id') or '').strip()
+            if not provider_id:
+                continue
+            normalized_roles = _normalize_used_for(row.get('used_for'))
+            if len(normalized_roles) != 1:
+                continue
+            assignment_map[normalized_roles[0]] = provider_id
+        if assignment_map:
+            return assignment_map
+    return {}
 
 
 def _sort_llm_provider_rows(rows: list[dict]) -> list[dict]:
@@ -460,6 +481,287 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
 def get_llm_provider_for_role(task_role: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
     resolved = resolve_llm_provider(task_role=task_role)
     return resolved.get("provider"), resolved.get("model"), resolved.get("api_key")
+
+
+def _normalize_image_provider_row(row: dict) -> Optional[dict]:
+    if not isinstance(row, dict):
+        return None
+    model_name = str(row.get('model_name') or '').strip()
+    if not model_name:
+        return None
+    return {
+        'id': str(row.get('id') or '').strip(),
+        'model_name': model_name,
+        'provider': str(row.get('provider') or '').strip().lower(),
+        'display_name': str(row.get('display_name') or row.get('name') or model_name).strip(),
+        'api_keys_id': str(row.get('api_keys_id') or row.get('api_key_id') or '').strip() or None,
+        'is_active': row.get('is_active') if isinstance(row.get('is_active'), bool) else True,
+    }
+
+
+def _fetch_image_provider_rows(client: Client) -> list[dict]:
+    try:
+        response = client.table('llm_providers_image').select('*').execute()
+        rows = []
+        for raw_row in response.data or []:
+            norm = _normalize_image_provider_row(raw_row)
+            if norm:
+                rows.append(norm)
+        if rows:
+            return rows
+    except Exception as exc:
+        logger.warning("Supabase query for llm_providers_image failed: %s", exc)
+
+    rows = _fetch_rows_via_postgres(
+        """
+        SELECT
+            id::text AS id,
+            model_name,
+            provider,
+            COALESCE(display_name, name) AS display_name,
+            COALESCE(api_keys_id, api_key_id)::text AS api_keys_id,
+            is_active
+        FROM llm_providers_image
+        """
+    )
+    normalized_rows = []
+    for raw_row in rows:
+        norm = _normalize_image_provider_row(raw_row)
+        if norm:
+            normalized_rows.append(norm)
+    return normalized_rows
+
+
+def _fetch_image_application_assignments(client: Client) -> dict[str, str]:
+    """
+    Fetch image application mappings from table 'used_for' (with fallback to 'llm_used_for').
+    Reads field 'llm_image_id' containing the ID from table 'llm_providers_image'.
+    Returns a dict mapping normalized application (e.g. 'article_image', 'infographics')
+    to the target llm_image_id.
+    """
+    assignment_map: dict[str, str] = {}
+
+    def _process_rows(data: list[dict]):
+        for row in data:
+            if not isinstance(row, dict):
+                continue
+            llm_image_id = str(row.get('llm_image_id') or '').strip()
+            if not llm_image_id:
+                continue
+
+            app_raw = (
+                row.get('application')
+                or row.get('used_for')
+                or row.get('name')
+                or row.get('role')
+                or row.get('task')
+            )
+            if not app_raw:
+                continue
+
+            app_str = str(app_raw).strip().lower()
+            normalized_app = _IMAGE_APP_ALIASES.get(app_str, app_str)
+            if normalized_app:
+                assignment_map[normalized_app] = llm_image_id
+
+    for table_name in ['used_for', 'llm_used_for']:
+        try:
+            response = client.table(table_name).select('*').execute()
+            if response.data:
+                _process_rows(response.data)
+                if assignment_map:
+                    return assignment_map
+        except Exception as exc:
+            logger.debug("Querying %s for image application assignments failed: %s", table_name, exc)
+
+    for table_name in ['used_for', 'llm_used_for']:
+        try:
+            rows = _fetch_rows_via_postgres(
+                f"""
+                SELECT
+                    id::text AS id,
+                    llm_image_id::text AS llm_image_id,
+                    COALESCE(application, used_for, name, role, task) AS application
+                FROM {table_name}
+                WHERE llm_image_id IS NOT NULL
+                """
+            )
+            if rows:
+                _process_rows(rows)
+                if assignment_map:
+                    return assignment_map
+        except Exception as exc:
+            logger.debug("Postgres query for %s image assignments failed: %s", table_name, exc)
+
+    return assignment_map
+
+
+def resolve_image_provider(
+    application: Optional[str] = None,
+    model: Optional[str] = None,
+) -> dict:
+    """
+    Resolve an image generation provider/model/API key combination.
+
+    Resolution Flow:
+    1. For a given application ('article_image' or 'infographics'):
+       - Query table 'used_for' to find the row for this application.
+       - Read 'llm_image_id' pointing to table 'llm_providers_image'.
+       - Query 'llm_providers_image' where id = llm_image_id to get 'model_name', 'provider', 'api_keys_id'.
+       - Query 'api_keys' where id = api_keys_id to get 'key_value'.
+    2. If explicit model name or ID is provided (and does not alias an application):
+       - Find record in 'llm_providers_image' by model_name, display_name, or id.
+       - Resolve API key using api_keys_id -> api_keys.key_value.
+    3. Default Fallback:
+       - Default to application 'article_image' via table 'used_for'.
+       - Fallback to first active model in 'llm_providers_image'.
+    """
+    client = get_supabase_client()
+    if not client:
+        return {
+            "provider": None,
+            "model": model or None,
+            "api_key": None,
+            "display_name": None,
+            "llm_image_id": None,
+            "application": application or None,
+            "source": "no_supabase",
+        }
+
+    image_rows = _fetch_image_provider_rows(client)
+    if not image_rows:
+        return {
+            "provider": None,
+            "model": model or None,
+            "api_key": None,
+            "display_name": None,
+            "llm_image_id": None,
+            "application": application or None,
+            "source": "no_rows",
+        }
+
+    app_assignments = _fetch_image_application_assignments(client)
+
+    normalized_app = _IMAGE_APP_ALIASES.get(
+        str(application or '').strip().lower(),
+        str(application or '').strip().lower()
+    ) if application else None
+
+    explicit_model = str(model or '').strip()
+
+    # If the explicit model string passed is actually an application alias (e.g. model='article_image')
+    if explicit_model.lower() in _IMAGE_APP_ALIASES and not normalized_app:
+        normalized_app = _IMAGE_APP_ALIASES[explicit_model.lower()]
+        explicit_model = ""
+
+    selected_row = None
+    resolved_source = "default"
+    matched_app = None
+
+    # 1. Match by application configured in table 'used_for'
+    if normalized_app and normalized_app in app_assignments:
+        target_image_id = app_assignments[normalized_app]
+        selected_row = next((r for r in image_rows if r['id'] == target_image_id), None)
+        if selected_row:
+            resolved_source = "used_for"
+            matched_app = normalized_app
+
+    # 2. Match by explicit model if specified and no application match was made
+    if not selected_row and explicit_model:
+        # Match by model_name
+        for r in image_rows:
+            if r['model_name'].lower() == explicit_model.lower():
+                selected_row = r
+                resolved_source = "explicit"
+                break
+        # Match by display_name
+        if not selected_row:
+            for r in image_rows:
+                if r['display_name'].lower() == explicit_model.lower():
+                    selected_row = r
+                    resolved_source = "explicit"
+                    break
+        # Match by id
+        if not selected_row:
+            for r in image_rows:
+                if r['id'] == explicit_model:
+                    selected_row = r
+                    resolved_source = "explicit"
+                    break
+
+        # Match by fuzzy/alias (e.g. 'nano banana pro', 'flux 2')
+        if not selected_row:
+            exp_clean = explicit_model.lower().replace(" ", "").replace("-", "").replace("_", "")
+            for r in image_rows:
+                r_model = (r.get('model_name') or '').lower().replace(" ", "").replace("-", "").replace("_", "")
+                r_disp = (r.get('display_name') or '').lower().replace(" ", "").replace("-", "").replace("_", "")
+                if exp_clean and (exp_clean in r_model or exp_clean in r_disp or r_model in exp_clean or r_disp in exp_clean):
+                    selected_row = r
+                    resolved_source = "explicit"
+                    break
+
+    # 3. If still not selected and no explicit application was requested, default to 'article_image'
+    if not selected_row and not normalized_app:
+        if IMAGE_APP_ARTICLE_IMAGE in app_assignments:
+            target_image_id = app_assignments[IMAGE_APP_ARTICLE_IMAGE]
+            selected_row = next((r for r in image_rows if r['id'] == target_image_id), None)
+            if selected_row:
+                resolved_source = "used_for"
+                matched_app = IMAGE_APP_ARTICLE_IMAGE
+
+    # 4. Fallback to first active model
+    if not selected_row:
+        active_rows = [r for r in image_rows if r.get('is_active') is not False]
+        selected_row = active_rows[0] if active_rows else image_rows[0]
+        resolved_source = "default"
+
+    # Fetch API key value by api_keys_id in api_keys table
+    api_key_val = None
+    if selected_row and selected_row.get('api_keys_id'):
+        api_key_val = _fetch_api_key_value_by_id(client, selected_row['api_keys_id'])
+
+    # Fallback to provider name lookup in api_keys
+    if not api_key_val and selected_row and selected_row.get('provider'):
+        api_key_val = get_api_key_from_supabase(selected_row['provider'])
+
+    return {
+        "provider": selected_row.get('provider') if selected_row else None,
+        "model": selected_row.get('model_name') if selected_row else (explicit_model or None),
+        "api_key": api_key_val,
+        "display_name": selected_row.get('display_name') if selected_row else None,
+        "llm_image_id": selected_row.get('id') if selected_row else None,
+        "application": matched_app or normalized_app or None,
+        "source": resolved_source,
+    }
+
+
+def get_image_provider_for_application(application: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    Get (provider, model_name, api_key) for an image application ('article_image' or 'infographics').
+    """
+    resolved = resolve_image_provider(application=application)
+    return resolved.get("provider"), resolved.get("model"), resolved.get("api_key")
+
+
+def get_image_applications_config() -> dict[str, dict]:
+    """
+    Return mapped image provider information for supported image applications
+    (e.g., 'article_image', 'infographics') without exposing raw secret API keys.
+    """
+    apps = [IMAGE_APP_ARTICLE_IMAGE, IMAGE_APP_INFOGRAPHICS]
+    result = {}
+    for app in apps:
+        resolved = resolve_image_provider(application=app)
+        result[app] = {
+            "application": app,
+            "provider": resolved.get("provider"),
+            "model_name": resolved.get("model"),
+            "display_name": resolved.get("display_name"),
+            "llm_image_id": resolved.get("llm_image_id"),
+            "has_api_key": bool(resolved.get("api_key")),
+            "source": resolved.get("source"),
+        }
+    return result
 
 
 def get_api_key_from_supabase(provider: str) -> Optional[str]:

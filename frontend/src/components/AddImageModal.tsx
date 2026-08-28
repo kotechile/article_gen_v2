@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { X, Sparkles, Images, Upload, Link as LinkIcon, BarChart3 } from 'lucide-react';
+import { X, Sparkles, Images, Upload, Link as LinkIcon, BarChart3, Wand2 } from 'lucide-react';
 import type { ImageMetadata, ImageSourceTab } from '../types/image';
 import { AIImageGeneration } from './image/AIImageGeneration';
+import { SmartContextImageGeneration } from './image/SmartContextImageGeneration';
 import { StockImageSearch } from './image/StockImageSearch';
 import { LocalImageUpload } from './image/LocalImageUpload';
 import { ImageUrlInput } from './image/ImageUrlInput';
@@ -21,7 +22,7 @@ export const AddImageModal: React.FC<AddImageModalProps> = ({
     onImageSelected,
     selectedText,
     userId,
-    initialTab = 'ai'
+    initialTab = selectedText && selectedText.trim() ? 'smart' : 'ai'
 }) => {
     const [activeTab, setActiveTab] = useState<ImageSourceTab>(initialTab);
     const [selectedImage, setSelectedImage] = useState<{ url: string; metadata: Partial<ImageMetadata> } | null>(null);
@@ -38,6 +39,7 @@ export const AddImageModal: React.FC<AddImageModalProps> = ({
     };
 
     const tabs = [
+        { id: 'smart' as ImageSourceTab, label: 'Smart Context', icon: Wand2 },
         { id: 'ai' as ImageSourceTab, label: 'AI Generation', icon: Sparkles },
         { id: 'stock' as ImageSourceTab, label: 'Stock Images', icon: Images },
         { id: 'upload' as ImageSourceTab, label: 'Upload', icon: Upload },
@@ -93,6 +95,13 @@ export const AddImageModal: React.FC<AddImageModalProps> = ({
 
                         {/* Content */}
                         <div className="flex-1 overflow-y-auto p-6">
+                            {activeTab === 'smart' && (
+                                <SmartContextImageGeneration
+                                    userId={userId}
+                                    selectedText={selectedText}
+                                    onImageGenerated={handleImageGenerated}
+                                />
+                            )}
                             {activeTab === 'ai' && (
                                 <AIImageGeneration
                                     userId={userId}

@@ -27,3 +27,8 @@ build/
 
 # macOS
 .DS_Store
+
+# Scratch and generated media
+scratch/
+_remotion/public/uploads/
+

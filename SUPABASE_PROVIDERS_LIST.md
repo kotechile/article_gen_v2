@@ -119,6 +119,55 @@ These are used for article generation. You only need to store keys for the provi
   ON CONFLICT (provider) DO UPDATE SET key_value = EXCLUDED.key_value;
   ```
 
+## Image Generation Providers (`llm_providers_image` & `used_for`)
+
+Image models and their application routing are stored across three tables:
+- **`used_for`**: Maps an application (e.g. `'article_image'`, `'infographics'`) to `llm_image_id`.
+- **`llm_providers_image`**: Holds model details (`model_name`, `provider`, `api_keys_id`).
+- **`api_keys`**: Holds the secret key in `key_value` matching `llm_providers_image.api_keys_id = api_keys.id`.
+
+### Supported Image Applications in `used_for`
+- **`article_image`**: Used for featured/section images in articles.
+- **`infographics`**: Used for infographic generation.
+
+### Supported Image Providers & Models
+1. **Flux / KIE**:
+   - Provider: `flux` or `kie.ai`
+   - Models: `flux-kontext-pro`, `flux-2/flex-image-to-image`
+2. **Stability AI**:
+   - Provider: `stability`
+   - Models: `sd3`
+3. **Google Imagen**:
+   - Provider: `google`
+   - Models: `imagen-4.0-generate-001`
+
+### Image Setup SQL
+```sql
+-- Step 1: Add image API key to api_keys
+INSERT INTO api_keys (id, provider, key_value)
+VALUES ('00000000-0000-0000-0000-000000000001', 'flux', 'your-flux-api-key')
+ON CONFLICT (id) DO UPDATE SET key_value = EXCLUDED.key_value;
+
+-- Step 2: Register model in llm_providers_image
+INSERT INTO llm_providers_image (id, model_name, display_name, provider, api_keys_id, is_active)
+VALUES (
+    '11111111-1111-1111-1111-111111111111',
+    'flux-kontext-pro',
+    'Flux Kontext Pro',
+    'flux',
+    '00000000-0000-0000-0000-000000000001',
+    TRUE
+)
+ON CONFLICT (id) DO UPDATE SET model_name = EXCLUDED.model_name;
+
+-- Step 3: Map application to model in used_for
+INSERT INTO used_for (application, llm_image_id)
+VALUES 
+    ('article_image', '11111111-1111-1111-1111-111111111111'),
+    ('infographics', '11111111-1111-1111-1111-111111111111')
+ON CONFLICT (application) DO UPDATE SET llm_image_id = EXCLUDED.llm_image_id;
+```
+
 ## Quick Setup Script
 
 Run this SQL in your Supabase SQL editor to set up all providers at once (replace with your actual keys):

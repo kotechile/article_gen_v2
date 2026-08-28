@@ -109,6 +109,30 @@ curl -X GET http://localhost:5001/api/v1/research/{task_id}/result \
   -H "X-API-Key: your-api-key"
 ```
 
+### Image Generation & Application Routing
+
+Image generation models (Flux, Stable Diffusion, Google Imagen) are managed dynamically via Supabase:
+- **`used_for`**: Assigns models to applications (`article_image` for article featured/section visuals, `infographics` for infographics). Contains `llm_image_id` linking to `llm_providers_image.id`.
+- **`llm_providers_image`**: Stores model identifiers (`model_name`, `provider`, `api_keys_id`).
+- **`api_keys`**: Stores encrypted API keys linked via `api_keys_id`.
+
+See [SUPABASE_API_KEYS.md](file:///Users/jorgefernandezilufi/Documents/_article_research/content_generator/content_generator_v2/SUPABASE_API_KEYS.md) and [SUPABASE_PROVIDERS_LIST.md](file:///Users/jorgefernandezilufi/Documents/_article_research/content_generator/content_generator_v2/SUPABASE_PROVIDERS_LIST.md) for full configuration details.
+
+```bash
+# Check configured models for applications
+curl http://localhost:5001/api/v1/images/application-config
+
+# Generate AI image using the application's configured model
+curl -X POST http://localhost:5001/api/v1/images/generate-ai \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Modern architectural building with lush gardens",
+    "application": "article_image",
+    "aspectRatio": "16:9",
+    "user_id": "user-uuid"
+  }'
+```
+
 ## Development
 
 ### Running Tests

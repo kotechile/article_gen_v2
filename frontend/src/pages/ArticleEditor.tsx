@@ -17,7 +17,7 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableRow } from '@tiptap/extension-table-row';
 import CharacterCount from '@tiptap/extension-character-count';
-import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn, Sigma } from 'lucide-react';
+import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn, Sigma, Wand2 } from 'lucide-react';
 import { apiClient } from '../api-client';
 import { assembleArticleHtml } from '../lib/contentParser';
 import { AddImageModal } from '../components/AddImageModal';
@@ -696,7 +696,7 @@ export const ArticleEditor: React.FC = () => {
     const [featuredImage, setFeaturedImage] = useState<ImageMetadata | null>(null);
     const [imagePickMode, setImagePickMode] = useState<'content' | 'featured'>('content');
     const [isAddImageModalOpen, setIsAddImageModalOpen] = useState(false);
-    const [imageModalInitialTab, setImageModalInitialTab] = useState<'ai' | 'stock' | 'upload' | 'url' | 'infographic' | undefined>(undefined);
+    const [imageModalInitialTab, setImageModalInitialTab] = useState<'smart' | 'ai' | 'stock' | 'upload' | 'url' | 'infographic' | undefined>(undefined);
 
 
     // Reference/Citation state
@@ -1454,6 +1454,12 @@ export const ArticleEditor: React.FC = () => {
         setIsAddImageModalOpen(true);
     };
 
+    const handleGenerateSmartContextImage = () => {
+        setImagePickMode('content');
+        setImageModalInitialTab('smart');
+        setIsAddImageModalOpen(true);
+    };
+
     const setLink = () => {
         if (!editor) return;
 
@@ -2041,6 +2047,11 @@ export const ArticleEditor: React.FC = () => {
                                     tooltip="Generate Infographic from Selection"
                                 />
                                 <ToolbarButton
+                                    onClick={handleGenerateSmartContextImage}
+                                    icon={<Wand2 className="w-4 h-4 text-indigo-500" />}
+                                    tooltip="Smart Context Image (Auto Reference & Scene)"
+                                />
+                                <ToolbarButton
                                     onClick={handleSuggestInternalLinks}
                                     icon={isSuggesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
                                     tooltip="Suggest Internal Links from your WP Posts"
@@ -2439,6 +2450,16 @@ export const ArticleEditor: React.FC = () => {
                             className="w-full text-left px-3 py-1.5 hover:bg-accent text-primary rounded-lg text-sm flex items-center gap-3 font-medium"
                         >
                             <ChartColumn className="w-4 h-4" /> Generate Infographic from Selection
+                        </button>
+                        <button
+                            onClick={() => {
+                                handleGenerateSmartContextImage();
+                                setContextMenu(null);
+                            }}
+                            disabled={!hasTextSelection}
+                            className="w-full text-left px-3 py-1.5 hover:bg-accent text-indigo-600 dark:text-indigo-400 rounded-lg text-sm flex items-center gap-3 font-medium"
+                        >
+                            <Wand2 className="w-4 h-4" /> Smart Context Image from Selection
                         </button>
                     </div>
                 </div>

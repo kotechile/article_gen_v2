@@ -28,15 +28,41 @@ export interface ImageMetadata {
 
 export interface AIImageRequest {
     prompt: string;
-    model: string;
+    model?: string;
+    application?: 'article_image' | 'infographics' | string;
     aspectRatio: string;
-    referenceImage?: string; // base64 encoded
+    resolution?: string; // '1K', '2K', '4K'
+    referenceImage?: string; // base64 encoded (optional)
+    referenceImageUrls?: string[]; // optional
     user_id: string;
 }
 
 export interface AIImageResponse {
     imageUrl: string;
     metadata: Partial<ImageMetadata>;
+    model?: string;
+    provider?: string;
+    application?: string;
+    aspectRatio?: string;
+    resolution?: string;
+}
+
+export interface ImageApplicationConfig {
+    application: string;
+    provider: string | null;
+    model_name: string | null;
+    display_name: string | null;
+    llm_image_id: string | null;
+    has_api_key: boolean;
+    source: string;
+}
+
+export interface ImageApplicationsResponse {
+    applications: {
+        article_image?: ImageApplicationConfig;
+        infographics?: ImageApplicationConfig;
+        [key: string]: ImageApplicationConfig | undefined;
+    };
 }
 
 export interface StockImageResult {
@@ -83,6 +109,95 @@ export interface ImageProviderModel {
     model_technical_name: string;
     supports_reference_image: boolean;
     supported_aspect_ratios: string[];
+    supported_resolutions?: string[];
 }
 
-export type ImageSourceTab = 'ai' | 'stock' | 'upload' | 'url' | 'infographic';
+export interface ContextReferenceImage {
+    url: string;
+    thumbnail_url?: string;
+    title?: string;
+    source_domain?: string;
+    provider?: string;
+    score?: number;
+}
+
+export interface ContextAnalyzeRequest {
+    text: string;
+    user_instructions?: string;
+    max_reference_images?: number;
+}
+
+export interface ContextAnalyzeResult {
+    has_physical_entity: boolean;
+    main_object: string;
+    search_query: string;
+    generation_prompt: string;
+    object_fidelity_weight: number;
+    entity_type?: 'physical' | 'metaphorical';
+    is_metaphorical?: boolean;
+    candidate_references: ContextReferenceImage[];
+}
+
+export interface ContextAnalyzeResponse {
+    status: string;
+    data: ContextAnalyzeResult;
+}
+
+export interface ContextGenerateRequest {
+    text?: string;
+    prompt?: string;
+    reference_image_url?: string;
+    model?: string;
+    aspectRatio?: string;
+    resolution?: string;
+    user_id?: string;
+    application?: string;
+    isolate_background?: boolean;
+}
+
+export interface ContextGenerateResponse {
+    imageUrl: string;
+    metadata: Partial<ImageMetadata>;
+    model?: string;
+    provider?: string;
+    application?: string;
+    aspectRatio?: string;
+    resolution?: string;
+    referenceUsed?: string;
+    extractedAnalysis?: ContextAnalyzeResult;
+}
+
+export type ImageSourceTab = 'smart' | 'ai' | 'stock' | 'upload' | 'url' | 'infographic';
+
+export type InfographicArchetype =
+    | 'auto'
+    | 'technical_scientific'
+    | 'step_by_step'
+    | 'flowchart_whiteboard'
+    | 'modular_explainer'
+    | 'timeline_historical'
+    | 'data_visualization'
+    | 'playful_viral';
+
+export interface AIInfographicRequest {
+    text: string;
+    archetype?: InfographicArchetype;
+    user_instructions?: string;
+    aspectRatio?: string;
+    resolution?: string;
+    user_id: string;
+}
+
+export interface AIInfographicResponse {
+    imageUrl: string;
+    metadata: Partial<ImageMetadata>;
+    archetype: string;
+    model?: string;
+    provider?: string;
+    application?: string;
+    aspectRatio?: string;
+    resolution?: string;
+    prompt?: string;
+}
+
+

@@ -1,0 +1,5 @@
+file '/Users/jorgefernandezilufi/Documents/_article_research/content_generator/content_generator_v2/_remotion/public/scene_1_voice.mp3'
+file '/Users/jorgefernandezilufi/Documents/_article_research/content_generator/content_generator_v2/_remotion/public/scene_2_voice.mp3'
+file '/Users/jorgefernandezilufi/Documents/_article_research/content_generator/content_generator_v2/_remotion/public/scene_3_voice.mp3'
+file '/Users/jorgefernandezilufi/Documents/_article_research/content_generator/content_generator_v2/_remotion/public/scene_4_voice.mp3'
+file '/Users/jorgefernandezilufi/Documents/_article_research/content_generator/content_generator_v2/_remotion/public/scene_5_voice.mp3'

@@ -11,7 +11,15 @@ import type {
     InfographicGenerateRequest,
     InfographicGenerateResponse,
     ImageMetadata,
-    ImageProviderModel
+    ImageProviderModel,
+    ImageApplicationConfig,
+    ImageApplicationsResponse,
+    ContextAnalyzeRequest,
+    ContextAnalyzeResponse,
+    ContextGenerateRequest,
+    ContextGenerateResponse,
+    AIInfographicRequest,
+    AIInfographicResponse
 } from '../types/image';
 
 const getApiBaseUrl = () => {
@@ -400,16 +408,50 @@ export async function getImageProviderModels(): Promise<ImageProviderModel[]> {
         }
 
         // Map to ImageProviderModel interface
-        return (data || []).map((m: any) => ({
-            id: m.id,
-            provider_name: m.provider,
-            model_name: m.display_name || m.name,
-            model_technical_name: m.model_name,
-            supports_reference_image: m.model_name?.includes('sd3') || m.model_name?.includes('stable') || false,
-            supported_aspect_ratios: ['1:1', '16:9', '4:3', '3:2', '9:16']
-        }));
+        return (data || []).map((m: any) => {
+            const technicalName = (m.model_name || '').toLowerCase();
+            return {
+                id: m.id,
+                provider_name: m.provider,
+                model_name: m.display_name || m.name,
+                model_technical_name: m.model_name,
+                supports_reference_image: (
+                    technicalName.includes('sd') ||
+                    technicalName.includes('stable') ||
+                    technicalName.includes('flux') ||
+                    technicalName.includes('banana') ||
+                    technicalName.includes('gemini') ||
+                    technicalName.includes('imagen') ||
+                    true
+                ),
+                supported_aspect_ratios: ['1:1', '16:9', '4:3', '3:2', '9:16'],
+                supported_resolutions: ['1K', '2K', '4K']
+            };
+        });
     } catch (error) {
         console.error('Error fetching image provider models:', error);
+        throw error;
+    }
+}
+
+/**
+ * Get configured image models for applications ('article_image', 'infographics')
+ * from the backend, which resolves through Supabase 'used_for' and 'llm_providers_image'.
+ */
+export async function getImageApplicationConfig(): Promise<ImageApplicationsResponse> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/images/application-config`, {
+            headers: getHeaders()
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || 'Failed to fetch image application configuration');
+        }
+
+        return response.json();
+    } catch (error) {
+        console.error('Error fetching image application configuration:', error);
         throw error;
     }
 }
@@ -447,3 +489,87 @@ export async function downloadAndUploadStockImage(
         throw error;
     }
 }
+
+/**
+ * Analyze article text excerpt to extract the target entity,
+ * web search query, prompt, and fetch reference imagery via Linkup & Tavily.
+ */
+export async function analyzeContextImage(
+    request: ContextAnalyzeRequest
+): Promise<ContextAnalyzeResponse> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/images/context-analyze`, {
+            method: 'POST',
+            headers: getHeaders({
+                'Content-Type': 'application/json'
+            }),
+            body: JSON.stringify(request)
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || 'Failed to analyze text context for image generation');
+        }
+
+        return response.json();
+    } catch (error) {
+        console.error('Error in analyzeContextImage:', error);
+        throw error;
+    }
+}
+
+/**
+ * Generate context-aware image conditioned on a reference photo
+ */
+export async function generateContextImage(
+    request: ContextGenerateRequest
+): Promise<ContextGenerateResponse> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/images/context-generate`, {
+            method: 'POST',
+            headers: getHeaders({
+                'Content-Type': 'application/json'
+            }),
+            body: JSON.stringify(request)
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || 'Failed to generate context-aware image');
+        }
+
+        return response.json();
+    } catch (error) {
+        console.error('Error in generateContextImage:', error);
+        throw error;
+    }
+}
+
+/**
+ * Generate an AI infographic image using the model configured in used_for ('infographics')
+ */
+export async function generateAIInfographic(
+    request: AIInfographicRequest
+): Promise<AIInfographicResponse> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/images/generate-ai-infographic`, {
+            method: 'POST',
+            headers: getHeaders({
+                'Content-Type': 'application/json'
+            }),
+            body: JSON.stringify(request)
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || 'Failed to generate AI infographic');
+        }
+
+        return response.json();
+    } catch (error) {
+        console.error('Error in generateAIInfographic:', error);
+        throw error;
+    }
+}
+
+

@@ -21,7 +21,15 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.utils import secure_filename
 
-from supabase_client import get_supabase_client, get_api_key, resolve_llm_provider
+from supabase_client import (
+    get_supabase_client,
+    get_api_key,
+    resolve_llm_provider,
+    resolve_image_provider,
+    get_image_applications_config,
+    IMAGE_APP_ARTICLE_IMAGE,
+    IMAGE_APP_INFOGRAPHICS,
+)
 from ...core.models.errors import ErrorResponse, ValidationErrorResponse
 from ...services.llm.providers import get_provider_class
 from ...services.infographic_llm import (
@@ -141,35 +149,90 @@ def generate_stable_diffusion_image(prompt: str, api_key: str, aspect_ratio: str
         raise
 
 
-def generate_google_imagen(prompt: str, api_key: str, model: str = "imagen-4.0-generate-001", 
-                           aspect_ratio: str = "1:1") -> bytes:
-    """Generate image using Google Imagen API."""
+def generate_google_imagen(
+    prompt: str,
+    api_key: str,
+    model: str = "imagen-4.0-generate-001", 
+    aspect_ratio: str = "1:1",
+    resolution: str = "1K",
+    reference_image: bytes = None,
+) -> bytes:
+    """
+    Generate image using Google Imagen / Gemini API (including Nano Banana Pro / gemini-3-pro-image-preview).
+    Supports optional reference image (image-to-image or text-to-image), aspect ratio, and resolution.
+    """
     try:
-        # Gemini Developer API REST contract for Imagen models uses :predict.
-        # Ref: https://ai.google.dev/gemini-api/docs/imagen (REST example)
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predict"
+        model_clean = str(model or "imagen-4.0-generate-001").strip()
+        # Normalize Nano Banana Pro alias to Google model if needed
+        if "banana" in model_clean.lower() or "gemini" in model_clean.lower():
+            if "banana" in model_clean.lower() and "gemini" not in model_clean.lower():
+                model_clean = "gemini-3-pro-image-preview"
 
         headers = {
             'x-goog-api-key': api_key,
             'Content-Type': 'application/json'
         }
 
-        body = {
-            "instances": [
-                {
-                    "prompt": prompt
+        # 1. For Gemini native image generation models (e.g. gemini-3-pro-image-preview, nano banana pro)
+        if "gemini" in model_clean.lower():
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_clean}:generateContent"
+            parts = [{"text": prompt}]
+            if reference_image:
+                parts.append({
+                    "inline_data": {
+                        "mime_type": "image/jpeg",
+                        "data": base64.b64encode(reference_image).decode('utf-8')
+                    }
+                })
+            
+            body = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": parts
+                    }
+                ],
+                "generationConfig": {
+                    "responseModalities": ["TEXT", "IMAGE"],
+                    "imageConfig": {
+                        "aspectRatio": aspect_ratio,
+                        "imageSize": resolution or "1K"
+                    }
                 }
-            ],
+            }
+            response = requests.post(url, headers=headers, json=body)
+            response.raise_for_status()
+            data = response.json()
+
+            candidates = data.get('candidates') or []
+            for candidate in candidates:
+                content_parts = (candidate.get('content') or {}).get('parts') or []
+                for part in content_parts:
+                    inline_data = part.get('inline_data') or part.get('inlineData')
+                    if inline_data and inline_data.get('data'):
+                        return base64.b64decode(inline_data['data'])
+
+            raise Exception(f"Gemini image response contained no image parts: {data}")
+
+        # 2. For Imagen models (e.g. imagen-4.0-generate-001, imagen-3.0-generate-002)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_clean}:predict"
+        instance = {"prompt": prompt}
+        if reference_image:
+            instance["image"] = {
+                "bytesBase64Encoded": base64.b64encode(reference_image).decode('utf-8')
+            }
+
+        body = {
+            "instances": [instance],
             "parameters": {
                 "sampleCount": 1,
                 "aspectRatio": aspect_ratio,
-                "imageSize": "1K"
+                "imageSize": resolution or "1K"
             }
         }
 
         response = requests.post(url, headers=headers, json=body)
         response.raise_for_status()
-
         data = response.json()
 
         # New REST response shape.
@@ -189,7 +252,7 @@ def generate_google_imagen(prompt: str, api_key: str, model: str = "imagen-4.0-g
         raise Exception(f"No image generated in response: {data}")
 
     except Exception as e:
-        logger.error(f"Google Imagen API error: {str(e)}")
+        logger.error(f"Google Imagen / Gemini API error: {str(e)}")
         raise
 
 
@@ -199,6 +262,7 @@ def generate_kie_flux_image(
     model: str,
     aspect_ratio: str = "1:1",
     reference_image_urls=None,
+    resolution: str = "1K",
 ) -> bytes:
     """Generate image through KIE Market API task endpoints."""
     try:
@@ -210,27 +274,31 @@ def generate_kie_flux_image(
         input_payload = {
             "prompt": prompt,
             "aspect_ratio": aspect_ratio,
-            # Hard-lock KIE Flux resolution for this application.
-            "resolution": KIE_FLUX_RESOLUTION,
+            "resolution": resolution or "1K",
             "nsfw_checker": False,
         }
 
         model_name = str(model or "").strip().lower()
-        if model_name == "flux-2/flex-image-to-image":
-            image_urls = [
-                str(url).strip()
-                for url in (reference_image_urls or [])
-                if isinstance(url, str) and str(url).strip()
-            ]
-            if not image_urls:
-                raise Exception(
-                    "Model flux-2/flex-image-to-image requires at least one reference image URL "
-                    "in request field referenceImageUrls"
-                )
+        image_urls = [
+            str(url).strip()
+            for url in (reference_image_urls or [])
+            if isinstance(url, str) and str(url).strip()
+        ]
+
+        target_model = model
+        # If reference images are present: provide image URLs and use image-to-image mode
+        if image_urls:
             input_payload["input_urls"] = image_urls
+            input_payload["image_urls"] = image_urls
+            if "flux-2" in model_name and not model_name.endswith("-image-to-image"):
+                target_model = "flux-2/flex-image-to-image"
+        else:
+            # If reference images are absent: if model is flux-2/flex-image-to-image, route to text-to-image
+            if model_name == "flux-2/flex-image-to-image":
+                target_model = "flux-2/flex"
 
         create_payload = {
-            "model": model,
+            "model": target_model,
             "input": input_payload,
         }
 
@@ -414,36 +482,60 @@ def generate_flux_image(
     aspect_ratio: str = "1:1",
     provider: str = "",
     reference_image_urls=None,
+    resolution: str = "1K",
 ) -> bytes:
     """Route Flux generation to provider-specific implementation."""
     provider_name = str(provider or "").strip().lower()
     model_name = str(model or "").strip().lower()
 
-    if "kie.ai" in provider_name or model_name.startswith("flux-2/"):
+    if "kie.ai" in provider_name or model_name.startswith("flux-2/") or "flux" in provider_name or "flux-2" in model_name:
         return generate_kie_flux_image(
             prompt,
             api_key,
             model,
             aspect_ratio,
             reference_image_urls=reference_image_urls,
+            resolution=resolution,
         )
 
     return generate_fluxapi_image(prompt, api_key, model, aspect_ratio)
+
+
+@images_bp.route('/application-config', methods=['GET'])
+def get_application_config():
+    """
+    Get current image model assignments for applications ('article_image', 'infographics')
+    configured in Supabase 'used_for' linking to 'llm_providers_image' and 'api_keys'.
+    """
+    try:
+        config = get_image_applications_config()
+        return jsonify({"applications": config}), 200
+    except Exception as e:
+        logger.error(f"Error fetching image application config: {str(e)}", exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message=str(e),
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
 
 
 @images_bp.route('/generate-ai', methods=['POST'])
 @limiter.limit("20 per minute")
 def generate_ai_image():
     """
-    Generate an AI image using configured providers.
+    Generate an AI image using configured providers (Nano Banana Pro / Google, Flux 2 / KIE, etc.).
     
     Expected JSON body:
     {
         "prompt": "Image description",
-        "model": "model_technical_name",
-        "aspectRatio": "16:9",
-        "referenceImage": "base64_encoded_image" (optional, legacy),
-        "referenceImageUrls": ["https://..."] (optional, used by flux-2/flex-image-to-image)
+        "model": "model_technical_name" (optional; if omitted, resolves via application),
+        "application": "article_image" or "infographics" (optional; defaults to article_image),
+        "aspectRatio": "16:9" (optional; defaults to 1:1),
+        "resolution": "1K" or "2K" (optional; defaults to 1K),
+        "referenceImage": "base64_encoded_image" (optional; image can be present or absent),
+        "referenceImageUrls": ["https://..."] (optional),
+        "user_id": "uuid"
     }
     """
     try:
@@ -465,133 +557,85 @@ def generate_ai_image():
             ).dict()), 400
             
         prompt = data.get('prompt')
-        model = data.get('model')
-        aspect_ratio = data.get('aspectRatio', '1:1')
+        model = str(data.get('model') or '').strip()
+        application = str(data.get('application') or '').strip()
+        aspect_ratio = str(data.get('aspectRatio') or '1:1').strip()
+        resolution = str(data.get('resolution') or '1K').strip().upper()
         reference_image_b64 = data.get('referenceImage')
-        reference_image_urls = data.get('referenceImageUrls') or []
+        raw_ref_urls = data.get('referenceImageUrls') or []
+        if isinstance(raw_ref_urls, str):
+            raw_ref_urls = [raw_ref_urls]
+        reference_image_urls = [
+            str(url).strip() for url in raw_ref_urls if isinstance(url, str) and str(url).strip()
+        ]
         user_id = data.get('user_id')  # Should come from auth middleware
         
-        if not prompt or not model or not user_id:
+        if not prompt or not user_id:
             return jsonify(ErrorResponse(
                 error="missing_parameters",
-                message="prompt, model, and user_id are required",
+                message="prompt and user_id are required",
                 error_code="MISSING_PARAMETERS",
                 status=400
             ).dict()), 400
         
-        # Get model info from llm_providers_image table
-        client = get_supabase_client()
-        if not client:
-            return jsonify(ErrorResponse(
-                error="database_error",
-                message="Database connection failed",
-                error_code="DATABASE_ERROR",
-                status=500
-            ).dict()), 500
-        
-        # Strip potential whitespace from model name (handles cases like '\nkontext')
-        search_model = model.strip()
-        logger.info(f"Searching for model: '{search_model}' (original: '{model}')")
-        
-        # 1. Fetch model info
-        # We try exact match first, then stripped match if needed
-        model_query = client.table('llm_providers_image')\
-            .select('*')\
-            .eq('model_name', model)\
-            .execute()
-            
-        if not model_query.data and search_model != model:
-            model_query = client.table('llm_providers_image')\
-                .select('*')\
-                .eq('model_name', search_model)\
-                .execute()
-        
-        if not model_query.data:
-            # Try one more: search by display_name if model_name failed
-            model_query = client.table('llm_providers_image')\
-                .select('*')\
-                .eq('display_name', model)\
-                .execute()
+        # If neither model nor application was provided, default application to article_image
+        if not model and not application:
+            application = IMAGE_APP_ARTICLE_IMAGE
 
-        if not model_query.data:
-            logger.error(f"Model not found in DB: {model}")
+        # Resolve image model and API key:
+        # 1. Via 'used_for' table (using 'llm_image_id' -> 'llm_providers_image' -> 'api_keys')
+        # 2. Or explicit model name in 'llm_providers_image' -> 'api_keys'
+        resolved = resolve_image_provider(application=application or None, model=model or None)
+        
+        model_to_use = resolved.get('model')
+        provider = str(resolved.get('provider') or '').lower()
+        api_key = resolved.get('api_key')
+        display_name = resolved.get('display_name') or model_to_use
+        
+        if not model_to_use:
+            logger.error(f"Image model could not be resolved for application='{application}', model='{model}'")
             return jsonify(ErrorResponse(
                 error="model_not_found",
-                message=f"Model '{model}' not found in database",
+                message=f"No image model configured for application '{application}' or model '{model}'",
                 error_code="MODEL_NOT_FOUND",
                 status=404
             ).dict()), 404
         
-        row = model_query.data[0]
-        if not row:
-            logger.error(f"Model {model} found in DB but row is empty")
-            return jsonify(ErrorResponse(
-                error="invalid_model_config",
-                message=f"Model '{model}' configuration is invalid",
-                error_code="INVALID_MODEL_CONFIG",
-                status=500
-            ).dict()), 500
-            
-        model_name_actual = row.get('model_name')
-        provider = row.get('provider', '').lower()
-        api_keys_id = row.get('api_keys_id')
-        
-        logger.info(f"Found model row: id={row.get('id')}, provider={provider}, api_keys_id={api_keys_id}")
-        
-        if not api_keys_id:
-            logger.error(f"Model {model} has no API key linked in llm_providers_image table")
+        if not api_key:
+            logger.error(f"API key missing for model '{model_to_use}' ({provider})")
             return jsonify(ErrorResponse(
                 error="api_key_missing",
-                message="This model is not correctly configured (missing API key link)",
+                message=f"API key is missing or not configured for model '{model_to_use}' ({provider})",
                 error_code="API_KEY_MISSING",
                 status=500
             ).dict()), 500
             
-        # 2. Fetch the actual API key value
-        key_query = client.table('api_keys')\
-            .select('key_value')\
-            .eq('id', api_keys_id)\
-            .execute()
-            
-        if not key_query.data:
-            logger.error(f"API key ID {api_keys_id} not found in api_keys table")
-            return jsonify(ErrorResponse(
-                error="api_key_not_found",
-                message="Linked API key not found in configuration",
-                error_code="API_KEY_NOT_FOUND",
-                status=500
-            ).dict()), 500
-            
-        key_row = key_query.data[0]
-        if not key_row:
-            logger.error(f"API key record for ID {api_keys_id} is null")
-            return jsonify(ErrorResponse(
-                error="api_key_not_found",
-                message="Linked API key is null or missing",
-                error_code="API_KEY_NOT_FOUND",
-                status=500
-            ).dict()), 500
-            
-        api_key = key_row.get('key_value')
+        logger.info(
+            f"Resolved image model '{model_to_use}' (provider: '{provider}', source: '{resolved.get('source')}') "
+            f"with API key (len={len(api_key)})"
+        )
         
-        if not api_key:
-            logger.error(f"API key ID {api_keys_id} found but key_value is empty")
-            return jsonify(ErrorResponse(
-                error="api_key_empty",
-                message="API key is empty. Please check database configuration.",
-                error_code="API_KEY_EMPTY",
-                status=500
-            ).dict()), 500
-        
-        logger.info(f"Successfully retrieved API key (len={len(api_key)}) for provider {provider}")
-        
-        # Use the possibly stripped model name for the actual API call
-        model_to_use = model_name_actual.strip() if model_name_actual else search_model
-        
-        # Parse reference image if provided
+        # Parse reference image bytes if provided
         reference_image = None
         if reference_image_b64:
-            reference_image = base64.b64decode(reference_image_b64)
+            try:
+                clean_b64 = reference_image_b64
+                if ',' in clean_b64:
+                    clean_b64 = clean_b64.split(',', 1)[1]
+                reference_image = base64.b64decode(clean_b64)
+            except Exception as e:
+                logger.warning(f"Failed to decode referenceImage base64: {e}")
+
+        # If reference image was provided as base64 but no public URL was provided,
+        # upload it to Supabase Storage so URL-based providers (like KIE Flux) have a valid URL.
+        if reference_image and not reference_image_urls and user_id:
+            try:
+                ref_filename = f"ref_{int(datetime.utcnow().timestamp())}.jpg"
+                ref_url = upload_to_supabase_storage(reference_image, ref_filename, user_id)
+                if ref_url:
+                    reference_image_urls.append(ref_url)
+            except Exception as e:
+                logger.warning(f"Could not upload reference image to storage for URL-based provider: {e}")
         
         # Generate image based on provider
         image_data = None
@@ -599,9 +643,16 @@ def generate_ai_image():
             image_data = generate_stable_diffusion_image(
                 prompt, api_key, aspect_ratio, model_to_use, reference_image
             )
-        elif 'google' in provider or 'imagen' in provider:
-            image_data = generate_google_imagen(prompt, api_key, model_to_use, aspect_ratio)
-        elif 'flux' in provider or 'kie.ai' in provider or model_to_use.lower().startswith("flux-2/"):
+        elif 'google' in provider or 'imagen' in provider or 'gemini' in provider or 'banana' in model_to_use.lower():
+            image_data = generate_google_imagen(
+                prompt,
+                api_key,
+                model_to_use,
+                aspect_ratio,
+                resolution=resolution,
+                reference_image=reference_image,
+            )
+        elif 'flux' in provider or 'kie.ai' in provider or model_to_use.lower().startswith("flux-2/") or "flux" in model_to_use.lower():
             image_data = generate_flux_image(
                 prompt,
                 api_key,
@@ -609,6 +660,7 @@ def generate_ai_image():
                 aspect_ratio,
                 provider,
                 reference_image_urls=reference_image_urls,
+                resolution=resolution,
             )
         else:
             return jsonify(ErrorResponse(
@@ -625,7 +677,7 @@ def generate_ai_image():
         # Prepare metadata
         metadata = {
             "ImageUrl": image_url,
-            "ImageAuthor": f"AI - {model}",
+            "ImageAuthor": f"AI - {display_name}",
             "MediaAltText": prompt[:200],  # Use prompt as alt text
             "mediaTitle": prompt[:100],
             "mediaCaption": ""
@@ -633,7 +685,12 @@ def generate_ai_image():
         
         return jsonify({
             "imageUrl": image_url,
-            "metadata": metadata
+            "metadata": metadata,
+            "model": model_to_use,
+            "provider": provider,
+            "application": resolved.get("application"),
+            "aspectRatio": aspect_ratio,
+            "resolution": resolution
         }), 200
         
     except Exception as e:
@@ -1536,3 +1593,311 @@ def update_image_metadata(image_id):
             error_code="INTERNAL_ERROR",
             status=500
         ).dict()), 500
+
+
+@images_bp.route('/context-analyze', methods=['POST'])
+@limiter.limit("30 per minute")
+def analyze_image_context():
+    """
+    Analyze article text excerpt to extract the target entity,
+    craft a web search query, synthesize a generation prompt,
+    and retrieve candidate reference images via Linkup & Tavily.
+    """
+    try:
+        data = request.get_json() or {}
+        text = data.get('text', '').strip()
+        user_instructions = data.get('user_instructions', '').strip()
+        max_reference_images = int(data.get('max_reference_images', 6))
+
+        if not text:
+            return jsonify(ErrorResponse(
+                error="validation_error",
+                message="Text excerpt is required for context analysis",
+                error_code="VALIDATION_ERROR",
+                status=400
+            ).dict()), 400
+
+        from src.services.context_image import ContextImagePipeline
+        pipeline = ContextImagePipeline()
+        analysis = pipeline.analyze_context(
+            text=text,
+            user_instructions=user_instructions if user_instructions else None,
+            max_reference_images=max_reference_images
+        )
+        return jsonify({"status": "success", "data": analysis}), 200
+
+    except Exception as e:
+        logger.error(f"Error in context-analyze endpoint: {str(e)}", exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message=str(e),
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@images_bp.route('/context-generate', methods=['POST'])
+@limiter.limit("20 per minute")
+def generate_context_image_endpoint():
+    """
+    Generate a new scene featuring the target entity conditioned on
+    a reference image retrieved from the web or provided by user.
+    """
+    try:
+        data = request.get_json() or {}
+        text = data.get('text', '').strip()
+        prompt = data.get('prompt', '').strip()
+        reference_image_url = data.get('reference_image_url', '').strip()
+        model = data.get('model', '').strip()
+        aspect_ratio = data.get('aspectRatio') or data.get('aspect_ratio') or '16:9'
+        resolution = data.get('resolution') or '1K'
+        user_id = data.get('user_id')
+        application = data.get('application') or IMAGE_APP_ARTICLE_IMAGE
+        isolate_bg = bool(data.get('isolate_background', False))
+
+        from src.services.context_image import ContextImagePipeline
+        pipeline = ContextImagePipeline()
+
+        # If prompt or reference is not supplied, auto-analyze from text
+        analysis = None
+        if not prompt or not reference_image_url:
+            if not text:
+                return jsonify(ErrorResponse(
+                    error="validation_error",
+                    message="Either prompt or text excerpt must be provided",
+                    error_code="VALIDATION_ERROR",
+                    status=400
+                ).dict()), 400
+
+            analysis = pipeline.analyze_context(text)
+            if not prompt:
+                prompt = analysis.get('generation_prompt')
+            if not reference_image_url and analysis.get('candidate_references'):
+                reference_image_url = analysis['candidate_references'][0]['url']
+
+        if not prompt:
+            return jsonify(ErrorResponse(
+                error="validation_error",
+                message="Unable to synthesize or find a prompt for image generation",
+                error_code="VALIDATION_ERROR",
+                status=400
+            ).dict()), 400
+
+        # Prepare reference image
+        ref_bytes = None
+        ref_http_url = None
+        if reference_image_url:
+            ref_bytes, ref_http_url = pipeline.prepare_reference_asset(
+                reference_url=reference_image_url,
+                isolate_bg=isolate_bg,
+                user_id=user_id
+            )
+
+        # Resolve provider/model from Supabase used_for
+        resolved = resolve_image_provider(application=application, model=model)
+        provider = resolved.get("provider") or "google"
+        model_to_use = resolved.get("model") or model or "gemini-3-pro-image-preview"
+        api_key = resolved.get("api_key")
+        display_name = resolved.get("display_name") or model_to_use
+
+        if not api_key:
+            return jsonify(ErrorResponse(
+                error="missing_api_key",
+                message=f"No API key found for image provider {provider} (model {model_to_use})",
+                error_code="MISSING_API_KEY",
+                status=400
+            ).dict()), 400
+
+        # Conditioned generation
+        image_data = None
+        ref_urls = [ref_http_url] if ref_http_url else ([reference_image_url] if reference_image_url else [])
+
+        if 'flux' in provider or 'kie.ai' in provider or model_to_use.lower().startswith("flux-2/") or "flux" in model_to_use.lower():
+            image_data = generate_flux_image(
+                prompt,
+                api_key,
+                model_to_use,
+                aspect_ratio,
+                provider,
+                reference_image_urls=ref_urls if ref_urls else None,
+                resolution=resolution,
+            )
+        elif 'google' in provider or 'imagen' in provider or 'gemini' in provider or 'banana' in model_to_use.lower():
+            image_data = generate_google_imagen(
+                prompt,
+                api_key,
+                model_to_use,
+                aspect_ratio,
+                resolution=resolution,
+                reference_image=ref_bytes,
+            )
+        elif 'stable' in provider or 'stability' in provider:
+            image_data = generate_stable_diffusion_image(
+                prompt,
+                api_key,
+                aspect_ratio,
+                model_to_use,
+                reference_image=ref_bytes,
+            )
+        else:
+            return jsonify(ErrorResponse(
+                error="unsupported_provider",
+                message=f"Provider {provider} not supported",
+                error_code="UNSUPPORTED_PROVIDER",
+                status=400
+            ).dict()), 400
+
+        # Upload generated image to Supabase Storage
+        filename = f"context_ai_{int(datetime.utcnow().timestamp())}.jpg"
+        image_url = upload_to_supabase_storage(image_data, filename, user_id)
+
+        metadata = {
+            "ImageUrl": image_url,
+            "ImageAuthor": f"AI - {display_name}",
+            "MediaAltText": prompt[:200],
+            "mediaTitle": prompt[:100],
+            "mediaCaption": f"Reference: {reference_image_url[:80]}" if reference_image_url else ""
+        }
+
+        return jsonify({
+            "imageUrl": image_url,
+            "metadata": metadata,
+            "model": model_to_use,
+            "provider": provider,
+            "application": application,
+            "aspectRatio": aspect_ratio,
+            "resolution": resolution,
+            "referenceUsed": reference_image_url,
+            "extractedAnalysis": analysis
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error generating context-aware AI image: {str(e)}", exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message=str(e),
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@images_bp.route('/generate-ai-infographic', methods=['POST'])
+@limiter.limit("20 per minute")
+def generate_ai_infographic_endpoint():
+    """
+    Generate an AI infographic image using the model assigned to 'infographics'
+    in table 'used_for' (typically Nano Banana Pro / gemini-3-pro-image-preview),
+    supporting 7 distinct visual archetypes.
+    """
+    try:
+        data = request.get_json() or {}
+        text = data.get('text') or data.get('storyText') or ''
+        text = text.strip()
+        archetype = data.get('archetype', 'auto')
+        user_instructions = data.get('user_instructions') or ''
+        aspect_ratio = data.get('aspectRatio') or data.get('aspect_ratio') or '16:9'
+        resolution = data.get('resolution') or '1K'
+        user_id = data.get('user_id')
+        application = IMAGE_APP_INFOGRAPHICS
+
+        if not text:
+            return jsonify(ErrorResponse(
+                error="validation_error",
+                message="Text or storyText is required to generate an infographic",
+                error_code="VALIDATION_ERROR",
+                status=400
+            ).dict()), 400
+
+        from src.services.infographic_ai_service import InfographicAIService
+        prompt, effective_archetype = InfographicAIService.synthesize_prompt(
+            text=text,
+            archetype=archetype,
+            user_instructions=user_instructions
+        )
+
+        # Resolve provider/model from Supabase used_for for 'infographics'
+        resolved = resolve_image_provider(application=application)
+        provider = resolved.get("provider") or "google"
+        model_to_use = resolved.get("model") or "gemini-3-pro-image-preview"
+        api_key = resolved.get("api_key")
+        display_name = resolved.get("display_name") or model_to_use
+
+        if not api_key:
+            return jsonify(ErrorResponse(
+                error="missing_api_key",
+                message=f"No API key found for image provider {provider} (model {model_to_use})",
+                error_code="MISSING_API_KEY",
+                status=400
+            ).dict()), 400
+
+        # Dispatch generation
+        image_data = None
+        if 'google' in provider or 'imagen' in provider or 'gemini' in provider or 'banana' in model_to_use.lower():
+            image_data = generate_google_imagen(
+                prompt,
+                api_key,
+                model_to_use,
+                aspect_ratio,
+                resolution=resolution,
+                reference_image=None
+            )
+        elif 'flux' in provider or 'kie.ai' in provider or model_to_use.lower().startswith("flux-2/") or "flux" in model_to_use.lower():
+            image_data = generate_flux_image(
+                prompt,
+                api_key,
+                model_to_use,
+                aspect_ratio,
+                provider,
+                reference_image_urls=None,
+                resolution=resolution
+            )
+        elif 'stable' in provider or 'stability' in provider:
+            image_data = generate_stable_diffusion_image(
+                prompt,
+                api_key,
+                aspect_ratio,
+                model_to_use,
+                reference_image=None
+            )
+        else:
+            return jsonify(ErrorResponse(
+                error="unsupported_provider",
+                message=f"Provider {provider} not supported for infographics",
+                error_code="UNSUPPORTED_PROVIDER",
+                status=400
+            ).dict()), 400
+
+        # Upload generated infographic to Supabase Storage
+        filename = f"infographic_ai_{int(datetime.utcnow().timestamp())}.jpg"
+        image_url = upload_to_supabase_storage(image_data, filename, user_id)
+
+        metadata = {
+            "ImageUrl": image_url,
+            "ImageAuthor": f"AI Infographic - {display_name}",
+            "MediaAltText": f"Infographic: {effective_archetype.replace('_', ' ').title()} - {text[:150]}",
+            "mediaTitle": f"Infographic: {effective_archetype.replace('_', ' ').title()}",
+            "mediaCaption": f"Archetype: {effective_archetype}"
+        }
+
+        return jsonify({
+            "imageUrl": image_url,
+            "metadata": metadata,
+            "archetype": effective_archetype,
+            "model": model_to_use,
+            "provider": provider,
+            "application": application,
+            "aspectRatio": aspect_ratio,
+            "resolution": resolution,
+            "prompt": prompt
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error generating AI infographic: {str(e)}", exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message=str(e),
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+

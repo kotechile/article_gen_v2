@@ -1,169 +1,428 @@
 {
   "metadata": {
-    "title": "Is a $3,000 Espresso Maker Worth It?",
-    "format": "vertical",
-    "totalDurationInSeconds": 30,
+    "title": "AI Career Radar \u2013 Future-Proof Your Income",
+    "format": "landscape",
+    "totalDurationInSeconds": 83.94,
     "brandColors": {
-      "primary": "#FF5733",
-      "secondary": "#2ECC71",
-      "background": "#1C1C1C"
-    }
+      "primary": "#8A2BE2",
+      "secondary": "#00FFFF",
+      "background": "#0B0C10"
+    },
+    "captionPosition": "bottom",
+    "backgroundMusicUrl": "http://localhost:5001/api/v1/video/static/System_Architecture low beat.mp3",
+    "brandLogoUrl": null
   },
-  "audioTrackUrl": "voiceover.mp3",
+  "audioTrackUrl": "http://localhost:5001/api/v1/video/static/voiceover.mp3",
   "subtitles": [
     {
-      "text": "Is a $3,000",
+      "text": "We've all seen",
       "startFrame": 0,
-      "endFrame": 36
+      "endFrame": 65
     },
     {
-      "text": "espresso maker",
-      "startFrame": 37,
-      "endFrame": 73
+      "text": "the headlines. AI",
+      "startFrame": 66,
+      "endFrame": 131
     },
     {
-      "text": "worth the investment?",
-      "startFrame": 74,
-      "endFrame": 146
+      "text": "is changing everything.",
+      "startFrame": 132,
+      "endFrame": 197
     },
     {
-      "text": "With coffee prices",
-      "startFrame": 147,
-      "endFrame": 183
+      "text": "But how does",
+      "startFrame": 198,
+      "endFrame": 263
     },
     {
-      "text": "on the rise,",
-      "startFrame": 184,
-      "endFrame": 220
+      "text": "it affect your",
+      "startFrame": 264,
+      "endFrame": 329
     },
     {
-      "text": "home brewers",
-      "startFrame": 221,
-      "endFrame": 257
+      "text": "daily grind? The",
+      "startFrame": 330,
+      "endFrame": 395
     },
     {
-      "text": "are gaining traction.",
-      "startFrame": 258,
-      "endFrame": 330
+      "text": "truth is, AI",
+      "startFrame": 396,
+      "endFrame": 461
     },
     {
-      "text": "Specialty coffee",
-      "startFrame": 331,
-      "endFrame": 367
+      "text": "doesn't automate entire",
+      "startFrame": 462,
+      "endFrame": 527
     },
     {
-      "text": "shifts spending habits.",
-      "startFrame": 368,
-      "endFrame": 440
+      "text": "jobs\u2014it automates specific",
+      "startFrame": 528,
+      "endFrame": 593
     },
     {
-      "text": "Home machines",
-      "startFrame": 441,
-      "endFrame": 477
+      "text": "tasks.",
+      "startFrame": 594,
+      "endFrame": 666
     },
     {
-      "text": "offer long-term savings",
-      "startFrame": 478,
-      "endFrame": 550
+      "text": "Welcome to the",
+      "startFrame": 697,
+      "endFrame": 773
     },
     {
-      "text": "and premium taste.",
-      "startFrame": 551,
-      "endFrame": 587
+      "text": "AI Career Radar.",
+      "startFrame": 774,
+      "endFrame": 850
     },
     {
-      "text": "The Third Wave",
-      "startFrame": 588,
-      "endFrame": 624
+      "text": "Start by searching",
+      "startFrame": 851,
+      "endFrame": 927
     },
     {
-      "text": "coffee movement",
-      "startFrame": 625,
-      "endFrame": 661
+      "text": "over one thousand",
+      "startFrame": 928,
+      "endFrame": 1004
     },
     {
-      "text": "has educated consumers.",
-      "startFrame": 662,
-      "endFrame": 734
+      "text": "standardized occupations pulled",
+      "startFrame": 1005,
+      "endFrame": 1081
     },
     {
-      "text": "Demand for quality",
-      "startFrame": 735,
-      "endFrame": 771
+      "text": "directly from the",
+      "startFrame": 1082,
+      "endFrame": 1158
     },
     {
-      "text": "brews at home",
-      "startFrame": 772,
-      "endFrame": 808
+      "text": "official O*NET database.",
+      "startFrame": 1159,
+      "endFrame": 1235
     },
     {
-      "text": "is surging.",
-      "startFrame": 809,
-      "endFrame": 845
+      "text": "Immediately, the radar",
+      "startFrame": 1236,
+      "endFrame": 1312
     },
     {
-      "text": "Is it time",
-      "startFrame": 846,
-      "endFrame": 882
+      "text": "maps your career's",
+      "startFrame": 1313,
+      "endFrame": 1389
     },
     {
-      "text": "to invest?",
-      "startFrame": 883,
-      "endFrame": 919
+      "text": "task distribution. Hover",
+      "startFrame": 1390,
+      "endFrame": 1466
+    },
+    {
+      "text": "over the interactive",
+      "startFrame": 1467,
+      "endFrame": 1543
+    },
+    {
+      "text": "donut chart to",
+      "startFrame": 1544,
+      "endFrame": 1620
+    },
+    {
+      "text": "see exactly how",
+      "startFrame": 1621,
+      "endFrame": 1697
+    },
+    {
+      "text": "much of your",
+      "startFrame": 1698,
+      "endFrame": 1774
+    },
+    {
+      "text": "day is dedicated",
+      "startFrame": 1775,
+      "endFrame": 1851
+    },
+    {
+      "text": "to High, Medium,",
+      "startFrame": 1852,
+      "endFrame": 1928
+    },
+    {
+      "text": "or Low-risk activities.",
+      "startFrame": 1929,
+      "endFrame": 2016
+    },
+    {
+      "text": "Here's where it",
+      "startFrame": 2047,
+      "endFrame": 2118
+    },
+    {
+      "text": "gets powerful. You",
+      "startFrame": 2119,
+      "endFrame": 2190
+    },
+    {
+      "text": "aren't stuck with",
+      "startFrame": 2191,
+      "endFrame": 2262
+    },
+    {
+      "text": "your default score.",
+      "startFrame": 2263,
+      "endFrame": 2334
+    },
+    {
+      "text": "Under the Upskilling",
+      "startFrame": 2335,
+      "endFrame": 2406
+    },
+    {
+      "text": "Simulator, grab the",
+      "startFrame": 2407,
+      "endFrame": 2478
+    },
+    {
+      "text": "sliders to adjust",
+      "startFrame": 2479,
+      "endFrame": 2550
+    },
+    {
+      "text": "your daily focus.",
+      "startFrame": 2551,
+      "endFrame": 2622
+    },
+    {
+      "text": "If you automate",
+      "startFrame": 2623,
+      "endFrame": 2694
+    },
+    {
+      "text": "routine data administration",
+      "startFrame": 2695,
+      "endFrame": 2766
+    },
+    {
+      "text": "and shift your",
+      "startFrame": 2767,
+      "endFrame": 2838
+    },
+    {
+      "text": "time toward complex",
+      "startFrame": 2839,
+      "endFrame": 2910
+    },
+    {
+      "text": "strategy, team leadership,",
+      "startFrame": 2911,
+      "endFrame": 2982
+    },
+    {
+      "text": "or creative problem-solving,",
+      "startFrame": 2983,
+      "endFrame": 3054
+    },
+    {
+      "text": "watch your AI",
+      "startFrame": 3055,
+      "endFrame": 3126
+    },
+    {
+      "text": "Vulnerability score drop",
+      "startFrame": 3127,
+      "endFrame": 3198
+    },
+    {
+      "text": "in real-time.",
+      "startFrame": 3199,
+      "endFrame": 3279
+    },
+    {
+      "text": "Want to see",
+      "startFrame": 3310,
+      "endFrame": 3379
+    },
+    {
+      "text": "the bigger picture?",
+      "startFrame": 3380,
+      "endFrame": 3449
+    },
+    {
+      "text": "Switch to the",
+      "startFrame": 3450,
+      "endFrame": 3519
+    },
+    {
+      "text": "Cluster Map. This",
+      "startFrame": 3520,
+      "endFrame": 3589
+    },
+    {
+      "text": "interactive scatter plot",
+      "startFrame": 3590,
+      "endFrame": 3659
+    },
+    {
+      "text": "maps salaries against",
+      "startFrame": 3660,
+      "endFrame": 3729
+    },
+    {
+      "text": "AI vulnerability. Look",
+      "startFrame": 3730,
+      "endFrame": 3799
+    },
+    {
+      "text": "for the golden",
+      "startFrame": 3800,
+      "endFrame": 3869
+    },
+    {
+      "text": "quadrant: careers that",
+      "startFrame": 3870,
+      "endFrame": 3939
+    },
+    {
+      "text": "pay exceptionally well",
+      "startFrame": 3940,
+      "endFrame": 4009
+    },
+    {
+      "text": "but remain highly",
+      "startFrame": 4010,
+      "endFrame": 4079
+    },
+    {
+      "text": "resilient to automation.",
+      "startFrame": 4080,
+      "endFrame": 4153
+    },
+    {
+      "text": "Don't leave your",
+      "startFrame": 4184,
+      "endFrame": 4247
+    },
+    {
+      "text": "career progression to",
+      "startFrame": 4248,
+      "endFrame": 4311
+    },
+    {
+      "text": "chance. Design your",
+      "startFrame": 4312,
+      "endFrame": 4375
+    },
+    {
+      "text": "day-to-day tasks for",
+      "startFrame": 4376,
+      "endFrame": 4439
+    },
+    {
+      "text": "resilience. Run your",
+      "startFrame": 4440,
+      "endFrame": 4503
+    },
+    {
+      "text": "numbers today at",
+      "startFrame": 4504,
+      "endFrame": 4567
+    },
+    {
+      "text": "Gini Loh. Your",
+      "startFrame": 4568,
+      "endFrame": 4631
+    },
+    {
+      "text": "career radar is",
+      "startFrame": 4632,
+      "endFrame": 4695
+    },
+    {
+      "text": "waiting.",
+      "startFrame": 4696,
+      "endFrame": 4763
+    },
+    {
+      "text": "",
+      "startFrame": 4794,
+      "endFrame": 5033
     }
   ],
   "scenes": [
     {
+      "durationInSeconds": 11.62,
+      "heading": "Is Your Career AI-Resistant?",
+      "kpiData": null,
       "sceneId": "scene_1",
-      "type": "framework_hero",
-      "heading": "Is a $3,000 Espresso Maker Worth It?",
-      "subheading": "Exploring the Value",
-      "visualAssetUrl": "scene_1.jpg",
-      "durationInFrames": 270
+      "subheading": "The Problem",
+      "tableData": null,
+      "type": "video_clip",
+      "voiceoverScript": "We've all seen the headlines. AI is changing everything. But how does it affect your daily grind? The truth is, AI doesn't automate entire jobs\u2014it automates specific tasks.",
+      "visualAssetUrl": "http://localhost:5001/api/v1/video/static/uploads/custom_1784391506_5081a235355740f89acfda693e748e91.mp4",
+      "audioDuration": 11.12,
+      "durationInFrames": 697
     },
     {
+      "durationInSeconds": 22.5,
+      "heading": "Search & Discover \u2013 The 1,000+ Occupation Index",
+      "kpiData": null,
       "sceneId": "scene_2",
-      "type": "kpi_metric",
-      "heading": "Coffee Prices Rise",
-      "subheading": "Impact on Consumers",
-      "kpiData": {
-        "value": "+23%",
-        "label": "Coffee Price Increase"
-      },
-      "visualAssetUrl": "scene_2.jpg",
-      "durationInFrames": 180
+      "subheading": null,
+      "tableData": null,
+      "type": "video_clip",
+      "voiceoverScript": "Welcome to the AI Career Radar. Start by searching over one thousand standardized occupations pulled directly from the official O*NET database.\n\nImmediately, the radar maps your career's task distribution. Hover over the interactive donut chart to see exactly how much of your day is dedicated to High, Medium, or Low-risk activities.",
+      "visualAssetUrl": "http://localhost:5001/api/v1/video/static/uploads/custom_1784391515_8cf21216db8c4deea744c6516a34bf5f.mp4",
+      "audioDuration": 22.0,
+      "durationInFrames": 1350
     },
     {
+      "durationInSeconds": 21.06,
+      "heading": "The Upskilling Simulator \u2013 Shifting the Scale",
+      "kpiData": null,
       "sceneId": "scene_3",
-      "type": "comparison_table",
-      "heading": "Home vs Cafe Costs",
-      "subheading": "Which Saves More?",
-      "tableData": {
-        "headers": [
-          "Home Brewing",
-          "Cafe"
-        ],
-        "rows": [
-          [
-            "$0.50 per cup",
-            "$4.50 per cup"
-          ],
-          [
-            "Initial $3,000",
-            "No upfront"
-          ]
-        ]
-      },
-      "visualAssetUrl": "scene_3.jpg",
-      "durationInFrames": 180
+      "subheading": null,
+      "tableData": null,
+      "type": "video_clip",
+      "voiceoverScript": "Here's where it gets powerful. You aren't stuck with your default score. Under the Upskilling Simulator, grab the sliders to adjust your daily focus.\n\nIf you automate routine data administration and shift your time toward complex strategy, team leadership, or creative problem-solving, watch your AI Vulnerability score drop in real-time.",
+      "visualAssetUrl": "http://localhost:5001/api/v1/video/static/scene_3.jpg",
+      "audioDuration": 20.56,
+      "durationInFrames": 1263
     },
     {
+      "durationInSeconds": 14.58,
+      "heading": "The Cluster Map \u2013 Navigating the Career Landscape",
+      "kpiData": null,
       "sceneId": "scene_4",
-      "type": "broll_image",
-      "heading": "Join the Third Wave",
-      "subheading": "Elevate Your Coffee Experience",
-      "visualAssetUrl": "scene_4.jpg",
-      "durationInFrames": 270
+      "subheading": null,
+      "tableData": null,
+      "type": "video_clip",
+      "voiceoverScript": "Want to see the bigger picture? Switch to the Cluster Map. This interactive scatter plot maps salaries against AI vulnerability.\n\nLook for the golden quadrant: careers that pay exceptionally well but remain highly resilient to automation.",
+      "visualAssetUrl": "http://localhost:5001/api/v1/video/static/uploads/custom_1784391524_3423feb06a7140c2a87b8733f076e863.mp4",
+      "audioDuration": 14.08,
+      "durationInFrames": 874
+    },
+    {
+      "durationInSeconds": 10.18,
+      "heading": "Take Control",
+      "kpiData": null,
+      "sceneId": "scene_5",
+      "subheading": "Future-Proof Your Income",
+      "tableData": null,
+      "type": "call_to_action",
+      "voiceoverScript": "Don't leave your career progression to chance. Design your day-to-day tasks for resilience. Run your numbers today at Gini Loh. Your career radar is waiting.",
+      "visualAssetUrl": "http://localhost:5001/api/v1/video/static/uploads/custom_1784391531_3619cad033a048ad93e5cbc627688a7e.jpg",
+      "audioDuration": 9.68,
+      "durationInFrames": 610
+    },
+    {
+      "durationInSeconds": 4,
+      "heading": "",
+      "kpiData": null,
+      "sceneId": "scene_6",
+      "subheading": "",
+      "tableData": null,
+      "type": "outro_logo",
+      "voiceoverScript": "",
+      "visualAssetUrl": "http://localhost:5001/api/v1/video/static/uploads/custom_1784391544_9b52e855ef9649a2a04d2429f76dcfe3.jpg",
+      "audioDuration": 0.0,
+      "durationInFrames": 240
     }
   ]
 }
