@@ -47,6 +47,7 @@ _IMAGE_APP_ALIASES = {
 _LLM_ROLE_ALIASES = {
     "all_other": LLM_ROLE_ARTICLE_GENERATION,
     "article_generation": LLM_ROLE_ARTICLE_GENERATION,
+    "article_text": LLM_ROLE_ARTICLE_GENERATION,
     "default_generation": LLM_ROLE_ARTICLE_GENERATION,
     "deep_research": LLM_ROLE_DEEP_RESEARCH,
     "deep research": LLM_ROLE_DEEP_RESEARCH,
@@ -336,7 +337,12 @@ def _sort_llm_provider_rows(rows: list[dict]) -> list[dict]:
     )
 
 
-def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str] = None, model: Optional[str] = None) -> dict:
+def resolve_llm_provider(
+    task_role: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    application: Optional[str] = None
+) -> dict:
     """
     Resolve an LLM provider/model/api key combination.
 
@@ -346,6 +352,7 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
     3. Default provider (is_default=true)
     4. First active provider
     """
+    effective_role = task_role or application
     client = get_supabase_client()
     if not client:
         return {
@@ -387,7 +394,7 @@ def resolve_llm_provider(task_role: Optional[str] = None, provider: Optional[str
             explicit_match = row
             break
 
-    role = _normalize_llm_role(task_role)
+    role = _normalize_llm_role(effective_role)
     fallback_role = None
     if role and role != LLM_ROLE_RESEARCH and role.startswith("research_"):
         fallback_role = LLM_ROLE_RESEARCH

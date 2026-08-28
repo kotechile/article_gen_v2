@@ -85,7 +85,7 @@ class EntityExtractor:
                 "model": self.model,
                 "api_key": self.api_key
             }
-        resolved = resolve_llm_provider(application="article_text")
+        resolved = resolve_llm_provider(task_role="article_generation")
         return {
             "provider": resolved.get("provider") or "gemini",
             "model": resolved.get("model") or "gemini-2.5-flash",
