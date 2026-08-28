@@ -89,6 +89,53 @@ class TestReferenceSearchClient(unittest.TestCase):
         self.assertFalse(self.client._is_valid_image_url("https://example.com/favicon.ico"))
         self.assertTrue(self.client._is_valid_image_url("https://images.example.com/watch.png"))
 
+    @patch("requests.get")
+    def test_search_openverse_success(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "results": [
+                {
+                    "url": "https://images.openverse.org/steering_wheel.jpg",
+                    "thumbnail": "https://images.openverse.org/steering_wheel_thumb.jpg",
+                    "title": "Car Steering Wheel on Highway"
+                }
+            ]
+        }
+        mock_get.return_value = mock_response
+
+        # Test direct openverse call
+        images = self.client._search_openverse("car steering wheel", max_results=2)
+        self.assertEqual(len(images), 1)
+        self.assertEqual(images[0].provider, "openverse")
+        self.assertEqual(images[0].url, "https://images.openverse.org/steering_wheel.jpg")
+
+    @patch("requests.get")
+    def test_search_wikimedia_success(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "query": {
+                "pages": {
+                    "12345": {
+                        "title": "File:Vintage_Compass_Map.jpg",
+                        "imageinfo": [
+                            {
+                                "url": "https://upload.wikimedia.org/compass.jpg",
+                                "thumburl": "https://upload.wikimedia.org/compass_thumb.jpg"
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+        mock_get.return_value = mock_response
+
+        images = self.client._search_wikimedia("compass map", max_results=2)
+        self.assertEqual(len(images), 1)
+        self.assertEqual(images[0].provider, "wikimedia")
+        self.assertIn("compass.jpg", images[0].url)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -74,7 +74,25 @@ class ReferenceSearchClient:
             except Exception as e:
                 logger.warning(f"Linkup reference search failed: {e}.")
 
-        # 3. Fallback: SerpAPI Google Images if key is configured
+        # 3. Openverse Public Search (Free high-resolution editorial / CC photos, no API key required)
+        try:
+            images = self._search_openverse(clean_query, max_results=max_results)
+            if images:
+                logger.info(f"Retrieved {len(images)} reference images via Openverse for query: '{clean_query}'")
+                return images[:max_results]
+        except Exception as e:
+            logger.warning(f"Openverse reference search failed: {e}.")
+
+        # 4. Wikimedia Commons (Free high-resolution public domain / CC images, no API key required)
+        try:
+            images = self._search_wikimedia(clean_query, max_results=max_results)
+            if images:
+                logger.info(f"Retrieved {len(images)} reference images via Wikimedia for query: '{clean_query}'")
+                return images[:max_results]
+        except Exception as e:
+            logger.warning(f"Wikimedia reference search failed: {e}.")
+
+        # 5. Fallback: SerpAPI Google Images if key is configured
         serpapi_key = get_api_key("serpapi") or os.environ.get("SERPAPI_API_KEY")
         if serpapi_key:
             try:
@@ -84,7 +102,7 @@ class ReferenceSearchClient:
             except Exception as e:
                 logger.warning(f"SerpAPI reference search failed: {e}.")
 
-        # 4. Final fallback: Unsplash / Stock image search
+        # 6. Final fallback: Unsplash / Stock image search
         try:
             images = self._search_unsplash_fallback(clean_query, max_results=max_results)
         except Exception as e:
@@ -259,6 +277,82 @@ class ReferenceSearchClient:
                     provider="unsplash",
                     score=0.7
                 ))
+        return items
+
+    def _search_openverse(self, query: str, max_results: int = 6) -> List[ReferenceImageItem]:
+        """
+        Search Openverse for free, high-resolution editorial / CC images (no API key required).
+        """
+        url = "https://api.openverse.org/v1/images/"
+        params = {
+            "q": query,
+            "page_size": max_results
+        }
+        headers = {
+            "User-Agent": "ArticleGen/1.0 (https://content.buildomain.com)"
+        }
+        res = requests.get(url, params=params, headers=headers, timeout=self.timeout)
+        res.raise_for_status()
+        data = res.json()
+
+        items: List[ReferenceImageItem] = []
+        for r in data.get("results", [])[:max_results]:
+            img_url = r.get("url")
+            thumb_url = r.get("thumbnail") or img_url
+            title = r.get("title") or query
+            domain = urlparse(img_url or "").netloc or "openverse.org"
+            if img_url and self._is_valid_image_url(img_url):
+                items.append(ReferenceImageItem(
+                    url=img_url,
+                    thumbnail_url=thumb_url,
+                    title=title,
+                    source_domain=domain,
+                    provider="openverse",
+                    score=0.85
+                ))
+        return items
+
+    def _search_wikimedia(self, query: str, max_results: int = 6) -> List[ReferenceImageItem]:
+        """
+        Search Wikimedia Commons for high-resolution images (no API key required).
+        """
+        url = "https://commons.wikimedia.org/w/api.php"
+        params = {
+            "action": "query",
+            "generator": "search",
+            "gsrnamespace": "6",
+            "gsrsearch": f"{query} filetype:bitmap",
+            "gsrlimit": str(max_results),
+            "prop": "imageinfo",
+            "iiprop": "url|thumburl|mime",
+            "iiurlwidth": "400",
+            "format": "json"
+        }
+        headers = {
+            "User-Agent": "ArticleGen/1.0 (https://content.buildomain.com)"
+        }
+        res = requests.get(url, params=params, headers=headers, timeout=self.timeout)
+        res.raise_for_status()
+        data = res.json()
+
+        items: List[ReferenceImageItem] = []
+        pages = data.get("query", {}).get("pages", {})
+        for page_id, page in pages.items():
+            imageinfo = page.get("imageinfo", [])
+            if imageinfo:
+                info = imageinfo[0]
+                img_url = info.get("url")
+                thumb_url = info.get("thumburl") or img_url
+                title = page.get("title", "").replace("File:", "") or query
+                if img_url and self._is_valid_image_url(img_url):
+                    items.append(ReferenceImageItem(
+                        url=img_url,
+                        thumbnail_url=thumb_url,
+                        title=title,
+                        source_domain="commons.wikimedia.org",
+                        provider="wikimedia",
+                        score=0.80
+                    ))
         return items
 
     def _is_valid_image_url(self, url: str) -> bool:
