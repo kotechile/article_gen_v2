@@ -50,6 +50,25 @@ class TestContextImagePipeline(unittest.TestCase):
         self.assertEqual(len(res["candidate_references"]), 1)
         self.assertEqual(res["candidate_references"][0]["url"], "https://images.example.com/porsche_gt3.jpg")
 
+    def test_analyze_context_skips_search_for_metaphorical_concept(self):
+        self.mock_extractor.extract.return_value = EntityExtractionResult(
+            has_physical_entity=False,
+            entity_type="metaphorical",
+            is_metaphorical=True,
+            main_object="Antique brass balancing scale",
+            search_query="",
+            generation_prompt="An antique brass scale weighing gold coins against feathers, 35mm editorial photography",
+            object_fidelity_weight=0.0
+        )
+
+        text = "Monetary inflation requires a delicate balancing act by the Federal Reserve."
+        res = self.pipeline.analyze_context(text)
+
+        self.assertFalse(res["has_physical_entity"])
+        self.assertTrue(res["is_metaphorical"])
+        self.assertEqual(res["candidate_references"], [])
+        self.mock_search.search_reference_images.assert_not_called()
+
     def test_prepare_reference_asset(self):
         self.mock_preprocessor.prepare_reference.return_value = (b"image-bytes", "b64string")
 

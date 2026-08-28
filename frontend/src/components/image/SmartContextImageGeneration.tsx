@@ -245,17 +245,17 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
                         <div>
                             <div className="flex items-center gap-2">
                                 <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                    {analysis.is_metaphorical || analysis.entity_type === 'metaphorical'
-                                        ? 'Metaphorical Subject'
-                                        : 'Target Entity Identified'}
+                                    {analysis.has_physical_entity
+                                        ? 'Target Physical Entity'
+                                        : 'Metaphorical Subject'}
                                 </span>
-                                {analysis.is_metaphorical || analysis.entity_type === 'metaphorical' ? (
-                                    <span className="px-2 py-0.5 text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 rounded-full border border-amber-200 dark:border-amber-800">
-                                        Metaphorical Concept
-                                    </span>
-                                ) : (
+                                {analysis.has_physical_entity ? (
                                     <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 rounded-full border border-emerald-200 dark:border-emerald-800">
                                         Physical Object
+                                    </span>
+                                ) : (
+                                    <span className="px-2 py-0.5 text-[10px] font-semibold bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 rounded-full border border-purple-200 dark:border-purple-800">
+                                        Direct Diffusion (No Reference Needed)
                                     </span>
                                 )}
                             </div>
@@ -265,73 +265,77 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
                         </div>
                         <div>
                             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                Reference Search Query
+                                {analysis.has_physical_entity ? 'Reference Search Query' : 'Generation Mode'}
                             </span>
-                            <div className="text-sm text-gray-700 dark:text-gray-300 mt-0.5 truncate" title={analysis.search_query}>
-                                {analysis.search_query}
+                            <div className="text-sm text-gray-700 dark:text-gray-300 mt-0.5 truncate" title={analysis.search_query || 'Direct text-to-image prompt'}>
+                                {analysis.has_physical_entity
+                                    ? (analysis.search_query || 'N/A')
+                                    : 'Direct text-to-image (online image search skipped)'}
                             </div>
                         </div>
                     </div>
 
-                    {/* Candidate Reference Images Found */}
-                    <div>
-                        <div className="flex items-center justify-between mb-2">
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                Select Reference Image ({analysis.candidate_references.length} found online)
-                            </label>
-                            {selectedRefUrl && (
-                                <button
-                                    type="button"
-                                    onClick={() => setSelectedRefUrl('')}
-                                    className="text-xs text-red-500 hover:underline"
-                                >
-                                    Clear Reference Selection
-                                </button>
+                    {/* Candidate Reference Images Found (Only shown when a physical entity was identified) */}
+                    {analysis.has_physical_entity && (
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    Select Reference Image ({analysis.candidate_references.length} found online)
+                                </label>
+                                {selectedRefUrl && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedRefUrl('')}
+                                        className="text-xs text-red-500 hover:underline"
+                                    >
+                                        Clear Reference Selection
+                                    </button>
+                                )}
+                            </div>
+
+                            {analysis.candidate_references.length === 0 ? (
+                                <div className="p-4 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 text-center text-sm text-gray-500">
+                                    No online reference photos returned. The model will generate directly from the synthesized prompt.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+                                    {analysis.candidate_references.map((item, idx) => {
+                                        const isSelected = selectedRefUrl === item.url;
+                                        return (
+                                            <div
+                                                key={idx}
+                                                onClick={() => setSelectedRefUrl(item.url)}
+                                                className={`relative group cursor-pointer rounded-xl overflow-hidden border-2 transition-all aspect-square bg-gray-100 dark:bg-gray-800 ${
+                                                    isSelected
+                                                        ? 'border-indigo-600 ring-2 ring-indigo-500/50 scale-[1.02]'
+                                                        : 'border-transparent hover:border-gray-300 dark:hover:border-gray-600'
+                                                }`}
+                                            >
+                                                <img
+                                                    src={item.thumbnail_url || item.url}
+                                                    alt={item.title || 'Reference candidate'}
+                                                    className="w-full h-full object-cover"
+                                                    loading="lazy"
+                                                    onError={(e) => {
+                                                        // Fallback for broken web links
+                                                        (e.target as HTMLElement).style.display = 'none';
+                                                    }}
+                                                />
+                                                {isSelected && (
+                                                    <div className="absolute top-1.5 right-1.5 p-1 bg-indigo-600 text-white rounded-full shadow">
+                                                        <CheckCircle className="w-3 h-3" />
+                                                    </div>
+                                                )}
+                                                <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent text-[10px] text-white truncate opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {item.source_domain || item.provider}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             )}
                         </div>
-
-                        {analysis.candidate_references.length === 0 ? (
-                            <div className="p-4 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 text-center text-sm text-gray-500">
-                                No online reference photos returned. The model will generate directly from the synthesized prompt.
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-                                {analysis.candidate_references.map((item, idx) => {
-                                    const isSelected = selectedRefUrl === item.url;
-                                    return (
-                                        <div
-                                            key={idx}
-                                            onClick={() => setSelectedRefUrl(item.url)}
-                                            className={`relative group cursor-pointer rounded-xl overflow-hidden border-2 transition-all aspect-square bg-gray-100 dark:bg-gray-800 ${
-                                                isSelected
-                                                    ? 'border-indigo-600 ring-2 ring-indigo-500/50 scale-[1.02]'
-                                                    : 'border-transparent hover:border-gray-300 dark:hover:border-gray-600'
-                                            }`}
-                                        >
-                                            <img
-                                                src={item.thumbnail_url || item.url}
-                                                alt={item.title || 'Reference candidate'}
-                                                className="w-full h-full object-cover"
-                                                loading="lazy"
-                                                onError={(e) => {
-                                                    // Fallback for broken web links
-                                                    (e.target as HTMLElement).style.display = 'none';
-                                                }}
-                                            />
-                                            {isSelected && (
-                                                <div className="absolute top-1.5 right-1.5 bg-indigo-600 text-white rounded-full p-0.5 shadow">
-                                                    <CheckCircle className="w-4 h-4" />
-                                                </div>
-                                            )}
-                                            <div className="absolute inset-x-0 bottom-0 bg-black/60 p-1 text-[10px] text-white truncate text-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                                {item.source_domain || 'Web'}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
+                    )}
 
                     {/* Synthesized Diffusion Prompt */}
                     <div>

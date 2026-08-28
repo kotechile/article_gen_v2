@@ -46,7 +46,9 @@ class ContextImagePipeline:
         )
 
         references: List[ReferenceImageItem] = []
-        if extraction.search_query:
+        # If a specific physical entity was identified, search online for accurate reference imagery.
+        # If the concept is abstract or metaphorical, skip online search completely and let the diffusion model (Flux / Nano Banana) generate the scene directly from prompt.
+        if extraction.has_physical_entity and extraction.search_query:
             try:
                 references = self.search_client.search_reference_images(
                     query=extraction.search_query,
@@ -54,6 +56,8 @@ class ContextImagePipeline:
                 )
             except Exception as e:
                 logger.error(f"Error fetching reference images: {e}", exc_info=True)
+        else:
+            logger.info("No physical entity identified (metaphorical/conceptual); skipping online image search.")
 
         return {
             "has_physical_entity": extraction.has_physical_entity,
