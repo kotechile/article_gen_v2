@@ -3,8 +3,9 @@ Reference Search Client for Context-Aware Image Generation.
 
 Searches the web for high-fidelity reference photography using:
 1. Tavily Search (native image extraction via include_images=True)
-2. Linkup Search (using active Supabase key)
-3. Fallback providers (SerpAPI, Google CSE, Unsplash)
+2. Openverse Public Search (Free high-resolution editorial / CC photos)
+3. Wikimedia Commons (Free high-resolution public domain / CC images)
+4. Fallback providers (SerpAPI, Unsplash)
 """
 
 import logging
@@ -37,11 +38,10 @@ class ReferenceSearchClient:
     def __init__(
         self,
         tavily_api_key: Optional[str] = None,
-        linkup_api_key: Optional[str] = None,
-        timeout: int = 15
+        timeout: int = 15,
+        **kwargs
     ):
         self.tavily_api_key = tavily_api_key or get_api_key("tavily") or os.environ.get("TAVILY_API_KEY")
-        self.linkup_api_key = linkup_api_key or get_api_key("linkup") or os.environ.get("LINKUP_API_KEY")
         self.timeout = timeout
 
     def search_reference_images(self, query: str, max_results: int = 6) -> List[ReferenceImageItem]:
@@ -64,17 +64,7 @@ class ReferenceSearchClient:
             except Exception as e:
                 logger.warning(f"Tavily image search failed: {e}. Trying next provider.")
 
-        # 2. Priority: Linkup Search
-        if self.linkup_api_key:
-            try:
-                images = self._search_linkup(clean_query, max_results=max_results)
-                if images:
-                    logger.info(f"Retrieved {len(images)} reference images via Linkup for query: '{clean_query}'")
-                    return images[:max_results]
-            except Exception as e:
-                logger.warning(f"Linkup reference search failed: {e}.")
-
-        # 3. Openverse Public Search (Free high-resolution editorial / CC photos, no API key required)
+        # 2. Openverse Public Search (Free high-resolution editorial / CC photos, no API key required)
         try:
             images = self._search_openverse(clean_query, max_results=max_results)
             if images:
@@ -83,7 +73,7 @@ class ReferenceSearchClient:
         except Exception as e:
             logger.warning(f"Openverse reference search failed: {e}.")
 
-        # 4. Wikimedia Commons (Free high-resolution public domain / CC images, no API key required)
+        # 3. Wikimedia Commons (Free high-resolution public domain / CC images, no API key required)
         try:
             images = self._search_wikimedia(clean_query, max_results=max_results)
             if images:
@@ -92,7 +82,7 @@ class ReferenceSearchClient:
         except Exception as e:
             logger.warning(f"Wikimedia reference search failed: {e}.")
 
-        # 5. Fallback: SerpAPI Google Images if key is configured
+        # 4. Fallback: SerpAPI Google Images if key is configured
         serpapi_key = get_api_key("serpapi") or os.environ.get("SERPAPI_API_KEY")
         if serpapi_key:
             try:
@@ -166,60 +156,6 @@ class ReferenceSearchClient:
                             provider="tavily",
                             score=0.85
                         ))
-
-        return items
-
-    def _search_linkup(self, query: str, max_results: int = 6) -> List[ReferenceImageItem]:
-        url = "https://api.linkup.so/v1/search"
-        headers = {
-            "Authorization": f"Bearer {self.linkup_api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "q": query,
-            "depth": "standard",
-            "outputType": "searchResults"
-        }
-        res = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
-        res.raise_for_status()
-        data = res.json()
-
-        items: List[ReferenceImageItem] = []
-        results = data.get("results", []) or data.get("searchResults", [])
-
-        for item in results:
-            page_url = item.get("url") or ""
-            domain = urlparse(page_url).netloc
-            title = item.get("name") or item.get("title") or query
-
-            # Check if Linkup returns images directly in metadata
-            images = item.get("images") or []
-            if isinstance(images, list):
-                for img in images:
-                    img_u = img if isinstance(img, str) else img.get("url")
-                    if img_u and self._is_valid_image_url(img_u):
-                        items.append(ReferenceImageItem(
-                            url=img_u,
-                            thumbnail_url=img_u,
-                            title=title,
-                            source_domain=domain,
-                            provider="linkup",
-                            score=0.8
-                        ))
-
-            # Inspect page metadata / og:image if available
-            metadata = item.get("metadata") or {}
-            og_image = metadata.get("og:image") or metadata.get("image")
-            if og_image and self._is_valid_image_url(og_image):
-                if not any(i.url == og_image for i in items):
-                    items.append(ReferenceImageItem(
-                        url=og_image,
-                        thumbnail_url=og_image,
-                        title=title,
-                        source_domain=domain,
-                        provider="linkup",
-                        score=0.75
-                    ))
 
         return items
 

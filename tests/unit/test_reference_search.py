@@ -11,8 +11,7 @@ from src.services.context_image.reference_search import ReferenceSearchClient, R
 class TestReferenceSearchClient(unittest.TestCase):
     def setUp(self):
         self.client = ReferenceSearchClient(
-            tavily_api_key="fake-tavily-key",
-            linkup_api_key="fake-linkup-key"
+            tavily_api_key="fake-tavily-key"
         )
 
     def test_sanitize_query(self):
@@ -54,33 +53,32 @@ class TestReferenceSearchClient(unittest.TestCase):
         self.assertTrue(payload["include_images"])
         self.assertEqual(payload["query"], "Apple Watch Ultra 2 studio photo")
 
+    @patch("requests.get")
     @patch("requests.post")
-    def test_search_linkup_fallback_when_tavily_fails(self, mock_post):
-        # First call (Tavily) fails with HTTP 500
+    def test_search_openverse_fallback_when_tavily_fails(self, mock_post, mock_get):
+        # Tavily fails with HTTP 500
         tavily_fail = MagicMock()
         tavily_fail.raise_for_status.side_effect = Exception("Tavily service unavailable")
+        mock_post.return_value = tavily_fail
 
-        # Second call (Linkup) succeeds
-        linkup_success = MagicMock()
-        linkup_success.status_code = 200
-        linkup_success.json.return_value = {
+        # Openverse fallback succeeds
+        openverse_success = MagicMock()
+        openverse_success.status_code = 200
+        openverse_success.json.return_value = {
             "results": [
                 {
-                    "name": "Vintage Macintosh Official Product Page",
-                    "url": "https://apple.com/mac-history",
-                    "images": ["https://apple.com/assets/macintosh_128k.png"]
+                    "title": "Vintage Macintosh 128k",
+                    "url": "https://images.openverse.org/macintosh_128k.png"
                 }
             ]
         }
-
-        mock_post.side_effect = [tavily_fail, linkup_success]
+        mock_get.return_value = openverse_success
 
         images = self.client.search_reference_images("1984 Macintosh 128k studio photo")
 
         self.assertEqual(len(images), 1)
-        self.assertEqual(images[0].url, "https://apple.com/assets/macintosh_128k.png")
-        self.assertEqual(images[0].provider, "linkup")
-        self.assertEqual(images[0].source_domain, "apple.com")
+        self.assertEqual(images[0].url, "https://images.openverse.org/macintosh_128k.png")
+        self.assertEqual(images[0].provider, "openverse")
 
     def test_invalid_urls_filtered(self):
         self.assertFalse(self.client._is_valid_image_url(""))
