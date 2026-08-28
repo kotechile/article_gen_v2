@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Sparkles, Search, CheckCircle, ExternalLink, RefreshCw, Wand2, Sliders, Image as ImageIcon } from 'lucide-react';
+import { Loader2, Sparkles, Search, CheckCircle, RefreshCw, Wand2 } from 'lucide-react';
 import {
     analyzeContextImage,
     generateContextImage,
@@ -402,6 +402,22 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
                             </select>
                         </div>
                     </div>
+
+                    {/* Background Isolation Toggle */}
+                    {selectedRefUrl && (
+                        <div className="flex items-center gap-2 pt-1">
+                            <input
+                                id="isolate-bg-toggle"
+                                type="checkbox"
+                                checked={isolateBackground}
+                                onChange={(e) => setIsolateBackground(e.target.checked)}
+                                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded cursor-pointer"
+                            />
+                            <label htmlFor="isolate-bg-toggle" className="text-xs text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+                                Isolate subject / remove background from reference photo before generation
+                            </label>
+                        </div>
+                    )}
 
                     {/* Generate Button */}
                     <div className="pt-2">

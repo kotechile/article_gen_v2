@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Sparkles, RefreshCw, Upload, X, Image as ImageIcon } from 'lucide-react';
+import { Loader2, Sparkles, RefreshCw, Upload, X } from 'lucide-react';
 import { generateAIImage, getImageProviderModels, getImageApplicationConfig } from '../../services/imageService';
 import type { ImageProviderModel, ImageMetadata } from '../../types/image';
 
