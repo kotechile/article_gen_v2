@@ -17,12 +17,13 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableRow } from '@tiptap/extension-table-row';
 import CharacterCount from '@tiptap/extension-character-count';
-import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn, Sigma, Wand2 } from 'lucide-react';
+import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn, Sigma, Wand2, Share2 } from 'lucide-react';
 import { apiClient } from '../api-client';
 import { assembleArticleHtml } from '../lib/contentParser';
 import { AddImageModal } from '../components/AddImageModal';
 import { ReferenceSelector } from '../components/ReferenceSelector';
 import { WordPressExportModal } from '../components/WordPressExportModal';
+import { LinkedInPublishModal } from '../components/LinkedInPublishModal';
 import { Gauge } from '../components/Gauge';
 import { METRIC_EXPLANATIONS } from '../types/metrics';
 import { MetricTooltip } from '../components/Tooltip';
@@ -705,8 +706,9 @@ export const ArticleEditor: React.FC = () => {
     const [showInTextCitations, setShowInTextCitations] = useState(true);
     const [showReferenceSelector, setShowReferenceSelector] = useState(false);
 
-    // WordPress export state
+    // WordPress & LinkedIn export state
     const [showWordPressModal, setShowWordPressModal] = useState(false);
+    const [showLinkedInModal, setShowLinkedInModal] = useState(false);
     const [articleData, setArticleData] = useState<any>(null);
 
 
@@ -1891,6 +1893,31 @@ export const ArticleEditor: React.FC = () => {
                                 <span className="hidden sm:inline">Export to WP</span>
                             </button>
                             <button
+                                onClick={() => {
+                                    if (editor && articleData) {
+                                        setArticleData({
+                                            ...articleData,
+                                            htmlArticle: materializeEditorHtml(editor.getHTML()),
+                                            Title: title,
+                                            hook: hook,
+                                            thesis: thesis,
+                                            deck: deck,
+                                            featuredImageUrl: featuredImage?.url,
+                                            ImageAuthor: featuredImage?.author,
+                                            mediaAltText: featuredImage?.alt,
+                                            mediaTitle: featuredImage?.title,
+                                            mediaCaption: featuredImage?.caption
+                                        });
+                                    }
+                                    setShowLinkedInModal(true);
+                                }}
+                                className="flex items-center gap-2 px-3 py-2 bg-[#0A66C2] text-white rounded-lg hover:bg-[#084e96] transition shadow-sm"
+                                title="Publish or repurpose this article for your LinkedIn feed"
+                            >
+                                <Share2 className="w-4 h-4" />
+                                <span className="hidden sm:inline">Publish to LinkedIn</span>
+                            </button>
+                            <button
                                 onClick={handleSave}
                                 disabled={saving}
                                 className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
@@ -2497,6 +2524,24 @@ export const ArticleEditor: React.FC = () => {
                         onSuccess={(postUrl) => {
                             setShowWordPressModal(false);
                             alert(`Successfully published to WordPress!\n\nView at: ${postUrl}`);
+                        }}
+                    />
+                )
+            }
+
+            {
+                showLinkedInModal && id && articleData && (
+                    <LinkedInPublishModal
+                        articleData={articleData}
+                        articleId={id}
+                        onClose={() => setShowLinkedInModal(false)}
+                        onSuccess={(postUrl) => {
+                            // Update local articleData with last_linkedin_post_url
+                            setArticleData({
+                                ...articleData,
+                                last_linkedin_post_url: postUrl,
+                                last_linkedin_status: 'published'
+                            });
                         }}
                     />
                 )

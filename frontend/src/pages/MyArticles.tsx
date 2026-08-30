@@ -1279,6 +1279,18 @@ export const MyArticles: React.FC = () => {
                                                             }`}>
                                                                 {status.label}
                                                             </span>
+                                                            {article.last_linkedin_post_url && (
+                                                                <a
+                                                                    href={article.last_linkedin_post_url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0A66C2] bg-[#0A66C2]/10 border border-[#0A66C2]/20 px-2 py-0.5 rounded-full hover:bg-[#0A66C2]/20 transition"
+                                                                    title="View live post on LinkedIn"
+                                                                >
+                                                                    <span className="font-bold">in</span>
+                                                                    <span>Shared</span>
+                                                                </a>
+                                                            )}
                                                             <span className="text-xs text-muted-foreground">
                                                                 {new Date(article.dateCreatedOn).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                                                             </span>

@@ -28,10 +28,12 @@ from src.api.wordpress import wordpress_bp
 from src.api.internal_links import internal_links_bp
 from src.api.trends import trends_bp
 from src.api.screen_capture import screen_capture_bp
+from src.api.endpoints.linkedin import linkedin_bp
 app.register_blueprint(wordpress_bp)
 app.register_blueprint(internal_links_bp)
 app.register_blueprint(trends_bp)
 app.register_blueprint(screen_capture_bp)
+app.register_blueprint(linkedin_bp)
 
 # Create rate limiter
 limiter = Limiter(

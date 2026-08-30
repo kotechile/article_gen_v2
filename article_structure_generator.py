@@ -26,6 +26,8 @@ class ArticleType(Enum):
     TUTORIAL = "tutorial"
     REVIEW = "review"
     OPINION = "opinion"
+    LINKEDIN_ARTICLE = "linkedin_article"
+    LINKEDIN_POST = "linkedin_post"
 
 class Tone(Enum):
     """Article tones."""
@@ -109,8 +111,8 @@ class ArticleStructureGenerator:
             dossier_context = self._build_dossier_context_text(research_data)
             brief_with_dossier = f"{brief}\n\nDeep Research Context:\n{dossier_context}" if dossier_context else brief
             
-            # Determine article type based on brief content
-            article_type = self._determine_article_type(brief)
+            # Determine article type based on brief content and research parameters
+            article_type = self._determine_article_type(brief, research_data)
             
             # Generate core elements
             draft_title = research_data.get('draft_title', '')
@@ -218,11 +220,24 @@ class ArticleStructureGenerator:
         
         return "\n".join(lines) if lines else ""
     
-    def _determine_article_type(self, brief: str) -> str:
-        """Determine article type based on brief content."""
+    def _determine_article_type(self, brief: str, research_data: Optional[Dict[str, Any]] = None) -> str:
+        """Determine article type based on brief content and research metadata."""
+        if research_data:
+            explicit_type = research_data.get('article_type') or research_data.get('target_format')
+            if explicit_type in [ArticleType.LINKEDIN_ARTICLE.value, 'linkedin_article', 'linkedin']:
+                return ArticleType.LINKEDIN_ARTICLE.value
+            if explicit_type in [ArticleType.LINKEDIN_POST.value, 'linkedin_post']:
+                return ArticleType.LINKEDIN_POST.value
+            if research_data.get('target_platform') == 'linkedin':
+                target_words = int(research_data.get('target_word_count', 1000))
+                return ArticleType.LINKEDIN_POST.value if target_words <= 500 else ArticleType.LINKEDIN_ARTICLE.value
+
         brief_lower = brief.lower()
-        
-        if any(word in brief_lower for word in ['list', 'top', 'best', 'worst', 'ranking', 'countdown']):
+        if 'linkedin post' in brief_lower or 'linkedin micro' in brief_lower:
+            return ArticleType.LINKEDIN_POST.value
+        elif 'linkedin article' in brief_lower or 'linkedin' in brief_lower:
+            return ArticleType.LINKEDIN_ARTICLE.value
+        elif any(word in brief_lower for word in ['list', 'top', 'best', 'worst', 'ranking', 'countdown']):
             return ArticleType.LISTICLE.value
         elif any(word in brief_lower for word in ['how to', 'how-to', 'tutorial', 'guide', 'steps']):
             return ArticleType.HOW_TO.value
@@ -849,7 +864,9 @@ Create {section_count} topic-specific sections that directly relate to this arti
     
     def _generate_call_to_action(self, article_type: str, tone: str) -> Optional[str]:
         """Generate appropriate call to action."""
-        if article_type == ArticleType.HOW_TO.value:
+        if article_type in [ArticleType.LINKEDIN_ARTICLE.value, ArticleType.LINKEDIN_POST.value]:
+            return "What's your take on this? How do you approach this in your team or workflow? Drop your perspective in the comments below 👇"
+        elif article_type == ArticleType.HOW_TO.value:
             return "Ready to get started? Follow these steps and share your results with us!"
         elif article_type == ArticleType.COMPARISON.value:
             return "Which option works best for you? Let us know in the comments below!"

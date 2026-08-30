@@ -17,13 +17,20 @@ import {
     TrendingUp,
     Layout,
     FolderTree,
-    ChevronRight
+    ChevronRight,
+    Share2
 } from 'lucide-react';
 import { TrendReportModal } from '../components/TrendReportModal';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
 import { useProject } from '../context/project-context';
 import { apiClient } from '../api-client';
+import {
+    getLinkedInAccount,
+    getLinkedInAuthUrl,
+    disconnectLinkedInAccount,
+    type LinkedInAccountStatus
+} from '../services/linkedinService';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -32,10 +39,14 @@ import { Switch } from '../components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import type { Project } from '../types';
 
-// Read tab from URL query (?tab=niches)
+// Read tab from URL query (?tab=niches or ?tab=integrations)
 function getInitialTab() {
     const params = new URLSearchParams(window.location.search);
-    return params.get('tab') === 'niches' ? 'niches' : 'research';
+    const tab = params.get('tab');
+    if (tab === 'niches' || tab === 'posts' || tab === 'content' || tab === 'integrations' || tab === 'linkedin') {
+        return tab === 'linkedin' ? 'integrations' : tab;
+    }
+    return 'research';
 }
 
 interface ResearchSettings {
@@ -127,6 +138,24 @@ export const Settings: React.FC = () => {
     const [isSavingCategory, setIsSavingCategory] = useState(false);
     const [isSyncingCategories, setIsSyncingCategories] = useState(false);
 
+    // LinkedIn Integration State
+    const [linkedInStatus, setLinkedInStatus] = useState<LinkedInAccountStatus | null>(null);
+    const [linkedInLoading, setLinkedInLoading] = useState(false);
+    const [disconnectingLinkedIn, setDisconnectingLinkedIn] = useState(false);
+
+    useEffect(() => {
+        // Check for LinkedIn OAuth redirect callback params
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('linkedin_connected') === 'true') {
+            setSuccess('LinkedIn personal account successfully connected!');
+            // Clean URL
+            window.history.replaceState({}, document.title, window.location.pathname + '?tab=integrations');
+        } else if (params.get('linkedin_error')) {
+            setError(`LinkedIn connection failed: ${params.get('linkedin_error')}`);
+            window.history.replaceState({}, document.title, window.location.pathname + '?tab=integrations');
+        }
+    }, []);
+
     useEffect(() => {
         if (user) {
             fetchAllData();
@@ -141,13 +170,49 @@ export const Settings: React.FC = () => {
                 fetchAppSettings(),
                 fetchInfographicSvgSettings(),
                 fetchProjects(),
-                fetchImportedPosts()
+                fetchImportedPosts(),
+                fetchLinkedInAccountStatus()
             ]);
         } catch (err) {
             console.error("Error fetching settings:", err);
             setError("Failed to load some settings.");
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchLinkedInAccountStatus = async () => {
+        try {
+            setLinkedInLoading(true);
+            const status = await getLinkedInAccount();
+            setLinkedInStatus(status);
+        } catch (err) {
+            console.warn("Could not load LinkedIn account status:", err);
+        } finally {
+            setLinkedInLoading(false);
+        }
+    };
+
+    const handleConnectLinkedIn = async () => {
+        try {
+            const authUrl = await getLinkedInAuthUrl();
+            window.location.href = authUrl;
+        } catch (err: any) {
+            setError(err?.message || 'Failed to initiate LinkedIn connection');
+        }
+    };
+
+    const handleDisconnectLinkedIn = async () => {
+        if (!confirm('Are you sure you want to disconnect your LinkedIn account?')) return;
+        try {
+            setDisconnectingLinkedIn(true);
+            await disconnectLinkedInAccount();
+            await fetchLinkedInAccountStatus();
+            setSuccess('LinkedIn account disconnected.');
+        } catch (err: any) {
+            setError(err?.message || 'Failed to disconnect LinkedIn account.');
+        } finally {
+            setDisconnectingLinkedIn(false);
         }
     };
 
@@ -527,7 +592,7 @@ export const Settings: React.FC = () => {
             </div>
 
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-                    <TabsList className="bg-muted/50 p-1 rounded-xl w-full md:w-auto h-auto grid grid-cols-2 md:grid-cols-4 gap-1">
+                    <TabsList className="bg-muted/50 p-1 rounded-xl w-full md:w-auto h-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1">
                     <TabsTrigger value="research" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm py-2.5">
                         <Search className="w-4 h-4 mr-2" />
                         Topic Research
@@ -543,6 +608,10 @@ export const Settings: React.FC = () => {
                     <TabsTrigger value="posts" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm py-2.5">
                         <FileText className="w-4 h-4 mr-2" />
                         External Posts
+                    </TabsTrigger>
+                    <TabsTrigger value="integrations" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm py-2.5">
+                        <Share2 className="w-4 h-4 mr-2 text-[#0A66C2]" />
+                        LinkedIn
                     </TabsTrigger>
                 </TabsList>
 
@@ -1339,6 +1408,137 @@ export const Settings: React.FC = () => {
                                     ))}
                                 </div>
                             )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                {/* LinkedIn Integration */}
+                <TabsContent value="integrations" className="animate-in fade-in-50 duration-500 space-y-6">
+                    <Card className="border-border shadow-sm overflow-hidden">
+                        <CardHeader className="bg-muted/30 border-b border-border">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-[#0A66C2] text-white flex items-center justify-center font-bold text-xl shadow-sm">
+                                    in
+                                </div>
+                                <div>
+                                    <CardTitle>LinkedIn Integration</CardTitle>
+                                    <CardDescription>
+                                        Connect your personal LinkedIn account to generate and publish thought leadership posts and articles.
+                                    </CardDescription>
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="p-6 space-y-6">
+                            {/* Connection Status Panel */}
+                            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                                    <div className="flex items-center gap-4">
+                                        {linkedInLoading ? (
+                                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                <Loader2 className="w-5 h-5 animate-spin text-[#0A66C2]" />
+                                                Checking LinkedIn account status...
+                                            </div>
+                                        ) : linkedInStatus?.connected && linkedInStatus?.account ? (
+                                            <>
+                                                {linkedInStatus.account.profile_picture_url ? (
+                                                    <img
+                                                        src={linkedInStatus.account.profile_picture_url}
+                                                        alt={linkedInStatus.account.account_name}
+                                                        className="w-14 h-14 rounded-full object-cover border-2 border-[#0A66C2]/30 shadow-sm"
+                                                    />
+                                                ) : (
+                                                    <div className="w-14 h-14 rounded-full bg-[#0A66C2] text-white font-bold text-xl flex items-center justify-center">
+                                                        {linkedInStatus.account.account_name.charAt(0)}
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <h4 className="text-base font-bold text-foreground">
+                                                            {linkedInStatus.account.account_name}
+                                                        </h4>
+                                                        <span className="px-2.5 py-0.5 text-xs bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 border border-emerald-500/20 rounded-full font-semibold">
+                                                            Connected
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                                        Author URN: <code className="text-[11px] bg-muted px-1.5 py-0.5 rounded">{linkedInStatus.account.linkedin_urn}</code>
+                                                    </p>
+                                                    {linkedInStatus.account.expires_at && (
+                                                        <p className="text-[11px] text-muted-foreground mt-1">
+                                                            Token valid until: {new Date(linkedInStatus.account.expires_at).toLocaleDateString()}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="flex items-center gap-3.5">
+                                                <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center text-muted-foreground">
+                                                    <Share2 className="w-6 h-6" />
+                                                </div>
+                                                <div>
+                                                    <h4 className="text-sm font-semibold text-foreground">No LinkedIn Account Connected</h4>
+                                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                                        Authenticate with LinkedIn to publish directly from the Article Editor.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        {linkedInStatus?.connected ? (
+                                            <Button
+                                                variant="outline"
+                                                onClick={handleDisconnectLinkedIn}
+                                                disabled={disconnectingLinkedIn}
+                                                className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30 text-xs"
+                                            >
+                                                {disconnectingLinkedIn ? (
+                                                    <>
+                                                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                                                        Disconnecting...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                                                        Disconnect Account
+                                                    </>
+                                                )}
+                                            </Button>
+                                        ) : (
+                                            <Button
+                                                onClick={handleConnectLinkedIn}
+                                                className="bg-[#0A66C2] hover:bg-[#084e96] text-white shadow-md text-sm font-medium"
+                                            >
+                                                <Share2 className="w-4 h-4 mr-2" />
+                                                Connect Personal LinkedIn
+                                            </Button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Features Overview */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                                <div className="p-4 rounded-xl border border-border bg-muted/20 space-y-1.5">
+                                    <h5 className="text-xs font-bold uppercase tracking-wider text-foreground">⚡ Direct Feed Publishing</h5>
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                        Publish posts with up to 3,000 characters, custom line breaks, emojis, and hashtags directly into your LinkedIn feed.
+                                    </p>
+                                </div>
+                                <div className="p-4 rounded-xl border border-border bg-muted/20 space-y-1.5">
+                                    <h5 className="text-xs font-bold uppercase tracking-wider text-foreground">🖼️ Image & Media Attachments</h5>
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                        Upload and attach featured images or AI-generated infographics directly with your post.
+                                    </p>
+                                </div>
+                                <div className="p-4 rounded-xl border border-border bg-muted/20 space-y-1.5">
+                                    <h5 className="text-xs font-bold uppercase tracking-wider text-foreground">🤖 1-Click AI Repurposing</h5>
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                        Automatically distill any long-form blog article into a scroll-stopping LinkedIn post with hook, takeaways, and call to action.
+                                    </p>
+                                </div>
+                            </div>
                         </CardContent>
                     </Card>
                 </TabsContent>

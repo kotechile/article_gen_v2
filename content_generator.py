@@ -2045,6 +2045,15 @@ def get_tone_specific_instructions(tone: str) -> str:
                 - Write as if explaining to a smart colleague, not an academic audience
                 - Be authoritative without being pretentious
                 - Focus on clarity and usefulness over impressive vocabulary"""
+    elif tone.lower() in ['thought-leadership', 'thought_leadership', 'linkedin']:
+        return """THOUGHT LEADERSHIP / LINKEDIN TONE - PUNCHY, EXECUTIVE, AND CONVERSATIONAL:
+                - Write from an experienced, executive practitioner perspective.
+                - Use punchy, 1-2 sentence paragraphs with generous white space.
+                - Hook the reader immediately with an authentic observation, counter-intuitive insight, or hard-earned lesson.
+                - Eliminate fluff, filler, and corporate jargon. Say more with fewer words.
+                - Organize key takeaways with clear bullet points, emojis, or short numbered lists.
+                - Use authentic first-person or second-person framing ("I've noticed...", "Here is what most teams get wrong...").
+                - Encourage active discussion and reader dialogue."""
     else:
         return f"""Write in {tone} tone - be clear, natural, and easy to follow"""
 

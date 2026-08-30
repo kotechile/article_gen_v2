@@ -316,13 +316,20 @@ function inferSourceMode(params: {
 }
 
 const TONE_OPTIONS = [
-    { label: "Academic", value: "academic" },
     { label: "Journalistic", value: "journalistic" },
+    { label: "Thought Leadership (LinkedIn)", value: "thought-leadership" },
     { label: "Professional", value: "professional" },
+    { label: "Academic", value: "academic" },
     { label: "Casual", value: "casual" },
     { label: "Technical", value: "technical" },
     { label: "Persuasive", value: "persuasive" },
     { label: "Friendly", value: "friendly" },
+];
+
+const FORMAT_OPTIONS = [
+    { label: "Blog / SEO Article (Long-form)", value: "blog" },
+    { label: "LinkedIn Article (Thought Leadership: ~1,000 words)", value: "linkedin_article" },
+    { label: "LinkedIn Post (Micro-Article: ~400 words / 2,500 chars)", value: "linkedin_post" },
 ];
 
 const RAG_QUERY_TYPES = [
@@ -401,6 +408,7 @@ export const ContentStudio: React.FC = () => {
         description: '',
         keywords: '',
         domain: '',
+        targetPlatform: 'blog',
         articleLength: '2500',
         tone: 'journalistic',
         ragCollection: '',
@@ -1129,7 +1137,23 @@ export const ContentStudio: React.FC = () => {
                 ? 'live_web_only'
                 : 'none';
 
-            if (seoShiftEnabled && primaryKw) {
+            if (formData.targetPlatform && formData.targetPlatform.startsWith('linkedin')) {
+                const isMicroPost = formData.targetPlatform === 'linkedin_post';
+                generationBrief = [
+                    `[LINKEDIN ${isMicroPost ? 'POST / MICRO-ARTICLE' : 'THOUGHT-LEADERSHIP ARTICLE'} DIRECTIVE]`,
+                    `- TARGET PLATFORM: LinkedIn. Tailor voice, formatting, and structure specifically for the LinkedIn professional feed.`,
+                    `- OPENING HOOK: Create a powerful 1-2 sentence opening hook that stops the scroll before the "...see more" cutoff.`,
+                    `- FORMATTING: Write in short, punchy 1-2 sentence paragraphs with clean line breaks. Avoid text walls.`,
+                    `- STRUCTURE: Deliver 3-5 high-value takeaways, actionable steps, or counter-intuitive insights using clean bullet points.`,
+                    `- ENGAGEMENT: End with an open-ended discussion question asking professionals to share their perspectives in the comments.`,
+                    `- HASHTAGS: Include 3-5 relevant industry hashtags at the end.`,
+                    `- NO robotic filler or dry keyword stuffing; focus on authority, clarity, and engagement.`,
+                    '',
+                    `ORIGINAL CREATIVE INTENT:`,
+                    effectiveDescription,
+                ].join('\n');
+                seodirective = 'linkedin_tailored';
+            } else if (seoShiftEnabled && primaryKw) {
                 const geoCtx = computeGEOContext(primaryKw, article?.domain);
 
                 const seoParts = [
@@ -1173,6 +1197,8 @@ export const ContentStudio: React.FC = () => {
                 seo_primary_keyword: primaryKw || undefined,
                 seo_secondary_keywords: article?.secondary_keywords?.length ? article.secondary_keywords : undefined,
                 seo_directive: seodirective || undefined,
+                target_platform: formData.targetPlatform.startsWith('linkedin') ? 'linkedin' : 'blog',
+                article_type: formData.targetPlatform,
                 // Keep normalized fields for compatibility with both research API variants.
                 depth: formData.emphasis === 'balanced' ? 'standard' : 'comprehensive',
                 tone: formData.tone,
@@ -1515,6 +1541,43 @@ export const ContentStudio: React.FC = () => {
 
                     <div className="bg-background p-6 rounded-2xl border border-border shadow-sm space-y-4">
                         <h3 className="font-semibold text-foreground">Configuration</h3>
+
+                        <div>
+                            <label className="block text-sm font-medium mb-1 flex items-center gap-1.5">
+                                <span>Target Platform & Format</span>
+                                {formData.targetPlatform.startsWith('linkedin') && (
+                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#0A66C2]/10 text-[#0A66C2] font-semibold">
+                                        LinkedIn Tailored
+                                    </span>
+                                )}
+                            </label>
+                            <select
+                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none text-sm"
+                                value={formData.targetPlatform}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    let newLength = formData.articleLength;
+                                    let newTone = formData.tone;
+                                    if (val === 'linkedin_post') {
+                                        newLength = '500';
+                                        newTone = 'thought-leadership';
+                                    } else if (val === 'linkedin_article') {
+                                        newLength = '1000';
+                                        newTone = 'thought-leadership';
+                                    } else if (val === 'blog' && (formData.articleLength === '500' || formData.articleLength === '1000')) {
+                                        newLength = '2500';
+                                    }
+                                    setFormData({
+                                        ...formData,
+                                        targetPlatform: val,
+                                        articleLength: newLength,
+                                        tone: newTone,
+                                    });
+                                }}
+                            >
+                                {FORMAT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                            </select>
+                        </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
