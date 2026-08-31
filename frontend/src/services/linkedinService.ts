@@ -1,7 +1,4 @@
-import axios from 'axios';
-import { supabase } from '../lib/supabase';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+import { apiClient } from '@/api-client';
 
 export interface LinkedInAccount {
     id: string;
@@ -46,26 +43,15 @@ export interface RepurposedLinkedInContent {
     full_post: string;
 }
 
-const getAuthHeaders = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    return {
-        'Content-Type': 'application/json',
-        'X-API-Key': import.meta.env.VITE_API_KEY || 'development',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
-};
-
 /**
  * Get LinkedIn OAuth authorization URL
  */
 export const getLinkedInAuthUrl = async (): Promise<string> => {
-    const headers = await getAuthHeaders();
-    const res = await axios.get(`${API_BASE}/api/linkedin/auth-url`, { headers });
-    if (!res.data?.auth_url) {
-        throw new Error(res.data?.message || 'Could not retrieve LinkedIn authorization URL.');
+    const res = await apiClient.get<{ auth_url: string; message?: string }>('/linkedin/auth-url');
+    if (!res?.auth_url) {
+        throw new Error(res?.message || 'Could not retrieve LinkedIn authorization URL.');
     }
-    return res.data.auth_url;
+    return res.auth_url;
 };
 
 /**
@@ -73,9 +59,8 @@ export const getLinkedInAuthUrl = async (): Promise<string> => {
  */
 export const getLinkedInAccount = async (): Promise<LinkedInAccountStatus> => {
     try {
-        const headers = await getAuthHeaders();
-        const res = await axios.get(`${API_BASE}/api/linkedin/account`, { headers });
-        return res.data;
+        const res = await apiClient.get<LinkedInAccountStatus>('/linkedin/account');
+        return res;
     } catch (err: any) {
         console.warn('[LinkedInService] Failed to load LinkedIn account:', err?.response?.data || err?.message);
         return { connected: false, account: null };
@@ -86,8 +71,7 @@ export const getLinkedInAccount = async (): Promise<LinkedInAccountStatus> => {
  * Disconnect current LinkedIn account
  */
 export const disconnectLinkedInAccount = async (): Promise<void> => {
-    const headers = await getAuthHeaders();
-    await axios.delete(`${API_BASE}/api/linkedin/account`, { headers });
+    await apiClient.delete('/linkedin/account');
 };
 
 /**
@@ -96,9 +80,8 @@ export const disconnectLinkedInAccount = async (): Promise<void> => {
 export const publishToLinkedIn = async (
     payload: LinkedInPublishPayload
 ): Promise<LinkedInPublishResponse> => {
-    const headers = await getAuthHeaders();
-    const res = await axios.post(`${API_BASE}/api/linkedin/publish`, payload, { headers });
-    return res.data;
+    const res = await apiClient.post<LinkedInPublishResponse>('/linkedin/publish', payload);
+    return res;
 };
 
 /**
@@ -109,14 +92,13 @@ export const repurposeForLinkedIn = async (
     content: string,
     tone: string = 'thought_leadership'
 ): Promise<RepurposedLinkedInContent> => {
-    const headers = await getAuthHeaders();
-    const res = await axios.post(
-        `${API_BASE}/api/linkedin/repurpose`,
-        { title, content, tone },
-        { headers }
-    );
-    if (!res.data?.success || !res.data?.reposed && !res.data?.repurposed) {
-        throw new Error(res.data?.message || 'Failed to repurpose article for LinkedIn');
+    const res = await apiClient.post<{
+        success: boolean;
+        repurposed?: RepurposedLinkedInContent;
+        message?: string;
+    }>('/linkedin/repurpose', { title, content, tone });
+    if (!res?.success || !res?.repurposed) {
+        throw new Error(res?.message || 'Failed to repurpose article for LinkedIn');
     }
-    return res.data.repurposed || res.data.reposed;
+    return res.repurposed;
 };

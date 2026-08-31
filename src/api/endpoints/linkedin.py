@@ -17,7 +17,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, redirect
 
 from ...api.middleware.auth import require_api_key
-from ...services.linkedin_service import linkedin_service
+from ...services.linkedin_service import LinkedInService, linkedin_service
 from supabase_client import get_supabase_client
 
 logger = logging.getLogger(__name__)
