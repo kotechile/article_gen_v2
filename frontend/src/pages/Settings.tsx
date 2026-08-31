@@ -592,14 +592,10 @@ export const Settings: React.FC = () => {
             </div>
 
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-                    <TabsList className="bg-muted/50 p-1 rounded-xl w-full md:w-auto h-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1">
+                    <TabsList className="bg-muted/50 p-1 rounded-xl w-full md:w-auto h-auto grid grid-cols-2 sm:grid-cols-4 gap-1">
                     <TabsTrigger value="research" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm py-2.5">
                         <Search className="w-4 h-4 mr-2" />
                         Topic Research
-                    </TabsTrigger>
-                    <TabsTrigger value="content" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm py-2.5">
-                        <Wand2 className="w-4 h-4 mr-2" />
-                        Content Generation
                     </TabsTrigger>
                     <TabsTrigger value="niches" className="rounded-lg data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm py-2.5">
                         <Layout className="w-4 h-4 mr-2" />
@@ -686,134 +682,6 @@ export const Settings: React.FC = () => {
                                 <Button onClick={handleSaveResearch} disabled={saving} className="h-11 px-8 rounded-xl bg-primary hover:bg-primary/90 shadow-lg">
                                     {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
                                     Save Research Settings
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-
-                {/* Content Generation Settings */}
-                <TabsContent value="content" className="animate-in fade-in-50 duration-500">
-                    <Card className="border-border shadow-sm">
-                        <CardHeader className="bg-muted/30 border-b border-border">
-                            <CardTitle>AI &amp; Media API Keys</CardTitle>
-                            <CardDescription>
-                                Configure the credentials used for content generation and media sourcing.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="p-6 space-y-8">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8">
-                                {/* LLM Keys */}
-                                <div className="space-y-6">
-                                    <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-primary"></div>
-                                        Core LLM Providers
-                                    </h3>
-                                    <div className="space-y-4">
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-semibold">OpenAI API Key</Label>
-                                            <Input type="password" value={appSettings.openAIKey || ''} onChange={e => setAppSettings({ ...appSettings, openAIKey: e.target.value })} className="h-10 rounded-lg font-mono text-sm" placeholder="sk-..." />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-semibold">Google Gemini Key</Label>
-                                            <Input type="password" value={appSettings.geminiKey || ''} onChange={e => setAppSettings({ ...appSettings, geminiKey: e.target.value })} className="h-10 rounded-lg font-mono text-sm" placeholder="AIza..." />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-semibold">Claude (Anthropic) Key</Label>
-                                            <Input type="password" value={appSettings.claudeKey || ''} onChange={e => setAppSettings({ ...appSettings, claudeKey: e.target.value })} className="h-10 rounded-lg font-mono text-sm" placeholder="sk-ant-..." />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-semibold">Perplexity AI Key</Label>
-                                            <Input type="password" value={appSettings.perplexityAI_key || ''} onChange={e => setAppSettings({ ...appSettings, perplexityAI_key: e.target.value })} className="h-10 rounded-lg font-mono text-sm" placeholder="pplx-..." />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Media & Utils */}
-                                <div className="space-y-6">
-                                    <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
-                                        Media &amp; Utils
-                                    </h3>
-                                    <div className="space-y-4">
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-semibold">YouTube API Key</Label>
-                                            <Input type="password" value={appSettings.youTubeKey || ''} onChange={e => setAppSettings({ ...appSettings, youTubeKey: e.target.value })} className="h-10 rounded-lg font-mono text-sm" />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-semibold">Unsplash Access Key</Label>
-                                            <Input type="password" value={appSettings.unsplashKey || ''} onChange={e => setAppSettings({ ...appSettings, unsplashKey: e.target.value })} className="h-10 rounded-lg font-mono text-sm" />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-semibold">Stability AI Key</Label>
-                                            <Input type="password" value={appSettings.stabilityAiKey || ''} onChange={e => setAppSettings({ ...appSettings, stabilityAiKey: e.target.value })} className="h-10 rounded-lg font-mono text-sm" />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-semibold">Flux Key</Label>
-                                            <Input type="password" value={appSettings.fluxKey || ''} onChange={e => setAppSettings({ ...appSettings, fluxKey: e.target.value })} className="h-10 rounded-lg font-mono text-sm" />
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="rounded-2xl border border-border bg-muted/20 p-5 space-y-4">
-                                <div>
-                                    <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                                        SVG Infographic Prompt
-                                    </h3>
-                                    <p className="text-sm text-muted-foreground mt-2">
-                                        Choose which backend SVG prompt should be used for inline infographic generation from selected article text.
-                                    </p>
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <button
-                                        type="button"
-                                        onClick={() => setSvgPromptVersion('prompt1')}
-                                        className={`rounded-xl border p-4 text-left transition-all ${
-                                            svgPromptVersion === 'prompt1'
-                                                ? 'border-primary bg-primary/10 ring-1 ring-primary/30'
-                                                : 'border-border bg-background hover:border-primary/40'
-                                        }`}
-                                    >
-                                        <div className="flex items-center justify-between gap-3">
-                                            <div>
-                                                <p className="text-sm font-semibold">SVG Prompt 1</p>
-                                                <p className="text-xs text-muted-foreground mt-1">
-                                                    Minimal Bento-box layout with precision geometry and restrained color.
-                                                </p>
-                                            </div>
-                                            <div className={`h-4 w-4 rounded-full border ${svgPromptVersion === 'prompt1' ? 'border-primary bg-primary' : 'border-muted-foreground/40 bg-transparent'}`} />
-                                        </div>
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        onClick={() => setSvgPromptVersion('prompt2')}
-                                        className={`rounded-xl border p-4 text-left transition-all ${
-                                            svgPromptVersion === 'prompt2'
-                                                ? 'border-primary bg-primary/10 ring-1 ring-primary/30'
-                                                : 'border-border bg-background hover:border-primary/40'
-                                        }`}
-                                    >
-                                        <div className="flex items-center justify-between gap-3">
-                                            <div>
-                                                <p className="text-sm font-semibold">SVG Prompt 2</p>
-                                                <p className="text-xs text-muted-foreground mt-1">
-                                                    Editorial infographic style with richer illustration, asymmetry, and custom spatial storytelling.
-                                                </p>
-                                            </div>
-                                            <div className={`h-4 w-4 rounded-full border ${svgPromptVersion === 'prompt2' ? 'border-primary bg-primary' : 'border-muted-foreground/40 bg-transparent'}`} />
-                                        </div>
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div className="flex justify-end pt-4 border-t border-border">
-                                <Button onClick={handleSaveAppSettings} disabled={saving} className="h-11 px-8 rounded-xl bg-primary hover:bg-primary/90 shadow-lg">
-                                    {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-                                    Update API Credentials
                                 </Button>
                             </div>
                         </CardContent>
