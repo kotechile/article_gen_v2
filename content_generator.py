@@ -150,11 +150,13 @@ class ContentGenerator:
             word_count_target = section_outline.get('word_count_target', 300)
             content_type = section_outline.get('content_type', 'paragraph')
             section_order = section_outline.get('order', 1)
+            component_type = section_outline.get('component_type', 'tactical_insight')
             
             # Generate content blocks for this section
             content_blocks = self._generate_content_blocks(
                 section_title, section_subtitle, key_points, word_count_target,
-                content_type, research_data, claims, evidence, previous_sections
+                content_type, research_data, claims, evidence, previous_sections,
+                component_type=component_type
             )
             
             # Extract all citations from content blocks
@@ -190,14 +192,16 @@ class ContentGenerator:
                                key_points: List[str], word_count_target: int,
                                content_type: str, research_data: Dict[str, Any],
                                claims: List[Dict], evidence: List[Dict],
-                               previous_sections: List[SectionContent] = None) -> List[ContentBlock]:
+                               previous_sections: List[SectionContent] = None,
+                               component_type: str = "tactical_insight") -> List[ContentBlock]:
         """Generate content blocks for a section."""
         content_blocks = []
         
         try:
             # Prepare context for content generation
             context = self._prepare_content_context(
-                title, subtitle, key_points, research_data, claims, evidence, previous_sections
+                title, subtitle, key_points, research_data, claims, evidence, previous_sections,
+                component_type=component_type
             )
             
             # Generate main content based on content type
@@ -476,6 +480,51 @@ class ContentGenerator:
         
         return examples_evidence
     
+    def _get_component_specific_instructions(self, context: Dict[str, Any]) -> str:
+        """
+        Get instructions specific to the 4-component narrative sequence:
+        1. Lead (Opening evidence & hook)
+        2. Tension (Systemic market evidence & friction)
+        3. Tactical Insight (Practitioner step-by-step guidance & comparative tables)
+        4. Nuanced Takeaway & Counter-arguments (Honest limitations, edge cases & synthesis)
+        """
+        comp_type = context.get('component_type', 'tactical_insight')
+        if comp_type == 'lead':
+            return """
+                    ========================================
+                    NARRATIVE COMPONENT 1: THE LEAD (FOCUSED OPENING EVIDENCE)
+                    ========================================
+                    - Anchor the opening immediately in concrete empirical evidence, specific data points, benchmark metrics, or case signals.
+                    - Establish high credibility from the very first sentence. Hook the reader with high-stakes reality, not conversational fluff.
+                    - Avoid generic throat-clearing ("In today's fast-paced world...", "Have you ever wondered...").
+                    - Set up the central premise and prepare the reader for the underlying industry tension."""
+        elif comp_type == 'tension':
+            return """
+                    ========================================
+                    NARRATIVE COMPONENT 2: THE TENSION (SYSTEMIC MARKET EVIDENCE)
+                    ========================================
+                    - Build directly upon the Lead by uncovering the deeper structural problem, market friction, or paradigm conflict.
+                    - Diagnose WHY this problem persists: legacy systems, misaligned incentives, outdated workflows, or industry-wide blind spots.
+                    - Back the friction with systemic market evidence: industry trends, research studies, operational data, and expert consensus.
+                    - Contrast what organizations/practitioners currently attempt with why those conventional fixes fail."""
+        elif comp_type == 'nuanced_takeaway':
+            return """
+                    ========================================
+                    NARRATIVE COMPONENT 4: NUANCED TAKEAWAY & COUNTER-ARGUMENTS (HONEST LIMITATIONS)
+                    ========================================
+                    - Provide intellectual honesty and rigor: frankly explore where this approach fails, trade-offs, and critical edge cases.
+                    - Address counter-arguments, prerequisites, and operational overhead: when should someone NOT use this methodology?
+                    - Synthesize the strategic takeaways into a forward-looking conclusion that leaves the reader with a sharp, balanced roadmap."""
+        else:  # default 'tactical_insight'
+            return """
+                    ========================================
+                    NARRATIVE COMPONENT 3: TACTICAL INSIGHT (DEEP PRACTITIONER GUIDANCE)
+                    ========================================
+                    - Deliver granular, step-by-step practitioner guidance, execution frameworks, and actionable playbooks.
+                    - Explain exact mechanics, parameters, workflow sequences, and decision criteria that practitioners can apply immediately.
+                    - Integrate structured HTML comparative tables (<table>, <th>, <td>) to clearly contrast methodologies, metrics, tools, or performance tradeoffs.
+                    - Avoid high-level abstractions—provide concrete, practical depth."""
+
     def _get_tone_specific_instructions(self, tone: str) -> str:
         """
         Get tone-specific writing instructions, especially for friendly tone.
@@ -586,11 +635,12 @@ class ContentGenerator:
     def _prepare_content_context(self, title: str, subtitle: Optional[str],
                                key_points: List[str], research_data: Dict[str, Any],
                                claims: List[Dict], evidence: List[Dict],
-                               previous_sections: List[SectionContent] = None) -> Dict[str, Any]:
+                               previous_sections: List[SectionContent] = None,
+                               component_type: str = "tactical_insight") -> Dict[str, Any]:
         """Prepare context for content generation."""
         self._active_research_data = research_data or {}
         # Log evidence availability
-        self.logger.info(f"Preparing context for section '{title}' - {len(evidence)} total evidence items, {len(claims)} claims")
+        self.logger.info(f"Preparing context for section '{title}' [{component_type.upper()}] - {len(evidence)} total evidence items, {len(claims)} claims")
         
         # Detect and research specific instructions (e.g., "include 5 examples of X")
         research_brief = research_data.get('brief', '')
@@ -681,6 +731,7 @@ class ContentGenerator:
             "competitive_edge": competitive_edge,
             "is_first_section": not previous_sections,
             "selected_controversies": research_data.get('selected_controversies', []),
+            "component_type": component_type,
         }
     
     def _build_user_message(self, context: Dict[str, Any]) -> str:
@@ -733,8 +784,13 @@ class ContentGenerator:
                 alt_takes = [t.get('text') for t in takes if t.get('text') != c.get('selected_take_text')]
                 controversies_part += f"- Alternative viewpoints to mention and leave open: {alt_takes}\n\n"
 
-        return f"""Section: {context['title']}
+        return f"""Section: {context['title']} [{context.get('component_type', 'tactical_insight').upper()}]
 {subtitle_line}========================================
+TIGHT NARRATIVE DIRECTIVE
+========================================
+{self._get_component_specific_instructions(context)}
+
+========================================
 TONE REMINDER - CRITICAL
 ========================================
 {tone_reminder}
@@ -774,6 +830,7 @@ Previous Context:
                     "role": "system",
                     "content": f"""You are an expert content writer. Write clear, useful content for a {context['tone']} article.
                     
+                    {self._get_component_specific_instructions(context)}
                     {self._get_writer_notes_instructions(context)}
                     {self._get_readability_instructions()}
                     
@@ -950,6 +1007,7 @@ Previous Context:
                     "role": "system",
                     "content": f"""You are an expert content writer. Create a clear, useful list for a {context['tone']} article.
                     
+                    {self._get_component_specific_instructions(context)}
                     {self._get_writer_notes_instructions(context)}
                     {self._get_readability_instructions()}
                     
@@ -1061,6 +1119,7 @@ Previous Context:
                     "role": "system",
                     "content": f"""You are an expert instructional writer. Create a clear step-by-step guide for a {context['tone']} article.
                     
+                    {self._get_component_specific_instructions(context)}
                     {self._get_writer_notes_instructions(context)}
                     {self._get_readability_instructions()}
                     
@@ -1126,6 +1185,7 @@ Previous Context:
                     "role": "system",
                     "content": f"""You are an expert analytical writer. Create a detailed comparison for a {context['tone']} article.
                     
+                    {self._get_component_specific_instructions(context)}
                     {self._get_writer_notes_instructions(context)}
                     {self._get_readability_instructions()}
                     
@@ -1255,6 +1315,7 @@ Previous Context:
                     "role": "system",
                     "content": f"""You are an expert data analyst and content writer. Create clear table-based content for a {context['tone']} article.
                     
+                    {self._get_component_specific_instructions(context)}
                     {self._get_writer_notes_instructions(context)}
                     {self._get_readability_instructions()}
                     

@@ -1058,13 +1058,18 @@ def _polish_and_format_article(
     structure: Dict[str, Any],
 ) -> str:
     """
-    Polishing/formatting agent that runs at the end of content generation.
-    It takes the concatenated article HTML content and polishes it to ensure:
-    1) No walls of text: keep paragraphs short (2-4 sentences max).
-    2) Use H3/H4 subheadings to break down long sections where appropriate.
-    3) Ensure 1-4 comparative HTML tables explaining concepts and numbers are present.
-    4) Ensure writer's notes/firsthand narrative are woven in smoothly and naturally.
-    5) Keep ALL in-text citation markers like [1], [2], [^1], etc. intact and unchanged.
+    Component 5: Claude Stylist (Full-Draft Editorial Review & Stitching Pass).
+    Claude reviews and stitches the full 4-component draft together for cadence, voice, and flow:
+    1) Lead (Opening evidence & hook)
+    2) Tension (Systemic market evidence & friction)
+    3) Tactical Insight (Practitioner step-by-step guidance & comparative tables)
+    4) Nuanced Takeaway & Counter-arguments (Honest limitations & forward-looking synthesis)
+    
+    Guarantees:
+    - Harmonized rhythm, cadence, and sentence velocity.
+    - Seamless cross-section narrative transitions.
+    - Human voice polish eliminating AI cliches and robotic phrasing.
+    - Strict preservation of in-text citations ([1], [^1]), HTML tables, and LaTeX math.
     """
     if not html_content or not html_content.strip():
         return html_content
@@ -1075,26 +1080,26 @@ def _polish_and_format_article(
     primary_keyword = str(research_data.get("primary_keyword") or "").strip()
 
     # Log action
-    logger.info("Initializing Formatting/Polishing Agent pass...")
+    logger.info("Initializing Component 5: Claude Stylist (Full-Draft Polish & Stitching Pass)...")
 
-    # Initialize client for final review/polishing
+    # Initialize client for final review/polishing (maps to Claude/Anthropic when available)
     review_provider, review_model, review_key = get_llm_provider_for_role(LLM_ROLE_FINAL_REVIEW)
-    provider = review_provider or research_data.get('provider', 'openai')
-    model = review_model or research_data.get('model', 'gpt-4')
+    provider = review_provider or research_data.get('provider', 'anthropic')
+    model = review_model or research_data.get('model', 'claude-3-5-sonnet-20241022')
     api_key = review_key or research_data.get('api_key') or research_data.get('llm_key', '')
     
     client = create_llm_client(
         provider=provider,
         model=model,
         api_key=api_key,
-        temperature=0.25,  # Slightly increased temperature to allow the agent to rewrite and weave in the personal narrative if missing
-        timeout=120,      # Give it plenty of time
+        temperature=0.25,  # Balanced for high editorial polish without hallucination
+        timeout=180,      # Generous timeout for full-document stitching
         max_retries=2,
-        max_tokens=6000,
+        max_tokens=8000,
     )
 
     if writer_notes:
-        personal_touch_instruction = f'Ensure the writer\'s notes/reflections/firsthand narrative ("{writer_notes}") are woven naturally and prominently into the article (preferably in the opening section or introduction). Do not quote them as external quotes; state them as the author\'s own experience or thoughts. Keep it natural, fluid, and not repetitive. Avoid clichés (e.g. staring at screens or kitchen tables).'
+        personal_touch_instruction = f'Ensure the writer\'s notes/reflections/firsthand narrative ("{writer_notes}") are woven naturally and prominently into the article (especially anchoring the Lead or key Tactical Insights). Do not quote them as external quotes; state them as the author\'s own experience or thoughts. Keep it natural, fluid, and non-repetitive. Avoid clichés (e.g. staring at screens or kitchen tables).'
     else:
         if tone.lower() == 'friendly':
             personal_touch_instruction = 'Ensure the article maintains a warm, friendly first-person perspective, incorporating natural and authentic personal reflections if appropriate. However, do NOT fabricate repetitive, generic clichés (e.g. "I remember sitting at my kitchen table" or "I remember staring at my laptop screen"). Keep any personal anecdotes natural, fluid, unique, and non-repetitive.'
@@ -1102,40 +1107,60 @@ def _polish_and_format_article(
             personal_touch_instruction = 'DO NOT introduce or fabricate first-person narrative, reflections, or fictional personal experiences (e.g. "I remember sitting at my kitchen table" or "I remember staring at my laptop screen"), especially since the tone is not friendly and no writer\'s notes were provided. Maintain the requested tone without forcing artificial first-person anecdotes.'
 
     prompt = f"""
-You are a professional editor and polishing agent. Your job is to format and polish the given article content (in HTML) to meet strict quality guidelines.
-Do NOT lose, omit, or modify any facts, concepts, numbers, references, or information. Keep the core meaning entirely intact.
+You are the Master Editorial Stylist (Claude Stylist). Your job is to review and stitch the entire article draft together into a cohesive, high-velocity, publication-ready piece.
 
-Strict Quality Guidelines to enforce:
-1. **NO WALLS OF TEXT**: Keep all paragraphs short and digestible (typically 2 to 4 sentences max). If you encounter any long paragraphs, split them.
-2. **SUBHEADING STRUCTURE**: Introduce relevant, descriptive <h3> and <h4> subheadings to organize and break down any sections that are long or dense.
-3. **COMPARATIVE TABLES**: Ensure the article contains 1 to 4 clean HTML tables (<table>, <tr>, <th>, <td>) to compare concepts, list metrics, summarize numerical data, or structure information. If there are no tables in the original text, you MUST construct 1-4 relevant comparative tables based on the context of the article.
-4. **WRITER'S PERSONAL TOUCH**: {personal_touch_instruction}
-5. **KEEP CITATION MARKERS INTACT**: Keep all in-text citation markers like [1], [2], [3], [^1], etc. exactly where they are in the text. DO NOT modify, delete, or rename them.
+The article follows a strict 4-component narrative sequence:
+1. **The Lead**: Focused opening evidence, empirical data, and sharp premise.
+2. **The Tension**: Systemic market evidence, structural friction, and why legacy approaches fail.
+3. **The Tactical Insight**: Deep practitioner step-by-step guidance, actionable mechanics, and comparative tables.
+4. **The Nuanced Takeaway & Counter-arguments**: Honest limitations, edge cases, trade-offs, and strategic synthesis.
 
-INPUT INFORMATION:
-- Primary Tone: {tone}
+YOUR EDITORIAL DIRECTIVES:
+1. **Cadence, Rhythm & Sentence Velocity**:
+   - Vary sentence lengths dynamically. Alternate punchy one-clause statements with rich, informative sentences.
+   - Eliminate awkward cadence, run-ons, or monotonic paragraph lengths.
+2. **Stitch Cross-Section Flow**:
+   - Ensure the transitions between Lead -> Tension -> Tactical Insight -> Nuanced Takeaway feel organic and narrative-driven, not like disconnected modular sections.
+   - Remove formulaic transitions (e.g. "Furthermore," "Moreover," "In conclusion," "As previously mentioned"). Use natural conceptual bridges.
+3. **Voice De-AI Polish**:
+   - Strip out AI telltale words and filler phrases ("delve", "tapestry", "embark", "testament", "bustling", "in today's digital landscape", "game changer", "unlock the power").
+   - Keep paragraphs concise (2 to 4 sentences max). Break any walls of text with crisp subheadings (<h3>, <h4>) where needed.
+4. **Structured Tables & Presentation**:
+   - Ensure 1 to 4 clean, comparative HTML tables (<table>, <thead>, <tbody>, <tr>, <th>, <td>) are present across the tactical and tension sections to structure data and comparisons. If absent or sparse, refine or introduce logical comparative tables.
+5. **Personal Touch & Voice Alignment**:
+   - {personal_touch_instruction}
+6. **STRICT PRESERVATION RULES (CRITICAL)**:
+   - Keep ALL in-text citation markers like [1], [2], [3], [^1], etc. exactly where they appear. DO NOT delete, rename, or reorder citations.
+   - Preserve all data points, numerical metrics, factual claims, and LaTeX math formulas intact.
+   - Output ONLY clean semantic HTML (<p>, <h3>, <h4>, <ul>, <ol>, <li>, <table>, <thead>, <tbody>, <tr>, <th>, <td>, <strong>, <em>).
+
+INPUT METADATA:
+- Target Tone: {tone}
 - Writer Notes: {writer_notes}
 - Primary Keyword: {primary_keyword}
 
-Original HTML Content to format and polish:
+FULL ARTICLE DRAFT TO REVIEW AND STITCH:
 {html_content}
 
 Output instructions:
-- Output ONLY the polished and formatted HTML content.
-- Do NOT wrap the output in markdown code blocks (e.g. do not use ```html).
-- Do NOT output any preamble, explanations, notes, or concluding text. Just return the clean HTML.
+- Return ONLY the final polished and stitched HTML content.
+- Do NOT wrap in markdown code blocks (no ```html).
+- Do NOT include editorial commentary, apologies, notes, or preambles. Output clean HTML only.
 """.strip()
 
     try:
         response = client.generate(
             [
-                {"role": "system", "content": "You are a professional HTML formatting and polishing editor. Return clean, formatted HTML only. Do not wrap in markdown code blocks."},
+                {
+                    "role": "system",
+                    "content": "You are the Master Editorial Stylist (Claude Stylist). You polish, unify, and stitch multi-section article drafts into cohesive, high-cadence publication-ready HTML without altering factual data or citations. Return clean HTML only."
+                },
                 {"role": "user", "content": prompt},
             ]
         )
         content = response.content
         if not content:
-            logger.warning("Polishing agent returned empty response. Falling back to original content.")
+            logger.warning("Claude Stylist returned empty response. Falling back to original content.")
             return html_content
 
         # Strip any accidental ```html wrappers
@@ -1149,10 +1174,10 @@ Output instructions:
         
         cleaned = cleaned.strip()
         if not cleaned:
-            logger.warning("Cleaned polished content was empty. Falling back to original content.")
+            logger.warning("Cleaned Claude Stylist content was empty. Falling back to original content.")
             return html_content
 
-        logger.info(f"Polishing pass complete. Original chars: {len(html_content)}, Polished chars: {len(cleaned)}")
+        logger.info(f"Component 5 (Claude Stylist) pass complete. Original chars: {len(html_content)}, Polished chars: {len(cleaned)}")
         return cleaned
 
     except Exception as e:
@@ -4183,7 +4208,8 @@ def _generate_structure(result: Dict[str, Any], task_instance: Any = None) -> Di
                 'word_count_target': section.word_count_target,
                 'content_type': section.content_type,
                 'order': section.order,
-                'importance': section.importance
+                'importance': section.importance,
+                'component_type': getattr(section, 'component_type', 'tactical_insight'),
             } for section in structure.sections]
         }
         

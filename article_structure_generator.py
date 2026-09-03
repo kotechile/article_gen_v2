@@ -48,6 +48,7 @@ class SectionOutline:
     content_type: str = "paragraph"
     order: int = 1
     importance: str = "high"  # high, medium, low
+    component_type: str = "tactical_insight"  # "lead", "tension", "tactical_insight", "nuanced_takeaway"
 
 @dataclass
 class ArticleStructure:
@@ -128,15 +129,11 @@ class ArticleStructureGenerator:
                 self.logger.info(f"Using provided content_outline from database ({len(content_outline)} items)")
                 sections = self._generate_sections_from_outline(content_outline, target_word_count, tone)
             else:
-                sections = self._generate_sections(brief_with_dossier, claims, evidence, target_word_count, tone, article_type)
+                sections = self._generate_sections(brief_with_dossier, claims, evidence, target_word_count, tone, article_type, research_data=research_data)
             
             # Log section titles for debugging
-            section_titles = [s.title for s in sections]
-            self.logger.info(f"Generated section titles: {section_titles}")
-            
-            # Log section titles for debugging
-            section_titles = [s.title for s in sections]
-            self.logger.info(f"Generated section titles: {section_titles}")
+            section_titles = [f"[{s.component_type.upper()}] {s.title}" for s in sections]
+            self.logger.info(f"Generated 4-component section titles: {section_titles}")
             
             # Determine target audience
             target_audience = self._determine_target_audience(brief, tone)
@@ -583,270 +580,245 @@ class ArticleStructureGenerator:
         return analysis
     
     def _generate_sections(self, brief: str, claims: List[Dict], evidence: List[Dict], 
-                          target_word_count: int, tone: str, article_type: str) -> List[SectionOutline]:
-        """Generate detailed section outlines with balanced word distribution."""
+                          target_word_count: int, tone: str, article_type: str,
+                          research_data: Optional[Dict[str, Any]] = None) -> List[SectionOutline]:
+        """
+        Generate detailed section outlines enforcing the 4-Component Narrative Sequence:
+        1. Lead: Focused opening evidence, immediate stakes, and high-impact hook (~15% words)
+        2. Tension: Systemic market evidence, structural friction, and root causes (~25% words)
+        3. Tactical Insight: Deep practitioner step-by-step guidance, frameworks, and comparison tables (~45% words)
+        4. Nuanced Takeaway: Honest limitations, edge cases, trade-offs, and strategic synthesis (~15% words)
+        """
         try:
-            # Calculate section count based on target word count with better distribution
-            section_count = max(4, min(8, target_word_count // 400))  # Increased base count and word target
+            research_dict = research_data or {}
             
-            # Calculate balanced word count per section
-            words_per_section = target_word_count // section_count
-            min_words = max(200, int(words_per_section * 0.8))  # 80% of target
-            max_words = int(words_per_section * 1.2)  # 120% of target
-                       # Prepare context
-            claims_text = "\n".join([f"- {claim.get('claim', '')}" for claim in claims[:5]])
+            # Word count budget per component
+            lead_words = max(180, int(target_word_count * 0.15))
+            tension_words = max(250, int(target_word_count * 0.25))
+            nuanced_words = max(180, int(target_word_count * 0.15))
+            tactical_total_words = max(350, target_word_count - (lead_words + tension_words + nuanced_words))
+            
+            # Determine if tactical insight should be split into multiple subsections
+            tactical_subsections_count = 2 if target_word_count >= 1800 else 1
+            tactical_words_per_sec = tactical_total_words // tactical_subsections_count
+            
+            claims_text = "\n".join([f"- {claim.get('claim', '')}" for claim in claims[:6]])
             evidence_text = f"Evidence from {len(evidence)} sources" if evidence else "Research-based insights"
-            
-            # Analyze evidence distribution for better section planning
             evidence_types = self._analyze_evidence_distribution(evidence)
             
-            # Prepare controversial topics context if available
-            selected_controversies = research_data.get('selected_controversies', [])
+            # Controversies context if available
+            selected_controversies = research_dict.get('selected_controversies', [])
             controversies_prompt_text = ""
             if selected_controversies:
                 controversies_prompt_text = "\n\nCRITICAL DIRECTIVE - INTEGRATE SELECTED CONTROVERSIAL TOPICS:\n"
-                controversies_prompt_text += "The user has selected specific controversial topics and chosen a 'take' (opinion) to defend for this article. You MUST plan the article sections to address these controversies. For each controversy:\n"
-                controversies_prompt_text += "1. Dedicate a section (or integrate it cleanly as a major point in a section) that defends the chosen take.\n"
-                controversies_prompt_text += "2. The section must also present the alternative viewpoints fairly, leaving the reader to think and make their own choice in the end.\n"
                 for index, c in enumerate(selected_controversies):
                     controversies_prompt_text += f"- Controversy {index+1}: \"{c.get('title')}\"\n"
                     controversies_prompt_text += f"  * Summary of debate: {c.get('summary')}\n"
                     controversies_prompt_text += f"  * Chosen Take to defend: \"{c.get('selected_take_text')}\"\n"
-                    takes_list = c.get('takes', []) or []
-                    alt_takes = [t.get('text') for t in takes_list if t.get('text') != c.get('selected_take_text')]
-                    controversies_prompt_text += f"  * Alternative viewpoints to mention and leave open: {alt_takes}\n"
 
             messages = [
                 {
                     "role": "system",
-                    "content": f"""You are an expert content strategist. Create a detailed, balanced outline for a {article_type} article.
-                    
-                    CRITICAL REQUIREMENTS:
-                    - Create exactly {section_count} main sections
-                    - Each section should be {min_words}-{max_words} words (target: {words_per_section} words)
-                    - Ensure BALANCED content distribution - no single section should dominate
-                    - Match the {tone} tone
-                    - Include introduction and conclusion sections
-                    - Order sections logically with smooth transitions
-                    - Include practical, actionable content
-                    - Distribute evidence and claims evenly across sections
-                    - Integrate Competitor Insights: Incorporate all "Competitor Must-Haves" across the sections, and dedicate specific focus or sub-points to highlight our "Competitive Edge".{controversies_prompt_text}
-                    
-                    ⚠️ CRITICAL: AVOID GENERIC SECTION TITLES ⚠️
-                    - DO NOT use generic titles like: "Getting Started", "Step-by-Step Process", "Key Concepts", "Practical Applications", "Understanding the Fundamentals", "Real-World Implementation"
-                    - DO NOT use the same structure for every article
-                    - CREATE UNIQUE, TOPIC-SPECIFIC section titles that directly relate to the article brief and claims
-                    - Each section title should be specific to THIS article's topic, not a generic template
-                    - Analyze the brief and claims to create sections that make sense for THIS specific topic
-                    - Example: For an article about "skills for 2026", create sections like "Top In-Demand Technical Skills", "Essential Soft Skills for Hybrid Work", "How to Develop These Skills", NOT "Getting Started" or "Step-by-Step Process"
-                    
-                    EVIDENCE DISTRIBUTION ANALYSIS:
-                    {evidence_types}
-                    
-                    SECTION BALANCING RULES:
-                    - Introduction: 150-250 words (keep it concise, single paragraph style)
-                    - Main content sections: {min_words}-{max_words} words each (within +/- 20% of target)
-                    - Conclusion: 150-250 words
-                    - NO section should exceed {max_words} words (120% of target)
-                    - NO section should be under {min_words} words (80% of target)
-                    
-                    INTRODUCTION REQUIREMENTS:
-                    - Keep introduction SIMPLE and CONCISE
-                    - Use a single paragraph or very brief structure
-                    - Avoid multiple subsections in introduction
-                    - Focus on hook, overview, and what reader will learn
-                    
-                    Content Types Available:
-                    - "paragraph": Standard text content
-                    - "list": Bulleted or numbered lists
-                    - "step_by_step": Instructional content (only use if the article is actually a step-by-step guide)
-                    - "comparison": Side-by-side comparisons
-                    - "table": Data-rich content with tables
- 
-                    TABLE PLANNING RULES:
-                    - Across the entire article, plan between 1 and 4 sections with "table" or "comparison" content types (so at least one table/comparison is always included to explain concepts and numbers).
-                    - Plan tables/comparisons for sections where structured comparison, data presentation, concepts, or numbers add genuine value.
-                    
-                    IMPORTANT: Return ONLY valid JSON. Do not include any text before or after the JSON. The JSON must be parseable.
-                    
-                    Format as JSON:
-                    {{
-                        "sections": [
-                            {{
-                                "title": "Topic-Specific Section Title (NOT generic)",
-                                "subtitle": "Optional subtitle",
-                                "key_points": ["Point 1", "Point 2", "Point 3"],
-                                "word_count_target": {words_per_section},
-                                "content_type": "paragraph",
-                                "order": 1,
-                                "importance": "high"
-                            }}
-                        ]
-                    }}"""
+                    "content": f"""You are an elite editorial strategist and content architect. Create a high-authority outline for a {article_type} article.
+
+MANDATORY 4-COMPONENT NARRATIVE ARCHITECTURE:
+Every article MUST be structured into exactly these 4 sequential components:
+
+1. COMPONENT 1: LEAD (component_type="lead")
+   - Goal: High-impact opening hook anchored directly in concrete opening evidence (empirical data, key benchmark, or case signal).
+   - Target Word Count: ~{lead_words} words.
+   - Requirement: Create an engaging, topic-specific title (e.g. "The $4.2B Blind Spot Behind Modern DevOps").
+
+2. COMPONENT 2: TENSION (component_type="tension")
+   - Goal: Broaden the scope by uncovering systemic market evidence, structural friction, conflicting incentives, and why conventional solutions break.
+   - Target Word Count: ~{tension_words} words.
+   - Requirement: Create a topic-specific title that captures the systemic conflict (e.g. "Why Standard Automation Creates Hidden Bottlenecks").
+
+3. COMPONENT 3: TACTICAL INSIGHT (component_type="tactical_insight")
+   - Goal: The execution core of the article. Granular practitioner guidance, step-by-step playbooks, actionable frameworks, and comparative data tables.
+   - Subsections: Exactly {tactical_subsections_count} section(s) totaling ~{tactical_total_words} words (approx ~{tactical_words_per_sec} words each).
+   - Requirement: At least one section MUST have content_type="table" or "comparison" with rich comparative metrics.
+
+4. COMPONENT 4: NUANCED TAKEAWAY & COUNTER-ARGUMENTS (component_type="nuanced_takeaway")
+   - Goal: Intellectual honesty and rigor. Explore edge cases, where this approach fails, counter-perspectives, trade-offs, and strategic synthesis.
+   - Target Word Count: ~{nuanced_words} words.
+   - Requirement: Create a topic-specific title emphasizing honest limits and strategic foresight.
+
+CRITICAL RULES:
+- Match the requested tone: {tone}
+- NO GENERIC TITLES (Do NOT use "Lead", "Tension", "Tactical Insight", "Conclusion", "Getting Started"). Use specific, compelling titles tailored to the topic.
+- Integrate competitor insights and unique angles.{controversies_prompt_text}
+
+Format output ONLY as valid JSON:
+{{
+    "sections": [
+        {{
+            "title": "Topic-Specific Title for Lead",
+            "subtitle": "Optional subtitle",
+            "key_points": ["Point 1", "Point 2", "Point 3"],
+            "word_count_target": {lead_words},
+            "content_type": "paragraph",
+            "component_type": "lead",
+            "order": 1,
+            "importance": "high"
+        }},
+        {{
+            "title": "Topic-Specific Title for Tension",
+            "subtitle": "Optional subtitle",
+            "key_points": ["Point 1", "Point 2", "Point 3"],
+            "word_count_target": {tension_words},
+            "content_type": "paragraph",
+            "component_type": "tension",
+            "order": 2,
+            "importance": "high"
+        }},
+        {{
+            "title": "Topic-Specific Title for Tactical Insight",
+            "subtitle": "Optional subtitle",
+            "key_points": ["Step 1", "Step 2", "Step 3"],
+            "word_count_target": {tactical_words_per_sec},
+            "content_type": "table",
+            "component_type": "tactical_insight",
+            "order": 3,
+            "importance": "high"
+        }},
+        {{
+            "title": "Topic-Specific Title for Nuanced Takeaways & Limitations",
+            "subtitle": "Optional subtitle",
+            "key_points": ["Limitation 1", "Edge Case 2", "Strategic Takeaway 3"],
+            "word_count_target": {nuanced_words},
+            "content_type": "paragraph",
+            "component_type": "nuanced_takeaway",
+            "order": 4,
+            "importance": "high"
+        }}
+    ]
+}}"""
                 },
                 {
                     "role": "user",
                     "content": f"""Article Brief: {brief}
- 
-Key Claims to Address:
+
+Key Claims:
 {claims_text}
- 
-Evidence Available: {evidence_text}
+
+Evidence Distribution:
+{evidence_types}
+
 Target Word Count: {target_word_count}
 Tone: {tone}
-{controversies_prompt_text}
 
-Create {section_count} topic-specific sections that directly relate to this article's content. Each section title should be unique to this topic, not a generic template. Analyze the brief and claims to determine what sections make sense for THIS specific article."""
+Generate the 4-component sequential outline in JSON format."""
                 }
             ]
-            
+
             response = self.llm_client.generate(messages)
-            
-            # Parse JSON response
+            response_text = response.content.strip()
+
             import json
             import re
-            
-            # Try to extract JSON from response (in case LLM adds extra text)
-            response_text = response.content.strip()
-            
-            # Try to find JSON object in the response
+
             json_match = re.search(r'\{[^{}]*"sections"[^{}]*\[.*?\]\s*\}', response_text, re.DOTALL)
             if json_match:
                 response_text = json_match.group(0)
-            
+
             try:
                 data = json.loads(response_text)
                 sections_data = data.get('sections', [])
-                
-                if not sections_data:
-                    raise ValueError("No sections found in response")
-                
+
+                if not sections_data or len(sections_data) < 3:
+                    raise ValueError("Insufficient sections in response")
+
+                # Map component types sequentially if missing
+                default_component_types = ["lead", "tension", "tactical_insight", "nuanced_takeaway"]
                 sections = []
                 for i, section_data in enumerate(sections_data):
-                    section_title = section_data.get('title', f'Section {i+1}')
-                    
-                    # Warn if generic titles are detected
-                    generic_titles = ['getting started', 'step-by-step process', 'step by step process', 
-                                     'key concepts', 'practical applications', 'understanding the fundamentals',
-                                     'real-world implementation', 'conclusion']
-                    if any(generic in section_title.lower() for generic in generic_titles) and i > 0 and i < len(sections_data) - 1:
-                        self.logger.warning(f"Generic section title detected: '{section_title}' - consider making it more topic-specific")
-                    
+                    comp_type = section_data.get('component_type')
+                    if not comp_type or comp_type not in default_component_types:
+                        if i == 0:
+                            comp_type = "lead"
+                        elif i == 1:
+                            comp_type = "tension"
+                        elif i == len(sections_data) - 1:
+                            comp_type = "nuanced_takeaway"
+                        else:
+                            comp_type = "tactical_insight"
+
                     section = SectionOutline(
-                        title=section_title,
+                        title=section_data.get('title', f'Section {i+1}'),
                         subtitle=section_data.get('subtitle'),
                         key_points=section_data.get('key_points', []),
                         word_count_target=section_data.get('word_count_target', 300),
                         content_type=section_data.get('content_type', 'paragraph'),
                         order=section_data.get('order', i+1),
-                        importance=section_data.get('importance', 'high')
+                        importance=section_data.get('importance', 'high'),
+                        component_type=comp_type,
                     )
                     sections.append(section)
-                
-                self.logger.info(f"Successfully parsed {len(sections)} sections from LLM response")
+
+                self.logger.info(f"Successfully generated {len(sections)} sections following 4-component narrative")
                 return sections
-                
-            except (json.JSONDecodeError, ValueError) as e:
-                self.logger.warning(f"Failed to parse JSON response: {str(e)}")
-                self.logger.warning(f"Response content (first 500 chars): {response_text[:500]}")
-                # Use dynamic fallback that's more topic-specific
+
+            except Exception as parse_err:
+                self.logger.warning(f"Failed to parse 4-component JSON outline: {parse_err}. Using fallback.")
                 return self._create_fallback_sections(brief, target_word_count, claims)
-            
+
         except Exception as e:
-            self.logger.error(f"Error generating sections: {str(e)}")
-            return self._create_fallback_sections(brief, target_word_count)
+            self.logger.error(f"Error in _generate_sections: {e}", exc_info=True)
+            return self._create_fallback_sections(brief, target_word_count, claims)
 
     def _generate_sections_from_outline(self, content_outline: List[str], target_word_count: int, tone: str) -> List[SectionOutline]:
-        """Generate detailed section outlines from existing content outline."""
+        """Generate detailed section outlines from existing content outline while mapping to 4 components."""
         try:
-            # Calculate rough word count distribution
-            # Estimate number of main sections (excluding potential non-heading items)
-            # This is an estimation, the LLM will refine it
-            estimated_sections = max(3, len([item for item in content_outline if isinstance(item, str) and (item.lower().startswith('h2') or item.lower().startswith('section'))]))
-            words_per_section = target_word_count // estimated_sections
-            
             outline_text = "\n".join([str(item) for item in content_outline])
-            
             messages = [
                 {
                     "role": "system",
-                    "content": f"""You are an expert content strategist. specific task: Convert an existing article outline into a structured JSON format.
-                    
-                    REQUIREMENTS:
-                    - STRICTLY follow the provided outline structure
-                    - Map 'H2' or main items to section titles
-                    - Map 'Intent' or descriptions to 'key_points' or 'subtitle'
-                    - Assign appropriate word counts (aiming for total ~{target_word_count} words, within +/- 20%)
-                    - Match the {tone} tone in any generated text
-                    
-                    Format as JSON:
-                    {{
-                        "sections": [
-                            {{
-                                "title": "Exact Title from Outline",
-                                "subtitle": "Derived from Intent/Description",
-                                "key_points": ["Key point 1", "Key point 2"],
-                                "word_count_target": {words_per_section},
-                                "content_type": "paragraph",
-                                "order": 1,
-                                "importance": "high"
-                            }}
-                        ]
-                    }}"""
+                    "content": f"""You are an expert editor. Transform the provided outline into our 4-Component Narrative Sequence:
+1. Lead (component_type="lead"): Focused opening evidence & hook (~15% words)
+2. Tension (component_type="tension"): Systemic market evidence & friction (~25% words)
+3. Tactical Insight (component_type="tactical_insight"): Step-by-step guidance & comparative tables (~45% words)
+4. Nuanced Takeaways (component_type="nuanced_takeaway"): Honest limitations & strategic synthesis (~15% words)
+
+Total target words: {target_word_count}. Return ONLY valid JSON with 'sections' array."""
                 },
                 {
                     "role": "user",
-                    "content": f"""Convert this outline into the detailed JSON structure:
-                    
-                    {outline_text}"""
+                    "content": f"Provided Outline:\n{outline_text}"
                 }
             ]
-            
             response = self.llm_client.generate(messages)
-            
-            # Parse JSON response using same logic as _generate_sections
-            import json
-            import re
-            
+            import json, re
             response_text = response.content.strip()
             json_match = re.search(r'\{[^{}]*"sections"[^{}]*\[.*?\]\s*\}', response_text, re.DOTALL)
             if json_match:
                 response_text = json_match.group(0)
-            
+
             data = json.loads(response_text)
             sections_data = data.get('sections', [])
-            
             if not sections_data:
                 raise ValueError("No sections found in response")
-            
+
             sections = []
             for i, section_data in enumerate(sections_data):
-                section = SectionOutline(
+                comp_type = section_data.get('component_type')
+                if not comp_type:
+                    comp_type = "lead" if i == 0 else ("tension" if i == 1 else ("nuanced_takeaway" if i == len(sections_data) - 1 else "tactical_insight"))
+                sections.append(SectionOutline(
                     title=section_data.get('title', f'Section {i+1}'),
                     subtitle=section_data.get('subtitle'),
                     key_points=section_data.get('key_points', []),
                     word_count_target=section_data.get('word_count_target', 300),
                     content_type=section_data.get('content_type', 'paragraph'),
                     order=section_data.get('order', i+1),
-                    importance=section_data.get('importance', 'high')
-                )
-                sections.append(section)
-            
-            self.logger.info(f"Successfully parsed {len(sections)} sections from provided outline")
+                    importance=section_data.get('importance', 'high'),
+                    component_type=comp_type,
+                ))
             return sections
-            
         except Exception as e:
-            self.logger.error(f"Error processing provided outline: {str(e)}")
-            # Fallback to standard generation if outline processing fails
-            self.logger.info("Falling back to standard section generation")
-            return [] # This will be handled by the caller? No, caller expects list.
-            # I should handle this path better.
-            # Actually, if this fails, we should probably fall back to standard generation in the CALLER.
-            # But simpler to re-raise and let caller handle, or return fallback here.
-            # Let's return empty list and handle in caller?
-            # Or just raise and let the try/catch in generate_structure handle it (it calls _create_fallback_structure)
-            raise e
-    
+            self.logger.warning(f"Failed to process custom outline: {e}. Falling back to 4-component standard.")
+            return self._create_fallback_sections(outline_text[:120], target_word_count)
+
     def _determine_target_audience(self, brief: str, tone: str) -> str:
         """Determine target audience based on brief and tone."""
         brief_lower = brief.lower()
@@ -898,165 +870,54 @@ Create {section_count} topic-specific sections that directly relate to this arti
         )
     
     def _create_fallback_sections(self, brief: str, target_word_count: int, claims: List[Dict] = None) -> List[SectionOutline]:
-        """Create fallback section outlines with topic-specific structure based on brief and claims."""
-        # Analyze brief to create more relevant sections
-        brief_lower = brief.lower()
-        
-        # Extract key topics from brief (first few meaningful words)
+        """Create fallback section outlines strictly structured into the 4 Narrative Components."""
         brief_words = [w for w in brief.split() if len(w) > 3][:3]
-        topic_phrase = ' '.join(brief_words) if brief_words else "the topic"
-        
-        # Extract key themes from claims if available
-        claim_themes = []
-        if claims:
-            for claim in claims[:3]:
-                claim_text = claim.get('claim', '')
-                # Extract key nouns/phrases (simple heuristic)
-                words = [w for w in claim_text.split() if w.lower() not in ['the', 'a', 'an', 'is', 'are', 'and', 'or', 'but']]
-                if words:
-                    claim_themes.append(' '.join(words[:2]))
-        
-        # Determine article focus and create topic-specific sections
-        if any(word in brief_lower for word in ['how to', 'guide', 'steps', 'process', 'tutorial']):
-            # How-to article structure - but make it topic-specific
-            main_topic = brief_words[0] if brief_words else "the process"
-            sections = [
-                SectionOutline(
-                    title="Introduction",
-                    key_points=["Overview of the topic", "Why this matters", "What you'll learn"],
-                    word_count_target=200,
-                    order=1,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title=f"Essential {main_topic.title()} Basics" if main_topic else "Essential Basics",
-                    key_points=["Core concepts", "Important principles", "What you need to know"],
-                    word_count_target=400,
-                    order=2,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title=f"Mastering {main_topic.title()}" if main_topic else "Mastering the Process",
-                    key_points=["Detailed approach", "Best practices", "Pro tips"],
-                    word_count_target=600,
-                    content_type="table",
-                    order=3,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title="Conclusion",
-                    key_points=["Key takeaways", "Next steps", "Final thoughts"],
-                    word_count_target=200,
-                    order=4,
-                    importance="medium"
-                )
-            ]
-        elif any(word in brief_lower for word in ['investment', 'financial', 'market', 'analysis']):
-            # Financial/investment article structure
-            sections = [
-                SectionOutline(
-                    title="Introduction",
-                    key_points=["Market overview", "Current trends", "Why this matters"],
-                    word_count_target=200,
-                    order=1,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title="Market Analysis",
-                    key_points=["Current state", "Trends and patterns", "Data insights"],
-                    word_count_target=500,
-                    content_type="table",
-                    order=2,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title="Investment Strategies",
-                    key_points=["Approaches", "Risk assessment", "Opportunities"],
-                    word_count_target=500,
-                    order=3,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title="Conclusion",
-                    key_points=["Key takeaways", "Next steps", "Final thoughts"],
-                    word_count_target=200,
-                    order=4,
-                    importance="medium"
-                )
-            ]
-        elif any(word in brief_lower for word in ['skill', 'skills', 'career', 'development', 'learn']):
-            # Skills/career article structure - make it topic-specific
-            skill_focus = "Skills" if 'skill' in brief_lower else "Career Development"
-            sections = [
-                SectionOutline(
-                    title="Introduction",
-                    key_points=["Overview of the topic", "Why this matters", "What you'll learn"],
-                    word_count_target=200,
-                    order=1,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title=f"Top In-Demand {skill_focus} for 2026" if '2026' in brief_lower or '2025' in brief_lower else f"Essential {skill_focus} to Master",
-                    key_points=claim_themes[:3] if claim_themes else ["Key skills", "Why they matter", "Market demand"],
-                    word_count_target=500,
-                    content_type="table",
-                    order=2,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title=f"How to Develop These {skill_focus}" if 'skill' in brief_lower else "Building Your Career Path",
-                    key_points=["Actionable steps", "Learning resources", "Practical tips"],
-                    word_count_target=500,
-                    order=3,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title="Conclusion",
-                    key_points=["Key takeaways", "Next steps", "Final thoughts"],
-                    word_count_target=200,
-                    order=4,
-                    importance="medium"
-                )
-            ]
-        else:
-            # General article structure - try to make it topic-specific based on brief
-            # Extract main topic from brief
-            main_topic = brief_words[0].title() if brief_words else "Key Concepts"
-            second_topic = brief_words[1].title() if len(brief_words) > 1 else "Implementation"
-            
-            sections = [
-                SectionOutline(
-                    title="Introduction",
-                    key_points=["Overview of the topic", "Why this matters", "What you'll learn"],
-                    word_count_target=200,
-                    order=1,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title=f"Understanding {main_topic}" if main_topic else "Core Concepts",
-                    key_points=claim_themes[:3] if claim_themes else ["Core concepts", "Important principles", "Key insights"],
-                    word_count_target=400,
-                    content_type="table",
-                    order=2,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title=f"{second_topic} in Practice" if second_topic else "Practical Applications",
-                    key_points=["Practical examples", "Case studies", "Best practices"],
-                    word_count_target=500,
-                    order=3,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title="Conclusion",
-                    key_points=["Key takeaways", "Next steps", "Final thoughts"],
-                    word_count_target=200,
-                    order=4,
-                    importance="medium"
-                )
-            ]
-        
-        self.logger.info(f"Created fallback sections: {[s.title for s in sections]}")
+        main_topic = ' '.join(brief_words).title() if brief_words else "Core Strategy"
+
+        lead_words = max(180, int(target_word_count * 0.15))
+        tension_words = max(250, int(target_word_count * 0.25))
+        nuanced_words = max(180, int(target_word_count * 0.15))
+        tactical_words = max(350, target_word_count - (lead_words + tension_words + nuanced_words))
+
+        sections = [
+            SectionOutline(
+                title=f"The Reality Behind {main_topic}",
+                key_points=["Current landscape and evidence", "Immediate stakes", "The core premise"],
+                word_count_target=lead_words,
+                content_type="paragraph",
+                component_type="lead",
+                order=1,
+                importance="high",
+            ),
+            SectionOutline(
+                title=f"Why Conventional Approaches to {main_topic} Fail",
+                key_points=["Structural market friction", "Hidden systemic bottlenecks", "Why legacy solutions break"],
+                word_count_target=tension_words,
+                content_type="paragraph",
+                component_type="tension",
+                order=2,
+                importance="high",
+            ),
+            SectionOutline(
+                title=f"The Practitioner Framework for {main_topic}",
+                key_points=["Step-by-step implementation", "Comparative breakdown", "Proven methodology"],
+                word_count_target=tactical_words,
+                content_type="table",
+                component_type="tactical_insight",
+                order=3,
+                importance="high",
+            ),
+            SectionOutline(
+                title=f"Trade-offs, Edge Cases, and Long-Term Outlook",
+                key_points=["When not to use this", "Critical failure modes", "Strategic synthesis"],
+                word_count_target=nuanced_words,
+                content_type="paragraph",
+                component_type="nuanced_takeaway",
+                order=4,
+                importance="high",
+            ),
+        ]
+        self.logger.info(f"Created 4-component fallback sections: {[s.title for s in sections]}")
         return sections
 
 # Factory function
