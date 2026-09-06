@@ -255,6 +255,7 @@ export const MyArticles: React.FC = () => {
     const [projectFilter, setProjectFilter] = useState('')
     const [primaryCategoryFilter, setPrimaryCategoryFilter] = useState('')
     const [secondaryCategoryFilter, setSecondaryCategoryFilter] = useState('')
+    const [statusFilter, setStatusFilter] = useState('')
     const [currentPage, setCurrentPage] = useState(1)
     const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>([])
     // Keyword Intelligence Modal (replaces legacy Keyword Lab)
@@ -743,6 +744,13 @@ export const MyArticles: React.FC = () => {
                 if (primaryCategoryFilter && articlePrimaryCatId !== primaryCategoryFilter) return false
                 if (secondaryCategoryFilter && articleSecondaryCatId !== secondaryCategoryFilter) return false
 
+                if (statusFilter) {
+                    const statusLabel = getStatusStyle(article, article._source).label
+                    if (statusFilter === 'WP Published' && statusLabel !== 'WP Published' && statusLabel !== 'Scheduled') return false
+                    if (statusFilter === 'Editing' && statusLabel !== 'Editing' && statusLabel !== 'Saved' && statusLabel !== 'Review') return false
+                    if (statusFilter === 'New' && statusLabel !== 'New' && statusLabel !== 'Not Started') return false
+                }
+
                 const haystack = [
                     article.Title,
                     article.userDescription,
@@ -758,12 +766,12 @@ export const MyArticles: React.FC = () => {
                 if (!exactMetricsOnly) return true
                 return !isKeywordMetricEstimated(article)
             }),
-        [sortedArticles, search, exactMetricsOnly, projectFilter, primaryCategoryFilter, secondaryCategoryFilter, projects, projectCategories],
+        [sortedArticles, search, exactMetricsOnly, projectFilter, primaryCategoryFilter, secondaryCategoryFilter, statusFilter, projects, projectCategories],
     )
 
     useEffect(() => {
         setCurrentPage(1)
-    }, [search, exactMetricsOnly, projectFilter, primaryCategoryFilter, secondaryCategoryFilter, sortKey, sortAsc])
+    }, [search, exactMetricsOnly, projectFilter, primaryCategoryFilter, secondaryCategoryFilter, statusFilter, sortKey, sortAsc])
 
     const totalPages = useMemo(
         () => Math.max(1, Math.ceil(filteredArticles.length / ITEMS_PER_PAGE)),
@@ -1081,7 +1089,7 @@ export const MyArticles: React.FC = () => {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.25, delay: 0.05 }}
-                    className="mt-3 grid gap-3 md:grid-cols-3"
+                    className="mt-3 grid gap-3 md:grid-cols-4"
                 >
                     <select
                         className="h-10 rounded-lg border border-border bg-muted/50 px-3 text-sm text-foreground outline-none focus:border-ring/50"
@@ -1125,6 +1133,17 @@ export const MyArticles: React.FC = () => {
                                 {category.name}
                             </option>
                         ))}
+                    </select>
+
+                    <select
+                        className="h-10 rounded-lg border border-border bg-muted/50 px-3 text-sm text-foreground outline-none focus:border-ring/50"
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                    >
+                        <option value="">All statuses</option>
+                        <option value="New">New</option>
+                        <option value="WP Published">WP Published</option>
+                        <option value="Editing">Editing</option>
                     </select>
                 </motion.div>
 
