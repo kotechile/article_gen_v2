@@ -83,8 +83,10 @@ def test_weave_keywords_into_content(service):
     mock_response = MagicMock()
     mock_response.content = """
     {
+      "modified_title": "Heat Pump Rebates 2026: The Complete Electric Upgrade Guide",
       "modified_html": "<h1>Electric Guide with Heat Pump Rebates 2026</h1><p>Check your electric home incentives today.</p>",
       "changes": [
+        "Updated title to include primary keyword 'Heat Pump Rebates 2026'",
         "Added 'Heat Pump Rebates 2026' to H1",
         "Added 'electric home incentives' to intro paragraph"
       ]
@@ -94,12 +96,14 @@ def test_weave_keywords_into_content(service):
 
     with patch.object(service, "_get_llm_client", return_value=mock_llm):
         res = asyncio.run(service.weave_keywords_into_content(
+            title="Electric Guide",
             html_content="<h1>Electric Guide</h1><p>Check your home today.</p>",
             primary_keyword="heat pump rebates 2026",
             secondary_keywords=["electric home incentives"],
         ))
 
         assert res["success"] is True
+        assert res["title"] == "Heat Pump Rebates 2026: The Complete Electric Upgrade Guide"
         assert "Heat Pump Rebates 2026" in res["html"]
-        assert len(res["changes"]) == 2
+        assert len(res["changes"]) == 3
         assert len(res["placements"]) == 2

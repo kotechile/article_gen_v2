@@ -304,19 +304,22 @@ Output ONLY a JSON array of 3 to 5 lowercase strings. No explanations.
         html_content: str,
         primary_keyword: str,
         secondary_keywords: Optional[List[str]] = None,
+        title: Optional[str] = None,
         instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Subtly modify the HTML article to weave in primary and secondary keywords naturally.
+        Subtly modify the article title and HTML body to weave in primary and secondary keywords naturally.
         Preserves all HTML structure, citations, links, tone, and facts.
         """
         secondaries = [s.strip() for s in (secondary_keywords or []) if s.strip()]
         primary = primary_keyword.strip()
+        current_title = (title or "").strip()
 
         if not primary and not secondaries:
             return {
                 "success": False,
                 "error": "No primary or secondary keywords provided.",
+                "title": current_title,
                 "html": html_content,
                 "changes": [],
             }
@@ -326,29 +329,38 @@ Output ONLY a JSON array of 3 to 5 lowercase strings. No explanations.
             return {
                 "success": False,
                 "error": "LLM service unavailable for keyword weaving.",
+                "title": current_title,
                 "html": html_content,
                 "changes": [],
             }
 
-        prompt = f"""
-You are an elite editorial SEO specialist. Your goal is to naturally weave target SEO keywords into an existing article HTML without disrupting its flow, voice, citations, or HTML structure.
+        title_context = f'\nCurrent Article Title: "{current_title}"' if current_title else ""
 
-Target Primary Keyword (Must appear naturally in H1/intro/H2):
+        prompt = f"""
+You are an elite editorial SEO specialist. Your goal is to:
+1. Seamlessly weave the target primary SEO keyword into the Article Title (if it does not already contain it) while keeping the title click-worthy, natural, punchy, and true to the article's core hook/topic.
+2. Naturally weave target SEO keywords into an existing article HTML without disrupting its flow, voice, citations, or HTML structure.
+{title_context}
+
+Target Primary Keyword (Must appear naturally in Title and H1/intro/H2):
 - "{primary}"
 
 Target Secondary Keywords (Integrate 1-2 times each in relevant subheadings or body text):
 {chr(10).join(f'- "{sec}"' for sec in secondaries)}
 
 STRICT RULES:
-1. NON-DESTRUCTIVE: Do NOT remove or delete paragraphs. Only edit 2 to 5 sentences or 1-2 H2 headings to smoothly weave the keywords in.
-2. CITATION PRESERVATION: Preserve EVERY citation marker (e.g. `[1]`, `[^1]`, `<a class="citation-link">...</a>`, `<section class="geo-key-takeaways">...`), blockquotes, and HTML tags exactly intact.
-3. NO KEYWORD STUFFING: The text must read as if it were written by a top human journalist, completely natural and grammatically fluent.
-4. Output MUST be a valid JSON object matching this schema:
+1. ARTICLE TITLE OPTIMIZATION: Craft an updated `modified_title` that naturally includes the Primary Keyword "{primary}". Keep it compelling, journalistic, and under 70 characters. If the current title already naturally contains the primary keyword, you may keep it or refine it.
+2. NON-DESTRUCTIVE CONTENT: Do NOT remove or delete paragraphs. Only edit 2 to 5 sentences or 1-2 H2 headings to smoothly weave the keywords in.
+3. CITATION PRESERVATION: Preserve EVERY citation marker (e.g. `[1]`, `[^1]`, `<a class="citation-link">...</a>`, `<section class="geo-key-takeaways">...`), blockquotes, and HTML tags exactly intact.
+4. NO KEYWORD STUFFING: The text and title must read as if they were crafted by a top human journalist, completely natural and grammatically fluent.
+5. Output MUST be a valid JSON object matching this schema:
 {{
+  "modified_title": "<updated SEO article title incorporating primary keyword>",
   "modified_html": "<complete modified HTML string>",
   "changes": [
-    "Brief explanation of change 1 (e.g. Added primary keyword to Introduction)",
-    "Brief explanation of change 2 (e.g. Adjusted second H2 heading to include secondary keyword)"
+    "Brief explanation of change 1 (e.g. Updated article title to incorporate 'heat pump rebates')",
+    "Brief explanation of change 2 (e.g. Added primary keyword to Introduction)",
+    "Brief explanation of change 3 (e.g. Adjusted second H2 heading to include secondary keyword)"
   ]
 }}
 
@@ -359,7 +371,7 @@ Existing Article HTML:
 """
         try:
             messages = [
-                {"role": "system", "content": "You are an elite editorial SEO specialist that naturally weaves keywords into HTML articles preserving citations, facts, and structure. Output strictly valid JSON."},
+                {"role": "system", "content": "You are an elite editorial SEO specialist that naturally crafts SEO-optimized titles and weaves keywords into HTML articles preserving citations, facts, and structure. Output strictly valid JSON."},
                 {"role": "user", "content": prompt}
             ]
             res = llm.generate(messages=messages)
@@ -369,6 +381,7 @@ Existing Article HTML:
             match = re.search(r"\{[\s\S]*\}", raw_text)
             if match:
                 parsed = json.loads(match.group(0))
+                modified_title = (parsed.get("modified_title") or current_title).strip()
                 modified_html = parsed.get("modified_html") or html_content
                 changes = parsed.get("changes") or []
 
@@ -389,6 +402,7 @@ Existing Article HTML:
 
                 return {
                     "success": True,
+                    "title": modified_title,
                     "html": modified_html,
                     "changes": changes,
                     "placements": placements,
@@ -398,6 +412,7 @@ Existing Article HTML:
             return {
                 "success": False,
                 "error": str(err),
+                "title": current_title,
                 "html": html_content,
                 "changes": [],
             }
@@ -405,6 +420,7 @@ Existing Article HTML:
         return {
             "success": False,
             "error": "Failed to parse LLM weaving output.",
+            "title": current_title,
             "html": html_content,
             "changes": [],
         }

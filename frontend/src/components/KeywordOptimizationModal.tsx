@@ -36,6 +36,7 @@ interface KeywordOptimizationModalProps {
         secondaryKeywords: string[];
         primaryMetric?: KeywordCandidate;
         updatedHtml?: string;
+        updatedTitle?: string;
     }) => Promise<void> | void;
 }
 
@@ -63,6 +64,7 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
     // Weaving State
     const [weaving, setWeaving] = useState(false);
     const [weaveResult, setWeaveResult] = useState<WeaveKeywordsResponse | null>(null);
+    const [optimizedTitle, setOptimizedTitle] = useState<string>(articleTitle);
     const [activeTab, setActiveTab] = useState<'all' | 'quick-wins' | 'high-volume'>('all');
     const [viewMode, setViewMode] = useState<'discover' | 'preview-diff'>('discover');
     const [saving, setSaving] = useState(false);
@@ -71,6 +73,7 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
         if (isOpen) {
             setSelectedPrimary(initialPrimaryKeyword);
             setSelectedSecondaries(initialSecondaryKeywords);
+            setOptimizedTitle(articleTitle);
             setViewMode('discover');
             setWeaveResult(null);
             setError(null);
@@ -161,6 +164,7 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
         setError(null);
         try {
             const res = await keywordOptimizationService.weaveKeywords({
+                title: articleTitle,
                 html: articleContent,
                 primary_keyword: selectedPrimary,
                 secondary_keywords: selectedSecondaries,
@@ -168,6 +172,9 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
 
             if (res.success) {
                 setWeaveResult(res);
+                if (res.title) {
+                    setOptimizedTitle(res.title);
+                }
                 setViewMode('preview-diff');
             } else {
                 setError(res.error || 'Failed to weave keywords.');
@@ -184,9 +191,12 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
         setSaving(true);
         try {
             const updatedHtml = weaveResult?.html || undefined;
+            const updatedTitle = optimizedTitle.trim() || undefined;
+
             if (titleId) {
                 await keywordOptimizationService.saveToTitle({
                     title_id: titleId,
+                    title: updatedTitle,
                     primary_keyword: selectedPrimary || null,
                     secondary_keywords: selectedSecondaries,
                     primary_metric: selectedPrimaryMetric,
@@ -199,6 +209,7 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
                 secondaryKeywords: selectedSecondaries,
                 primaryMetric: selectedPrimaryMetric,
                 updatedHtml: updatedHtml,
+                updatedTitle: updatedTitle,
             });
 
             onClose();
@@ -552,6 +563,44 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
                                             <li key={idx}>{ch}</li>
                                         ))}
                                     </ul>
+                                </div>
+
+                                {/* Article Title Optimization Card */}
+                                <div className="p-4 rounded-xl border border-border bg-muted/20 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs font-semibold text-foreground uppercase tracking-wider flex items-center gap-1.5">
+                                            <FileText className="w-3.5 h-3.5 text-primary" /> Article Title Optimization
+                                        </span>
+                                        {optimizedTitle !== articleTitle && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setOptimizedTitle(articleTitle)}
+                                                className="text-[11px] text-muted-foreground hover:text-foreground transition underline"
+                                            >
+                                                Reset to original title
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        {articleTitle && articleTitle !== optimizedTitle && (
+                                            <div className="text-xs text-muted-foreground">
+                                                <span className="font-medium text-muted-foreground/80">Original: </span>
+                                                <span className="line-through">{articleTitle}</span>
+                                            </div>
+                                        )}
+                                        <div>
+                                            <label className="block text-[11px] font-medium text-emerald-400 mb-1">
+                                                Optimized Title (Incorporates "{selectedPrimary || 'Primary Keyword'}"):
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={optimizedTitle}
+                                                onChange={(e) => setOptimizedTitle(e.target.value)}
+                                                className="w-full h-9 px-3 rounded-lg border border-emerald-500/40 bg-background text-sm font-semibold text-foreground focus:outline-none focus:border-emerald-500 transition"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

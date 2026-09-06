@@ -24,6 +24,7 @@ export interface KeywordCandidate {
 
 export interface WeaveKeywordsResponse {
     success: boolean;
+    title?: string;
     html: string;
     changes: string[];
     placements?: Array<{ keyword: string; type: 'primary' | 'secondary'; count: number }>;
@@ -32,6 +33,7 @@ export interface WeaveKeywordsResponse {
 
 export interface SaveKeywordsPayload {
     title_id: string;
+    title?: string;
     primary_keyword?: string | null;
     secondary_keywords?: string[];
     primary_metric?: {
@@ -99,9 +101,10 @@ class KeywordOptimizationClientService {
     }
 
     /**
-     * Weave selected primary and secondary keywords into article HTML.
+     * Weave selected primary and secondary keywords into article title and HTML.
      */
     public async weaveKeywords(params: {
+        title?: string;
         html: string;
         primary_keyword: string;
         secondary_keywords?: string[];

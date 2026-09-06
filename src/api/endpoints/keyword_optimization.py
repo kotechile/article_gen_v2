@@ -127,10 +127,11 @@ def search_dataforseo():
 
 @keyword_optimization_bp.route("/weave-into-article", methods=["POST"])
 def weave_into_article():
-    """Naturally weave primary and secondary keywords into article HTML."""
+    """Naturally weave primary and secondary keywords into article title and HTML."""
     try:
         payload = request.json or {}
         html_content = payload.get("html", "")
+        title = payload.get("title", "")
         primary_keyword = str(payload.get("primary_keyword", "")).strip()
         secondary_keywords = payload.get("secondary_keywords") or []
         instructions = payload.get("instructions")
@@ -152,6 +153,7 @@ def weave_into_article():
                 html_content=html_content,
                 primary_keyword=primary_keyword,
                 secondary_keywords=secondary_keywords,
+                title=title,
                 instructions=instructions,
             )
         )
@@ -167,7 +169,7 @@ def weave_into_article():
 
 @keyword_optimization_bp.route("/save-to-title", methods=["POST"])
 def save_to_title():
-    """Save selected keywords, metrics, and optionally updated HTML to the Titles record."""
+    """Save selected keywords, metrics, updated title, and optionally updated HTML to the Titles record."""
     try:
         user_id = _get_user_id_from_auth()
         payload = request.json or {}
@@ -181,6 +183,7 @@ def save_to_title():
                 "error": "Missing required 'title_id' parameter."
             }), 400
 
+        title = payload.get("title")
         primary_kw = payload.get("primary_keyword")
         secondary_kws = payload.get("secondary_keywords") or []
         primary_metric = payload.get("primary_metric") or {}
@@ -191,6 +194,9 @@ def save_to_title():
             "primary_keyword": primary_kw or None,
             "secondary_keywords_json": secondary_kws,
         }
+
+        if title and str(title).strip():
+            update_data["Title"] = str(title).strip()
 
         if primary_metric:
             vol = primary_metric.get("search_volume")

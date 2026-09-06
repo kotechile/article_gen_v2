@@ -1474,10 +1474,15 @@ export const ArticleEditor: React.FC = () => {
         secondaryKeywords: string[];
         primaryMetric?: any;
         updatedHtml?: string;
+        updatedTitle?: string;
         searchVolume?: number;
         keywordDifficulty?: number;
         intent?: string;
     }) => {
+        if (data.updatedTitle) {
+            setTitle(data.updatedTitle);
+            setArticleData((prev: any) => (prev ? { ...prev, Title: data.updatedTitle, title: data.updatedTitle } : prev));
+        }
         if (data.updatedHtml && editor) {
             editor.commands.setContent(data.updatedHtml);
         }
