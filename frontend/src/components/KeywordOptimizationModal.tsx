@@ -49,7 +49,8 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
     initialSecondaryKeywords = [],
     onApplyKeywords,
 }) => {
-    const [searchQuery, setSearchQuery] = useState(articleTitle || '');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [suggestedSeeds, setSuggestedSeeds] = useState<string[]>([]);
     const [keywords, setKeywords] = useState<KeywordCandidate[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -70,10 +71,11 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
         if (isOpen) {
             setSelectedPrimary(initialPrimaryKeyword);
             setSelectedSecondaries(initialSecondaryKeywords);
-            setSearchQuery(articleTitle || '');
             setViewMode('discover');
             setWeaveResult(null);
-            void handleDiscover(articleTitle);
+            setError(null);
+            // Initial auto-discovery without sending raw long title as custom_seed
+            void handleDiscover();
         }
     }, [isOpen, articleTitle, initialPrimaryKeyword]);
 
@@ -81,16 +83,28 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
         setLoading(true);
         setError(null);
         try {
-            const results = await keywordOptimizationService.discoverKeywords({
+            const result = await keywordOptimizationService.discoverKeywords({
                 title: articleTitle,
                 content: articleContent,
                 custom_seed: seed || undefined,
             });
-            setKeywords(results);
+
+            const kwList = Array.isArray(result) ? result : (result?.keywords || []);
+            const seedList = (!Array.isArray(result) && result?.seeds) ? result.seeds : [];
+
+            setKeywords(kwList);
+            if (seedList.length > 0) {
+                setSuggestedSeeds(seedList);
+                if (!searchQuery || searchQuery === articleTitle || (seed && seed === seedList[0])) {
+                    setSearchQuery(seed || seedList[0]);
+                }
+            } else if (seed) {
+                setSearchQuery(seed);
+            }
 
             // Match initial primary metric if exists
             if (initialPrimaryKeyword) {
-                const match = results.find((k) => k.keyword.toLowerCase() === initialPrimaryKeyword.toLowerCase());
+                const match = kwList.find((k) => k.keyword.toLowerCase() === initialPrimaryKeyword.toLowerCase());
                 if (match) setSelectedPrimaryMetric(match);
             }
         } catch (err: any) {
@@ -103,7 +117,8 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
 
     const handleSearchSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        void handleDiscover(searchQuery);
+        if (!searchQuery.trim()) return;
+        void handleDiscover(searchQuery.trim());
     };
 
     const handleSelectPrimary = (kw: KeywordCandidate) => {
@@ -272,26 +287,55 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
                         {viewMode === 'discover' ? (
                             <>
                                 {/* Search Bar & Seed Extraction */}
-                                <form onSubmit={handleSearchSubmit} className="flex gap-2">
-                                    <div className="relative flex-1">
-                                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                        <input
-                                            type="text"
-                                            value={searchQuery}
-                                            onChange={(e) => setSearchQuery(e.target.value)}
-                                            placeholder="Enter seed topic or keyword to search DataForSEO..."
-                                            className="w-full h-10 pl-10 pr-4 rounded-xl border border-border bg-muted/40 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-ring/60 transition"
-                                        />
-                                    </div>
-                                    <button
-                                        type="submit"
-                                        disabled={loading}
-                                        className="inline-flex items-center gap-2 px-4 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition disabled:opacity-50"
-                                    >
-                                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                                        <span>Search DataForSEO</span>
-                                    </button>
-                                </form>
+                                <div className="space-y-2.5">
+                                    <form onSubmit={handleSearchSubmit} className="flex gap-2">
+                                        <div className="relative flex-1">
+                                            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                            <input
+                                                type="text"
+                                                value={searchQuery}
+                                                onChange={(e) => setSearchQuery(e.target.value)}
+                                                placeholder="Enter seed topic (e.g. heat pump rebate, gas furnace)..."
+                                                className="w-full h-10 pl-10 pr-4 rounded-xl border border-border bg-muted/40 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-ring/60 transition"
+                                            />
+                                        </div>
+                                        <button
+                                            type="submit"
+                                            disabled={loading}
+                                            className="inline-flex items-center gap-2 px-4 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition disabled:opacity-50"
+                                        >
+                                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                                            <span>Search DataForSEO</span>
+                                        </button>
+                                    </form>
+
+                                    {/* Suggested Seeds Chips */}
+                                    {suggestedSeeds.length > 0 && (
+                                        <div className="flex items-center gap-1.5 flex-wrap text-xs pt-0.5">
+                                            <span className="text-muted-foreground flex items-center gap-1 font-medium">
+                                                <Sparkles className="w-3.5 h-3.5 text-primary" /> Suggested seeds:
+                                            </span>
+                                            {suggestedSeeds.map((seed) => (
+                                                <button
+                                                    key={seed}
+                                                    type="button"
+                                                    disabled={loading}
+                                                    onClick={() => {
+                                                        setSearchQuery(seed);
+                                                        void handleDiscover(seed);
+                                                    }}
+                                                    className={`px-2.5 py-1 rounded-md border text-xs font-medium transition ${
+                                                        searchQuery.toLowerCase() === seed.toLowerCase()
+                                                            ? 'bg-primary/20 text-primary border-primary/40 shadow-xs'
+                                                            : 'bg-muted/40 hover:bg-muted text-foreground border-border'
+                                                    }`}
+                                                >
+                                                    {seed}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
 
                                 {/* Tabs */}
                                 <div className="flex items-center gap-2 border-b border-border pb-2">
@@ -334,10 +378,37 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
                                         <p className="text-sm">Querying DataForSEO Labs for difficulty, volume, and competitive terms…</p>
                                     </div>
                                 ) : filteredKeywords.length === 0 ? (
-                                    <div className="py-12 text-center text-muted-foreground border border-dashed border-border rounded-xl">
-                                        <Target className="w-8 h-8 mx-auto opacity-40 mb-2" />
-                                        <p className="text-sm font-medium">No keyword suggestions found.</p>
-                                        <p className="text-xs">Try searching a different phrase or seed query above.</p>
+                                    <div className="py-12 text-center text-muted-foreground border border-dashed border-border rounded-xl space-y-3 px-4">
+                                        <Target className="w-8 h-8 mx-auto opacity-40" />
+                                        <div>
+                                            <p className="text-sm font-medium text-foreground">
+                                                {searchQuery ? `No keywords found for "${searchQuery}"` : 'No keyword suggestions found.'}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mt-0.5">
+                                                DataForSEO requires short 1–3 word phrases (e.g. "heat pump rebate", "gas furnace replacement").
+                                            </p>
+                                        </div>
+                                        {suggestedSeeds.length > 0 && (
+                                            <div className="pt-2">
+                                                <p className="text-xs font-medium text-muted-foreground mb-2">Try one of these high-intent seeds:</p>
+                                                <div className="flex items-center justify-center gap-2 flex-wrap">
+                                                    {suggestedSeeds.map((seed) => (
+                                                        <button
+                                                            key={seed}
+                                                            type="button"
+                                                            disabled={loading}
+                                                            onClick={() => {
+                                                                setSearchQuery(seed);
+                                                                void handleDiscover(seed);
+                                                            }}
+                                                            className="px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-xs font-medium transition"
+                                                        >
+                                                            🔍 Search "{seed}"
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="rounded-xl border border-border overflow-hidden bg-muted/10">

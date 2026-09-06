@@ -63,12 +63,13 @@ def test_discover_keywords_for_article(service):
     with patch("src.services.keyword_optimization_service.dataforseo_api.get_related_keywords_labs_live", new_callable=AsyncMock) as mock_get_related:
         mock_get_related.return_value = mock_related
 
-        results = asyncio.run(service.discover_keywords_for_article(
+        raw_res = asyncio.run(service.discover_keywords_for_article(
             title="Electric Heat Pump Guide",
             content="<p>Understanding new federal rebates for electric heat pumps.</p>",
             custom_seed="heat pump rebate",
         ))
 
+        results = raw_res["keywords"] if isinstance(raw_res, dict) else raw_res
         assert len(results) >= 2
         top = results[0]
         assert top["keyword"] == "heat pump rebate 2026"

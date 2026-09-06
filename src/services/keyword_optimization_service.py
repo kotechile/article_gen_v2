@@ -54,47 +54,117 @@ class KeywordOptimizationService:
         pass
 
     def _get_llm_client(self):
-        """Create LLM client instance."""
+        """Create LLM client instance using configured provider and key."""
         try:
+            from supabase_client import get_default_llm_provider
+            from llm_client import create_llm_client
+            provider, model, api_key = get_default_llm_provider()
+            if provider and model and api_key:
+                return create_llm_client(provider=provider, model=model, api_key=api_key)
+        except Exception as err:
+            logger.warning(f"[KeywordOptimizationService] LLM provider init failed: {err}")
+
+        try:
+            from llm_client import create_llm_client
             return create_llm_client()
         except Exception as err:
-            logger.warning(f"[KeywordOptimizationService] LLM client init failed: {err}")
+            logger.warning(f"[KeywordOptimizationService] LLM direct fallback failed: {err}")
             return None
 
+    def _extract_heuristic_seeds(self, title: str, content: str = "", tags: Optional[List[str]] = None) -> List[str]:
+        """Extract realistic 2-3 word search seeds from title/content without LLM."""
+        stop_words = {
+            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
+            "by", "from", "up", "about", "into", "over", "after", "is", "are", "was", "were",
+            "be", "been", "being", "have", "has", "had", "do", "does", "did", "can", "could",
+            "should", "would", "will", "just", "died", "your", "my", "our", "their", "this",
+            "that", "these", "those", "how", "what", "why", "when", "where", "which", "who",
+            "more", "most", "some", "such", "no", "not", "only", "own", "same", "so", "than",
+            "too", "very", "s", "t", "swapping", "swap", "now", "vs", "versus", "article",
+        }
+
+        seeds: List[str] = []
+
+        # 1. Tags if present
+        if tags:
+            for t in tags:
+                clean_t = re.sub(r"[^a-zA-Z0-9\s-]", "", str(t)).strip().lower()
+                if clean_t and 1 < len(clean_t.split()) <= 4:
+                    seeds.append(clean_t)
+
+        # 2. Extract key phrases from title
+        clean_title = re.sub(r"[^a-zA-Z0-9\s]", " ", title or "").lower()
+        words = [w for w in clean_title.split() if w]
+        meaningful_words = [w for w in words if w not in stop_words and len(w) > 2]
+
+        if len(meaningful_words) >= 2:
+            for i in range(min(4, len(meaningful_words) - 1)):
+                seeds.append(f"{meaningful_words[i]} {meaningful_words[i+1]}")
+        if len(meaningful_words) >= 3:
+            for i in range(min(3, len(meaningful_words) - 2)):
+                seeds.append(f"{meaningful_words[i]} {meaningful_words[i+1]} {meaningful_words[i+2]}")
+
+        # Domain-specific smart anchors
+        if "heat" in words and "pump" in words:
+            seeds.append("heat pump rebate")
+            seeds.append("heat pump tax credit")
+            seeds.append("heat pump incentives")
+        if "furnace" in words:
+            seeds.append("gas furnace rebate")
+            seeds.append("furnace replacement rebate")
+
+        # Deduplicate
+        deduped = []
+        seen = set()
+        for s in seeds:
+            s_clean = s.strip().lower()
+            if s_clean and s_clean not in seen and len(s_clean.split()) <= 4:
+                seen.add(s_clean)
+                deduped.append(s_clean)
+
+        return deduped[:5] if deduped else ["heat pump rebate", "furnace rebate"]
+
     async def extract_seeds_from_content(self, title: str, content: str, tags: Optional[List[str]] = None) -> List[str]:
-        """Extract 3-5 high-intent seed keyword ideas from title and content."""
+        """Extract 3-5 high-intent, short (2-4 words) search query seeds from title and content."""
         clean_content = re.sub(r"<[^>]+>", " ", content or "")[:1500].strip()
         tags_str = ", ".join(tags) if tags else ""
 
         llm = self._get_llm_client()
-        if not llm:
-            # Fallback heuristic
-            words = re.findall(r"\b[A-Za-z]{3,}\b", title)
-            return [title[:50].strip()] if title else ["editorial guide"]
+        if llm:
+            prompt = f"""
+You are an expert SEO researcher. Given the article title and content excerpt below, extract 3 to 5 realistic, high-intent Google search query phrases that real users type into Google search.
 
-        prompt = f"""
-You are an expert SEO researcher. Given the article title and content excerpt below, extract 3 to 5 realistic, high-intent Google search query phrases that users would search to find this exact article.
+CRITICAL REQUIREMENT:
+- Each query phrase MUST be short and concise (2 to 4 words max), e.g. "heat pump rebate", "gas furnace replacement", "heat pump tax credit".
+- NEVER output full sentences or headlines.
 
 Title: {title}
 Tags: {tags_str}
 Excerpt: {clean_content}
 
-Output ONLY a JSON array of 3 to 5 lowercase strings, e.g. ["phrase 1", "phrase 2", "phrase 3"]. No explanations.
+Output ONLY a JSON array of 3 to 5 lowercase strings. No explanations.
 """
-        try:
-            res = llm.generate([{"role": "user", "content": prompt}], temperature=0.3)
-            raw_text = res.content if hasattr(res, "content") else str(res)
-            # Parse JSON
-            match = re.search(r"\[[\s\S]*\]", raw_text)
-            if match:
-                seeds = json.loads(match.group(0))
-                if isinstance(seeds, list):
-                    return [str(s).strip().lower() for s in seeds if str(s).strip()][:5]
-        except Exception as err:
-            logger.warning(f"[KeywordOptimizationService] LLM seed extraction failed: {err}")
+            try:
+                messages = [{"role": "user", "content": prompt}]
+                res = llm.generate(messages=messages) if hasattr(llm, "generate") else llm.generate(prompt)
+                raw_text = res.content if hasattr(res, "content") else str(res)
+                # Parse JSON
+                match = re.search(r"\[[\s\S]*\]", raw_text)
+                if match:
+                    seeds = json.loads(match.group(0))
+                    if isinstance(seeds, list):
+                        valid_seeds = [
+                            str(s).strip().lower()
+                            for s in seeds
+                            if str(s).strip() and len(str(s).strip().split()) <= 4
+                        ]
+                        if valid_seeds:
+                            return valid_seeds[:5]
+            except Exception as err:
+                logger.warning(f"[KeywordOptimizationService] LLM seed extraction failed: {err}")
 
-        # Fallback
-        return [title.strip().lower()] if title else ["editorial topic"]
+        # Fallback to heuristic
+        return self._extract_heuristic_seeds(title, content, tags)
 
     async def discover_keywords_for_article(
         self,
@@ -104,34 +174,59 @@ Output ONLY a JSON array of 3 to 5 lowercase strings, e.g. ["phrase 1", "phrase 
         custom_seed: Optional[str] = None,
         location_code: int = 2840,
         language_code: str = "en",
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
         Discover related keywords and retrieve DataForSEO metrics.
-        Returns a sorted list of keyword candidates with competition and volume.
+        Returns a dict with 'keywords' (sorted candidate list) and 'seeds' (the search seeds used).
         """
         seeds: List[str] = []
         if custom_seed and custom_seed.strip():
-            seeds = [custom_seed.strip().lower()]
+            raw_seed = custom_seed.strip().lower()
+            # If custom_seed is long (e.g. user pasted headline), distill it
+            if len(raw_seed.split()) > 4 or len(raw_seed) > 35:
+                seeds = await self.extract_seeds_from_content(raw_seed, "", tags)
+            else:
+                seeds = [raw_seed]
+                # Add 1-2 close heuristic seeds
+                heuristics = self._extract_heuristic_seeds(raw_seed, "", tags)
+                for h in heuristics:
+                    if h not in seeds and len(seeds) < 3:
+                        seeds.append(h)
         else:
             seeds = await self.extract_seeds_from_content(title, content, tags)
 
         if not seeds:
-            return []
+            seeds = self._extract_heuristic_seeds(title, content, tags)
 
         logger.info(f"[KeywordOptimizationService] Querying DataForSEO for seeds: {seeds}")
 
         # 1. Fetch related keywords from DataForSEO Labs live
         raw_items: List[Dict[str, Any]] = []
         try:
-            raw_items = await dataforseo_api.get_related_keywords_labs_live(
+            related_items = await dataforseo_api.get_related_keywords_labs_live(
                 seeds=seeds,
                 location_code=location_code,
                 limit_per_seed=25,
             )
+            if isinstance(related_items, list):
+                raw_items.extend(related_items)
         except Exception as err:
-            logger.warning(f"[KeywordOptimizationService] DataForSEO Labs fetch failed: {err}")
+            logger.warning(f"[KeywordOptimizationService] DataForSEO Labs related keywords fetch failed: {err}")
 
-        # 2. Also fetch metrics for seeds directly if missing
+        # 2. Also fetch keyword suggestions (without restrictive filters)
+        try:
+            suggestions = await dataforseo_api.get_keyword_suggestions_labs_live(
+                seeds=seeds[:3],
+                location_code=location_code,
+                limit_per_seed=25,
+                filters=[],  # No KD filters
+            )
+            if isinstance(suggestions, list):
+                raw_items.extend(suggestions)
+        except Exception as err:
+            logger.warning(f"[KeywordOptimizationService] DataForSEO Labs suggestions fetch failed: {err}")
+
+        # 3. Fetch metrics for seeds directly if not present
         seed_keywords_to_query = [s for s in seeds if not any(item.get("keyword") == s for item in raw_items)]
         if seed_keywords_to_query:
             try:
@@ -145,7 +240,7 @@ Output ONLY a JSON array of 3 to 5 lowercase strings, e.g. ["phrase 1", "phrase 
             except Exception as err:
                 logger.warning(f"[KeywordOptimizationService] Bulk metrics fetch failed: {err}")
 
-        # 3. Format and deduplicate
+        # 4. Format and deduplicate
         seen = set()
         formatted: List[Dict[str, Any]] = []
 
@@ -180,27 +275,29 @@ Output ONLY a JSON array of 3 to 5 lowercase strings, e.g. ["phrase 1", "phrase 
 
         # Sort primarily by opportunity score descending, then search volume
         formatted.sort(key=lambda x: (x["opportunity_score"], x["search_volume"]), reverse=True)
-        return formatted
+        return {
+            "keywords": formatted,
+            "seeds": seeds,
+        }
 
     async def search_single_keyword(
         self,
         keyword: str,
         location_code: int = 2840,
         language_code: str = "en",
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """Search DataForSEO for a specific keyword query and its immediate variants."""
         kw_clean = keyword.strip().lower()
         if not kw_clean:
-            return []
+            return {"keywords": [], "seeds": []}
 
-        results = await self.discover_keywords_for_article(
+        return await self.discover_keywords_for_article(
             title="",
             content="",
             custom_seed=kw_clean,
             location_code=location_code,
             language_code=language_code,
         )
-        return results
 
     async def weave_keywords_into_content(
         self,

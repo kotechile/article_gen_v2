@@ -43,6 +43,11 @@ export interface SaveKeywordsPayload {
     html?: string;
 }
 
+export interface DiscoverKeywordsResult {
+    keywords: KeywordCandidate[];
+    seeds: string[];
+}
+
 class KeywordOptimizationClientService {
     /**
      * Discover related keywords and live metrics from DataForSEO based on article text or custom seed.
@@ -52,15 +57,19 @@ class KeywordOptimizationClientService {
         content?: string;
         tags?: string[];
         custom_seed?: string;
-    }): Promise<KeywordCandidate[]> {
+    }): Promise<DiscoverKeywordsResult> {
         try {
             const res = await apiClient.post<{
                 success: boolean;
                 keywords: KeywordCandidate[];
+                seeds?: string[];
                 count: number;
             }>('/api/v1/keywords/discover-for-article', params);
 
-            return res?.keywords || [];
+            return {
+                keywords: res?.keywords || [],
+                seeds: res?.seeds || []
+            };
         } catch (err) {
             console.error('[KeywordOptimizationService] Discover failed:', err);
             throw err;
@@ -70,15 +79,19 @@ class KeywordOptimizationClientService {
     /**
      * Direct DataForSEO query for a specific phrase.
      */
-    public async searchKeyword(query: string): Promise<KeywordCandidate[]> {
+    public async searchKeyword(query: string): Promise<DiscoverKeywordsResult> {
         try {
             const res = await apiClient.post<{
                 success: boolean;
                 keywords: KeywordCandidate[];
+                seeds?: string[];
                 count: number;
             }>('/api/v1/keywords/search-dataforseo', { query });
 
-            return res?.keywords || [];
+            return {
+                keywords: res?.keywords || [],
+                seeds: res?.seeds || []
+            };
         } catch (err) {
             console.error('[KeywordOptimizationService] Search failed:', err);
             throw err;

@@ -61,7 +61,7 @@ def discover_for_article():
                 "keywords": []
             }), 400
 
-        keywords = asyncio.run(
+        result = asyncio.run(
             keyword_optimization_service.discover_keywords_for_article(
                 title=title,
                 content=content,
@@ -70,9 +70,13 @@ def discover_for_article():
             )
         )
 
+        keywords = result.get("keywords", []) if isinstance(result, dict) else (result or [])
+        seeds = result.get("seeds", []) if isinstance(result, dict) else []
+
         return jsonify({
             "success": True,
             "keywords": keywords,
+            "seeds": seeds,
             "count": len(keywords),
         }), 200
     except Exception as err:
@@ -81,6 +85,7 @@ def discover_for_article():
             "success": False,
             "error": str(err),
             "keywords": [],
+            "seeds": [],
         }), 500
 
 
@@ -94,16 +99,21 @@ def search_dataforseo():
             return jsonify({
                 "success": False,
                 "error": "Missing 'query' parameter.",
-                "keywords": []
+                "keywords": [],
+                "seeds": [],
             }), 400
 
-        keywords = asyncio.run(
+        result = asyncio.run(
             keyword_optimization_service.search_single_keyword(keyword=query)
         )
+
+        keywords = result.get("keywords", []) if isinstance(result, dict) else (result or [])
+        seeds = result.get("seeds", []) if isinstance(result, dict) else []
 
         return jsonify({
             "success": True,
             "keywords": keywords,
+            "seeds": seeds,
             "count": len(keywords),
         }), 200
     except Exception as err:
