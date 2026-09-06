@@ -21,15 +21,18 @@ from supabase_client import get_supabase_client
 
 logger = logging.getLogger(__name__)
 
-EDITORIAL_SUPABASE_PROJECT_REF = os.getenv("EDITORIAL_SUPABASE_PROJECT_REF", "ixfdkninqeqmwuxncpvh")
-EDITORIAL_SUPABASE_URL = os.getenv(
-    "EDITORIAL_SUPABASE_URL",
-    f"https://{EDITORIAL_SUPABASE_PROJECT_REF}.supabase.co"
-)
-EDITORIAL_SUPABASE_KEY = os.getenv(
-    "EDITORIAL_SUPABASE_KEY",
-    os.getenv("EDITORIAL_SUPABASE_ANON_KEY", os.getenv("SUPABASE_KEY", ""))
-)
+def _get_editorial_supabase_url() -> str:
+    ref = os.getenv("EDITORIAL_SUPABASE_PROJECT_REF", "ixfdkninqeqmwuxncpvh").strip()
+    return os.getenv("EDITORIAL_SUPABASE_URL", f"https://{ref}.supabase.co").strip()
+
+def _get_editorial_supabase_key() -> str:
+    return (
+        os.getenv("EDITORIAL_SUPABASE_KEY") or
+        os.getenv("EDITORIAL_SUPABASE_SERVICE_ROLE_KEY") or
+        os.getenv("EDITORIAL_SUPABASE_ANON_KEY") or
+        os.getenv("EDITORIAL_SUPABASE_API_KEY") or
+        ""
+    ).strip()
 
 
 class EditorialFactoryService:
@@ -40,9 +43,17 @@ class EditorialFactoryService:
         supabase_url: Optional[str] = None,
         supabase_key: Optional[str] = None
     ):
-        self.supabase_url = supabase_url or EDITORIAL_SUPABASE_URL
-        self.supabase_key = supabase_key or EDITORIAL_SUPABASE_KEY
+        self._supabase_url = supabase_url
+        self._supabase_key = supabase_key
         self._client: Optional[Client] = None
+
+    @property
+    def supabase_url(self) -> str:
+        return self._supabase_url or _get_editorial_supabase_url()
+
+    @property
+    def supabase_key(self) -> str:
+        return self._supabase_key or _get_editorial_supabase_key()
 
     def get_client(self) -> Optional[Client]:
         """Lazy-initialize and return the Supabase client for Editorial Factory."""

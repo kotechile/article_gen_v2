@@ -49,6 +49,13 @@ def list_articles():
     - offset: pagination offset (default 0)
     """
     try:
+        if not editorial_factory_service.supabase_key:
+            return jsonify({
+                "success": False,
+                "error": "Editorial Factory credentials not configured. Please add EDITORIAL_SUPABASE_KEY in your environment variables (Coolify).",
+                "articles": []
+            }), 400
+
         search = request.args.get("search", "").strip()
         limit = int(request.args.get("limit", 50))
         offset = int(request.args.get("offset", 0))
@@ -86,6 +93,12 @@ def import_article():
     }
     """
     try:
+        if not editorial_factory_service.supabase_key:
+            return jsonify({
+                "success": False,
+                "error": "Editorial Factory credentials not configured. Please add EDITORIAL_SUPABASE_KEY in your environment variables (Coolify)."
+            }), 400
+
         user_id = _get_user_id_from_auth()
         if not user_id:
             # Fallback to user_id from body if provided (e.g. dev/admin mode)
