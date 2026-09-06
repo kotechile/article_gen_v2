@@ -346,77 +346,134 @@ class EditorialFactoryService:
         text = re.sub(r"\[(.+?)\]\((.+?)\)", r'<a href="\2" target="_blank" rel="noopener noreferrer">\1</a>', text)
         return text
 
-    def extract_citations_from_text(self, text: str) -> List[Dict[str, Any]]:
-        """Extract citations and references from text or dedicated bibliography/sources sections."""
+    def extract_citations(self, article: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Extract citations and references from the article row (JSON/metadata) or raw text.
+        Returns a list of standardized citation dicts:
+        [{"title": ..., "url": ..., "source_type": "web", "author": "", "publication_date": ""}]
+        """
         citations: List[Dict[str, Any]] = []
-        if not text:
-            return citations
-
         seen_urls = set()
 
-        # 1. Check if there is an explicit References / Sources section at the end of the text
-        ref_section_match = re.search(
-            r"(?:^|\n)(?:#{1,4}\s*(?:References|Sources|Citations|Bibliography)|<strong>\s*(?:References|Sources)\s*</strong>)[\s\S]*$",
-            text,
-            re.IGNORECASE
+        def add_citation(title: str, url: str, author: str = "", pub_date: str = "", source_type: str = "web"):
+            url_clean = (url or "").strip()
+            if not url_clean or url_clean == "#":
+                return
+            if url_clean in seen_urls:
+                return
+            seen_urls.add(url_clean)
+
+            title_clean = clean_citation_numbers(title or "")
+            if not title_clean or title_clean.lower() in ("#", "source", "link", "url", "reference", "references"):
+                # Derive title from URL domain or path
+                domain_m = re.search(r"https?://(?:www\.)?([^/]+)", url_clean)
+                title_clean = domain_m.group(1).title() if domain_m else "Source"
+
+            citations.append({
+                "title": title_clean,
+                "url": url_clean,
+                "source_type": source_type or "web",
+                "author": (author or "").strip(),
+                "publication_date": (pub_date or "").strip(),
+            })
+
+        raw_data = article.get("raw_data") or article
+        meta = raw_data.get("metadata") if isinstance(raw_data.get("metadata"), dict) else {}
+        art_meta = raw_data.get("article_metadata") if isinstance(raw_data.get("article_metadata"), dict) else {}
+
+        # 1. Check if citations/references already exist in the database row
+        raw_citations = (
+            raw_data.get("citations")
+            or raw_data.get("references")
+            or raw_data.get("sources")
+            or raw_data.get("bibliography")
+            or meta.get("citations")
+            or meta.get("references")
+            or meta.get("sources")
+            or art_meta.get("citations")
+            or art_meta.get("references")
         )
 
-        search_scope = ref_section_match.group(0) if ref_section_match else text
+        if isinstance(raw_citations, str):
+            try:
+                import json
+                raw_citations = json.loads(raw_citations)
+            except Exception:
+                raw_citations = None
 
-        # Pattern 1: Footnote references like [^1]: [Title](URL) or [1]: Title URL
-        footnote_pat = r"\[\^?(\d+)\]:?\s*(?:\[([^\]]+)\]\(([^)]+)\)|([^\n]+))"
-        for match in re.finditer(footnote_pat, search_scope):
-            groups = match.groups()
-            link_title = groups[1]
-            link_url = groups[2]
-            plain_line = (groups[3] or "").strip()
+        if isinstance(raw_citations, list) and len(raw_citations) > 0:
+            for item in raw_citations:
+                if isinstance(item, dict):
+                    title = item.get("title") or item.get("source_title") or item.get("name") or item.get("text") or ""
+                    url = item.get("url") or item.get("link") or item.get("href") or ""
+                    author = item.get("author") or ""
+                    pub_date = item.get("publication_date") or item.get("date") or ""
+                    add_citation(title, url, author, pub_date)
+                elif isinstance(item, str):
+                    url_m = re.search(r"https?://[^\s)]+", item)
+                    if url_m:
+                        url = url_m.group(0)
+                        title = item.replace(url, "").strip(" -:()[]\"'")
+                        add_citation(title, url)
 
-            if link_url and link_url != "#":
-                title = (link_title or "Reference Source").strip()
-                url = link_url.strip()
-            else:
-                url_m = re.search(r"https?://[^\s)]+", plain_line)
-                if url_m:
-                    url = url_m.group(0)
-                    title = plain_line.replace(url, "").strip(" -:()[]\"'")
-                elif ref_section_match and len(plain_line) < 200:
-                    # In a dedicated references section, allow title even without full URL
-                    url = "#"
-                    title = plain_line.strip(" -:()[]\"'")
-                else:
-                    # Not a citation (likely body text)
-                    continue
+        # 2. Extract from raw content text / markdown / HTML
+        content = article.get("content") or raw_data.get("content") or ""
+        if content:
+            # Check for dedicated References / Sources section with flexible heading matching
+            ref_section_match = re.search(
+                r"(?:^|\n)(?:#{1,4}\s*(?:References|Sources|Citations|Bibliography|Works\s+Cited)[^\n]*|<h[1-6]>[^<]*(?:References|Sources|Citations|Bibliography|Works\s+Cited)[^<]*</h[1-6]>|<strong>\s*(?:References|Sources|Citations|Bibliography)[^<]*</strong>)[\s\S]*$",
+                content,
+                re.IGNORECASE
+            )
 
-            if not title:
-                title = "Source"
-            title = clean_citation_numbers(title)
+            scope = ref_section_match.group(0) if ref_section_match else content
 
-            if url not in seen_urls:
-                seen_urls.add(url)
-                citations.append({
-                    "title": title,
-                    "url": url,
-                    "source_type": "web",
-                    "author": "",
-                    "publication_date": "",
-                })
+            # Pattern A: Footnotes: [^1]: [Title](URL) or [1]: Title URL or [1] Title: URL
+            footnote_pat = r"\[\^?(\d+)\]:?\s*(?:\[([^\]]+)\]\((https?://[^)]+)\)|(?:<strong>)?([^<\n]+?)(?:</strong>)?\s*[-:—–]?\s*(https?://[^\s<)\"']+)|([^\n]+))"
+            for match in re.finditer(footnote_pat, scope):
+                g = match.groups()
+                # Case A1: [Title](URL)
+                if g[1] and g[2]:
+                    add_citation(g[1], g[2])
+                # Case A2: Title - URL
+                elif g[3] and g[4]:
+                    add_citation(g[3], g[4])
+                # Case A3: plain line
+                elif g[5]:
+                    plain = g[5].strip()
+                    url_m = re.search(r"https?://[^\s<)\"']+", plain)
+                    if url_m:
+                        url = url_m.group(0)
+                        title = plain.replace(url, "").strip(" -:—–()[]\"'<>")
+                        add_citation(title, url)
 
-        # Pattern 2: Standalone URL references or Markdown links inside references section
-        if ref_section_match and not citations:
+            # Pattern B: Numbered / bulleted markdown links: 1. [Title](URL) or - [Title](URL)
             link_pat = r"(?:^|\n)[*\-•\d.]*\s*\[([^\]]+)\]\((https?://[^)]+)\)"
-            for match in re.finditer(link_pat, search_scope):
-                title, url = match.group(1).strip(), match.group(2).strip()
-                if url not in seen_urls:
-                    seen_urls.add(url)
-                    citations.append({
-                        "title": clean_citation_numbers(title) or "Source",
-                        "url": url,
-                        "source_type": "web",
-                        "author": "",
-                        "publication_date": "",
-                    })
+            for match in re.finditer(link_pat, scope):
+                add_citation(match.group(1), match.group(2))
+
+            # Pattern C: Numbered / bulleted plain URLs: 1. Title - https://... or 1. https://...
+            plain_pat = r"(?:^|\n)[*\-•\d.]+\s*(?:<strong>)?([^<\n]+?)(?:</strong>)?\s*[-:—–]\s*(https?://[^\s<)\"']+)"
+            for match in re.finditer(plain_pat, scope):
+                add_citation(match.group(1), match.group(2))
+
+            # Pattern D: HTML links in scope: <a href="URL">Title</a>
+            html_link_pat = r'<a\s+[^>]*href=["\'](https?://[^"\']+)["\'][^>]*>(.*?)</a>'
+            for match in re.finditer(html_link_pat, scope, re.IGNORECASE):
+                url = match.group(1)
+                raw_title = re.sub(r"<[^>]+>", " ", match.group(2)).strip()
+                add_citation(raw_title, url)
+
+            # Pattern E: If still no citations, extract ALL markdown links from the whole content
+            if not citations:
+                for match in re.finditer(r"\[([^\]]+)\]\((https?://[^)]+)\)", content):
+                    add_citation(match.group(1), match.group(2))
 
         return citations
+
+    def extract_citations_from_text(self, text: str) -> List[Dict[str, Any]]:
+        """Extract citations and references from text."""
+        return self.extract_citations({"content": text})
 
     def synthesize_metadata(self, article: Dict[str, Any]) -> Dict[str, Any]:
         """Extract or synthesize Hook, Thesis, Deck, and TL;DR from article content, without citation markers."""
@@ -528,13 +585,25 @@ class EditorialFactoryService:
 
         # Transform content
         raw_content = article.get("content", "")
+        citations = self.extract_citations(article)
         html_body = self.markdown_to_html(raw_content)
-        citations = self.extract_citations_from_text(raw_content)
         metadata = self.synthesize_metadata(article)
 
         # Inject Key Takeaways if available
         if metadata.get("takeaways"):
             html_body = self.inject_key_takeaways_html(html_body, metadata["takeaways"])
+
+        # If citations exist and html_body doesn't have an HTML References section, append standard References HTML
+        if citations and not re.search(r"<h[1-6]>[^<]*References</h[1-6]>", html_body, re.IGNORECASE):
+            ref_rows = []
+            for i, c in enumerate(citations, 1):
+                t_str = html.escape(c.get("title") or "Source")
+                u_str = html.escape(c.get("url") or "#")
+                author_str = f"{html.escape(c['author'])}. " if c.get("author") else ""
+                date_str = f"({html.escape(c['publication_date'])}) " if c.get("publication_date") else ""
+                ref_rows.append(f'<p><strong>[{i}]</strong> {author_str}{date_str}<a href="{u_str}" target="_blank" rel="noopener noreferrer" style="color: hsl(var(--primary)); text-decoration: underline;">{t_str}</a>.</p>')
+            references_html = "\n\n<hr>\n\n<h2>References</h2>\n\n" + "\n".join(ref_rows)
+            html_body += references_html
 
         plain_text = re.sub(r"<[^>]+>", " ", html_body).strip()
         now_iso = datetime.utcnow().isoformat()

@@ -68,6 +68,38 @@ Another finding was noted in [^2]: [Research Paper](https://university.edu/paper
     assert "https://university.edu/paper" in urls
 
 
+def test_extract_citations_various_formats(service):
+    # Test Markdown list format
+    markdown_list = """
+Main article body with stats.
+
+## References:
+1. [Department of Energy](https://energy.gov/rebates)
+2. [Rewiring America](https://rewiringamerica.org/calculator)
+- [IRS Home Credit](https://irs.gov/credit)
+"""
+    citations = service.extract_citations({"content": markdown_list})
+    assert len(citations) == 3
+    assert any(c["url"] == "https://energy.gov/rebates" for c in citations)
+    assert any(c["url"] == "https://rewiringamerica.org/calculator" for c in citations)
+    assert any(c["url"] == "https://irs.gov/credit" for c in citations)
+
+    # Test Database JSON field
+    article_with_json_citations = {
+        "content": "Article without bottom references",
+        "raw_data": {
+            "citations": [
+                {"title": "DOE Report", "url": "https://energy.gov/report", "author": "DOE", "publication_date": "2026"},
+                {"title": "EPA Clean Energy", "url": "https://epa.gov/clean", "author": "EPA"}
+            ]
+        }
+    }
+    citations_json = service.extract_citations(article_with_json_citations)
+    assert len(citations_json) == 2
+    assert citations_json[0]["title"] == "DOE Report"
+    assert citations_json[0]["url"] == "https://energy.gov/report"
+
+
 def test_synthesize_metadata(service):
     article = {
         "title": "Future of AI in Content [1]",
