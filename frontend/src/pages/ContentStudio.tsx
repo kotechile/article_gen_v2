@@ -425,7 +425,10 @@ export const ContentStudio: React.FC = () => {
 
     // Fetch Data
     useEffect(() => {
-        if (!user || !articleId) return;
+        if (!user || !articleId) {
+            setLoading(false);
+            return;
+        }
 
         const fetchData = async () => {
             setLoading(true);
@@ -433,11 +436,15 @@ export const ContentStudio: React.FC = () => {
                 // 1. Fetch Article
                 const { data: artData, error: artError } = await supabase
                     .from('Titles')
-                    .select('*, primary_keywords, secondary_keywords, search_phrase, domain, wordpress_category_id, wordpress_parent_category_id, source_idea_id')
+                    .select('*')
                     .eq('id', articleId)
-                    .single();
+                    .maybeSingle();
 
                 if (artError) throw artError;
+                if (!artData) {
+                    setArticle(null);
+                    return;
+                }
                 const normalizedArticle: ArticleData = {
                     ...(artData as ArticleData),
                     primary_keywords: normalizeKeywordList((artData as any)?.primary_keywords),
@@ -597,7 +604,7 @@ export const ContentStudio: React.FC = () => {
                 const { data: settingsData, error: settingsError } = await supabase
                     .from('application_settings')
                     .select('*')
-                    .single(); // Assuming global settings for now
+                    .maybeSingle(); // Assuming global settings for now
 
                 if (!settingsError && settingsData) {
                     setAppSettings(settingsData);
@@ -823,6 +830,8 @@ export const ContentStudio: React.FC = () => {
                 Title: effectiveFormData.title,
                 userDescription: effectiveFormData.description,
                 Keywords: effectiveFormData.keywords,
+                primary_keyword: primaryKws[0] || null,
+                secondary_keywords_json: secondaryKws,
                 primary_keywords: primaryKws,
                 secondary_keywords: secondaryKws,
                 writer_notes: effectiveFormData.writerNotes,
@@ -1290,7 +1299,22 @@ export const ContentStudio: React.FC = () => {
     };
 
     if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-primary" /></div>;
-    if (!article) return <div className="p-8 text-muted-foreground">Article not found</div>;
+    if (!article) {
+        return (
+            <div className="max-w-md mx-auto my-16 p-8 text-center rounded-2xl border border-border bg-card shadow-sm space-y-4">
+                <h2 className="text-xl font-bold text-foreground">Article Not Found</h2>
+                <p className="text-sm text-muted-foreground">
+                    The requested article could not be loaded or may have been removed.
+                </p>
+                <button
+                    onClick={() => navigate('/my-articles')}
+                    className="inline-flex items-center justify-center px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition shadow-sm"
+                >
+                    Back to My Articles
+                </button>
+            </div>
+        );
+    }
 
     const getCompetitionColor = (score: number) => {
         if (score < 40) return 'text-chart-2';
