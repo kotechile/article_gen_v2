@@ -358,7 +358,11 @@ Existing Article HTML:
 ```
 """
         try:
-            res = llm.generate([{"role": "user", "content": prompt}], temperature=0.2)
+            messages = [
+                {"role": "system", "content": "You are an elite editorial SEO specialist that naturally weaves keywords into HTML articles preserving citations, facts, and structure. Output strictly valid JSON."},
+                {"role": "user", "content": prompt}
+            ]
+            res = llm.generate(messages=messages)
             raw_text = res.content if hasattr(res, "content") else str(res)
 
             # Parse JSON

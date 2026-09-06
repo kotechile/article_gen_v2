@@ -173,7 +173,8 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
                 setError(res.error || 'Failed to weave keywords.');
             }
         } catch (err: any) {
-            setError(err.message || 'An error occurred during AI keyword weaving.');
+            const msg = err.response?.data?.error || err.message || 'An error occurred during AI keyword weaving.';
+            setError(msg);
         } finally {
             setWeaving(false);
         }
@@ -202,7 +203,8 @@ export const KeywordOptimizationModal: React.FC<KeywordOptimizationModalProps> =
 
             onClose();
         } catch (err: any) {
-            setError(err.message || 'Failed to apply keyword changes.');
+            const msg = err.response?.data?.error || err.message || 'Failed to apply keyword changes.';
+            setError(msg);
         } finally {
             setSaving(false);
         }
