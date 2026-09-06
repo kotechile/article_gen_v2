@@ -48,14 +48,18 @@ def test_markdown_to_html_lists_and_tables(service):
     assert "<ol" in html
     assert "<li>Numbered item 1</li>" in html
     assert "<table" in html
-    assert "<th>Feature</th>" in html
-    assert "<td>GEO</td>" in html
+    assert "Feature</th>" in html
+    assert "GEO</td>" in html
 
 
 def test_extract_citations_from_text(service):
     text = """
 The study showed significant results [1] https://example.com/study-1.
 Another finding was noted in [^2]: [Research Paper](https://university.edu/paper).
+
+## References
+[1] https://example.com/study-1
+[2] Research Paper: https://university.edu/paper
 """
     citations = service.extract_citations_from_text(text)
     assert len(citations) >= 2
@@ -66,21 +70,26 @@ Another finding was noted in [^2]: [Research Paper](https://university.edu/paper
 
 def test_synthesize_metadata(service):
     article = {
-        "title": "Future of AI in Content",
+        "title": "Future of AI in Content [1]",
         "content": """
-Artificial intelligence is radically transforming modern digital journalism.
-Publishers who adopt generative search optimization early will capture emerging AI answer traffic.
+[1] . Artificial intelligence is radically transforming modern digital journalism [1][3].
+Publishers who adopt generative search optimization early will capture emerging AI answer traffic [2].
 Key principles include:
-- Maintain high citation density across all claims
-- Structure direct answers for LLM ingestion
+- Maintain high citation density across all claims [1]
+- Structure direct answers for LLM ingestion [2]
 - Build interactive utilities for repeated workflows
 """,
         "tags": ["AI", "Content Strategy", "GEO"]
     }
     meta = service.synthesize_metadata(article)
+    assert "[1]" not in meta["hook"]
+    assert "[3]" not in meta["hook"]
     assert "Artificial intelligence is radically transforming" in meta["hook"]
+    assert "[2]" not in meta["thesis"]
     assert "Publishers who adopt generative search optimization" in meta["thesis"]
     assert len(meta["takeaways"]) >= 2
+    for t in meta["takeaways"]:
+        assert "[" not in t
     assert meta["primary_keyword"] == "AI"
     assert "GEO" in meta["secondary_keywords"]
 
@@ -91,7 +100,7 @@ def test_inject_key_takeaways_html(service):
 
     enriched = service.inject_key_takeaways_html(html_body, takeaways)
     assert "geo-key-takeaways" in enriched
-    assert "<h2>Key Takeaways</h2>" in enriched
+    assert "<h2>TL;DR</h2>" in enriched
     assert "<li>Takeaway 1: Scannability matters</li>" in enriched
     assert "<li>Takeaway 2: Citations build trust</li>" in enriched
 

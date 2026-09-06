@@ -834,36 +834,68 @@ export const ArticleEditor: React.FC = () => {
         const doc = parser.parseFromString(html, 'text/html');
         const extracted: any[] = [];
 
-        // Look for paragraphs starting with [n] or [^n]
-        const paragraphs = doc.querySelectorAll('p');
-        paragraphs.forEach(p => {
+        // Check if there is an explicit References heading or section
+        const headings = Array.from(doc.querySelectorAll('h1, h2, h3, h4'));
+        const refHeading = headings.find(h => /^(references|sources|bibliography|citations)$/i.test((h.textContent || '').trim()));
+
+        let targetParagraphs: Element[] = [];
+        if (refHeading) {
+            let next = refHeading.nextElementSibling;
+            while (next) {
+                if (/^H[1-4]$/i.test(next.tagName)) break;
+                if (next.tagName === 'P') targetParagraphs.push(next);
+                if (next.tagName === 'UL' || next.tagName === 'OL') {
+                    next.querySelectorAll('li').forEach(li => {
+                        const p = doc.createElement('p');
+                        p.innerHTML = li.innerHTML;
+                        targetParagraphs.push(p);
+                    });
+                }
+                next = next.nextElementSibling;
+            }
+        } else {
+            // Otherwise only extract paragraphs that contain a link OR are short source citations
+            targetParagraphs = Array.from(doc.querySelectorAll('p')).filter(p => {
+                const text = (p.textContent || '').trim();
+                const hasLink = Boolean(p.querySelector('a'));
+                const startsWithRef = /^\[\^?\d+\]/.test(text);
+                return startsWithRef && (hasLink || text.length < 180);
+            });
+        }
+
+        targetParagraphs.forEach(p => {
             const text = p.textContent || '';
             const match = text.trim().match(/^\[\^?(\d+)\]\s*(.*)$/);
             if (match) {
-                // const index = parseInt(match[1]); // Unused
                 const content = match[2];
 
                 // Try to find a link
                 const link = p.querySelector('a');
-                const url = link ? link.getAttribute('href') : '#';
+                let url = link ? link.getAttribute('href') : '#';
 
                 // Extract title - if there's a link, use its text, otherwise try to parse from content
                 let titleStr = link ? link.textContent : '';
                 if (!titleStr) {
-                    // Remove both [TYPE] and any trailing dots or truncation markers
                     titleStr = content.replace(/\[[A-Z]+\]\.?$/, '').trim();
-                    titleStr = titleStr.replace(/\.?\s*\.{2,}$/, '').trim(); // Remove "..." or " .."
+                    titleStr = titleStr.replace(/\.?\s*\.{2,}$/, '').trim();
+                }
+
+                // If URL was embedded in text
+                const urlMatch = content.match(/https?:\/\/[^\s)]+/);
+                if (urlMatch && url === '#') {
+                    url = urlMatch[0];
+                    titleStr = titleStr.replace(url, '').trim();
                 }
 
                 // Try to find source type e.g. [WEB], [JOURNAL]
                 const typeMatch = content.match(/\[([A-Z]+)\]/);
-                const sourceType = typeMatch ? typeMatch[1].toLowerCase() : 'unknown';
+                const sourceType = typeMatch ? typeMatch[1].toLowerCase() : 'web';
 
                 extracted.push({
-                    title: titleStr || 'Unknown Source',
+                    title: titleStr.replace(/^[\s.,:;–—\-]+/, '').trim() || 'Reference Source',
                     url: url || '#',
                     source_type: sourceType,
-                    extracted: true // Mark as extracted from HTML
+                    extracted: true
                 });
             }
         });

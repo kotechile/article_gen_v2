@@ -35,6 +35,21 @@ def _get_editorial_supabase_key() -> str:
     ).strip()
 
 
+def clean_citation_numbers(text: str) -> str:
+    """Strip bracketed citation numbers (e.g., [1], [^1], [1][3], [1, 2], [1-4]) and stray punctuation."""
+    if not text:
+        return ""
+    # Remove bracketed citation markers like [1], [^1], [1][2], [1, 3], [1-3]
+    cleaned = re.sub(r"\[\^?\d+(?:[-,\s]+\^?\d+)*\]", "", text)
+    # Remove leading stray punctuation like ". ", ": ", "- "
+    cleaned = re.sub(r"^[\s.,:;–—\-]+", "", cleaned)
+    # Clean whitespace before punctuation
+    cleaned = re.sub(r"\s+([.,;:!?])", r"\1", cleaned)
+    # Clean repeated whitespace
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip()
+
+
 class EditorialFactoryService:
     """Service to interact with the Editorial Factory Supabase database."""
 
@@ -132,19 +147,26 @@ class EditorialFactoryService:
                 if res.data:
                     return self._normalize_article(res.data)
             except Exception as err:
-                logger.warning(f"[EditorialFactoryService] Fetch article by id failed: {err}")
+                logger.warning(f"[EditorialFactoryService] Supabase get single failed: {err}")
 
+        # Direct REST fallback
         if self.supabase_url and self.supabase_key:
             try:
                 endpoint = f"{self.supabase_url}/rest/v1/articles"
                 headers = {
                     "apikey": self.supabase_key,
                     "Authorization": f"Bearer {self.supabase_key}",
+                    "Content-Type": "application/json",
+                }
+                params = {
+                    "select": "*",
+                    "id": f"eq.{article_id}",
+                    "limit": 1,
                 }
                 resp = requests.get(
                     endpoint,
                     headers=headers,
-                    params={"id": f"eq.{article_id}", "select": "*"},
+                    params=params,
                     timeout=15
                 )
                 if resp.status_code == 200:
@@ -192,11 +214,11 @@ class EditorialFactoryService:
 
         return {
             "id": raw_id,
-            "title": title.strip(),
+            "title": clean_citation_numbers(title),
             "content": content,
-            "summary": summary.strip(),
-            "hook": hook.strip(),
-            "thesis": thesis.strip(),
+            "summary": clean_citation_numbers(summary),
+            "hook": clean_citation_numbers(hook),
+            "thesis": clean_citation_numbers(thesis),
             "tags": tags if isinstance(tags, list) else [str(tags)],
             "created_at": created_at,
             "author": author,
@@ -208,6 +230,14 @@ class EditorialFactoryService:
         """Convert Markdown content to clean HTML structure for the editor."""
         if not text:
             return ""
+
+        # Remove trailing markdown references block from body HTML (the editor manages the structured references)
+        text = re.sub(
+            r"(?:^|\n)(?:#{1,4}\s*(?:References|Sources|Citations|Bibliography))[\s\S]*$",
+            "",
+            text,
+            flags=re.IGNORECASE
+        ).strip()
 
         # If it's already HTML (contains <p> or <h[1-6]>), return cleaned version
         if bool(re.search(r"<(p|h[1-6]|div|section|table|ul|ol)\b", text, re.IGNORECASE)):
@@ -317,34 +347,69 @@ class EditorialFactoryService:
         return text
 
     def extract_citations_from_text(self, text: str) -> List[Dict[str, Any]]:
-        """Extract citations and references from text or bibliography sections."""
+        """Extract citations and references from text or dedicated bibliography/sources sections."""
         citations: List[Dict[str, Any]] = []
         if not text:
             return citations
 
-        # Match markdown footnotes or reference items like [1] URL or [^1]: Title URL
-        ref_patterns = [
-            r"\[\^?(\d+)\]:?\s*(?:\[([^\]]+)\]\(([^)]+)\)|([^\n]+))",
-            r"(?:^|\n)\[(\d+)\]\s*(.+)",
-        ]
-
         seen_urls = set()
-        for pat in ref_patterns:
-            for match in re.finditer(pat, text):
-                groups = match.groups()
-                title = groups[1] or groups[3] or groups[0] or "Reference Source"
-                url = groups[2] if len(groups) > 2 and groups[2] else "#"
 
-                # If URL found inside title
-                url_match = re.search(r"https?://[^\s)]+", title)
-                if url_match and url == "#":
-                    url = url_match.group(0)
-                    title = title.replace(url, "").strip(" -:()")
+        # 1. Check if there is an explicit References / Sources section at the end of the text
+        ref_section_match = re.search(
+            r"(?:^|\n)(?:#{1,4}\s*(?:References|Sources|Citations|Bibliography)|<strong>\s*(?:References|Sources)\s*</strong>)[\s\S]*$",
+            text,
+            re.IGNORECASE
+        )
 
+        search_scope = ref_section_match.group(0) if ref_section_match else text
+
+        # Pattern 1: Footnote references like [^1]: [Title](URL) or [1]: Title URL
+        footnote_pat = r"\[\^?(\d+)\]:?\s*(?:\[([^\]]+)\]\(([^)]+)\)|([^\n]+))"
+        for match in re.finditer(footnote_pat, search_scope):
+            groups = match.groups()
+            link_title = groups[1]
+            link_url = groups[2]
+            plain_line = (groups[3] or "").strip()
+
+            if link_url and link_url != "#":
+                title = (link_title or "Reference Source").strip()
+                url = link_url.strip()
+            else:
+                url_m = re.search(r"https?://[^\s)]+", plain_line)
+                if url_m:
+                    url = url_m.group(0)
+                    title = plain_line.replace(url, "").strip(" -:()[]\"'")
+                elif ref_section_match and len(plain_line) < 200:
+                    # In a dedicated references section, allow title even without full URL
+                    url = "#"
+                    title = plain_line.strip(" -:()[]\"'")
+                else:
+                    # Not a citation (likely body text)
+                    continue
+
+            if not title:
+                title = "Source"
+            title = clean_citation_numbers(title)
+
+            if url not in seen_urls:
+                seen_urls.add(url)
+                citations.append({
+                    "title": title,
+                    "url": url,
+                    "source_type": "web",
+                    "author": "",
+                    "publication_date": "",
+                })
+
+        # Pattern 2: Standalone URL references or Markdown links inside references section
+        if ref_section_match and not citations:
+            link_pat = r"(?:^|\n)[*\-•\d.]*\s*\[([^\]]+)\]\((https?://[^)]+)\)"
+            for match in re.finditer(link_pat, search_scope):
+                title, url = match.group(1).strip(), match.group(2).strip()
                 if url not in seen_urls:
                     seen_urls.add(url)
                     citations.append({
-                        "title": title.strip() or "Source",
+                        "title": clean_citation_numbers(title) or "Source",
                         "url": url,
                         "source_type": "web",
                         "author": "",
@@ -354,37 +419,54 @@ class EditorialFactoryService:
         return citations
 
     def synthesize_metadata(self, article: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract or synthesize Hook, Thesis, Deck, and Key Takeaways from article content."""
+        """Extract or synthesize Hook, Thesis, Deck, and TL;DR from article content, without citation markers."""
         content = article.get("content", "")
         summary = article.get("summary", "")
         hook = article.get("hook", "")
         thesis = article.get("thesis", "")
 
-        # Plain text extraction
-        plain = re.sub(r"<[^>]+>", " ", content)
-        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", plain) if len(s.strip()) > 20]
+        # Remove explicit References section before synthesizing hook/thesis/deck
+        content_without_refs = re.sub(
+            r"(?:^|\n)(?:#{1,4}\s*(?:References|Sources|Citations|Bibliography)|<strong>\s*(?:References|Sources)\s*</strong>)[\s\S]*$",
+            "",
+            content,
+            flags=re.IGNORECASE
+        )
+
+        # Plain text extraction with citation numbers removed
+        plain = clean_citation_numbers(re.sub(r"<[^>]+>", " ", content_without_refs))
+        sentences = [
+            clean_citation_numbers(s.strip())
+            for s in re.split(r"(?<=[.!?])\s+", plain)
+            if len(clean_citation_numbers(s.strip())) > 25
+        ]
 
         # 1. Hook
+        hook = clean_citation_numbers(hook)
         if not hook and sentences:
             hook = sentences[0]
 
         # 2. Thesis
+        thesis = clean_citation_numbers(thesis)
         if not thesis and len(sentences) > 1:
             thesis = sentences[1]
         elif not thesis and sentences:
             thesis = sentences[0]
 
         # 3. Deck / TL;DR
-        deck = summary
+        deck = clean_citation_numbers(summary)
         if not deck and sentences:
             deck = " ".join(sentences[:2])
 
-        # 4. Key Takeaways
+        # 4. TL;DR Takeaways
         takeaways: List[str] = []
         # Check if content has bullet points
-        bullet_matches = re.findall(r"^[*\-•]\s+(.+)$", content, re.MULTILINE)
+        bullet_matches = re.findall(r"^[*\-•]\s+(.+)$", content_without_refs, re.MULTILINE)
         if bullet_matches:
-            takeaways = [b.strip() for b in bullet_matches[:4] if len(b.strip()) > 25]
+            for b in bullet_matches[:4]:
+                cleaned_b = clean_citation_numbers(b)
+                if len(cleaned_b) > 25 and not re.search(r"^(references|sources|bibliography)", cleaned_b, re.IGNORECASE):
+                    takeaways.append(cleaned_b)
         if not takeaways and len(sentences) >= 3:
             takeaways = sentences[1:4]
 
@@ -394,23 +476,23 @@ class EditorialFactoryService:
         secondary_kws = tags[1:] if len(tags) > 1 else []
 
         return {
-            "hook": hook,
-            "thesis": thesis,
-            "deck": deck,
-            "takeaways": takeaways,
+            "hook": clean_citation_numbers(hook),
+            "thesis": clean_citation_numbers(thesis),
+            "deck": clean_citation_numbers(deck),
+            "takeaways": [clean_citation_numbers(t) for t in takeaways],
             "primary_keyword": primary_kw,
             "secondary_keywords": secondary_kws,
         }
 
     def inject_key_takeaways_html(self, html_content: str, takeaways: List[str]) -> str:
-        """Inject structured Key Takeaways GEO section after the first header/paragraph."""
-        if not takeaways or "geo-key-takeaways" in html_content:
+        """Inject structured TL;DR section after the first header/paragraph."""
+        if not takeaways or "geo-key-takeaways" in html_content or "<h2>TL;DR</h2>" in html_content:
             return html_content
 
         takeaways_items = "".join(f"<li>{html.escape(t)}</li>" for t in takeaways)
         takeaways_section = f"""
 <section class="geo-key-takeaways" data-geo-injected="key-takeaways">
-  <h2>Key Takeaways</h2>
+  <h2>TL;DR</h2>
   <ul>
     {takeaways_items}
   </ul>
