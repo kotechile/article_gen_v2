@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     Settings as SettingsIcon,
     Search,
@@ -18,7 +19,10 @@ import {
     Layout,
     FolderTree,
     ChevronRight,
-    Share2
+    Share2,
+    ExternalLink,
+    Sparkles,
+    Tag
 } from 'lucide-react';
 import { TrendReportModal } from '../components/TrendReportModal';
 import { supabase } from '../lib/supabase';
@@ -31,6 +35,7 @@ import {
     disconnectLinkedInAccount,
     type LinkedInAccountStatus
 } from '../services/linkedinService';
+import { importPostToTitles, importAllPostsToTitles } from '../services/wordpressService';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -90,6 +95,7 @@ const normalizeProjectDomain = (value?: string) =>
         .replace(/\/$/, '');
 
 export const Settings: React.FC = () => {
+    const navigate = useNavigate();
     const { user } = useAuth();
     const { refreshProjects } = useProject();
     const [activeTab, setActiveTab] = useState(getInitialTab);
@@ -121,6 +127,8 @@ export const Settings: React.FC = () => {
     const [importedPosts, setImportedPosts] = useState<any[]>([]);
     const [postsLoading, setPostsLoading] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [importingPostId, setImportingPostId] = useState<string | null>(null);
+    const [isBatchImporting, setIsBatchImporting] = useState(false);
 
     // Trend Report State
     const [trendProject, setTrendProject] = useState<Project | null>(null);
@@ -524,11 +532,71 @@ export const Settings: React.FC = () => {
         setIsSyncing(true);
         try {
             await apiClient.post<any>('/wordpress/sync-posts', { user_id: user.id });
-            fetchImportedPosts();
+            await fetchImportedPosts();
         } catch (err) {
             console.error("Sync error:", err);
         } finally {
             setIsSyncing(false);
+        }
+    };
+
+    const handleImportToStudio = async (post: any) => {
+        if (!user) return;
+        setImportingPostId(post.id);
+        try {
+            const res = await importPostToTitles({
+                user_id: user.id,
+                imported_post_id: post.id,
+                post_id: post.post_id,
+                wordpress_detail_id: post.wordpress_detail_id
+            });
+            if (res?.title_id) {
+                navigate(`/content-studio?id=${res.title_id}`);
+            }
+        } catch (err) {
+            console.error("Error importing post to Studio:", err);
+            alert("Failed to import post into Content Studio");
+        } finally {
+            setImportingPostId(null);
+        }
+    };
+
+    const handleImportToEditor = async (post: any) => {
+        if (!user) return;
+        setImportingPostId(post.id);
+        try {
+            const res = await importPostToTitles({
+                user_id: user.id,
+                imported_post_id: post.id,
+                post_id: post.post_id,
+                wordpress_detail_id: post.wordpress_detail_id
+            });
+            if (res?.title_id) {
+                navigate(`/article-editor/${res.title_id}`);
+            }
+        } catch (err) {
+            console.error("Error importing post to Editor:", err);
+            alert("Failed to import post into Article Editor");
+        } finally {
+            setImportingPostId(null);
+        }
+    };
+
+    const handleBatchImportAll = async () => {
+        if (!user || importedPosts.length === 0) return;
+        if (!confirm(`Import all ${importedPosts.length} posts into Content Library?`)) return;
+        setIsBatchImporting(true);
+        try {
+            const res = await importAllPostsToTitles({
+                user_id: user.id
+            });
+            alert(res?.message || `Successfully imported ${res?.imported_count || 0} posts into Content Library!`);
+            await fetchImportedPosts();
+        } catch (err) {
+            console.error("Error batch importing:", err);
+            alert("Failed to batch import posts");
+        } finally {
+            setIsBatchImporting(false);
         }
     };
 
@@ -1234,15 +1302,33 @@ export const Settings: React.FC = () => {
                 {/* Imported Posts */}
                 <TabsContent value="posts" className="animate-in fade-in-50 duration-500">
                     <Card className="border-border shadow-sm">
-                        <CardHeader className="bg-muted/30 border-b border-border flex flex-row items-center justify-between h-auto py-5">
+                        <CardHeader className="bg-muted/30 border-b border-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 h-auto py-5">
                             <div>
-                                <CardTitle>External Articles History</CardTitle>
-                                <CardDescription>Articles imported from your WordPress sites for internal linking.</CardDescription>
+                                <CardTitle className="flex items-center gap-2">
+                                    <span>External Articles History</span>
+                                    <span className="text-xs font-normal text-muted-foreground px-2 py-0.5 rounded-full bg-muted">
+                                        {importedPosts.length} synced
+                                    </span>
+                                </CardTitle>
+                                <CardDescription>Articles imported from your WordPress sites with full SEO metadata (Yoast, RankMath, Categories, Social).</CardDescription>
                             </div>
-                            <Button onClick={handleSync} disabled={isSyncing || projects.filter(p => p.wordpress_key).length === 0} className="rounded-xl border-border" variant="outline">
-                                <RefreshCw className={cn("w-4 h-4 mr-2", isSyncing && "animate-spin")} />
-                                {isSyncing ? "Syncing..." : "Sync Posts"}
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                {importedPosts.length > 0 && (
+                                    <Button
+                                        onClick={handleBatchImportAll}
+                                        disabled={isBatchImporting}
+                                        variant="outline"
+                                        className="rounded-xl border-border text-xs h-9"
+                                    >
+                                        {isBatchImporting ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 mr-1.5 text-amber-500" />}
+                                        {isBatchImporting ? "Importing..." : "Import All to Studio"}
+                                    </Button>
+                                )}
+                                <Button onClick={handleSync} disabled={isSyncing || projects.filter(p => p.wordpress_key).length === 0} className="rounded-xl border-border text-xs h-9" variant="outline">
+                                    <RefreshCw className={cn("w-3.5 h-3.5 mr-1.5", isSyncing && "animate-spin")} />
+                                    {isSyncing ? "Syncing..." : "Sync Posts"}
+                                </Button>
+                            </div>
                         </CardHeader>
                         <CardContent className="p-0">
                             {postsLoading ? (
@@ -1252,28 +1338,83 @@ export const Settings: React.FC = () => {
                                     <div className="w-16 h-16 bg-muted/50 rounded-full flex items-center justify-center mx-auto">
                                         <FileText className="w-8 h-8 text-muted-foreground" />
                                     </div>
-                                    <p className="text-muted-foreground">No posts imported yet. Run a sync to fetch articles.</p>
+                                    <p className="text-muted-foreground">No posts imported yet. Run a sync to fetch articles with SEO metadata.</p>
                                 </div>
                             ) : (
                                 <div className="divide-y divide-border">
-                                    {importedPosts.map(post => (
-                                        <div key={post.id} className="p-5 flex items-center justify-between hover:bg-muted/30 transition-colors group">
-                                            <div className="space-y-1 pr-6 flex-1 overflow-hidden">
-                                                <h4 className="text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors">{post.title}</h4>
-                                                <div className="flex items-center gap-3">
-                                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-muted/50 rounded-md text-muted-foreground">
-                                                        {post.source_site || 'WordPress'}
-                                                    </span>
-                                                    <a href={post.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline truncate">
-                                                        {post.link}
-                                                    </a>
+                                    {importedPosts.map(post => {
+                                        const focusKw = post.focus_keyword || post.primary_keyword || post.seo_metadata?.focusKeyword;
+                                        const catNames = post.category_names || post.seo_metadata?.categoryNames || [];
+                                        const isImportingThis = importingPostId === post.id;
+                                        
+                                        return (
+                                            <div key={post.id} className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-muted/30 transition-colors group">
+                                                <div className="space-y-2 flex-1 overflow-hidden">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-muted/50 rounded-md text-muted-foreground">
+                                                            {post.source_site || 'WordPress'}
+                                                        </span>
+                                                        {focusKw && (
+                                                            <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                                                <Tag className="w-3 h-3" />
+                                                                {focusKw}
+                                                            </span>
+                                                        )}
+                                                        {catNames.length > 0 && (
+                                                            <span className="text-[11px] text-muted-foreground bg-muted/30 px-2 py-0.5 rounded">
+                                                                {catNames.slice(0, 2).join(' / ')}
+                                                            </span>
+                                                        )}
+                                                        {post.titles_record_id && (
+                                                            <span className="text-[10px] font-semibold text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded">
+                                                                In Library
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <h4 className="text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+                                                        {post.title}
+                                                    </h4>
+                                                    {post.seo_description && (
+                                                        <p className="text-xs text-muted-foreground line-clamp-1">
+                                                            {post.seo_description}
+                                                        </p>
+                                                    )}
+                                                    <div className="flex items-center gap-3">
+                                                        <a href={post.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline truncate inline-flex items-center gap-1">
+                                                            <span>{post.link}</span>
+                                                            <ExternalLink className="w-3 h-3 shrink-0" />
+                                                        </a>
+                                                        <span className="text-xs text-muted-foreground">
+                                                            {new Date(post.published_at || post.created_at).toLocaleDateString()}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={() => handleImportToStudio(post)}
+                                                        disabled={isImportingThis}
+                                                        className="text-xs h-8 rounded-lg"
+                                                    >
+                                                        {isImportingThis ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wand2 className="w-3 h-3 mr-1 text-primary" />}
+                                                        Studio
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={() => handleImportToEditor(post)}
+                                                        disabled={isImportingThis}
+                                                        className="text-xs h-8 rounded-lg"
+                                                    >
+                                                        {isImportingThis ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Edit2 className="w-3 h-3 mr-1 text-muted-foreground" />}
+                                                        Editor
+                                                    </Button>
                                                 </div>
                                             </div>
-                                            <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                                                {new Date(post.created_at).toLocaleDateString()}
-                                            </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </CardContent>

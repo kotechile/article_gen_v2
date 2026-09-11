@@ -1135,3 +1135,39 @@ export const resolveLinkedWordPressCategoryIds = async (
         return [];
     }
 };
+
+/**
+ * Sync posts from all configured WordPress sites with full SEO metadata.
+ */
+export const syncWordPressPosts = async (userId: string, importToTitles: boolean = false): Promise<any> => {
+    return apiClient.post('/wordpress/sync-posts', {
+        user_id: userId,
+        import_to_titles: importToTitles
+    });
+};
+
+/**
+ * Import an external/synced WordPress post into Titles with full SEO metadata
+ * for editing in Content Studio and Article Editor.
+ */
+export const importPostToTitles = async (params: {
+    user_id: string;
+    imported_post_id?: string;
+    post_id?: number | string;
+    wordpress_detail_id?: number | string;
+}): Promise<{ success: boolean; title_id: string; message?: string }> => {
+    const res = await apiClient.post<any>('/wordpress/import-to-titles', params);
+    return res.data || res;
+};
+
+/**
+ * Batch import multiple imported posts into Titles table.
+ */
+export const importAllPostsToTitles = async (params: {
+    user_id: string;
+    imported_ids?: string[];
+}): Promise<{ success: boolean; imported_count: number; title_ids: string[]; message?: string }> => {
+    const res = await apiClient.post<any>('/wordpress/import-all-to-titles', params);
+    return res.data || res;
+};
+

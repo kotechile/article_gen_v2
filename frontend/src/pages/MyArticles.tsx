@@ -3,11 +3,12 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/auth-context'
 import { useProject } from '../context/project-context'
 import type { Article } from '../types'
-import { Plus, Search, Trash2, Sparkles, Edit, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Search, Trash2, Sparkles, Edit, X, ChevronDown, ChevronUp, Globe } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { apiClient } from '../api-client'
 import { KeywordIntelligenceModal } from '../components/KeywordIntelligenceModal'
+import { WordPressImportModal } from '../components/WordPressImportModal'
 import type { ContentIdea } from '../types/idea-burst'
 import { contentIdeasService, mergeKeywordSelectionState } from '../services/content-ideas.service'
 
@@ -259,6 +260,8 @@ export const MyArticles: React.FC = () => {
     // Keyword Intelligence Modal (replaces legacy Keyword Lab)
     const [kwIntelOpen, setKwIntelOpen] = useState(false)
     const [kwIntelArticle, setKwIntelArticle] = useState<LibraryArticle | null>(null)
+    // WordPress / Editorial Factory Import Modal
+    const [wpImportOpen, setWpImportOpen] = useState(false)
 
     useEffect(() => {
         if (activeProject?.id && !projectFilter) {
@@ -1043,6 +1046,14 @@ export const MyArticles: React.FC = () => {
                             </button>
                         )}
                         <button
+                            onClick={() => setWpImportOpen(true)}
+                            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-3.5 text-sm text-indigo-400 transition hover:bg-indigo-500/15"
+                            title="Import published articles and SEO metadata from connected WordPress sites"
+                        >
+                            <Globe className="h-3.5 w-3.5" />
+                            <span>Import from WP</span>
+                        </button>
+                        <button
                             onClick={handleOpenKnowledgeGaps}
                             className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-blue-500/20 bg-blue-500/10 px-3.5 text-sm text-blue-400 transition hover:bg-blue-500/15"
                         >
@@ -1547,6 +1558,14 @@ export const MyArticles: React.FC = () => {
                         />
                     )
                 })()}
+
+                <WordPressImportModal
+                    isOpen={wpImportOpen}
+                    onClose={() => setWpImportOpen(false)}
+                    onImportSuccess={() => {
+                        fetchArticles()
+                    }}
+                />
 
             </div>
         </div>

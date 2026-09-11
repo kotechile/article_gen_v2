@@ -61,6 +61,41 @@ export interface SEOMetadata {
     twitterDescription?: string;
     twitterImageUrl?: string;
     twitterCardType?: 'summary' | 'summary_large_image';
+    categoryNames?: string[];
+    tagNames?: string[];
+    featuredImageUrl?: string;
+    featuredImageAlt?: string;
+}
+
+export interface WordPressImportedPost {
+    id: string;
+    user_id: string;
+    wordpress_detail_id?: number | string;
+    post_id: number | string;
+    title: string;
+    link: string;
+    excerpt?: string;
+    slug?: string;
+    content_html?: string;
+    published_at?: string;
+    modified_at?: string;
+    featured_image_url?: string;
+    featured_image_alt?: string;
+    category_ids?: number[];
+    category_names?: string[];
+    tag_ids?: number[];
+    tag_names?: string[];
+    seo_title?: string;
+    seo_description?: string;
+    focus_keyword?: string;
+    primary_keyword?: string;
+    secondary_keywords?: string[];
+    canonical_url?: string;
+    seo_metadata?: SEOMetadata;
+    raw_post_json?: any;
+    titles_record_id?: string;
+    created_at: string;
+    source_site?: string;
 }
 
 export interface WordPressPostData {

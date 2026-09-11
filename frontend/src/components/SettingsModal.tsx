@@ -1,8 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Edit2, Save, Loader2, RefreshCw } from 'lucide-react';
+import { X, Plus, Trash2, Edit2, Save, Loader2, RefreshCw, Sparkles, ArrowRight, Tag, Layers, CheckCircle2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
+import { importPostToTitles } from '../services/wordpressService';
 import type { WordPressDetail } from '../types';
 
 interface SettingsModalProps {
@@ -12,6 +14,7 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [sites, setSites] = useState<WordPressDetail[]>([]);
     const [loading, setLoading] = useState(true);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -24,6 +27,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     const [activeTab, setActiveTab] = useState<'settings' | 'posts'>('settings');
     const [importedPosts, setImportedPosts] = useState<any[]>([]);
     const [postsLoading, setPostsLoading] = useState(false);
+    const [importingPostId, setImportingPostId] = useState<string | null>(null);
     const [showAddPost, setShowAddPost] = useState(false);
     const [newPost, setNewPost] = useState({ title: '', link: '', excerpt: '' });
 
@@ -83,6 +87,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             alert('Failed to add post');
         } finally {
             setPostsLoading(false);
+        }
+    };
+
+    const handleImportPostToTitles = async (post: any) => {
+        if (!user) return;
+        try {
+            setImportingPostId(post.id);
+            const res = await importPostToTitles({
+                user_id: user.id,
+                imported_post_id: post.id
+            });
+            if (res?.success) {
+                setImportedPosts(prev => prev.map(p => p.id === post.id ? { ...p, titles_record_id: res.title_id } : p));
+            }
+        } catch (error) {
+            console.error('Error importing post to Titles:', error);
+            alert('Failed to import post into Content Library');
+        } finally {
+            setImportingPostId(null);
         }
     };
 
@@ -447,17 +470,82 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                     {importedPosts.length === 0 ? (
                                         <div className="text-center py-8 text-gray-500">No posts imported yet. Sync from Settings or add manually.</div>
                                     ) : (
-                                        importedPosts.map((post) => (
-                                            <div key={post.id} className="p-3 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-lg hover:shadow-sm transition-shadow">
-                                                <div className="flex justify-between items-start">
-                                                    <div>
-                                                        <h4 className="font-medium text-gray-900 dark:text-white line-clamp-1">{post.title}</h4>
+                                        importedPosts.map((post) => {
+                                            const isImported = Boolean(post.titles_record_id);
+                                            const isImporting = importingPostId === post.id;
+                                            const focusKw = post.focus_keyword || post.primary_keyword;
+
+                                            return (
+                                                <div key={post.id} className="p-3.5 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl hover:shadow-sm transition-shadow flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                                                    <div className="flex-1 min-w-0 space-y-1">
+                                                        <div className="flex items-center gap-2">
+                                                            {isImported && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+                                                            <h4 className="font-medium text-gray-900 dark:text-white line-clamp-1">{post.title}</h4>
+                                                        </div>
                                                         <a href={post.link} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-500 hover:underline line-clamp-1">{post.link}</a>
-                                                        {post.excerpt && <p className="text-xs text-gray-500 mt-1 line-clamp-2" dangerouslySetInnerHTML={{ __html: post.excerpt }} />}
+                                                        {(post.seo_description || post.excerpt) && (
+                                                            <p className="text-xs text-gray-500 line-clamp-2" dangerouslySetInnerHTML={{ __html: post.seo_description || post.excerpt }} />
+                                                        )}
+
+                                                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                                            {focusKw && (
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                                                    <Sparkles className="w-2.5 h-2.5" />
+                                                                    KW: {focusKw}
+                                                                </span>
+                                                            )}
+                                                            {post.category_names && post.category_names.length > 0 && (
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                                                                    <Layers className="w-2.5 h-2.5" />
+                                                                    {post.category_names.slice(0, 2).join(', ')}
+                                                                </span>
+                                                            )}
+                                                            {post.tag_names && post.tag_names.length > 0 && (
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
+                                                                    <Tag className="w-2.5 h-2.5" />
+                                                                    {post.tag_names.slice(0, 2).join(', ')}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                                        {isImported ? (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        onClose();
+                                                                        navigate(`/content-studio?id=${post.titles_record_id}`);
+                                                                    }}
+                                                                    className="px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 rounded-lg border border-emerald-200 dark:border-emerald-800 flex items-center gap-1"
+                                                                >
+                                                                    <span>Studio</span>
+                                                                    <ArrowRight className="w-3 h-3" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        onClose();
+                                                                        navigate(`/article-editor/${post.titles_record_id}`);
+                                                                    }}
+                                                                    className="px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-700"
+                                                                >
+                                                                    Editor
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => handleImportPostToTitles(post)}
+                                                                disabled={isImporting}
+                                                                className="px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 rounded-lg border border-indigo-200 dark:border-indigo-800 flex items-center gap-1.5 disabled:opacity-50"
+                                                            >
+                                                                {isImporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                                                                <span>Import to Studio</span>
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
-                                            </div>
-                                        ))
+                                            );
+                                        })
                                     )}
                                 </div>
                             )}

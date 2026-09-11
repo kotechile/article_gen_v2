@@ -24,23 +24,38 @@ class WordPressClient:
         else:
             self.headers = {}
 
-    def get_posts(self, page: int = 1, per_page: int = 20) -> List[Dict]:
-        """Fetch posts from WordPress site"""
+    def get_posts(self, page: int = 1, per_page: int = 20, embed: bool = True, fields: Optional[str] = None) -> List[Dict]:
+        """Fetch posts from WordPress site with full SEO metadata and embedded media/terms."""
         try:
             url = f"{self.base_url}/posts"
-            params = {
+            params: Dict = {
                 'page': page,
                 'per_page': per_page,
                 'status': 'publish',
-                '_fields': 'id,title,link,excerpt' # Optimize response size
             }
+            if embed:
+                params['_embed'] = '1'
+            if fields:
+                params['_fields'] = fields
             
-            response = requests.get(url, headers=self.headers, params=params, timeout=10, verify=False)
+            response = requests.get(url, headers=self.headers, params=params, timeout=20, verify=False)
             response.raise_for_status()
             
             return response.json()
         except requests.exceptions.RequestException as e:
             print(f"Error fetching posts from {self.base_url}: {str(e)}")
+            raise e
+
+    def get_post(self, post_id: int, embed: bool = True) -> Dict:
+        """Fetch a single WordPress post by ID with full metadata."""
+        try:
+            url = f"{self.base_url}/posts/{post_id}"
+            params = {'_embed': '1'} if embed else {}
+            response = requests.get(url, headers=self.headers, params=params, timeout=15, verify=False)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching post {post_id} from {self.base_url}: {str(e)}")
             raise e
 
     def get_categories(self) -> List[str]:
