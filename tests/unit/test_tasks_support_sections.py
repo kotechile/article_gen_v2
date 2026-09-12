@@ -102,7 +102,7 @@ def test_generate_key_takeaways_from_article_renders_html():
         article_text="A full article body about breaking a lease.",
     )
 
-    assert "<h2>Key Takeaways</h2>" in html
+    assert "<h2>At a glance</h2>" in html
     assert html.count("<li>") == 3
 
 

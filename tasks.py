@@ -115,6 +115,7 @@ _SOURCE_STRATEGIES = {
 _GENERIC_SECTION_QUERY_MARKERS = (
     "faq",
     "frequently asked questions",
+    "at a glance",
     "key takeaways",
     "takeaways",
     "summary",
@@ -777,7 +778,7 @@ def _build_geo_takeaways_block(topic_phrase: str, support_points: List[str]) -> 
         if point
     )
     return (
-        "<h2>Key Takeaways</h2>\n\n"
+        "<h2>At a glance</h2>\n\n"
         f"<ul>{bullet_html}</ul>\n\n"
     )
 
@@ -876,7 +877,7 @@ def _looks_like_support_section_noise(value: str, min_len: int = 20) -> bool:
 
 def _sanitize_takeaway_text(value: str) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip(" -:;,.")
-    text = re.sub(r"^(key takeaway|takeaway)\s*:\s*", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"^(at a glance|key takeaway|takeaway|tl;?dr)\s*:\s*", "", text, flags=re.IGNORECASE).strip()
     if not text:
         return ""
     if _looks_like_support_section_noise(text, min_len=20):
@@ -965,7 +966,7 @@ def _render_key_takeaways_html(items: List[str]) -> str:
     if not items:
         return ""
     bullet_html = "".join(f"<li>{html.escape(item)}</li>" for item in items)
-    return "<h2>Key Takeaways</h2>\n\n<ul>" + bullet_html + "</ul>\n\n"
+    return "<h2>At a glance</h2>\n\n<ul>" + bullet_html + "</ul>\n\n"
 
 
 def _render_faq_html(items: List[Dict[str, str]]) -> str:
@@ -1017,7 +1018,7 @@ def _generate_key_takeaways_from_article(
         return ""
 
     prompt = f"""
-You are writing the final Key Takeaways section for a professional article.
+You are writing the 'At a glance' summary section for a professional article.
 Read the full article and return STRICT JSON only.
 
 Rules:
@@ -5027,10 +5028,11 @@ def _build_refinement_user_message(
         )
 
     section_guidance = ""
-    if "key takeaway" in (section_title or "").strip().lower():
+    lowered_title = (section_title or "").strip().lower()
+    if any(m in lowered_title for m in ["at a glance", "key takeaway", "takeaway", "tl;dr"]):
         section_guidance = """
 
-KEY TAKEAWAYS SECTION RULES:
+AT A GLANCE / SUMMARY SECTION RULES:
 - Make this section feel crisp, fluid, and non-repetitive.
 - Keep it to 3-5 bullet points only.
 - Each bullet must communicate a distinct takeaway, not a reworded version of another bullet.
@@ -5133,7 +5135,7 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
 
         def _is_key_takeaways_section(title: str) -> bool:
             lowered = (title or "").strip().lower()
-            return "key takeaway" in lowered or lowered == "takeaways"
+            return "at a glance" in lowered or "key takeaway" in lowered or lowered == "takeaways" or "tl;dr" in lowered
 
         def _run_refinement_pass(pass_name: str, system_content: str, input_html: str) -> Optional[str]:
             if time.time() > refinement_stage_deadline:
@@ -5323,7 +5325,7 @@ Rules:
 - Remove overstatements that are not supported.
 - Preserve all HTML structure and any citation markers.
 - Keep wording concise and concrete.
-- {"For Key Takeaways sections, keep only distinct bullets and remove overlapping points." if takeaways_section else "Keep section structure intact."}
+- {"For 'At a glance' or Key Takeaways sections, keep only distinct bullets and remove overlapping points." if takeaways_section else "Keep section structure intact."}
 - Return only cleaned HTML."""
             factual_result = _run_refinement_pass("factual_integrity", factual_prompt, refined_content)
             if factual_result:
@@ -5343,7 +5345,7 @@ Rules:
 - Reduce hedging and repetitive transitions.
 - Remove banned/generic phrases.
 - CRITICAL: Split long, dense paragraphs into small, digestible paragraphs (typically 2 to 4 sentences or 35 to 70 words per paragraph). Avoid walls of text.
-- {"For Key Takeaways sections, tighten repeated ideas into 3-5 distinct bullets and remove redundant setup language." if takeaways_section else "Keep the current section structure unless a cleaner equivalent is clearly better."}
+- {"For 'At a glance' or Key Takeaways sections, tighten repeated ideas into 3-5 distinct bullets and remove redundant setup language." if takeaways_section else "Keep the current section structure unless a cleaner equivalent is clearly better."}
 - Keep the same facts and HTML structure.
 - Keep tone as {tone}.
 - Return only revised HTML."""
@@ -5380,7 +5382,7 @@ Rules:
             - Avoid repetitive, cliché personal anecdotes/stories (such as "I remember sitting at my kitchen table" or "I remember staring at my laptop screen"). Make sure any personal narratives are natural, fluid, unique, and never repeat similar phrasing or concepts.
             - If the tone is Journalistic, Professional, Academic, or Technical, ensure there are NO fabricated first-person anecdotes or fictional personal stories injected.
             - CRITICAL: Proactively split any long, dense paragraphs into smaller, bite-sized, digestible paragraphs (typically 2 to 4 sentences or 30 to 70 words each) to avoid fatigue, improve readability, and keep the layout scannable.
-            - {"If this is a Key Takeaways section, make it more fluid and concise by using 3-5 short, distinct bullets with minimal overlap." if takeaways_section else "Avoid unnecessary repetition and keep each section focused."}
+            - {"If this is an 'At a glance' or Key Takeaways section, make it more fluid and concise by using 3-5 short, distinct bullets with minimal overlap." if takeaways_section else "Avoid unnecessary repetition and keep each section focused."}
             - Maintain the original meaning and factual accuracy
             - Maintain HTML structure exactly as provided
             {citation_instructions}
@@ -5702,7 +5704,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
 
         full_content, existing_takeaways_block = _pop_named_h2_section(
             full_content,
-            r"key\s+takeaways",
+            r"(?:at\s+a\s+glance|key\s+takeaways|takeaways|tl;?\s*dr)",
         )
         full_content, existing_faq_block = _pop_named_h2_section(
             full_content,

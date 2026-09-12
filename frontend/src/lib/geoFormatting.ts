@@ -1,6 +1,6 @@
-const KEY_TAKEAWAYS_HEADING = /^key takeaways$/i;
+const KEY_TAKEAWAYS_HEADING = /^(?:at a glance|key takeaways|takeaways|tl;?dr)$/i;
 const INTRODUCTION_HEADING = /^introduction\b/i;
-const TAKEAWAY_PREFIX = /^key takeaway\s*:\s*/i;
+const TAKEAWAY_PREFIX = /^(?:at a glance|key takeaway|takeaway|tl;?dr)\s*:\s*/i;
 const TAKEAWAY_META_PATTERNS = [
     /^claim extracted from:/i,
     /^outcome:/i,
@@ -55,7 +55,7 @@ const createKeyTakeawaysSection = (doc: Document, takeaways: string[]): HTMLElem
     section.setAttribute('data-geo-injected', 'key-takeaways');
 
     const heading = doc.createElement('h2');
-    heading.textContent = 'Key Takeaways';
+    heading.textContent = 'At a glance';
     section.appendChild(heading);
 
     const list = doc.createElement('ul');

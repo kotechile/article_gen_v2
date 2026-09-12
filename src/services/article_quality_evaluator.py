@@ -119,7 +119,7 @@ def _geo_signals(html_content: str, plain_text: str) -> Dict[str, Any]:
 
     has_faq = ("<h2>faq" in lower_html) or ("frequently asked questions" in lower_text)
     has_table = "<table" in lower_html
-    has_takeaways = "key takeaways" in lower_text
+    has_takeaways = ("at a glance" in lower_text) or ("key takeaways" in lower_text) or ("takeaways" in lower_text)
     has_answer_style_intro = any(
         phrase in lower_text
         for phrase in [

@@ -26,7 +26,7 @@ _SECTION_FILTER_STOP_WORDS = {
 }
 
 _GENERIC_SECTION_MARKERS = (
-    'faq', 'frequently asked questions', 'key takeaways', 'takeaways', 'summary',
+    'faq', 'frequently asked questions', 'at a glance', 'key takeaways', 'takeaways', 'summary',
     'overview', 'introduction', 'conclusion', 'final thoughts', 'next steps',
 )
 
