@@ -55,4 +55,27 @@ describe('ensureIntroKeyTakeaways', () => {
         expect(children[2]?.tagName).toBe('H2');
         expect(children[2]?.textContent?.trim()).toBe('Introduction: The True Cost of Breaking a Lease in 2026');
     });
+
+    it('converts markdown bold **text** in takeaways to HTML strong tags', () => {
+        const html = `
+            <h1>Site Selection Guide</h1>
+            <h2>Key Takeaways</h2>
+            <ul>
+                <li>• **Built after 2010:** Modern building codes require significantly higher seismic and electrical standards.</li>
+                <li>• **Underground utilities:** Always check public easements before breaking ground on expansion plans.</li>
+            </ul>
+            <p>Here is the full guide to evaluating commercial properties.</p>
+        `;
+
+        const normalized = ensureIntroKeyTakeaways(html);
+        const doc = new DOMParser().parseFromString(normalized, 'text/html');
+        const listItems = Array.from(doc.querySelectorAll('section.geo-key-takeaways li'));
+
+        expect(listItems).toHaveLength(2);
+        expect(listItems[0]?.innerHTML).toContain('<strong>Built after 2010:</strong>');
+        expect(listItems[0]?.innerHTML).not.toContain('**');
+        expect(listItems[0]?.innerHTML).not.toContain('•');
+        expect(listItems[1]?.innerHTML).toContain('<strong>Underground utilities:</strong>');
+        expect(listItems[1]?.innerHTML).not.toContain('**');
+    });
 });

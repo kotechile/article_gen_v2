@@ -50,6 +50,17 @@ def clean_citation_numbers(text: str) -> str:
     return cleaned.strip()
 
 
+def _render_inline_markdown(text: str) -> str:
+    """Strip leading bullets and convert markdown bold/italic into HTML tags."""
+    cleaned = re.sub(r"^(?:[\s\u2022\u2023\u25E6\u2043\u2219\-\–\—]+|(?:\*\s+)|(?:\d+[.)]\s+))+", "", str(text or "")).strip()
+    escaped = html.escape(cleaned)
+    escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+    escaped = re.sub(r"__(.+?)__", r"<strong>\1</strong>", escaped)
+    escaped = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"<em>\1</em>", escaped)
+    escaped = re.sub(r"(?<!_)_([^_]+?)_(?!_)", r"<em>\1</em>", escaped)
+    return escaped
+
+
 class EditorialFactoryService:
     """Service to interact with the Editorial Factory Supabase database."""
 
@@ -546,7 +557,7 @@ class EditorialFactoryService:
         if not takeaways or "geo-key-takeaways" in html_content or "<h2>At a glance</h2>" in html_content or "<h2>Key Takeaways</h2>" in html_content or "<h2>TL;DR</h2>" in html_content:
             return html_content
 
-        takeaways_items = "".join(f"<li>{html.escape(t)}</li>" for t in takeaways)
+        takeaways_items = "".join(f"<li>{_render_inline_markdown(t)}</li>" for t in takeaways)
         takeaways_section = f"""
 <section class="geo-key-takeaways" data-geo-injected="key-takeaways">
   <h2>At a glance</h2>

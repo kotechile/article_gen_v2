@@ -90,7 +90,7 @@ def test_normalize_takeaway_items_filters_prompt_leakage():
 def test_generate_key_takeaways_from_article_renders_html():
     client = FakeLLMClient(
         '{"takeaways":['
-        '{"text":"Breaking a lease can trigger several overlapping costs, so the headline penalty is rarely the full financial picture."},'
+        '{"text":"• **Breaking a lease:** Can trigger several overlapping costs beyond the headline penalty."},'
         '{"text":"Readers need to compare the lease language with local law because legal caps and mitigation rules vary by state and city."},'
         '{"text":"Subletting usually works best when renters act early enough to secure approval and line up a qualified replacement tenant."}'
         ']}'
@@ -104,6 +104,9 @@ def test_generate_key_takeaways_from_article_renders_html():
 
     assert "<h2>At a glance</h2>" in html
     assert html.count("<li>") == 3
+    assert "<li><strong>Breaking a lease:</strong> Can trigger several overlapping costs beyond the headline penalty.</li>" in html
+    assert "**" not in html
+    assert "•" not in html
 
 
 def test_generate_faq_from_article_renders_html():

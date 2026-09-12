@@ -128,13 +128,18 @@ Key principles include:
 
 def test_inject_key_takeaways_html(service):
     html_body = "<h1>Article Title</h1>\n<p>First paragraph intro.</p>"
-    takeaways = ["Takeaway 1: Scannability matters", "Takeaway 2: Citations build trust"]
+    takeaways = [
+        "• **Built after 2010:** Modern codes require higher seismic standards.",
+        "Takeaway 2: Citations build trust"
+    ]
 
     enriched = service.inject_key_takeaways_html(html_body, takeaways)
     assert "geo-key-takeaways" in enriched
     assert "<h2>At a glance</h2>" in enriched
-    assert "<li>Takeaway 1: Scannability matters</li>" in enriched
+    assert "<li><strong>Built after 2010:</strong> Modern codes require higher seismic standards.</li>" in enriched
     assert "<li>Takeaway 2: Citations build trust</li>" in enriched
+    assert "**" not in enriched
+    assert "•" not in enriched
 
 
 def test_import_article_to_titles(service):

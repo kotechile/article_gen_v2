@@ -762,9 +762,18 @@ def _build_geo_definition_paragraph(topic_phrase: str, support_points: List[str]
     return f"<p>{html.escape(body)}</p>\n\n"
 
 
-def _build_geo_takeaways_block(topic_phrase: str, support_points: List[str]) -> str:
-    cleaned_points = [p for p in support_points if not _looks_like_support_section_noise(p)]
-    bullet_points = _select_geo_support_points(cleaned_points, limit=3)
+def _render_inline_markdown(text: str) -> str:
+    """Strip leading bullets and convert markdown bold/italic into HTML tags."""
+    cleaned = re.sub(r"^(?:[\s\u2022\u2023\u25E6\u2043\u2219\-\–\—]+|(?:\*\s+)|(?:\d+[.)]\s+))+", "", str(text or "")).strip()
+    escaped = html.escape(cleaned)
+    escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+    escaped = re.sub(r"__(.+?)__", r"<strong>\1</strong>", escaped)
+    escaped = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"<em>\1</em>", escaped)
+    escaped = re.sub(r"(?<!_)_([^_]+?)_(?!_)", r"<em>\1</em>", escaped)
+    return escaped
+
+
+def _build_geo_takeaways_block(topic_phrase: str, bullet_points: Optional[List[str]] = None) -> str:
     if not bullet_points:
         bullet_points = [
             f"Focus on the core decision factors that change the outcome for {topic_phrase.lower()}.",
@@ -773,7 +782,7 @@ def _build_geo_takeaways_block(topic_phrase: str, support_points: List[str]) -> 
         ]
 
     bullet_html = "".join(
-        f"<li>{html.escape(point.rstrip('.'))}</li>"
+        f"<li>{_render_inline_markdown(point.rstrip('.'))}</li>"
         for point in bullet_points[:3]
         if point
     )
@@ -876,7 +885,8 @@ def _looks_like_support_section_noise(value: str, min_len: int = 20) -> bool:
 
 
 def _sanitize_takeaway_text(value: str) -> str:
-    text = re.sub(r"\s+", " ", str(value or "")).strip(" -:;,.")
+    text = re.sub(r"^(?:[\s\u2022\u2023\u25E6\u2043\u2219\-\–\—]+|(?:\*\s+)|(?:\d+[.)]\s+))+", "", str(value or "")).strip()
+    text = re.sub(r"\s+", " ", text).strip(" -:;,.")
     text = re.sub(r"^(at a glance|key takeaway|takeaway|tl;?dr)\s*:\s*", "", text, flags=re.IGNORECASE).strip()
     if not text:
         return ""
@@ -965,7 +975,7 @@ def _normalize_faq_items(payload: Any) -> List[Dict[str, str]]:
 def _render_key_takeaways_html(items: List[str]) -> str:
     if not items:
         return ""
-    bullet_html = "".join(f"<li>{html.escape(item)}</li>" for item in items)
+    bullet_html = "".join(f"<li>{_render_inline_markdown(item)}</li>" for item in items)
     return "<h2>At a glance</h2>\n\n<ul>" + bullet_html + "</ul>\n\n"
 
 

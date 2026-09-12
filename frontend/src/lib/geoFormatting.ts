@@ -20,17 +20,27 @@ const TAKEAWAY_META_PATTERNS = [
 const normalizeTakeawayText = (value: string): string => {
     return value
         .replace(TAKEAWAY_PREFIX, '')
-        .replace(/^[\-\u2022]\s*/, '')
+        .replace(/^[\s\-\u2022\*]+\s*/, '')
         .replace(/\s+/g, ' ')
         .trim();
 };
 
+export const formatTakeawayHtml = (value: string): string => {
+    let clean = normalizeTakeawayText(value);
+    clean = clean.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    clean = clean.replace(/__(.+?)__/g, '<strong>$1</strong>');
+    clean = clean.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em>$1</em>');
+    clean = clean.replace(/(?<!_)_([^_]+?)_(?!_)/g, '<em>$1</em>');
+    return clean;
+};
+
 const isUsefulTakeaway = (value: string): boolean => {
-    if (!value) return false;
-    if (value.length < 40) return false;
-    if (TAKEAWAY_META_PATTERNS.some((pattern) => pattern.test(value))) return false;
-    if (/(?:\.\.\.|…)\s*(?:because|and adapt)/i.test(value)) return false;
-    if (/(?:\.\.\.|…)\s*$/.test(value)) return false;
+    const plain = value.replace(/<[^>]+>/g, '').trim();
+    if (!plain) return false;
+    if (plain.length < 40) return false;
+    if (TAKEAWAY_META_PATTERNS.some((pattern) => pattern.test(plain))) return false;
+    if (/(?:\.\.\.|…)\s*(?:because|and adapt)/i.test(plain)) return false;
+    if (/(?:\.\.\.|…)\s*$/.test(plain)) return false;
     return true;
 };
 
@@ -61,7 +71,7 @@ const createKeyTakeawaysSection = (doc: Document, takeaways: string[]): HTMLElem
     const list = doc.createElement('ul');
     takeaways.forEach((item) => {
         const listItem = doc.createElement('li');
-        listItem.textContent = item;
+        listItem.innerHTML = formatTakeawayHtml(item);
         list.appendChild(listItem);
     });
     section.appendChild(list);
@@ -72,7 +82,10 @@ const createKeyTakeawaysSection = (doc: Document, takeaways: string[]): HTMLElem
 const extractTakeawayTexts = (container: ParentNode): string[] => {
     const contentNodes = Array.from(container.querySelectorAll('p, li'));
     const collected = contentNodes
-        .map((node) => normalizeTakeawayText(node.textContent || ''))
+        .map((node) => {
+            const raw = node.innerHTML.includes('<') ? node.innerHTML : (node.textContent || '');
+            return normalizeTakeawayText(raw);
+        })
         .filter(isUsefulTakeaway);
 
     return Array.from(new Set(collected)).slice(0, 5);
