@@ -665,16 +665,8 @@ def resolve_image_provider(
     resolved_source = "default"
     matched_app = None
 
-    # 1. Match by application configured in table 'used_for'
-    if normalized_app and normalized_app in app_assignments:
-        target_image_id = app_assignments[normalized_app]
-        selected_row = next((r for r in image_rows if r['id'] == target_image_id), None)
-        if selected_row:
-            resolved_source = "used_for"
-            matched_app = normalized_app
-
-    # 2. Match by explicit model if specified and no application match was made
-    if not selected_row and explicit_model:
+    # 1. Match by explicit model if specified (takes precedence over generic application defaults)
+    if explicit_model:
         # Match by model_name
         for r in image_rows:
             if r['model_name'].lower() == explicit_model.lower():
@@ -706,6 +698,14 @@ def resolve_image_provider(
                     selected_row = r
                     resolved_source = "explicit"
                     break
+
+    # 2. Match by application configured in table 'used_for' if no explicit model matched
+    if not selected_row and normalized_app and normalized_app in app_assignments:
+        target_image_id = app_assignments[normalized_app]
+        selected_row = next((r for r in image_rows if r['id'] == target_image_id), None)
+        if selected_row:
+            resolved_source = "used_for"
+            matched_app = normalized_app
 
     # 3. If still not selected and no explicit application was requested, default to 'article_image'
     if not selected_row and not normalized_app:

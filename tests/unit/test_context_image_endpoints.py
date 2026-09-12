@@ -118,6 +118,46 @@ class TestContextImageEndpoints(unittest.TestCase):
             self.assertEqual(res["aspectRatio"], "16:9")
             self.assertEqual(res["referenceUsed"], "https://example.com/apple_watch.jpg")
 
+    @patch.object(images_mod, "request")
+    @patch.object(images_mod, "resolve_image_provider")
+    @patch.object(images_mod, "generate_google_imagen")
+    @patch.object(images_mod, "upload_to_supabase_storage")
+    @patch("src.services.context_image.ContextImagePipeline.prepare_reference_asset")
+    def test_context_generate_endpoint_with_uploaded_base64_reference(
+        self,
+        mock_prepare,
+        mock_upload,
+        mock_generate,
+        mock_resolve,
+        mock_request
+    ):
+        mock_request.get_json.return_value = {
+            "text": "Residential heat pump unit installed outside a home",
+            "prompt": "A modern heat pump unit glowing with soft blue light outside a home",
+            "reference_image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+            "model": "nano banana pro",
+            "aspectRatio": "16:9",
+            "resolution": "1K",
+            "user_id": "user-456"
+        }
+
+        mock_prepare.return_value = (b"uploaded-ref-bytes", "https://storage.supabase.co/user-456/context_refs/ref.jpg")
+        mock_resolve.return_value = {
+            "provider": "google",
+            "model": "gemini-3-pro-image-preview",
+            "api_key": "fake-google-key",
+            "display_name": "Nano Banana Pro"
+        }
+        mock_generate.return_value = b"generated-heat-pump-image"
+        mock_upload.return_value = "https://storage.supabase.co/heat_pump_scene.jpg"
+
+        with patch.object(images_mod, "jsonify", side_effect=lambda x: x):
+            res, status = generate_context_image_endpoint()
+            self.assertEqual(status, 200)
+            self.assertEqual(res["imageUrl"], "https://storage.supabase.co/heat_pump_scene.jpg")
+            mock_prepare.assert_called_once()
+            self.assertIn("reference_base64", str(mock_prepare.call_args))
+
 
 if __name__ == "__main__":
     unittest.main()

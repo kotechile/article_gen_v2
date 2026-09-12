@@ -267,8 +267,12 @@ def generate_kie_flux_image(
     """Generate image through KIE Market API task endpoints."""
     try:
         create_url = "https://api.kie.ai/api/v1/jobs/createTask"
+        clean_key = str(api_key or "").strip()
+        if clean_key.lower().startswith("bearer "):
+            clean_key = clean_key[7:].strip()
+
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {clean_key}",
             "Content-Type": "application/json",
         }
         input_payload = {
@@ -307,6 +311,17 @@ def generate_kie_flux_image(
         create_data = create_resp.json()
         logger.info("KIE Flux createTask response: %s", create_data)
 
+        # Handle KIE response error codes
+        code = create_data.get("code")
+        if code is not None and code != 200:
+            msg = create_data.get("msg") or create_data.get("message") or "Unknown error"
+            if code == 401:
+                raise Exception(
+                    f"KIE.AI authentication failed (401 Unauthorized: {msg}). "
+                    f"Please verify that your KIE.AI API key in the database is valid and active."
+                )
+            raise Exception(f"KIE.AI task creation failed with code {code}: {msg}")
+
         task_id = ((create_data.get("data") or {}).get("taskId") or "").strip()
         if not task_id:
             raise Exception(f"KIE did not return taskId: {create_data}")
@@ -318,7 +333,7 @@ def generate_kie_flux_image(
             time.sleep(2)
             poll_resp = requests.get(
                 poll_url,
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers={"Authorization": f"Bearer {clean_key}"},
                 params={"taskId": task_id},
             )
             poll_resp.raise_for_status()
@@ -1648,6 +1663,7 @@ def generate_context_image_endpoint():
         text = data.get('text', '').strip()
         prompt = data.get('prompt', '').strip()
         reference_image_url = data.get('reference_image_url', '').strip()
+        reference_image_base64 = data.get('reference_image_base64') or data.get('referenceImage') or data.get('reference_image')
         model = data.get('model', '').strip()
         aspect_ratio = data.get('aspectRatio') or data.get('aspect_ratio') or '16:9'
         resolution = data.get('resolution') or '1K'
@@ -1660,8 +1676,9 @@ def generate_context_image_endpoint():
 
         # If prompt or reference is not supplied, auto-analyze from text
         analysis = None
-        if not prompt or not reference_image_url:
-            if not text:
+        has_custom_ref = bool(reference_image_url or reference_image_base64)
+        if not prompt or not has_custom_ref:
+            if not text and not prompt:
                 return jsonify(ErrorResponse(
                     error="validation_error",
                     message="Either prompt or text excerpt must be provided",
@@ -1669,11 +1686,12 @@ def generate_context_image_endpoint():
                     status=400
                 ).dict()), 400
 
-            analysis = pipeline.analyze_context(text)
-            if not prompt:
-                prompt = analysis.get('generation_prompt')
-            if not reference_image_url and analysis.get('candidate_references'):
-                reference_image_url = analysis['candidate_references'][0]['url']
+            if not prompt and text:
+                analysis = pipeline.analyze_context(text)
+                if not prompt:
+                    prompt = analysis.get('generation_prompt')
+                if not has_custom_ref and analysis.get('candidate_references'):
+                    reference_image_url = analysis['candidate_references'][0]['url']
 
         if not prompt:
             return jsonify(ErrorResponse(
@@ -1683,12 +1701,13 @@ def generate_context_image_endpoint():
                 status=400
             ).dict()), 400
 
-        # Prepare reference image
+        # Prepare reference image (URL or uploaded base64)
         ref_bytes = None
         ref_http_url = None
-        if reference_image_url:
+        if reference_image_url or reference_image_base64:
             ref_bytes, ref_http_url = pipeline.prepare_reference_asset(
-                reference_url=reference_image_url,
+                reference_url=reference_image_url if reference_image_url else None,
+                reference_base64=reference_image_base64 if reference_image_base64 else None,
                 isolate_bg=isolate_bg,
                 user_id=user_id
             )

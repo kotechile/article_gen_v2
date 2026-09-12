@@ -421,8 +421,12 @@ def generate_image_via_flux(model_config, prompt):
     if 'kie' in provider or 'flux-2' in model:
         # KIE implementation
         create_url = "https://api.kie.ai/api/v1/jobs/createTask"
+        clean_key = str(api_key or "").strip()
+        if clean_key.lower().startswith("bearer "):
+            clean_key = clean_key[7:].strip()
+
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {clean_key}",
             "Content-Type": "application/json",
         }
         create_payload = {
@@ -437,6 +441,16 @@ def generate_image_via_flux(model_config, prompt):
         r = requests.post(create_url, headers=headers, json=create_payload, timeout=30)
         r.raise_for_status()
         res_data = r.json()
+        code = res_data.get("code")
+        if code is not None and code != 200:
+            msg = res_data.get("msg") or res_data.get("message") or "Unknown error"
+            if code == 401:
+                raise Exception(
+                    f"KIE.AI authentication failed (401 Unauthorized: {msg}). "
+                    f"Please verify that your KIE.AI API key in the database is valid and active."
+                )
+            raise Exception(f"KIE.AI task creation failed with code {code}: {msg}")
+
         task_id = ((res_data.get("data") or {}).get("taskId") or "").strip()
         if not task_id:
             raise Exception(f"KIE did not return taskId: {res_data}")
@@ -445,7 +459,7 @@ def generate_image_via_flux(model_config, prompt):
         import time
         for _ in range(60):
             time.sleep(2)
-            poll_resp = requests.get(poll_url, headers={"Authorization": f"Bearer {api_key}"}, params={"taskId": task_id}, timeout=15)
+            poll_resp = requests.get(poll_url, headers={"Authorization": f"Bearer {clean_key}"}, params={"taskId": task_id}, timeout=15)
             poll_resp.raise_for_status()
             poll_data = poll_resp.json()
             data = poll_data.get("data") or {}

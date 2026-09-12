@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Sparkles, Search, CheckCircle, RefreshCw, Wand2 } from 'lucide-react';
+import { Loader2, Sparkles, Search, CheckCircle, Wand2, Upload, X, Image as ImageIcon, Trash2 } from 'lucide-react';
 import {
     analyzeContextImage,
     generateContextImage,
@@ -32,11 +32,16 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
     const [resolution, setResolution] = useState('1K');
     const [isolateBackground, setIsolateBackground] = useState(false);
 
+    // Custom uploaded reference state
+    const [customRefFile, setCustomRefFile] = useState<File | null>(null);
+    const [customRefPreview, setCustomRefPreview] = useState<string | null>(null);
+
     // Pipeline states
     const [analyzing, setAnalyzing] = useState(false);
     const [generating, setGenerating] = useState(false);
     const [analysis, setAnalysis] = useState<ContextAnalyzeResult | null>(null);
     const [selectedRefUrl, setSelectedRefUrl] = useState<string>('');
+    const [selectedRefType, setSelectedRefType] = useState<'online' | 'upload' | 'none'>('none');
     const [editablePrompt, setEditablePrompt] = useState('');
     const [error, setError] = useState<string | null>(null);
 
@@ -73,6 +78,28 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
         }
     };
 
+    const handleCustomRefChange = (file: File | null) => {
+        if (customRefPreview) {
+            URL.revokeObjectURL(customRefPreview);
+        }
+        setCustomRefFile(file);
+        if (file) {
+            const previewUrl = URL.createObjectURL(file);
+            setCustomRefPreview(previewUrl);
+            setSelectedRefType('upload');
+            setSelectedRefUrl('');
+        } else {
+            setCustomRefPreview(null);
+            if (analysis?.candidate_references && analysis.candidate_references.length > 0) {
+                setSelectedRefType('online');
+                setSelectedRefUrl(analysis.candidate_references[0].url);
+            } else {
+                setSelectedRefType('none');
+                setSelectedRefUrl('');
+            }
+        }
+    };
+
     const handleAnalyze = async () => {
         if (!text.trim()) {
             setError('Please provide or highlight some article text to analyze.');
@@ -92,10 +119,16 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
             setAnalysis(res.data);
             setEditablePrompt(res.data.generation_prompt);
 
-            // Default to first reference image if available
-            if (res.data.candidate_references && res.data.candidate_references.length > 0) {
+            // If user already uploaded a custom reference, keep it selected
+            if (customRefFile) {
+                setSelectedRefType('upload');
+                setSelectedRefUrl('');
+            } else if (res.data.candidate_references && res.data.candidate_references.length > 0) {
+                // Otherwise default to first online reference image
+                setSelectedRefType('online');
                 setSelectedRefUrl(res.data.candidate_references[0].url);
             } else {
+                setSelectedRefType('none');
                 setSelectedRefUrl('');
             }
         } catch (err: any) {
@@ -116,10 +149,29 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
         setError(null);
 
         try {
+            let refBase64: string | undefined = undefined;
+            let refUrl: string | undefined = undefined;
+
+            if (selectedRefType === 'upload' && customRefFile) {
+                const reader = new FileReader();
+                refBase64 = await new Promise<string>((resolve, reject) => {
+                    reader.onload = () => {
+                        const res = reader.result as string;
+                        const cleanB64 = res.includes(',') ? res.split(',')[1] : res;
+                        resolve(cleanB64);
+                    };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(customRefFile);
+                });
+            } else if (selectedRefType === 'online' && selectedRefUrl) {
+                refUrl = selectedRefUrl;
+            }
+
             const res = await generateContextImage({
                 text: text.trim(),
                 prompt: editablePrompt.trim() || undefined,
-                reference_image_url: selectedRefUrl || undefined,
+                reference_image_url: refUrl,
+                reference_image_base64: refBase64,
                 model: selectedModel,
                 aspectRatio,
                 resolution,
@@ -144,6 +196,8 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
         ? ['1K', ...rawResolutions.filter(r => r !== '1K')]
         : ['1K', ...rawResolutions];
 
+    const hasActiveReference = selectedRefType === 'upload' ? Boolean(customRefPreview) : Boolean(selectedRefUrl);
+
     return (
         <div className="space-y-6">
             {/* Header Description */}
@@ -155,7 +209,7 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
                             Smart Context Image Generation
                         </h3>
                         <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-0.5">
-                            Automatically identifies the primary physical entity (gadget, car, hardware, product) from your article, retrieves online reference photography via Linkup & Tavily, and generates a contextual scene.
+                            Identifies the primary physical entity (gadget, car, product) from your article, retrieves online reference photography or uses your own uploaded photo, and generates a contextual scene.
                         </p>
                     </div>
                 </div>
@@ -194,6 +248,67 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
                     className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-white placeholder-gray-400 text-sm"
                 />
             </div>
+
+            {/* Optional Pre-analysis Custom Reference Upload */}
+            {!analysis && (
+                <div>
+                    <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-2">
+                        Upload Reference Photo (Optional)
+                    </label>
+                    {customRefPreview ? (
+                        <div className="flex items-center justify-between p-3.5 bg-indigo-50/70 dark:bg-indigo-950/30 border-2 border-indigo-500 rounded-xl">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <img
+                                    src={customRefPreview}
+                                    alt="Uploaded reference"
+                                    className="w-14 h-14 rounded-lg object-cover border border-indigo-200 dark:border-indigo-800 flex-shrink-0"
+                                />
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-semibold text-gray-900 dark:text-white truncate">
+                                            {customRefFile?.name}
+                                        </span>
+                                        <span className="px-2 py-0.5 text-[10px] font-semibold bg-indigo-600 text-white rounded-full">
+                                            Custom Reference Attached
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                                        {((customRefFile?.size || 0) / 1024).toFixed(1)} KB • Will be used as direct visual reference
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => handleCustomRefChange(null)}
+                                className="p-2 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors ml-2 flex-shrink-0"
+                                title="Remove uploaded reference"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                    ) : (
+                        <label className="flex items-center justify-center gap-3 p-4 border-2 border-dashed border-gray-300 dark:border-gray-700 hover:border-indigo-400 dark:hover:border-indigo-500 rounded-xl cursor-pointer bg-gray-50/50 dark:bg-gray-900/30 hover:bg-indigo-50/20 transition-colors group">
+                            <div className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-500 group-hover:text-indigo-600 group-hover:bg-indigo-100 dark:group-hover:bg-indigo-950/60 transition-colors">
+                                <Upload className="w-4 h-4" />
+                            </div>
+                            <div className="text-left">
+                                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                                    <span className="text-indigo-600 dark:text-indigo-400 underline">Upload your own photo</span> to use as the visual reference
+                                </p>
+                                <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                                    Supports PNG, JPG, or WEBP
+                                </p>
+                            </div>
+                            <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => handleCustomRefChange(e.target.files?.[0] || null)}
+                                className="hidden"
+                            />
+                        </label>
+                    )}
+                </div>
+            )}
 
             {/* Action Bar: Analyze vs 1-Click */}
             <div className="flex flex-wrap items-center gap-3">
@@ -255,7 +370,7 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
                                     </span>
                                 ) : (
                                     <span className="px-2 py-0.5 text-[10px] font-semibold bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 rounded-full border border-purple-200 dark:border-purple-800">
-                                        Direct Diffusion (No Reference Needed)
+                                        Direct Diffusion
                                     </span>
                                 )}
                             </div>
@@ -270,72 +385,152 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
                             <div className="text-sm text-gray-700 dark:text-gray-300 mt-0.5 truncate" title={analysis.search_query || 'Direct text-to-image prompt'}>
                                 {analysis.has_physical_entity
                                     ? (analysis.search_query || 'N/A')
-                                    : 'Direct text-to-image (online image search skipped)'}
+                                    : 'Direct text-to-image (or use uploaded reference photo)'}
                             </div>
                         </div>
                     </div>
 
-                    {/* Candidate Reference Images Found (Only shown when a physical entity was identified) */}
-                    {analysis.has_physical_entity && (
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
+                    {/* Reference Selection Section */}
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    Select Reference Image ({analysis.candidate_references.length} found online)
+                                    Reference Image Selection
                                 </label>
-                                {selectedRefUrl && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setSelectedRefUrl('')}
-                                        className="text-xs text-red-500 hover:underline"
-                                    >
-                                        Clear Reference Selection
-                                    </button>
+                                {selectedRefType === 'upload' && (
+                                    <span className="px-2 py-0.5 text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded-full border border-indigo-200 dark:border-indigo-800">
+                                        Using Uploaded Photo
+                                    </span>
+                                )}
+                                {selectedRefType === 'online' && (
+                                    <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-full border border-emerald-200 dark:border-emerald-800">
+                                        Using Online Candidate
+                                    </span>
+                                )}
+                                {selectedRefType === 'none' && (
+                                    <span className="px-2 py-0.5 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-full">
+                                        No Reference (Direct Prompt)
+                                    </span>
                                 )}
                             </div>
-
-                            {analysis.candidate_references.length === 0 ? (
-                                <div className="p-4 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 text-center text-sm text-gray-500">
-                                    No online reference photos returned. The model will generate directly from the synthesized prompt.
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-                                    {analysis.candidate_references.map((item, idx) => {
-                                        const isSelected = selectedRefUrl === item.url;
-                                        return (
-                                            <div
-                                                key={idx}
-                                                onClick={() => setSelectedRefUrl(item.url)}
-                                                className={`relative group cursor-pointer rounded-xl overflow-hidden border-2 transition-all aspect-square bg-gray-100 dark:bg-gray-800 ${
-                                                    isSelected
-                                                        ? 'border-indigo-600 ring-2 ring-indigo-500/50 scale-[1.02]'
-                                                        : 'border-transparent hover:border-gray-300 dark:hover:border-gray-600'
-                                                }`}
-                                            >
-                                                <img
-                                                    src={item.thumbnail_url || item.url}
-                                                    alt={item.title || 'Reference candidate'}
-                                                    className="w-full h-full object-cover"
-                                                    loading="lazy"
-                                                    onError={(e) => {
-                                                        // Fallback for broken web links
-                                                        (e.target as HTMLElement).style.display = 'none';
-                                                    }}
-                                                />
-                                                {isSelected && (
-                                                    <div className="absolute top-1.5 right-1.5 p-1 bg-indigo-600 text-white rounded-full shadow">
-                                                        <CheckCircle className="w-3 h-3" />
-                                                    </div>
-                                                )}
-                                                <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent text-[10px] text-white truncate opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    {item.source_domain || item.provider}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                            {hasActiveReference && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSelectedRefType('none');
+                                        setSelectedRefUrl('');
+                                    }}
+                                    className="text-xs text-red-500 hover:underline"
+                                >
+                                    Clear Reference Selection
+                                </button>
                             )}
                         </div>
-                    )}
+
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+                            {/* Option 1: Custom Upload Card */}
+                            {customRefPreview ? (
+                                <div
+                                    onClick={() => {
+                                        setSelectedRefType('upload');
+                                        setSelectedRefUrl('');
+                                    }}
+                                    className={`relative group cursor-pointer rounded-xl overflow-hidden border-2 transition-all aspect-square bg-gray-100 dark:bg-gray-800 ${
+                                        selectedRefType === 'upload'
+                                            ? 'border-indigo-600 ring-2 ring-indigo-500/50 scale-[1.02]'
+                                            : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
+                                    }`}
+                                    title="Click to use your uploaded photo as reference"
+                                >
+                                    <img
+                                        src={customRefPreview}
+                                        alt="Custom reference"
+                                        className="w-full h-full object-cover"
+                                    />
+                                    {selectedRefType === 'upload' && (
+                                        <div className="absolute top-1.5 right-1.5 p-1 bg-indigo-600 text-white rounded-full shadow">
+                                            <CheckCircle className="w-3 h-3" />
+                                        </div>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleCustomRefChange(null);
+                                        }}
+                                        className="absolute top-1.5 left-1.5 p-1 bg-black/70 hover:bg-red-600 text-white rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                                        title="Delete uploaded photo"
+                                    >
+                                        <Trash2 className="w-3 h-3" />
+                                    </button>
+                                    <div className="absolute inset-x-0 bottom-0 p-1 bg-indigo-900/90 text-[10px] text-white font-medium text-center truncate">
+                                        Custom Upload
+                                    </div>
+                                </div>
+                            ) : (
+                                <label className="flex flex-col items-center justify-center p-2 rounded-xl border-2 border-dashed border-indigo-300 dark:border-indigo-700 hover:border-indigo-500 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/30 cursor-pointer transition-all aspect-square text-center group">
+                                    <div className="p-2 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform mb-1">
+                                        <Upload className="w-4 h-4" />
+                                    </div>
+                                    <span className="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300">
+                                        Upload Mine
+                                    </span>
+                                    <span className="text-[9px] text-gray-400 dark:text-gray-500">
+                                        PNG, JPG, WEBP
+                                    </span>
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={(e) => handleCustomRefChange(e.target.files?.[0] || null)}
+                                        className="hidden"
+                                    />
+                                </label>
+                            )}
+
+                            {/* Option 2: Online Candidates Grid */}
+                            {analysis.candidate_references.map((item, idx) => {
+                                const isSelected = selectedRefType === 'online' && selectedRefUrl === item.url;
+                                return (
+                                    <div
+                                        key={idx}
+                                        onClick={() => {
+                                            setSelectedRefType('online');
+                                            setSelectedRefUrl(item.url);
+                                        }}
+                                        className={`relative group cursor-pointer rounded-xl overflow-hidden border-2 transition-all aspect-square bg-gray-100 dark:bg-gray-800 ${
+                                            isSelected
+                                                ? 'border-indigo-600 ring-2 ring-indigo-500/50 scale-[1.02]'
+                                                : 'border-transparent hover:border-gray-300 dark:hover:border-gray-600'
+                                        }`}
+                                    >
+                                        <img
+                                            src={item.thumbnail_url || item.url}
+                                            alt={item.title || 'Reference candidate'}
+                                            className="w-full h-full object-cover"
+                                            loading="lazy"
+                                            onError={(e) => {
+                                                (e.target as HTMLElement).style.display = 'none';
+                                            }}
+                                        />
+                                        {isSelected && (
+                                            <div className="absolute top-1.5 right-1.5 p-1 bg-indigo-600 text-white rounded-full shadow">
+                                                <CheckCircle className="w-3 h-3" />
+                                            </div>
+                                        )}
+                                        <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent text-[10px] text-white truncate opacity-0 group-hover:opacity-100 transition-opacity">
+                                            {item.source_domain || item.provider}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {analysis.candidate_references.length === 0 && !customRefPreview && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                                No online reference photos found. You can upload your own photo above or generate directly from the prompt.
+                            </p>
+                        )}
+                    </div>
 
                     {/* Synthesized Diffusion Prompt */}
                     <div>
@@ -408,7 +603,7 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
                     </div>
 
                     {/* Background Isolation Toggle */}
-                    {selectedRefUrl && (
+                    {hasActiveReference && (
                         <div className="flex items-center gap-2 pt-1">
                             <input
                                 id="isolate-bg-toggle"
@@ -440,7 +635,11 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
                                 <>
                                     <Sparkles className="w-5 h-5" />
                                     <span>
-                                        Generate Scene {selectedRefUrl ? 'Conditioned on Reference' : 'from Prompt'}
+                                        {selectedRefType === 'upload'
+                                            ? 'Generate Scene Conditioned on Uploaded Photo'
+                                            : selectedRefType === 'online'
+                                            ? 'Generate Scene Conditioned on Reference'
+                                            : 'Generate Scene from Prompt'}
                                     </span>
                                 </>
                             )}

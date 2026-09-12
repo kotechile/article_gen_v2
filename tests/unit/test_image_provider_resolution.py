@@ -262,6 +262,51 @@ class TestResolveImageProvider(unittest.TestCase):
             self.assertEqual(resolved["provider"], "kie.ai")
             self.assertEqual(resolved["api_key"], "secret-kie-key")
 
+    def test_explicit_model_takes_precedence_over_application_default(self):
+        """
+        When both application (e.g. article_image) and explicit model (e.g. nano banana pro)
+        are provided, the user's explicit model selection must take precedence over
+        whatever default is configured in used_for for that application.
+        """
+        rows_with_banana = self.sample_image_rows + [
+            {
+                "id": "model-id-banana",
+                "model_name": "gemini-3-pro-image-preview",
+                "provider": "google",
+                "display_name": "Nano Banana Pro",
+                "api_keys_id": "key-id-banana",
+                "is_active": True,
+            }
+        ]
+        keys = dict(self.keys_store)
+        keys["key-id-banana"] = "secret-google-gemini-key"
+
+        with patch("supabase_client.get_supabase_client", return_value=self.mock_client), \
+             patch("supabase_client._fetch_image_provider_rows", return_value=rows_with_banana), \
+             patch("supabase_client._fetch_image_application_assignments", return_value=self.sample_app_assignments), \
+             patch("supabase_client._fetch_api_key_value_by_id", side_effect=lambda c, k: keys.get(k)):
+
+            # Used_for maps 'article_image' to 'model-id-flux' (Flux Kontext Pro)
+            # But the user explicitly asked for 'Nano Banana Pro'
+            resolved = resolve_image_provider(application="article_image", model="Nano Banana Pro")
+            self.assertEqual(resolved["model"], "gemini-3-pro-image-preview")
+            self.assertEqual(resolved["provider"], "google")
+            self.assertEqual(resolved["api_key"], "secret-google-gemini-key")
+            self.assertEqual(resolved["display_name"], "Nano Banana Pro")
+            self.assertEqual(resolved["source"], "explicit")
+
+            # Similarly for SD3 with article_image application
+            resolved_sd = resolve_image_provider(application="article_image", model="sd3")
+            self.assertEqual(resolved_sd["model"], "sd3")
+            self.assertEqual(resolved_sd["provider"], "stability")
+            self.assertEqual(resolved_sd["source"], "explicit")
+
+            # When model is empty string or None, fallback to application default (Flux)
+            resolved_empty = resolve_image_provider(application="article_image", model="")
+            self.assertEqual(resolved_empty["model"], "flux-kontext-pro")
+            self.assertEqual(resolved_empty["provider"], "flux")
+            self.assertEqual(resolved_empty["source"], "used_for")
+
 
 if __name__ == "__main__":
     unittest.main()

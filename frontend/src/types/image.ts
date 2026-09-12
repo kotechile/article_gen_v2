@@ -147,6 +147,8 @@ export interface ContextGenerateRequest {
     text?: string;
     prompt?: string;
     reference_image_url?: string;
+    reference_image_base64?: string;
+    referenceImage?: string;
     model?: string;
     aspectRatio?: string;
     resolution?: string;
