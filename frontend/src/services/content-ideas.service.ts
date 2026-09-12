@@ -958,7 +958,7 @@ class ContentIdeasService {
 
             const { data: existingTitle, error: fetchError } = await supabase
                 .from('Titles')
-                .select('raw_dataforseo_output, selected_keyword_metrics_json, selected_keyword_search_volume, selected_keyword_difficulty, primary_keywords, secondary_keywords, secondary_keywords_json, Keywords, search_phrase, primary_keyword, keyword_candidates_json')
+                .select('*')
                 .eq('id', titleId)
                 .eq('user_id', userId)
                 .maybeSingle();

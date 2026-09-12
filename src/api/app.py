@@ -76,6 +76,8 @@ def create_app(config_name: str = None) -> Flask:
     from .internal_links import internal_links_bp
     from .trends import trends_bp
     from .screen_capture import screen_capture_bp
+    from .endpoints.editorial_factory import editorial_factory_bp
+    from .endpoints.keyword_optimization import keyword_optimization_bp
     
     # Register blueprints
     app.register_blueprint(research_bp)
@@ -92,6 +94,8 @@ def create_app(config_name: str = None) -> Flask:
     app.register_blueprint(trends_bp)
     app.register_blueprint(screen_capture_bp)
     app.register_blueprint(linkedin_bp)
+    app.register_blueprint(editorial_factory_bp)
+    app.register_blueprint(keyword_optimization_bp)
     
     # Register error handlers
     ErrorHandler.register_handlers(app)

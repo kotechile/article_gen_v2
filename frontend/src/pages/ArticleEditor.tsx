@@ -17,13 +17,14 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableRow } from '@tiptap/extension-table-row';
 import CharacterCount from '@tiptap/extension-character-count';
-import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn, Sigma, Wand2, Share2 } from 'lucide-react';
+import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn, Sigma, Wand2, Share2, Sparkles } from 'lucide-react';
 import { apiClient } from '../api-client';
 import { assembleArticleHtml } from '../lib/contentParser';
 import { AddImageModal } from '../components/AddImageModal';
 import { ReferenceSelector } from '../components/ReferenceSelector';
 import { WordPressExportModal } from '../components/WordPressExportModal';
 import { LinkedInPublishModal } from '../components/LinkedInPublishModal';
+import { KeywordOptimizationModal } from '../components/KeywordOptimizationModal';
 import { Gauge } from '../components/Gauge';
 import { METRIC_EXPLANATIONS } from '../types/metrics';
 import { MetricTooltip } from '../components/Tooltip';
@@ -709,6 +710,7 @@ export const ArticleEditor: React.FC = () => {
     // WordPress & LinkedIn export state
     const [showWordPressModal, setShowWordPressModal] = useState(false);
     const [showLinkedInModal, setShowLinkedInModal] = useState(false);
+    const [kwOptimizerOpen, setKwOptimizerOpen] = useState(false);
     const [articleData, setArticleData] = useState<any>(null);
 
 
@@ -834,36 +836,68 @@ export const ArticleEditor: React.FC = () => {
         const doc = parser.parseFromString(html, 'text/html');
         const extracted: any[] = [];
 
-        // Look for paragraphs starting with [n] or [^n]
-        const paragraphs = doc.querySelectorAll('p');
-        paragraphs.forEach(p => {
+        // Check if there is an explicit References heading or section
+        const headings = Array.from(doc.querySelectorAll('h1, h2, h3, h4'));
+        const refHeading = headings.find(h => /^(references|sources|bibliography|citations)$/i.test((h.textContent || '').trim()));
+
+        let targetParagraphs: Element[] = [];
+        if (refHeading) {
+            let next = refHeading.nextElementSibling;
+            while (next) {
+                if (/^H[1-4]$/i.test(next.tagName)) break;
+                if (next.tagName === 'P') targetParagraphs.push(next);
+                if (next.tagName === 'UL' || next.tagName === 'OL') {
+                    next.querySelectorAll('li').forEach(li => {
+                        const p = doc.createElement('p');
+                        p.innerHTML = li.innerHTML;
+                        targetParagraphs.push(p);
+                    });
+                }
+                next = next.nextElementSibling;
+            }
+        } else {
+            // Otherwise only extract paragraphs that contain a link OR are short source citations
+            targetParagraphs = Array.from(doc.querySelectorAll('p')).filter(p => {
+                const text = (p.textContent || '').trim();
+                const hasLink = Boolean(p.querySelector('a'));
+                const startsWithRef = /^\[\^?\d+\]/.test(text);
+                return startsWithRef && (hasLink || text.length < 180);
+            });
+        }
+
+        targetParagraphs.forEach(p => {
             const text = p.textContent || '';
             const match = text.trim().match(/^\[\^?(\d+)\]\s*(.*)$/);
             if (match) {
-                // const index = parseInt(match[1]); // Unused
                 const content = match[2];
 
                 // Try to find a link
                 const link = p.querySelector('a');
-                const url = link ? link.getAttribute('href') : '#';
+                let url = link ? link.getAttribute('href') : '#';
 
                 // Extract title - if there's a link, use its text, otherwise try to parse from content
                 let titleStr = link ? link.textContent : '';
                 if (!titleStr) {
-                    // Remove both [TYPE] and any trailing dots or truncation markers
                     titleStr = content.replace(/\[[A-Z]+\]\.?$/, '').trim();
-                    titleStr = titleStr.replace(/\.?\s*\.{2,}$/, '').trim(); // Remove "..." or " .."
+                    titleStr = titleStr.replace(/\.?\s*\.{2,}$/, '').trim();
+                }
+
+                // If URL was embedded in text
+                const urlMatch = content.match(/https?:\/\/[^\s)]+/);
+                if (urlMatch && url === '#') {
+                    url = urlMatch[0];
+                    titleStr = titleStr.replace(url, '').trim();
                 }
 
                 // Try to find source type e.g. [WEB], [JOURNAL]
                 const typeMatch = content.match(/\[([A-Z]+)\]/);
-                const sourceType = typeMatch ? typeMatch[1].toLowerCase() : 'unknown';
+                const sourceType = typeMatch ? typeMatch[1].toLowerCase() : 'web';
 
                 extracted.push({
-                    title: titleStr || 'Unknown Source',
+                    title: titleStr.replace(/^[\s.,:;–—\-]+/, '').trim() || 'Reference Source',
                     url: url || '#',
                     source_type: sourceType,
-                    extracted: true // Mark as extracted from HTML
+                    extracted: true
                 });
             }
         });
@@ -1433,6 +1467,35 @@ export const ArticleEditor: React.FC = () => {
             console.error('Error persisting reference filter changes:', error);
             alert('Filter applied in editor, but failed to persist. Please click Save Changes.');
         }
+    };
+
+    const handleApplyKeywords = (data: {
+        primaryKeyword: string;
+        secondaryKeywords: string[];
+        primaryMetric?: any;
+        updatedHtml?: string;
+        updatedTitle?: string;
+        searchVolume?: number;
+        keywordDifficulty?: number;
+        intent?: string;
+    }) => {
+        if (data.updatedTitle) {
+            setTitle(data.updatedTitle);
+            setArticleData((prev: any) => (prev ? { ...prev, Title: data.updatedTitle, title: data.updatedTitle } : prev));
+        }
+        if (data.updatedHtml && editor) {
+            editor.commands.setContent(data.updatedHtml);
+        }
+        setMetrics((prev: any) => ({
+            ...prev,
+            primary_keyword: data.primaryKeyword,
+            secondary_keywords_json: data.secondaryKeywords,
+            selected_keyword_search_volume: data.primaryMetric?.search_volume ?? data.searchVolume ?? prev?.selected_keyword_search_volume,
+            selected_keyword_difficulty: data.primaryMetric?.keyword_difficulty ?? data.keywordDifficulty ?? prev?.selected_keyword_difficulty,
+            selected_keyword_intent: data.primaryMetric?.intent ?? data.intent ?? prev?.selected_keyword_intent,
+            keyword_selection_source: 'dataforseo_optimizer',
+        }));
+        setIsDirty(true);
     };
 
     const getSelectedText = (): string => {
@@ -2294,8 +2357,19 @@ export const ArticleEditor: React.FC = () => {
 
                                 <div className="space-y-2">
                                     <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                                        <span className="text-xs text-muted-foreground">Primary Keyword</span>
-                                        <span className="font-medium text-sm text-foreground truncate max-w-[60%] text-right">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-xs text-muted-foreground">Primary Keyword</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setKwOptimizerOpen(true)}
+                                                className="text-[10px] font-semibold text-primary hover:text-primary/80 flex items-center gap-1 bg-primary/10 hover:bg-primary/15 px-1.5 py-0.5 rounded transition-colors"
+                                                title="Research keywords with DataForSEO and weave into article"
+                                            >
+                                                <Sparkles className="w-3 h-3 text-primary" />
+                                                Optimize
+                                            </button>
+                                        </div>
+                                        <span className="font-medium text-sm text-foreground truncate max-w-[50%] text-right">
                                             {metrics.primary_keyword || '-'}
                                         </span>
                                     </div>
@@ -2543,6 +2617,21 @@ export const ArticleEditor: React.FC = () => {
                                 last_linkedin_status: 'published'
                             });
                         }}
+                    />
+                )
+            }
+
+            {
+                kwOptimizerOpen && (
+                    <KeywordOptimizationModal
+                        isOpen={kwOptimizerOpen}
+                        onClose={() => setKwOptimizerOpen(false)}
+                        titleId={id}
+                        articleTitle={title}
+                        articleContent={editor?.getHTML() || ''}
+                        initialPrimaryKeyword={metrics?.primary_keyword}
+                        initialSecondaryKeywords={metrics?.secondary_keywords_json}
+                        onApplyKeywords={handleApplyKeywords}
                     />
                 )
             }
