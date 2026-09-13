@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabase';
+import { supabase, withSessionRetry } from '../lib/supabase';
 import { ensureIntroKeyTakeaways } from './geoFormatting';
 
 // ----------  citation helpers ----------
@@ -112,11 +112,13 @@ export const updateArticleAfterGeneration = async (articleId: string) => {
     console.log("Starting Post-Generation Update for:", articleId);
 
     try {
-        const { data: titleData, error: fetchError } = await supabase
-            .from('Titles')
-            .select('htmlArticle, status')
-            .eq('id', articleId)
-            .single();
+        const { data: titleData, error: fetchError } = await withSessionRetry(() =>
+            supabase
+                .from('Titles')
+                .select('htmlArticle, status')
+                .eq('id', articleId)
+                .single()
+        );
 
         if (fetchError || !titleData) throw fetchError || new Error("Article not found");
 

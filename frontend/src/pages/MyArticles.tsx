@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import React, { useEffect, useState, useMemo } from 'react'
+import { supabase, withSessionRetry } from '../lib/supabase'
 import { useAuth } from '../context/auth-context'
 import { useProject } from '../context/project-context'
 import type { Article } from '../types'
@@ -290,14 +290,16 @@ export const MyArticles: React.FC = () => {
                 setProjectCategories([])
                 return
             }
-            const { data, error } = await supabase
-                .from('project_categories')
-                .select('id, name, level, parent_category_id, wordpress_category_id')
-                .eq('user_id', user.id)
-                .eq('project_id', projectFilter)
-                .order('level', { ascending: true })
-                .order('sort_order', { ascending: true })
-                .order('name', { ascending: true })
+            const { data, error } = await withSessionRetry(() =>
+                supabase
+                    .from('project_categories')
+                    .select('id, name, level, parent_category_id, wordpress_category_id')
+                    .eq('user_id', user.id)
+                    .eq('project_id', projectFilter)
+                    .order('level', { ascending: true })
+                    .order('sort_order', { ascending: true })
+                    .order('name', { ascending: true })
+            )
 
             if (error) {
                 console.error('Failed to load project categories:', error)
@@ -327,19 +329,21 @@ export const MyArticles: React.FC = () => {
     const fetchArticles = async () => {
         if (!user) return
         try {
-            const [titlesResult, ideasResult] = await Promise.all([
-                supabase
-                    .from('Titles')
-                    .select('*')
-                    .eq('user_id', user.id)
-                    .order('dateCreatedOn', { ascending: false }),
-                supabase
-                    .from('content_ideas')
-                    .select('*')
-                    .eq('user_id', user.id)
-                    .neq('content_type', 'software')
-                    .order('created_at', { ascending: false })
-            ])
+            const [titlesResult, ideasResult] = await withSessionRetry(() =>
+                Promise.all([
+                    supabase
+                        .from('Titles')
+                        .select('*')
+                        .eq('user_id', user.id)
+                        .order('dateCreatedOn', { ascending: false }),
+                    supabase
+                        .from('content_ideas')
+                        .select('*')
+                        .eq('user_id', user.id)
+                        .neq('content_type', 'software')
+                        .order('created_at', { ascending: false })
+                ])
+            )
 
             if (titlesResult.error) throw titlesResult.error
             if (ideasResult.error) {
@@ -432,10 +436,12 @@ export const MyArticles: React.FC = () => {
 
             if (topicIds.size > 0) {
                 const topicIdsArray = Array.from(topicIds)
-                const { data: topicRows, error: topicError } = await supabase
-                    .from('research_topics')
-                    .select('id, project_id, primary_category_id, secondary_category_id')
-                    .in('id', topicIdsArray)
+                const { data: topicRows, error: topicError } = await withSessionRetry(() =>
+                    supabase
+                        .from('research_topics')
+                        .select('id, project_id, primary_category_id, secondary_category_id')
+                        .in('id', topicIdsArray)
+                )
 
                 if (topicError) {
                     console.warn('[ContentLibrary] research_topics metadata query failed', topicError)
@@ -451,10 +457,12 @@ export const MyArticles: React.FC = () => {
 
                 const unresolvedTopicIds = topicIdsArray.filter((topicId) => !topicById.has(String(topicId)))
                 if (unresolvedTopicIds.length > 0) {
-                    const { data: candidateRows, error: candidateError } = await supabase
-                        .from('research_opportunity_candidates')
-                        .select('id, project_id, user_job_id, candidate_metadata')
-                        .in('id', unresolvedTopicIds)
+                    const { data: candidateRows, error: candidateError } = await withSessionRetry(() =>
+                        supabase
+                            .from('research_opportunity_candidates')
+                            .select('id, project_id, user_job_id, candidate_metadata')
+                            .in('id', unresolvedTopicIds)
+                    )
 
                     if (candidateError) {
                         console.warn('[ContentLibrary] rebuild candidate metadata query failed', candidateError)
@@ -470,10 +478,12 @@ export const MyArticles: React.FC = () => {
                         const jobById = new Map<string, { primary_category_id?: string | null; secondary_category_id?: string | null }>()
 
                         if (userJobIds.length > 0) {
-                            const { data: jobRows, error: jobError } = await supabase
-                                .from('research_user_jobs')
-                                .select('id, primary_category_id, secondary_category_id')
-                                .in('id', userJobIds)
+                            const { data: jobRows, error: jobError } = await withSessionRetry(() =>
+                                supabase
+                                    .from('research_user_jobs')
+                                    .select('id, primary_category_id, secondary_category_id')
+                                    .in('id', userJobIds)
+                            )
 
                             if (jobError) {
                                 console.warn('[ContentLibrary] rebuild job metadata query failed', jobError)
@@ -521,10 +531,12 @@ export const MyArticles: React.FC = () => {
             ) as string[]
 
             if (projectIds.length > 0) {
-                const { data: projectRows, error: projectError } = await supabase
-                    .from('projects')
-                    .select('id, domain, app_name')
-                    .in('id', projectIds)
+                const { data: projectRows, error: projectError } = await withSessionRetry(() =>
+                    supabase
+                        .from('projects')
+                        .select('id, domain, app_name')
+                        .in('id', projectIds)
+                )
 
                 if (projectError) {
                     console.warn('[ContentLibrary] projects metadata query failed', projectError)
@@ -536,10 +548,12 @@ export const MyArticles: React.FC = () => {
             }
 
             if (categoryIds.length > 0) {
-                const { data: categoryRows, error: categoryError } = await supabase
-                    .from('project_categories')
-                    .select('id, name')
-                    .in('id', categoryIds)
+                const { data: categoryRows, error: categoryError } = await withSessionRetry(() =>
+                    supabase
+                        .from('project_categories')
+                        .select('id, name')
+                        .in('id', categoryIds)
+                )
 
                 if (categoryError) {
                     console.warn('[ContentLibrary] project_categories metadata query failed', categoryError)
@@ -818,11 +832,13 @@ export const MyArticles: React.FC = () => {
                 insertPayload.domain = projectDomain;
             }
 
-            const { data, error } = await supabase
-                .from('Titles')
-                .insert([insertPayload])
-                .select()
-                .single()
+            const { data, error } = await withSessionRetry(() =>
+                supabase
+                    .from('Titles')
+                    .insert([insertPayload])
+                    .select()
+                    .single()
+            )
 
             if (error) throw error
             if (data) {
@@ -845,16 +861,20 @@ export const MyArticles: React.FC = () => {
 
         try {
             if (target._source === 'content_ideas') {
-                const { error } = await supabase
-                    .from('content_ideas')
-                    .delete()
-                    .eq('id', id)
+                const { error } = await withSessionRetry(() =>
+                    supabase
+                        .from('content_ideas')
+                        .delete()
+                        .eq('id', id)
+                )
                 if (error) throw error
             } else {
-                const { error } = await supabase
-                    .from('Titles')
-                    .delete()
-                    .eq('id', id)
+                const { error } = await withSessionRetry(() =>
+                    supabase
+                        .from('Titles')
+                        .delete()
+                        .eq('id', id)
+                )
                 if (error) throw error
             }
 
@@ -891,11 +911,15 @@ export const MyArticles: React.FC = () => {
                 .map(a => a.id)
 
             if (titleIds.length > 0) {
-                const { error } = await supabase.from('Titles').delete().in('id', titleIds)
+                const { error } = await withSessionRetry(() =>
+                    supabase.from('Titles').delete().in('id', titleIds)
+                )
                 if (error) throw error
             }
             if (ideaIds.length > 0) {
-                const { error } = await supabase.from('content_ideas').delete().in('id', ideaIds)
+                const { error } = await withSessionRetry(() =>
+                    supabase.from('content_ideas').delete().in('id', ideaIds)
+                )
                 if (error) throw error
             }
 

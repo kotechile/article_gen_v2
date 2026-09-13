@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase, withSessionRetry, getFreshSession } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
 import { Loader2, Wand2, Save, BarChart3, BrainCircuit, ShieldCheck, AlertTriangle, Globe2, Tag, KeyRound, FolderTree, Plus, Trash2, Sparkles, Target } from 'lucide-react';
 import axios from 'axios';
@@ -886,7 +886,7 @@ export const ContentStudio: React.FC = () => {
         setAnalyzingCompetitors(true);
         setError(null);
         try {
-            const { data: { session } } = await supabase.auth.getSession();
+            const session = await getFreshSession();
             const token = session?.access_token;
             if (!token) throw new Error("No session token found");
 
@@ -945,7 +945,7 @@ export const ContentStudio: React.FC = () => {
         primaryKw: string;
         secondaryKeywords: string[];
     }): Promise<MetadataRefinementPreview> => {
-        const { data: { session } } = await supabase.auth.getSession();
+        const session = await getFreshSession();
         const token = session?.access_token;
         if (!token) throw new Error("No session token found");
 
@@ -1228,7 +1228,7 @@ export const ContentStudio: React.FC = () => {
             };
 
             // Call Backend
-            const { data: { session } } = await supabase.auth.getSession();
+            const session = await getFreshSession();
             const token = session?.access_token;
 
             if (!token) throw new Error("No session token found");

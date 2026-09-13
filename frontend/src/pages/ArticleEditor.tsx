@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase, withSessionRetry } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
 
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -17,7 +17,7 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableRow } from '@tiptap/extension-table-row';
 import CharacterCount from '@tiptap/extension-character-count';
-import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn, Sigma, Wand2, Share2, Sparkles } from 'lucide-react';
+import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn, Sigma, Wand2, Share2, Sparkles, AlertCircle } from 'lucide-react';
 import { apiClient } from '../api-client';
 import { assembleArticleHtml } from '../lib/contentParser';
 import { AddImageModal } from '../components/AddImageModal';
@@ -662,6 +662,7 @@ export const ArticleEditor: React.FC = () => {
     const navigate = useNavigate();
     const editorContainerRef = useRef<HTMLDivElement | null>(null);
     const [loading, setLoading] = useState(true);
+    const [fetchError, setFetchError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [isSuggesting, setIsSuggesting] = useState(false);
     const [isDirty, setIsDirty] = useState(false);
@@ -908,12 +909,15 @@ export const ArticleEditor: React.FC = () => {
     useEffect(() => {
         const fetchArticle = async () => {
             if (!user || !id) return;
+            setFetchError(null);
             try {
-                const { data, error } = await supabase
-                    .from('Titles')
-                    .select('*')
-                    .eq('id', id)
-                    .single();
+                const { data, error } = await withSessionRetry(() =>
+                    supabase
+                        .from('Titles')
+                        .select('*')
+                        .eq('id', id)
+                        .single()
+                );
 
                 if (error) throw error;
 
@@ -1200,10 +1204,9 @@ export const ArticleEditor: React.FC = () => {
 
                 // Store article data for WordPress export
                 setArticleData(d);
-            } catch (error) {
+            } catch (error: any) {
                 console.error('Error in fetchArticle:', error);
-                alert('Failed to load article');
-                navigate('/my-articles');
+                setFetchError(error?.message || 'Failed to load article.');
             } finally {
                 setLoading(false);
             }
@@ -1242,10 +1245,12 @@ export const ArticleEditor: React.FC = () => {
             selected_citations: JSON.stringify(selectedIndices)
         };
 
-        const { error } = await supabase
-            .from('Titles')
-            .update(payload)
-            .eq('id', id);
+        const { error } = await withSessionRetry(() =>
+            supabase
+                .from('Titles')
+                .update(payload)
+                .eq('id', id)
+        );
 
         if (error) throw error;
 
@@ -1882,6 +1887,38 @@ export const ArticleEditor: React.FC = () => {
         return (
             <div className="flex items-center justify-center min-h-screen bg-background">
                 <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+        );
+    }
+
+    if (fetchError && !articleData) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen bg-background p-6">
+                <div className="max-w-md w-full bg-card p-6 rounded-2xl border border-border shadow-sm text-center">
+                    <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
+                    <h2 className="text-xl font-bold mb-2">Unable to load article</h2>
+                    <p className="text-muted-foreground text-sm mb-6">
+                        {fetchError}
+                    </p>
+                    <div className="flex justify-center gap-3">
+                        <button
+                            onClick={() => navigate('/my-articles')}
+                            className="px-4 py-2 border border-border rounded-xl hover:bg-muted text-sm transition"
+                        >
+                            Back to Library
+                        </button>
+                        <button
+                            onClick={() => {
+                                setLoading(true);
+                                setFetchError(null);
+                                window.location.reload();
+                            }}
+                            className="px-4 py-2 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 text-sm font-medium transition"
+                        >
+                            Retry Loading
+                        </button>
+                    </div>
+                </div>
             </div>
         );
     }

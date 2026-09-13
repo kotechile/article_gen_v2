@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
-import { supabase } from '../lib/supabase';
+import { supabase, withSessionRetry, refreshSupabaseSession } from '../lib/supabase';
 import { Loader2, AlertCircle, Sparkles, Wand2 } from 'lucide-react';
 import { updateArticleAfterGeneration } from '../lib/contentParser';
 import { useAuth } from '../context/auth-context';
@@ -23,37 +23,39 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
     const [progress, setProgress] = useState(0);
     const [error, setError] = useState<string | null>(null);
     const hasUpdatedRef = useRef(false);
-    const apiFailureCountRef = useRef(0);
     const transientFailureCountRef = useRef(0);
+    const apiFailureCountRef = useRef(0);
 
-    // Controversies flow states
+    // Dynamic controversies state
     const [modalView, setModalView] = useState<'progress' | 'controversies'>('progress');
     const [controversies, setControversies] = useState<any[]>([]);
     const [selectedControversies, setSelectedControversies] = useState<Record<string, { selected: boolean; selectedTakeId: string }>>({});
     const [originalResearchData, setOriginalResearchData] = useState<any>(null);
-    const [activeTaskId, setActiveTaskId] = useState<string | null>(taskId || null);
     const [isResuming, setIsResuming] = useState(false);
 
-    // Reset local states when modal opens or primary taskId changes
+    // Track active task ID so we can switch to the resumed task if needed
+    const [activeTaskId, setActiveTaskId] = useState<string | null>(taskId || null);
+
     useEffect(() => {
-        if (isOpen) {
-            setModalView('progress');
-            setActiveTaskId(taskId || null);
-            setError(null);
+        setActiveTaskId(taskId || null);
+    }, [taskId]);
+
+    useEffect(() => {
+        if (!isOpen) {
             setProgress(0);
             setStatus('Initializing...');
+            setError(null);
+            setModalView('progress');
             setControversies([]);
             setSelectedControversies({});
             setOriginalResearchData(null);
             setIsResuming(false);
             hasUpdatedRef.current = false;
+            transientFailureCountRef.current = 0;
+            apiFailureCountRef.current = 0;
+            return;
         }
-    }, [isOpen, taskId]);
 
-    useEffect(() => {
-        if (!isOpen) return;
-
-        // Restore progress from storage if available (only if not starting fresh task)
         const storedProgress = localStorage.getItem(`gen_progress_${articleId}`);
         if (storedProgress && !activeTaskId) {
             setProgress(parseFloat(storedProgress));
@@ -99,6 +101,13 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                         setStatus('Completed');
                         localStorage.removeItem(getContentStudioGenerationStorageKey(articleId));
                         localStorage.removeItem(`gen_progress_${articleId}`);
+
+                        // Ensure fresh session before post-generation updates and navigation
+                        try {
+                            await refreshSupabaseSession();
+                        } catch (sessErr) {
+                            console.warn("Session refresh check failed:", sessErr);
+                        }
 
                         // Trigger final updates
                         if (!hasUpdatedRef.current && user?.id) {
@@ -172,11 +181,13 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
 
             // 2. Fallback: Supabase Polling (Legacy / Resume)
             try {
-                const { data, error: dbErr } = await supabase
-                    .from('Titles')
-                    .select('status, htmlArticle')
-                    .eq('id', articleId)
-                    .single();
+                const { data, error: dbErr } = await withSessionRetry(() =>
+                    supabase
+                        .from('Titles')
+                        .select('status, htmlArticle')
+                        .eq('id', articleId)
+                        .single()
+                );
 
                 if (dbErr) throw dbErr;
 
@@ -191,11 +202,13 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                 // If DB shows pending controversies (e.g. from an offline run or page refresh)
                 if (currentStatus === 'Pending Controversies') {
                     // Fetch controversies from Titles.idea_metadata.controversy_options
-                    const { data: updatedTitle } = await supabase
-                        .from('Titles')
-                        .select('idea_metadata')
-                        .eq('id', articleId)
-                        .single();
+                    const { data: updatedTitle } = await withSessionRetry(() =>
+                        supabase
+                            .from('Titles')
+                            .select('idea_metadata')
+                            .eq('id', articleId)
+                            .single()
+                    );
                     
                     const meta = updatedTitle?.idea_metadata || {};
                     if (meta.controversy_options) {
@@ -227,6 +240,13 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                     setProgress(100);
                     localStorage.removeItem(getContentStudioGenerationStorageKey(articleId));
                     localStorage.removeItem(`gen_progress_${articleId}`);
+
+                    // Ensure fresh session before navigating or updating
+                    try {
+                        await refreshSupabaseSession();
+                    } catch (sessErr) {
+                        console.warn("Session refresh check failed:", sessErr);
+                    }
 
                     if (!hasUpdatedRef.current && user?.id) {
                         hasUpdatedRef.current = true;
