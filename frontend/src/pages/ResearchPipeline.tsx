@@ -58,12 +58,22 @@ export function ResearchPipeline() {
 
             const title = cluster.subtopic_name || cluster.cluster_title || 'Untitled Article'
 
+            const totalVol = clusterKws.reduce((acc: number, kw: any) => acc + (kw.search_volume || 0), 0)
+            const maxKd = clusterKws.reduce((acc: number, kw: any) => Math.max(acc, kw.keyword_difficulty || 0), 0)
+            const primaryVolume = primaryKeywordObj?.search_volume || 0
+            const primaryDifficulty = primaryKeywordObj?.keyword_difficulty || 0
+            const intent = cluster.primary_intent || cluster.cluster_intent || primaryKeywordObj?.intent || 'informational'
+
             const selected_keyword_metrics_json = {
+                source: 'dataforseo_exact',
+                target_intent: intent,
                 primary: primaryKeywordObj ? {
                     keyword: primaryKeywordObj.keyword,
-                    search_volume: primaryKeywordObj.search_volume || 0,
-                    keyword_difficulty: primaryKeywordObj.keyword_difficulty || 0,
+                    search_volume: primaryVolume,
+                    keyword_difficulty: primaryDifficulty,
                     cpc: primaryKeywordObj.cpc || 0,
+                    metric_source: 'dataforseo_exact',
+                    is_estimated: false,
                 } : null,
                 secondary: clusterKws
                     .filter((kw: any) => kw.keyword !== primaryKeyword)
@@ -72,6 +82,8 @@ export function ResearchPipeline() {
                         search_volume: kw.search_volume || 0,
                         keyword_difficulty: kw.keyword_difficulty || 0,
                         cpc: kw.cpc || 0,
+                        metric_source: 'dataforseo_exact',
+                        is_estimated: false,
                     })),
                 secondaries: clusterKws
                     .filter((kw: any) => kw.keyword !== primaryKeyword)
@@ -80,6 +92,8 @@ export function ResearchPipeline() {
                         search_volume: kw.search_volume || 0,
                         keyword_difficulty: kw.keyword_difficulty || 0,
                         cpc: kw.cpc || 0,
+                        metric_source: 'dataforseo_exact',
+                        is_estimated: false,
                     }))
             }
 
@@ -100,12 +114,21 @@ export function ResearchPipeline() {
                     status: 'New',
                     dateCreatedOn: new Date().toISOString(),
                     primary_keyword: primaryKeyword,
-                    primary_keywords: primaryKeyword ? JSON.stringify([primaryKeyword]) : '[]',
-                    secondary_keywords: JSON.stringify(secondaryKeywords),
+                    primary_keywords: primaryKeyword ? [primaryKeyword] : [],
+                    secondary_keywords: secondaryKeywords,
                     secondary_keywords_json: secondaryKeywords,
                     Keywords: clusterKws.map((k: any) => k.keyword).join(', '),
                     keyword_candidates_json: clusterKws.map((k: any) => k.keyword),
                     domain: activeProject.domain || '',
+                    selected_keyword_search_volume: primaryVolume,
+                    selected_keyword_difficulty: primaryDifficulty,
+                    total_search_volume: totalVol || primaryVolume,
+                    avg_keyword_difficulty: maxKd || primaryDifficulty,
+                    selected_keyword_intent: intent,
+                    keyword_research_source: 'dataforseo_exact',
+                    keyword_selection_source: 'research_pipeline',
+                    keyword_research_status: 'ready',
+                    keyword_research_confidence: 0.85,
                     selected_keyword_metrics_json: selected_keyword_metrics_json,
                 }])
 

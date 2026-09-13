@@ -79,9 +79,10 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                             // Initialize default selections (select first 3 by default, and pick first take)
                             const initialSelections: Record<string, { selected: boolean; selectedTakeId: string }> = {};
                             (data.controversy_options || []).forEach((c: any, index: number) => {
+                                const takes = Array.isArray(c?.takes) ? c.takes : [];
                                 initialSelections[c.id] = {
                                     selected: index < 3,
-                                    selectedTakeId: c.takes[0]?.id || ''
+                                    selectedTakeId: takes[0]?.id || ''
                                 };
                             });
                             setSelectedControversies(initialSelections);
@@ -201,9 +202,10 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                         setControversies(meta.controversy_options || []);
                         const initialSelections: Record<string, { selected: boolean; selectedTakeId: string }> = {};
                         (meta.controversy_options || []).forEach((c: any, index: number) => {
+                            const takes = Array.isArray(c?.takes) ? c.takes : [];
                             initialSelections[c.id] = {
                                 selected: index < 3,
-                                selectedTakeId: c.takes[0]?.id || ''
+                                selectedTakeId: takes[0]?.id || ''
                             };
                         });
                         setSelectedControversies(initialSelections);
@@ -309,14 +311,15 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                 .filter(c => selectedControversies[c.id]?.selected)
                 .map(c => {
                     const sel = selectedControversies[c.id];
-                    const t = c.takes.find((x: any) => x.id === sel.selectedTakeId);
+                    const takes = Array.isArray(c?.takes) ? c.takes : [];
+                    const t = takes.find((x: any) => x.id === sel?.selectedTakeId);
                     return {
                         id: c.id,
                         title: c.title,
                         summary: c.summary,
-                        selected_take_id: sel.selectedTakeId,
+                        selected_take_id: sel?.selectedTakeId || '',
                         selected_take_text: t?.text || '',
-                        takes: c.takes
+                        takes: takes
                     };
                 });
 
@@ -424,7 +427,7 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
                                                     <p className="text-[10px] uppercase tracking-wider font-semibold text-indigo-600 dark:text-indigo-400 mb-1">
                                                         Choose Writer's Take (Stance to Defend):
                                                     </p>
-                                                    {c.takes.map((t: any) => (
+                                                    {(Array.isArray(c?.takes) ? c.takes : []).map((t: any) => (
                                                         <label key={t.id} className="flex items-start gap-2.5 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 p-1.5 rounded transition">
                                                             <input
                                                                 type="radio"

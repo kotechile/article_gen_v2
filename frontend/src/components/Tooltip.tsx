@@ -11,6 +11,10 @@ interface TooltipProps {
 export const MetricTooltip: React.FC<TooltipProps> = ({ explanation, className = '', children }) => {
     const [isVisible, setIsVisible] = useState(false);
 
+    if (!explanation) {
+        return children ? <div className={className}>{children}</div> : null;
+    }
+
     return (
         <div
             className={`relative inline-flex items-center gap-1 cursor-help group ${className}`}

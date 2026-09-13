@@ -1032,7 +1032,7 @@ export const ContentStudio: React.FC = () => {
         approvedTitle?: string;
         approvedDescription?: string;
     }) => {
-        if (!articleId || !appSettings) return;
+        if (!articleId) return;
         setGenerating(true);
         setError(null);
 
@@ -1217,7 +1217,7 @@ export const ContentStudio: React.FC = () => {
                 rag_enabled: strategyUsesRag && !!formData.ragCollection,
                 competitor_analysis_enabled: useCompetitorAnalysis,
                 rag_collection_name: formData.ragCollection,
-                rag_endpoint: (strategyUsesRag && formData.ragCollection)
+                rag_endpoint: (strategyUsesRag && formData.ragCollection && appSettings?.rag_url)
                     ? appSettings.rag_url + formData.ragQueryType
                     : undefined,
                 rag_balance_emphasis: formData.emphasis,
@@ -1680,7 +1680,7 @@ export const ContentStudio: React.FC = () => {
 
                                         {/* Competitor Analysis option */}
                                         {(() => {
-                                            const hasCompetitorData = mustHaves.some(val => val.trim() !== '') || competitiveEdge.some(val => val.trim() !== '');
+                                            const hasCompetitorData = mustHaves.some(val => typeof val === 'string' && val.trim() !== '') || competitiveEdge.some(val => typeof val === 'string' && val.trim() !== '');
                                             return (
                                                 <div className={`flex items-start gap-3 p-3 rounded-xl border border-border bg-muted/30 transition ${!hasCompetitorData ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted/50'}`}>
                                                     <input
@@ -1903,14 +1903,14 @@ export const ContentStudio: React.FC = () => {
                                 <Gauge value={article.seo_optimization_score || 0} label="SEO Score" color="text-primary" explanation={METRIC_EXPLANATIONS.seo_score} />
 
                                 <Gauge
-                                    value={article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? article.competition_score ?? 0}
+                                    value={article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? article.selected_keyword_metrics_json?.primary?.keyword_difficulty ?? article.competition_score ?? 0}
                                     label="Key. Difficulty"
-                                    color={getCompetitionColor(article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? article.competition_score ?? 0)}
+                                    color={getCompetitionColor(article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? article.selected_keyword_metrics_json?.primary?.keyword_difficulty ?? article.competition_score ?? 0)}
                                     explanation={METRIC_EXPLANATIONS.difficulty}
                                 />
                                 <Gauge
-                                    value={(article.selected_keyword_search_volume ?? article.total_search_volume) ? Math.min(((article.selected_keyword_search_volume ?? article.total_search_volume ?? 0) / 1000), 100) : 0}
-                                    displayValue={article.selected_keyword_search_volume ?? article.total_search_volume ?? 0}
+                                    value={(article.selected_keyword_search_volume ?? article.total_search_volume ?? article.selected_keyword_metrics_json?.primary?.search_volume) ? Math.min(((article.selected_keyword_search_volume ?? article.total_search_volume ?? article.selected_keyword_metrics_json?.primary?.search_volume ?? 0) / 1000), 100) : 0}
+                                    displayValue={article.selected_keyword_search_volume ?? article.total_search_volume ?? article.selected_keyword_metrics_json?.primary?.search_volume ?? 0}
                                     label="Search Volume"
                                     color="text-chart-1"
                                     explanation={METRIC_EXPLANATIONS.search_volume}
@@ -1994,7 +1994,7 @@ export const ContentStudio: React.FC = () => {
                                 <div className="p-3 bg-muted/50 rounded-xl">
                                     <div className="text-[10px] text-muted-foreground uppercase mb-1">Source</div>
                                     <div className="font-medium text-sm text-foreground truncate">
-                                        {article.keyword_selection_source || article.keyword_research_source || '-'}
+                                        {article.keyword_selection_source || article.keyword_research_source || article.selected_keyword_metrics_json?.primary?.metric_source || article.selected_keyword_metrics_json?.source || '-'}
                                     </div>
                                 </div>
                                 <div className="p-3 bg-muted/50 rounded-xl">
@@ -2011,12 +2011,12 @@ export const ContentStudio: React.FC = () => {
                                     </div>
                                     <div className="p-3 bg-muted/50 rounded-xl">
                                         <div className="text-[10px] text-muted-foreground uppercase mb-1">Volume</div>
-                                        <div className="font-medium text-sm text-foreground">{article.selected_keyword_search_volume ?? article.total_search_volume ?? '-'}</div>
+                                        <div className="font-medium text-sm text-foreground">{article.selected_keyword_search_volume ?? article.total_search_volume ?? article.selected_keyword_metrics_json?.primary?.search_volume ?? '-'}</div>
                                     </div>
                                 </div>
                                 <div className="p-3 bg-muted/50 rounded-xl">
                                     <div className="text-[10px] text-muted-foreground uppercase mb-1">Difficulty</div>
-                                        <div className="font-medium text-sm text-foreground">{article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? '-'}</div>
+                                        <div className="font-medium text-sm text-foreground">{article.selected_keyword_difficulty ?? article.avg_keyword_difficulty ?? article.selected_keyword_metrics_json?.primary?.keyword_difficulty ?? '-'}</div>
                                 </div>
                                 <div className="p-3 bg-muted/50 rounded-xl">
                                     <div className="text-[10px] text-muted-foreground uppercase mb-1">Secondary Keywords</div>

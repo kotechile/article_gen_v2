@@ -6,6 +6,7 @@ import { AuthCallback } from './pages/AuthCallback';
 import { Login } from './pages/Login';
 import { Landing } from './pages/Landing';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import MainLayout from './components/layout/MainLayout';
 import { MyArticles } from './pages/MyArticles';
 import { ContentStudio } from './pages/ContentStudio';
@@ -22,12 +23,13 @@ function App() {
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
       <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/auth/callback" element={<AuthCallback />} />
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
 
-            <Route element={<ProtectedRoute />}>
-            <Route element={<ProjectProvider><MainLayout /></ProjectProvider>}>
+              <Route element={<ProtectedRoute />}>
+              <Route element={<ProjectProvider><MainLayout /></ProjectProvider>}>
               <Route path="/" element={<ResearchTools />} />
               <Route path="/research-tools" element={<ResearchTools />} />
               <Route path="/research-pipeline" element={<ResearchPipeline />} />
@@ -46,6 +48,7 @@ function App() {
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </ErrorBoundary>
       </AuthProvider>
     </ThemeProvider>
   );

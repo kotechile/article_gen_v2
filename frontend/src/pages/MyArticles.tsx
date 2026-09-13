@@ -124,8 +124,10 @@ function safeNumber(value: unknown): number | null {
 }
 
 function getKeywordMetricSource(article: any): string {
-    const metricSource = String(article?.selected_keyword_metrics_json?.primary?.metric_source || '').trim()
-    if (metricSource) return metricSource
+    const primaryMetricSource = String(article?.selected_keyword_metrics_json?.primary?.metric_source || '').trim()
+    if (primaryMetricSource) return primaryMetricSource
+    const topSource = String(article?.selected_keyword_metrics_json?.source || '').trim()
+    if (topSource) return topSource
     const selectionSource = String(article?.keyword_selection_source || article?.keyword_research_source || '').trim()
     return selectionSource || 'unknown'
 }
@@ -134,12 +136,21 @@ function isKeywordMetricEstimated(article: any): boolean {
     const explicit = article?.selected_keyword_metrics_json?.primary?.is_estimated
     if (typeof explicit === 'boolean') return explicit
     const source = getKeywordMetricSource(article).toLowerCase()
+    if (source.includes('exact') || source === 'dataforseo' || source === 'research_pipeline') return false
     return source.includes('aggregate') || source.includes('fallback') || source === 'unknown'
 }
 
 function getKeywordOpportunityScore(article: any): number | null {
-    const volume = safeNumber(article?.selected_keyword_search_volume ?? article?.total_search_volume)
-    const difficulty = safeNumber(article?.selected_keyword_difficulty ?? article?.avg_keyword_difficulty)
+    const volume = safeNumber(
+        article?.selected_keyword_search_volume ??
+        article?.total_search_volume ??
+        article?.selected_keyword_metrics_json?.primary?.search_volume
+    )
+    const difficulty = safeNumber(
+        article?.selected_keyword_difficulty ??
+        article?.avg_keyword_difficulty ??
+        article?.selected_keyword_metrics_json?.primary?.keyword_difficulty
+    )
     if (volume == null || difficulty == null) return null
     if (volume <= 0) return 0
     const volScore = Math.min(volume / 50, 100)
@@ -1263,8 +1274,16 @@ export const MyArticles: React.FC = () => {
                                     const metricSource = getKeywordMetricSource(article)
                                     const keywordEstimated = isKeywordMetricEstimated(article)
                                     const keywordRows = getKeywordRows(article)
-                                    const volume = safeNumber((article as any).selected_keyword_search_volume ?? (article as any).total_search_volume)
-                                    const difficulty = safeNumber((article as any).selected_keyword_difficulty ?? (article as any).avg_keyword_difficulty)
+                                    const volume = safeNumber(
+                                        (article as any).selected_keyword_search_volume ??
+                                        (article as any).total_search_volume ??
+                                        (article as any).selected_keyword_metrics_json?.primary?.search_volume
+                                    )
+                                    const difficulty = safeNumber(
+                                        (article as any).selected_keyword_difficulty ??
+                                        (article as any).avg_keyword_difficulty ??
+                                        (article as any).selected_keyword_metrics_json?.primary?.keyword_difficulty
+                                    )
                                     const opportunity = getKeywordOpportunityScore(article)
                                     const keywordsExpanded = expandedKeywordRows.has(article.id)
                                     return (
