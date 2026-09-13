@@ -1063,19 +1063,227 @@ Full article:
     return _render_key_takeaways_html(items)
 
 
+def _extract_numbers_for_smart_brevity(
+    html_text: str,
+    research_data: Dict[str, Any],
+    structure: Dict[str, Any],
+) -> List[str]:
+    """
+    Extracts 3-5 specific data points/metrics/numbers with bold values for the Smart Brevity 'By the numbers' block.
+    """
+    items: List[str] = []
+    plain_text = re.sub(r'<[^>]+>', ' ', html_text or '')
+    
+    # Pattern for numeric expressions like: $14,289, 10% to 20%, 49%, 3x, etc.
+    stat_pattern = re.compile(
+        r'(\$?\d+(?:,\d+)*(?:\.\d+)?%?(?:\s*(?:to|-)\s*\$?\d+(?:,\d+)*(?:\.\d+)?%?)?|\d+x|\d+\+)\s*[:\-–—]?\s*([^.!?\n]{15,120}[.!?])',
+        re.IGNORECASE
+    )
+    
+    seen_metrics = set()
+    for match in stat_pattern.finditer(plain_text):
+        metric = match.group(1).strip()
+        desc = match.group(2).strip()
+        # Filter out trivial numbers like year 2026 alone or tiny single digits
+        if metric in seen_metrics or metric in ('2024', '2025', '2026', '1', '2', '3', '4', '5'):
+            continue
+        if len(desc) < 15 or 'http' in desc:
+            continue
+        seen_metrics.add(metric)
+        items.append(f"<strong>{metric}:</strong> {desc}")
+        if len(items) >= 5:
+            break
+            
+    # Fallback to claims / key points if not enough numbers extracted
+    if len(items) < 3:
+        claims = research_data.get('claims') or []
+        for claim in claims:
+            if isinstance(claim, dict):
+                text = claim.get('claim') or claim.get('text') or ''
+            else:
+                text = str(claim)
+            text = text.strip()
+            if text and len(text) > 20:
+                words = text.split()
+                lead = " ".join(words[:3])
+                rest = " ".join(words[3:])
+                if rest:
+                    items.append(f"<strong>{lead}:</strong> {rest}")
+            if len(items) >= 4:
+                break
+
+    # If still fewer than 3, extract from structure keywords/points
+    if len(items) < 3:
+        kw = str(structure.get('focus_keyword') or research_data.get('primary_keyword') or 'Key Insight').strip()
+        items.append(f"<strong>Primary Focus:</strong> Strategic optimization around {kw}.")
+        items.append("<strong>Execution Impact:</strong> Systematic implementation reduces friction and improves measurable outcomes.")
+        items.append("<strong>Long-term Value:</strong> Consistent application builds sustainable competitive advantages over time.")
+
+    return items[:5]
+
+
+def _validate_and_ensure_smart_brevity_structure(
+    html_content: str,
+    research_data: Dict[str, Any],
+    structure: Dict[str, Any],
+) -> str:
+    """
+    Validates and enforces the complete Smart Brevity structure on the article HTML.
+    If any Smart Brevity component is missing from the top, synthesizes and places it properly.
+    
+    Required Components:
+    1. Punchy Hook / Lede sentence
+    2. The big picture: (<p><strong>The big picture:</strong> ...</p>)
+    3. By the numbers: (<p><strong>By the numbers:</strong></p><ul><li><strong>...:</strong> ...</li></ul>)
+    4. Why it matters: (<p><strong>Why it matters:</strong> ...</p>)
+    5. The catch: (<p><strong>The catch:</strong> ...</p> or Between the lines / The bottom line)
+    6. Go deeper: (<p><strong>Go deeper:</strong> ...</p>)
+    7. <h2>Go Deeper</h2> (Demarcating the transition to deep-dive body sections)
+    """
+    if not html_content or not html_content.strip():
+        return html_content
+
+    content = html_content.strip()
+
+    # 1. Normalize markdown bold to HTML strong tags for Smart Brevity axioms
+    axiom_names = [
+        r'The\s+big\s+picture',
+        r'By\s+the\s+numbers',
+        r'Why\s+it\s+matters',
+        r'The\s+catch',
+        r'Between\s+the\s+lines',
+        r'The\s+bottom\s+line',
+        r'What\s+to\s+watch',
+        r'Go\s+deeper',
+    ]
+    for axiom in axiom_names:
+        # Match **Axiom:** or **Axiom**:
+        content = re.sub(
+            rf'\*\*\s*({axiom})\s*:\s*\*\*',
+            r'<strong>\1:</strong>',
+            content,
+            flags=re.IGNORECASE
+        )
+        content = re.sub(
+            rf'\*\*\s*({axiom})\s*\*\*\s*:',
+            r'<strong>\1:</strong>',
+            content,
+            flags=re.IGNORECASE
+        )
+        # Match <b>Axiom:</b> or <b>Axiom</b>:
+        content = re.sub(
+            rf'<b>\s*({axiom})\s*:\s*</b>',
+            r'<strong>\1:</strong>',
+            content,
+            flags=re.IGNORECASE
+        )
+        content = re.sub(
+            rf'<strong>\s*({axiom})\s*</strong>\s*:',
+            r'<strong>\1:</strong>',
+            content,
+            flags=re.IGNORECASE
+        )
+
+    # Check presence of individual components
+    has_big_picture = bool(re.search(r'<strong>\s*the\s+big\s+picture\s*:?</strong>', content, re.IGNORECASE))
+    has_by_numbers = bool(re.search(r'<strong>\s*by\s+the\s+numbers\s*:?</strong>', content, re.IGNORECASE))
+    has_why_matters = bool(re.search(r'<strong>\s*why\s+it\s+matters\s*:?</strong>', content, re.IGNORECASE))
+    has_catch = bool(re.search(
+        r'<strong>\s*(?:the\s+catch|between\s+the\s+lines|the\s+bottom\s+line|what\s+to\s+watch)\s*:?</strong>',
+        content,
+        re.IGNORECASE
+    ))
+    has_go_deeper_prompt = bool(re.search(r'<strong>\s*go\s+deeper\s*:?</strong>', content, re.IGNORECASE))
+    has_go_deeper_h2 = bool(re.search(r'<h2>\s*go\s+deeper\s*</h2>', content, re.IGNORECASE))
+
+    # If all Smart Brevity components already exist cleanly
+    if (has_big_picture and has_by_numbers and has_why_matters and has_catch and has_go_deeper_prompt and has_go_deeper_h2):
+        return content
+
+    # Build missing elements
+    thesis = str(structure.get('thesis') or structure.get('excerpt') or research_data.get('brief') or '').strip()
+    hook = str(structure.get('hook') or structure.get('title') or '').strip()
+    topic = str(structure.get('focus_keyword') or research_data.get('primary_keyword') or structure.get('title') or 'this strategy').strip()
+
+    missing_blocks: List[str] = []
+
+    if not has_big_picture:
+        bp_text = thesis if thesis else f"Understanding the key dynamics of {topic} is critical for making informed, high-ROI decisions."
+        missing_blocks.append(f"<p><strong>The big picture:</strong> {bp_text}</p>")
+
+    if not has_by_numbers:
+        num_items = _extract_numbers_for_smart_brevity(content, research_data, structure)
+        num_html = "<p><strong>By the numbers:</strong></p>\n<ul>\n"
+        for item in num_items:
+            num_html += f"  <li>{item}</li>\n"
+        num_html += "</ul>"
+        missing_blocks.append(num_html)
+
+    if not has_why_matters:
+        why_text = hook if (hook and hook != thesis) else f"Mastering the fundamentals of {topic} directly impacts operational efficiency, cost management, and long-term positioning."
+        missing_blocks.append(f"<p><strong>Why it matters:</strong> {why_text}</p>")
+
+    if not has_catch:
+        catch_text = f"While the potential benefits of {topic} are substantial, execution often introduces hidden friction, compliance demands, or unexpected costs that require careful planning."
+        missing_blocks.append(f"<p><strong>The catch:</strong> {catch_text}</p>")
+
+    if not has_go_deeper_prompt:
+        missing_blocks.append(f"<p><strong>Go deeper:</strong> Review the detailed breakdown, comparative analysis, and step-by-step guidance below.</p>")
+
+    # Prepend any synthesized missing blocks to the top if the whole opening was missing
+    if missing_blocks:
+        sb_intro = "\n\n".join(missing_blocks)
+        content = f"{sb_intro}\n\n{content}"
+
+    # Ensure <h2>Go Deeper</h2> exists
+    if not has_go_deeper_h2:
+        # Find where the Smart Brevity lead ends (after Go deeper: prompt or after the last intro axiom)
+        go_deeper_match = re.search(r'(<p><strong>\s*go\s+deeper\s*:?</strong>.*?</p>)', content, re.IGNORECASE | re.DOTALL)
+        if go_deeper_match:
+            end_pos = go_deeper_match.end()
+            content = content[:end_pos] + "\n\n<h2>Go Deeper</h2>\n\n" + content[end_pos:]
+        else:
+            # Place <h2>Go Deeper</h2> before the first <h2> in the body
+            first_h2 = re.search(r'<h2>', content, re.IGNORECASE)
+            if first_h2:
+                content = content[:first_h2.start()] + "<h2>Go Deeper</h2>\n\n" + content[first_h2.start():]
+            else:
+                content = content + "\n\n<h2>Go Deeper</h2>\n\n"
+
+    # Clean up redundant duplicate headings like <h2>Introduction</h2> right after <h2>Go Deeper</h2>
+    content = re.sub(
+        r'<h2>\s*go\s+deeper\s*</h2>\s*<h2>\s*(?:introduction|overview|background)\s*</h2>',
+        '<h2>Go Deeper</h2>',
+        content,
+        flags=re.IGNORECASE
+    )
+
+    return content
+
+
 def _polish_and_format_article(
     html_content: str,
     research_data: Dict[str, Any],
     structure: Dict[str, Any],
 ) -> str:
     """
-    Polishing/formatting agent that runs at the end of content generation.
+    Polishing & Smart Brevity Agent that runs at the end of content generation.
     It takes the concatenated article HTML content and polishes it to ensure:
-    1) No walls of text: keep paragraphs short (2-4 sentences max).
-    2) Use H3/H4 subheadings to break down long sections where appropriate.
-    3) Ensure 1-4 comparative HTML tables explaining concepts and numbers are present.
-    4) Ensure writer's notes/firsthand narrative are woven in smoothly and naturally.
-    5) Keep ALL in-text citation markers like [1], [2], [^1], etc. intact and unchanged.
+    1) SMART BREVITY LEAD: Strict executive structure at the top:
+       - Punchy Lede sentence
+       - The big picture:
+       - By the numbers: (bullet points with bold values)
+       - Why it matters:
+       - The catch: (or Between the lines: / The bottom line:)
+       - Go deeper:
+    2) GO DEEPER SECTION:
+       - <h2>Go Deeper</h2> starting the in-depth body.
+       - Eliminates introductory fluff and throat-clearing from the body sections.
+       - Keeps paragraphs short (2-4 sentences max).
+       - Uses descriptive H3/H4 subheadings to structure subsections.
+       - Ensures 1-4 comparative HTML tables explaining concepts and numbers are present.
+    3) CITATION & LINK PRESERVATION:
+       - Keep ALL in-text citation markers like [1], [2], [^1], etc. intact and unchanged.
     """
     if not html_content or not html_content.strip():
         return html_content
@@ -1086,7 +1294,7 @@ def _polish_and_format_article(
     primary_keyword = str(research_data.get("primary_keyword") or "").strip()
 
     # Log action
-    logger.info("Initializing Formatting/Polishing Agent pass...")
+    logger.info("Initializing Smart Brevity Polishing Agent pass...")
 
     # Initialize client for final review/polishing
     review_provider, review_model, review_key = get_llm_provider_for_role(LLM_ROLE_FINAL_REVIEW)
@@ -1105,7 +1313,7 @@ def _polish_and_format_article(
     )
 
     if writer_notes:
-        personal_touch_instruction = f'Ensure the writer\'s notes/reflections/firsthand narrative ("{writer_notes}") are woven naturally and prominently into the article (preferably in the opening section or introduction). Do not quote them as external quotes; state them as the author\'s own experience or thoughts. Keep it natural, fluid, and not repetitive. Avoid clichés (e.g. staring at screens or kitchen tables).'
+        personal_touch_instruction = f'Ensure the writer\'s notes/reflections/firsthand narrative ("{writer_notes}") are woven naturally and prominently into the article (preferably in the opening Smart Brevity lead or early in Go Deeper). Do not quote them as external quotes; state them as the author\'s own experience or thoughts. Keep it natural, fluid, and not repetitive. Avoid clichés (e.g. staring at screens or kitchen tables).'
     else:
         if tone.lower() == 'friendly':
             personal_touch_instruction = 'Ensure the article maintains a warm, friendly first-person perspective, incorporating natural and authentic personal reflections if appropriate. However, do NOT fabricate repetitive, generic clichés (e.g. "I remember sitting at my kitchen table" or "I remember staring at my laptop screen"). Keep any personal anecdotes natural, fluid, unique, and non-repetitive.'
@@ -1113,15 +1321,41 @@ def _polish_and_format_article(
             personal_touch_instruction = 'DO NOT introduce or fabricate first-person narrative, reflections, or fictional personal experiences (e.g. "I remember sitting at my kitchen table" or "I remember staring at my laptop screen"), especially since the tone is not friendly and no writer\'s notes were provided. Maintain the requested tone without forcing artificial first-person anecdotes.'
 
     prompt = f"""
-You are a professional editor and polishing agent. Your job is to format and polish the given article content (in HTML) to meet strict quality guidelines.
-Do NOT lose, omit, or modify any facts, concepts, numbers, references, or information. Keep the core meaning entirely intact.
+You are an expert editorial polishing agent and master of Smart Brevity.
+Your job is to transform, polish, and format the given article content (in HTML) to strictly follow Smart Brevity principles.
+Do NOT lose, omit, or modify any facts, concepts, numbers, references, citations, or information. Keep the core meaning and substance entirely intact.
 
-Strict Quality Guidelines to enforce:
-1. **NO WALLS OF TEXT**: Keep all paragraphs short and digestible (typically 2 to 4 sentences max). If you encounter any long paragraphs, split them.
-2. **SUBHEADING STRUCTURE**: Introduce relevant, descriptive <h3> and <h4> subheadings to organize and break down any sections that are long or dense.
-3. **COMPARATIVE TABLES**: Ensure the article contains 1 to 4 clean HTML tables (<table>, <tr>, <th>, <td>) to compare concepts, list metrics, summarize numerical data, or structure information. If there are no tables in the original text, you MUST construct 1-4 relevant comparative tables based on the context of the article.
-4. **WRITER'S PERSONAL TOUCH**: {personal_touch_instruction}
-5. **KEEP CITATION MARKERS INTACT**: Keep all in-text citation markers like [1], [2], [3], [^1], etc. exactly where they are in the text. DO NOT modify, delete, or rename them.
+============================================================
+STRICT SMART BREVITY STRUCTURE REQUIREMENTS
+============================================================
+
+1. **SMART BREVITY OPENING (At the very top of the article)**:
+   - **Lede / Punchy Hook**: Begin immediately with 1 crisp, punchy opening sentence capturing the central paradox or insight (no throat-clearing, no fluff).
+   - **The big picture:** 1 to 2 concise sentences stating the macro context: `<p><strong>The big picture:</strong> [Macro context]</p>`
+   - **By the numbers:** A clean bulleted list of 3 to 6 key quantifiable metrics, statistics, percentages, dollar figures, or ratios extracted from the article/evidence:
+     `<p><strong>By the numbers:</strong></p>`
+     `<ul>`
+       `<li><strong>[Stat/Metric]:</strong> [1-sentence context]</li>`
+     `</ul>`
+   - **Why it matters:** 2 to 3 sentences explaining the concrete impact, stakes, and consequences for the reader: `<p><strong>Why it matters:</strong> [Impact explanation]</p>`
+   - **The catch:** 1 to 2 punchy sentences highlighting the hidden obstacle, friction, cost, trade-off, or nuance (use <strong>The catch:</strong> or <strong>Between the lines:</strong>): `<p><strong>The catch:</strong> [Nuance/trade-off]</p>`
+   - **Go deeper:** 1 clear transition sentence prompting the reader into the deep-dive: `<p><strong>Go deeper:</strong> [Invite to review full data/analysis below].</p>`
+
+2. **"GO DEEPER" BODY SECTION**:
+   - Start the in-depth body with: `<h2>Go Deeper</h2>`
+   - Place ALL detailed explanations, background, technical breakdowns, step-by-step workflows, case studies, and extended evidence inside the Go Deeper section.
+   - Eliminate repetitive introductory fluff and throat-clearing from the body sections; keep the full substance, facts, and actionable details organized under descriptive <h3> and <h4> subheadings.
+   - **NO WALLS OF TEXT**: Keep all paragraphs short and digestible (typically 2 to 4 sentences max).
+
+3. **COMPARATIVE TABLES**:
+   - Ensure the Go Deeper body contains 1 to 4 clean HTML tables (<table>, <tr>, <th>, <td>) comparing concepts, listing metrics, or structuring quantitative data.
+
+4. **WRITER'S PERSONAL TOUCH**:
+   - {personal_touch_instruction}
+
+5. **KEEP CITATION MARKERS AND LINKS INTACT (CRITICAL)**:
+   - Keep ALL in-text citation markers like [1], [2], [3], [^1], etc. exactly intact where they appear in the text. DO NOT modify, delete, or rename them.
+   - Keep all links (<a href="...">...</a>) intact.
 
 INPUT INFORMATION:
 - Primary Tone: {tone}
@@ -1140,14 +1374,14 @@ Output instructions:
     try:
         response = client.generate(
             [
-                {"role": "system", "content": "You are a professional HTML formatting and polishing editor. Return clean, formatted HTML only. Do not wrap in markdown code blocks."},
+                {"role": "system", "content": "You are a professional HTML formatting, editing, and Smart Brevity polishing agent. Return clean, formatted HTML only. Do not wrap in markdown code blocks."},
                 {"role": "user", "content": prompt},
             ]
         )
         content = response.content
         if not content:
-            logger.warning("Polishing agent returned empty response. Falling back to original content.")
-            return html_content
+            logger.warning("Smart Brevity polishing agent returned empty response. Falling back to original content with validation.")
+            return _validate_and_ensure_smart_brevity_structure(html_content, research_data, structure)
 
         # Strip any accidental ```html wrappers
         cleaned = content.strip()
@@ -1160,15 +1394,18 @@ Output instructions:
         
         cleaned = cleaned.strip()
         if not cleaned:
-            logger.warning("Cleaned polished content was empty. Falling back to original content.")
-            return html_content
+            logger.warning("Cleaned polished content was empty. Falling back to original content with validation.")
+            return _validate_and_ensure_smart_brevity_structure(html_content, research_data, structure)
 
-        logger.info(f"Polishing pass complete. Original chars: {len(html_content)}, Polished chars: {len(cleaned)}")
-        return cleaned
+        # Enforce and validate Smart Brevity structural integrity
+        validated = _validate_and_ensure_smart_brevity_structure(cleaned, research_data, structure)
+
+        logger.info(f"Smart Brevity polishing pass complete. Original chars: {len(html_content)}, Polished chars: {len(validated)}")
+        return validated
 
     except Exception as e:
-        logger.error(f"Error in polishing agent pass: {str(e)}")
-        return html_content
+        logger.error(f"Error in Smart Brevity polishing agent pass: {str(e)}")
+        return _validate_and_ensure_smart_brevity_structure(html_content, research_data, structure)
 
 
 def _generate_faq_from_article(
@@ -5653,7 +5890,12 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 f"Low-substance draft rejected (words={current_word_count}, placeholder_hits={placeholder_hits})."
             )
 
-        # Phase 6 GEO enforcement: ensure answer-first block near top when enabled.
+        # Check if Smart Brevity is active in the article
+        has_smart_brevity = bool(
+            re.search(r'<strong>\s*the\s+big\s+picture\s*:?</strong>', full_content, re.IGNORECASE)
+        )
+
+        # Phase 6 GEO enforcement: If Smart Brevity is NOT present, ensure answer-first block near top when enabled.
         geo_enforce_answer_first = bool(research_data.get('geo_enforce_answer_first', True))
         lower_content = full_content.lower()
         has_answer_first = any(
@@ -5664,7 +5906,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 "the short answer",
             ]
         )
-        if geo_enforce_answer_first and not has_answer_first:
+        if not has_smart_brevity and geo_enforce_answer_first and not has_answer_first:
             title = structure.get('title', 'this topic')
             thesis = structure.get('thesis', '') or structure.get('excerpt', '')
             answer_block = (
@@ -5674,44 +5916,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             full_content = answer_block + full_content
             geo_auto_applied = True
 
-        # Phase 6.1 GEO enrichment: ensure key GEO signals are present so the
-        # generated draft is extractable by answer engines without manual edits.
-        geo_enrichment_added = {
-            "definition": False,
-            "key_takeaways": False,
-            "faq": False,
-        }
-        lower_content = full_content.lower()
-        plain_content = _extract_plain_text(full_content or "")
-        lower_plain = plain_content.lower()
-
-        geo_primary_term = str(
-            structure.get('focus_keyword')
-            or research_data.get('primary_keyword')
-            or research_data.get('search_phrase')
-            or ''
-        ).strip()
-        geo_topic_phrase = geo_primary_term.title() if geo_primary_term else str(structure.get('title', 'This Strategy')).split(':')[0].strip()
-        if not geo_topic_phrase:
-            geo_topic_phrase = "This Strategy"
-        geo_support_points = _collect_geo_support_points(
-            structure=structure,
-            research_data=research_data,
-            sections=sections,
-            claim_bundles=claim_bundles,
-        )
-
-        has_definition_pattern = bool(
-            re.search(r"\b[A-Z][A-Za-z0-9 ]{2,30}\s+is\s+a[n]?\s+", plain_content or "")
-        )
-        if not has_definition_pattern:
-            definition_paragraph = _build_geo_definition_paragraph(
-                topic_phrase=geo_topic_phrase,
-                support_points=geo_support_points,
-            )
-            full_content = definition_paragraph + full_content
-            geo_enrichment_added["definition"] = True
-
+        # Phase 6.1 GEO enrichment: Pop any redundant takeaways block if Smart Brevity already covers key metrics
         full_content, existing_takeaways_block = _pop_named_h2_section(
             full_content,
             r"(?:at\s+a\s+glance|key\s+takeaways|takeaways|tl;?\s*dr)",
@@ -5723,7 +5928,6 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         support_article_text = _extract_plain_text(full_content or "")
 
         support_llm_client = None
-        generated_takeaways_block = ""
         generated_faq_block = ""
         try:
             support_llm_client = _create_support_section_llm_client(research_data)
@@ -5731,15 +5935,6 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             logger.warning("Failed to initialize support-section generator client: %s", support_client_error)
 
         if support_llm_client:
-            try:
-                generated_takeaways_block = _generate_key_takeaways_from_article(
-                    llm_client=support_llm_client,
-                    article_title=str(structure.get('title', 'Generated Article')),
-                    article_text=support_article_text,
-                )
-            except Exception as takeaway_error:
-                logger.warning("Key Takeaways generation failed; using fallback block. error=%s", takeaway_error)
-
             try:
                 generated_faq_block = _generate_faq_from_article(
                     llm_client=support_llm_client,
@@ -5759,32 +5954,29 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 except Exception as fallback_error:
                     logger.warning("HTML FAQ fallback generation failed. error=%s", fallback_error)
 
-        takeaways_block = generated_takeaways_block or existing_takeaways_block
-        if not takeaways_block:
-            takeaways_block = _build_geo_takeaways_block(
-                topic_phrase=geo_topic_phrase,
-                support_points=geo_support_points,
-            )
-            geo_enrichment_added["key_takeaways"] = True
-        full_content += "\n" + takeaways_block
-
         faq_block = generated_faq_block or existing_faq_block
-        if not faq_block:
+        if not faq_block and not has_smart_brevity:
+            geo_primary_term = str(
+                structure.get('focus_keyword')
+                or research_data.get('primary_keyword')
+                or research_data.get('search_phrase')
+                or ''
+            ).strip()
+            geo_topic_phrase = geo_primary_term.title() if geo_primary_term else str(structure.get('title', 'This Strategy')).split(':')[0].strip() or "This Strategy"
+            geo_support_points = _collect_geo_support_points(
+                structure=structure,
+                research_data=research_data,
+                sections=sections,
+                claim_bundles=claim_bundles,
+            )
             faq_block = _build_geo_faq_block(
                 topic_phrase=geo_topic_phrase,
                 support_points=geo_support_points,
             )
-            geo_enrichment_added["faq"] = True
             logger.info("Fallback FAQ block appended after dedicated generator returned no usable output")
-        full_content += "\n" + faq_block
 
-        if any(geo_enrichment_added.values()):
-            logger.info(
-                "Applied GEO enrichment blocks: definition=%s key_takeaways=%s faq=%s",
-                geo_enrichment_added["definition"],
-                geo_enrichment_added["key_takeaways"],
-                geo_enrichment_added["faq"],
-            )
+        if faq_block:
+            full_content += "\n\n" + faq_block
 
         # Normalize any markdown artifacts that leaked from generation/refinement.
         full_content = _normalize_markdown_artifacts_to_html(full_content)

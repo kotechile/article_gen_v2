@@ -1,16 +1,55 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+import types
 
-import pytest
-
-# Ensure repo root is importable when tests run without an installed package.
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-pytest.importorskip("celery")
-pytest.importorskip("kombu")
 
+def _install_task_import_stubs():
+    class DummyCeleryApp:
+        def task(self, *args, **kwargs):
+            def decorator(fn):
+                return fn
+            return decorator
+
+    sys.modules.setdefault("celery", SimpleNamespace(current_task=None))
+    sys.modules.setdefault("celery_config", SimpleNamespace(celery=DummyCeleryApp()))
+    sys.modules.setdefault(
+        "supabase_client",
+        SimpleNamespace(
+            LLM_ROLE_ARTICLE_GENERATION="article_generation",
+            LLM_ROLE_FINAL_REVIEW="final_review",
+            get_supabase_client=lambda: None,
+            get_llm_api_key=lambda *args, **kwargs: "",
+            get_linkup_api_key=lambda: "",
+            get_default_llm_provider=lambda: ("openai", "gpt-4", ""),
+            get_llm_provider_for_role=lambda role: ("openai", "gpt-4", ""),
+        ),
+    )
+    sys.modules.setdefault("llm_client", SimpleNamespace(create_llm_client=lambda **kwargs: None))
+    sys.modules.setdefault("rag_client", SimpleNamespace(create_rag_client=lambda **kwargs: None, RAGQuery=dict))
+    sys.modules.setdefault("linkup_client", SimpleNamespace(create_linkup_client=lambda **kwargs: None, SearchQuery=dict))
+    sys.modules.setdefault("article_structure_generator", SimpleNamespace(create_article_structure_generator=lambda *args, **kwargs: None))
+    sys.modules.setdefault(
+        "content_generator",
+        SimpleNamespace(
+            create_content_generator=lambda *args, **kwargs: None,
+            get_tone_specific_instructions=lambda tone: str(tone or ""),
+        ),
+    )
+    sys.modules.setdefault(
+        "citation_generator",
+        SimpleNamespace(create_citation_generator=lambda *args, **kwargs: None, CitationStyle=types.SimpleNamespace()),
+    )
+    sys.modules.setdefault("src.utils.config", SimpleNamespace(get_config=lambda: {}))
+
+
+_install_task_import_stubs()
+
+import pytest
 import tasks  # noqa: E402
 
 
@@ -70,13 +109,13 @@ def test_finalize_article_preserves_prior_citations_when_generation_returns_none
     assert "References" in final_article["html_content"]
 
 
-def test_polish_and_format_article_uses_llm_and_preserves_content(mocker):
-    # Mock create_llm_client
-    mock_client = mocker.MagicMock()
-    mock_response = mocker.MagicMock()
+def test_polish_and_format_article_uses_llm_and_preserves_content(monkeypatch):
+    from unittest.mock import MagicMock
+    mock_client = MagicMock()
+    mock_response = MagicMock()
     mock_response.content = "<p>Polished text with citation [1] and [2].</p><table><tr><td>Table</td></tr></table>"
     mock_client.generate.return_value = mock_response
-    mocker.patch("tasks.create_llm_client", return_value=mock_client)
+    monkeypatch.setattr(tasks, "create_llm_client", lambda **kwargs: mock_client)
 
     html_in = "<p>Raw text with citation [1] and [2].</p>"
     research_data = {
