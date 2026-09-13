@@ -1137,6 +1137,25 @@ export const resolveLinkedWordPressCategoryIds = async (
 };
 
 /**
+ * Fetch imported WordPress posts for a user from API (bypassing RLS restrictions).
+ */
+export const getImportedPosts = async (userId: string, limit: number = 500): Promise<any[]> => {
+    try {
+        const res = await apiClient.get<any>(`/wordpress/imported-posts?user_id=${encodeURIComponent(userId)}&limit=${limit}`);
+        if (res && res.posts && Array.isArray(res.posts)) {
+            return res.posts;
+        }
+        if (Array.isArray(res)) {
+            return res;
+        }
+        return [];
+    } catch (err) {
+        console.warn('API fetch for imported-posts failed, falling back to direct Supabase select:', err);
+        return [];
+    }
+};
+
+/**
  * Sync posts from all configured WordPress sites with full SEO metadata.
  */
 export const syncWordPressPosts = async (userId: string, importToTitles: boolean = false): Promise<any> => {
@@ -1170,4 +1189,5 @@ export const importAllPostsToTitles = async (params: {
     const res = await apiClient.post<any>('/wordpress/import-all-to-titles', params);
     return res.data || res;
 };
+
 

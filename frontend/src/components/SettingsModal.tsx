@@ -1,10 +1,9 @@
-
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Edit2, Save, Loader2, RefreshCw, Sparkles, ArrowRight, Tag, Layers, CheckCircle2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
-import { importPostToTitles } from '../services/wordpressService';
+import { importPostToTitles, getImportedPosts } from '../services/wordpressService';
 import type { WordPressDetail } from '../types';
 
 interface SettingsModalProps {
@@ -44,16 +43,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     }, [activeTab, user]);
 
     const fetchImportedPosts = async () => {
+        if (!user) return;
         try {
             setPostsLoading(true);
-            const { data, error } = await supabase
-                .from('wordpress_imported_posts')
-                .select('*')
-                .eq('user_id', user!.id)
-                .order('created_at', { ascending: false });
+            const apiPosts = await getImportedPosts(user.id);
+            if (apiPosts && apiPosts.length > 0) {
+                setImportedPosts(apiPosts);
+            } else {
+                const { data, error } = await supabase
+                    .from('wordpress_imported_posts')
+                    .select('*')
+                    .eq('user_id', user.id)
+                    .order('created_at', { ascending: false });
 
-            if (error) throw error;
-            setImportedPosts(data || []);
+                if (!error && data) {
+                    setImportedPosts(data);
+                } else {
+                    setImportedPosts(apiPosts || []);
+                }
+            }
         } catch (error) {
             console.error('Error fetching posts:', error);
         } finally {

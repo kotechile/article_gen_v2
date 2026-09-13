@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Search, RefreshCw, Loader2, Globe, ExternalLink, CheckCircle2, ArrowRight, Sparkles, Tag, Layers } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
-import { syncWordPressPosts, importPostToTitles, importAllPostsToTitles } from '../services/wordpressService';
+import { syncWordPressPosts, importPostToTitles, importAllPostsToTitles, getImportedPosts } from '../services/wordpressService';
 import { useNavigate } from 'react-router-dom';
 import type { WordPressImportedPost } from '../types/wordpress';
 
@@ -41,14 +41,22 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
         if (!user) return;
         try {
             setLoading(true);
-            const { data, error } = await supabase
-                .from('wordpress_imported_posts')
-                .select('*')
-                .eq('user_id', user.id)
-                .order('published_at', { ascending: false, nullsFirst: false });
+            const apiPosts = await getImportedPosts(user.id);
+            if (apiPosts && apiPosts.length > 0) {
+                setPosts(apiPosts as WordPressImportedPost[]);
+            } else {
+                const { data, error } = await supabase
+                    .from('wordpress_imported_posts')
+                    .select('*')
+                    .eq('user_id', user.id)
+                    .order('published_at', { ascending: false, nullsFirst: false });
 
-            if (error) throw error;
-            setPosts((data as WordPressImportedPost[]) || []);
+                if (!error && data) {
+                    setPosts((data as WordPressImportedPost[]) || []);
+                } else {
+                    setPosts((apiPosts as WordPressImportedPost[]) || []);
+                }
+            }
         } catch (error) {
             console.error('Error fetching imported posts:', error);
         } finally {

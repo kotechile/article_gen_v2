@@ -35,7 +35,7 @@ import {
     disconnectLinkedInAccount,
     type LinkedInAccountStatus
 } from '../services/linkedinService';
-import { importPostToTitles, importAllPostsToTitles } from '../services/wordpressService';
+import { importPostToTitles, importAllPostsToTitles, getImportedPosts } from '../services/wordpressService';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -272,17 +272,30 @@ export const Settings: React.FC = () => {
     };
 
     const fetchImportedPosts = async () => {
+        if (!user) return;
         setPostsLoading(true);
-        const { data, error } = await supabase
-            .from('wordpress_imported_posts')
-            .select('*')
-            .eq('user_id', user!.id)
-            .order('created_at', { ascending: false });
+        try {
+            const posts = await getImportedPosts(user.id);
+            if (posts && posts.length > 0) {
+                setImportedPosts(posts);
+            } else {
+                const { data, error } = await supabase
+                    .from('wordpress_imported_posts')
+                    .select('*')
+                    .eq('user_id', user.id)
+                    .order('created_at', { ascending: false });
 
-        if (!error) {
-            setImportedPosts(data || []);
+                if (!error && data) {
+                    setImportedPosts(data);
+                } else {
+                    setImportedPosts(posts || []);
+                }
+            }
+        } catch (err) {
+            console.error("Error fetching imported posts:", err);
+        } finally {
+            setPostsLoading(false);
         }
-        setPostsLoading(false);
     };
 
     const fetchCategories = async (projectId: string) => {
@@ -530,17 +543,24 @@ export const Settings: React.FC = () => {
     const handleSync = async () => {
         if (!user) return;
         setIsSyncing(true);
+        setError(null);
+        setSuccess(null);
         try {
             const res = await apiClient.post<any>('/wordpress/sync-posts', { user_id: user.id });
             await fetchImportedPosts();
-            if (res?.total_synced && res.total_synced > 0) {
-                alert(`Successfully synced ${res.total_synced} posts from your WordPress site(s)!`);
+            if (res?.error) {
+                setError(res.error);
+                alert(res.error);
+            } else if (res?.total_synced && res.total_synced > 0) {
+                setSuccess(res?.details || `Successfully synced ${res.total_synced} posts from your WordPress site(s)!`);
             } else if (res?.details) {
-                alert(res.details);
+                setSuccess(res.details);
             }
         } catch (err: any) {
             console.error("Sync error:", err);
-            alert(err?.response?.data?.error || err?.message || "Error syncing WordPress posts. Please check credentials under Projects: Niches/Websites.");
+            const msg = err?.response?.data?.error || err?.message || "Failed to sync posts from WordPress";
+            setError(msg);
+            alert(msg);
         } finally {
             setIsSyncing(false);
         }

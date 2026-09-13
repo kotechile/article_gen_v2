@@ -21,6 +21,7 @@ from src.api.wordpress import (
     extract_wordpress_seo_metadata,
     _build_titles_payload_from_imported_post,
     _clean_html_to_plain_text,
+    _insert_with_schema_fallback,
 )
 
 
@@ -219,9 +220,60 @@ def test_build_titles_payload_from_imported_post():
     assert len(kw_metrics["secondary"]) == 3
 
 
+def test_insert_with_schema_fallback_adaptive_retries():
+    # Simulate a Supabase table that lacks multiple columns (e.g., 'seo_title', 'featured_image_url', 'slug')
+    allowed_cols = {"user_id", "title", "link", "excerpt"}
+    received_records = []
+
+    class MockTableQuery:
+        def __init__(self, records):
+            self.records = records
+
+        def execute(self):
+            # Check if any record has columns outside allowed_cols
+            for rec in self.records:
+                for col in rec.keys():
+                    if col not in allowed_cols:
+                        # Emulate PostgREST error format
+                        raise Exception(f"Could not find the '{col}' column of 'wordpress_imported_posts' in the schema cache")
+            received_records.extend(self.records)
+    class MockTable:
+        def insert(self, records):
+            return MockTableQuery(records)
+
+    class MockSupabase:
+        def table(self, name):
+            return MockTable()
+
+    records_to_insert = [
+        {
+            "user_id": "u123",
+            "title": "Test Title",
+            "link": "https://example.com/test",
+            "excerpt": "Test excerpt",
+            "seo_title": "SEO Title",
+            "featured_image_url": "https://example.com/img.jpg",
+            "slug": "test-slug",
+        }
+    ]
+
+    mock_sb = MockSupabase()
+    success = _insert_with_schema_fallback(mock_sb, "wordpress_imported_posts", records_to_insert, log_label="Test")
+
+    assert success is True
+    assert len(received_records) == 1
+    assert "seo_title" not in received_records[0]
+    assert "featured_image_url" not in received_records[0]
+    assert "slug" not in received_records[0]
+    assert received_records[0]["title"] == "Test Title"
+    assert received_records[0]["user_id"] == "u123"
+
+
 if __name__ == "__main__":
     test_clean_html_text()
     test_extract_wordpress_seo_metadata_yoast()
     test_extract_wordpress_seo_metadata_rankmath()
     test_build_titles_payload_from_imported_post()
+    test_insert_with_schema_fallback_adaptive_retries()
     print("All WordPress SEO import tests passed successfully!")
+

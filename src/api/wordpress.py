@@ -650,35 +650,112 @@ def _build_titles_payload_from_imported_post(user_id: str, site_id: Any, domain:
     return payload
 
 
-def _insert_with_schema_fallback(supabase, table_name: str, records: list[dict], log_label: str = "Records") -> bool:
-    """Insert rows into Supabase table, gracefully dropping columns if schema has not yet migrated."""
+def _insert_with_schema_fallback(supabase, table_name: str, records: list[dict], log_label: str = "Records", chunk_size: int = 50) -> bool:
+    """
+    Insert rows into Supabase table, gracefully dropping columns if schema has not yet migrated.
+    Uses an adaptive retry loop to strip all unknown columns.
+    """
     if not records:
         return True
-    try:
-        supabase.table(table_name).insert(records).execute()
-        return True
-    except Exception as insert_err:
-        err_str = str(insert_err)
-        missing_cols = re.findall(r"Could not find the '([^']+)' column", err_str)
-        if missing_cols:
-            logger.warning(
-                "Dropping missing columns for %s table %s: %s",
-                log_label, table_name, missing_cols
-            )
-            fallback_records = []
-            for r in records:
-                copy_r = dict(r)
-                for col in missing_cols:
-                    copy_r.pop(col, None)
-                fallback_records.append(copy_r)
+
+    success_all = True
+    for start_idx in range(0, len(records), chunk_size):
+        chunk = [dict(r) for r in records[start_idx:start_idx + chunk_size]]
+        chunk_success = False
+        dropped_cols_set = set()
+
+        for attempt in range(25):
             try:
-                supabase.table(table_name).insert(fallback_records).execute()
-                return True
-            except Exception as fallback_err:
-                logger.error("Fallback insert failed for %s on %s: %s", log_label, table_name, fallback_err)
-                return False
-        logger.error("Insert failed for %s on %s: %s", log_label, table_name, insert_err)
-        return False
+                supabase.table(table_name).insert(chunk).execute()
+                chunk_success = True
+                break
+            except Exception as insert_err:
+                err_str = str(insert_err)
+
+                # Match common PostgREST and Postgres missing column patterns
+                missing_cols = re.findall(r"Could not find the '([^']+)' column", err_str)
+                if not missing_cols:
+                    m = re.search(r"column \"([^\"]+)\" of relation \"[^\"]+\" does not exist", err_str)
+                    if m:
+                        missing_cols = [m.group(1)]
+                if not missing_cols:
+                    m = re.search(r"column ([a-zA-Z0-9_]+) does not exist", err_str)
+                    if m:
+                        missing_cols = [m.group(1)]
+
+                if missing_cols:
+                    for col in missing_cols:
+                        dropped_cols_set.add(col)
+                    logger.warning(
+                        "Dropping missing column(s) for %s on %s (attempt %d): %s",
+                        log_label, table_name, attempt + 1, list(dropped_cols_set)
+                    )
+                    for r in chunk:
+                        for col in missing_cols:
+                            r.pop(col, None)
+                    continue
+
+                logger.error("Insert failed for %s on %s (attempt %d): %s", log_label, table_name, attempt + 1, insert_err)
+                break
+
+        if not chunk_success:
+            logger.error("Failed to insert chunk (%d-%d) into %s", start_idx, start_idx + len(chunk), table_name)
+            success_all = False
+
+    return success_all
+
+
+@wordpress_bp.route('/api/wordpress/imported-posts', methods=['GET'])
+def get_imported_wordpress_posts():
+    """
+    Fetch all imported WordPress posts for a user from Supabase using service-role client.
+    Query params:
+      user_id (required): UUID of the user
+      limit (optional, default 500)
+    """
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return jsonify({'error': 'Database connection failed', 'posts': []}), 500
+
+        user_id = request.args.get('user_id')
+        if not user_id:
+            return jsonify({'error': 'Missing user_id parameter', 'posts': []}), 400
+
+        limit = int(request.args.get('limit', 500))
+
+        try:
+            resp = supabase.table("wordpress_imported_posts") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .order("created_at", desc=True) \
+                .limit(limit) \
+                .execute()
+        except Exception as query_err:
+            logger.warning(f"Error querying with created_at order: {query_err}, retrying unordered")
+            resp = supabase.table("wordpress_imported_posts") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .limit(limit) \
+                .execute()
+
+        posts = resp.data or []
+
+        # Normalize links for live website display
+        for p in posts:
+            link = p.get('link') or ''
+            if '://cms.' in link:
+                p['link'] = link.replace('://cms.', '://')
+
+        return jsonify({
+            'posts': posts,
+            'count': len(posts),
+            'success': True
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching imported posts: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e), 'posts': []}), 500
 
 
 @wordpress_bp.route('/api/wordpress/sync-posts', methods=['POST'])
@@ -872,15 +949,21 @@ def sync_wordpress_posts():
                 
                 if records:
                     debug_logs.append(f"Saving {len(records)} records with SEO metadata for {domain}")
-                    _insert_with_schema_fallback(supabase, "wordpress_imported_posts", records, log_label=f"WP Posts ({domain})")
-                    total_posts_saved += len(records)
-                    debug_logs.append(f"Saved {len(records)} records with SEO metadata for {domain}")
+                    ok = _insert_with_schema_fallback(supabase, "wordpress_imported_posts", records, log_label=f"WP Posts ({domain})")
+                    if ok:
+                        total_posts_saved += len(records)
+                        debug_logs.append(f"Successfully saved {len(records)} records for {domain}")
+                    else:
+                        debug_logs.append(f"Error: Failed to save records for {domain} into wordpress_imported_posts table")
                     
                 if titles_payloads:
                     debug_logs.append(f"Importing {len(titles_payloads)} posts into Titles for {domain}")
-                    _insert_with_schema_fallback(supabase, "Titles", titles_payloads, log_label=f"Titles ({domain})")
-                    titles_created_count += len(titles_payloads)
-                    debug_logs.append(f"Imported {len(titles_payloads)} posts to Titles")
+                    titles_ok = _insert_with_schema_fallback(supabase, "Titles", titles_payloads, log_label=f"Titles ({domain})")
+                    if titles_ok:
+                        titles_created_count += len(titles_payloads)
+                        debug_logs.append(f"Imported {len(titles_payloads)} posts to Titles")
+                    else:
+                        debug_logs.append(f"Warning: Failed to import posts into Titles table for {domain}")
                     
             except Exception as e:
                 import traceback
@@ -892,7 +975,7 @@ def sync_wordpress_posts():
         return jsonify({
             'total_synced': total_posts_saved,
             'titles_created': titles_created_count,
-            'details': f"Sync completed. Processed {len(sites)} sites with SEO metadata.",
+            'details': f"Sync completed. Saved {total_posts_saved} articles from {len(sites)} configured site(s).",
             'logs': debug_logs
         }), 200
 
