@@ -22,6 +22,7 @@ class ResearchRequestSchema(BaseModel):
     depth: Optional[str] = Field("standard", pattern="^(standard|comprehensive|deep)$")
     tone: Optional[str] = Field("journalistic", pattern="^(academic|journalistic|casual|technical|persuasive)$")
     target_word_count: Optional[int] = Field(2000, ge=500, le=10000)
+    target_audience: Optional[str] = Field(None)
     claims_research_enabled: Optional[bool] = Field(True)
     rag_enabled: Optional[bool] = Field(True)
     competitor_analysis_enabled: Optional[bool] = Field(True)

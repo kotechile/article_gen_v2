@@ -111,6 +111,11 @@ class ArticleStructureGenerator:
             dossier_context = self._build_dossier_context_text(research_data)
             brief_with_dossier = f"{brief}\n\nDeep Research Context:\n{dossier_context}" if dossier_context else brief
             
+            # Determine target audience
+            target_audience = self._determine_target_audience(brief, tone, research_data)
+            if target_audience:
+                brief_with_dossier = f"{brief_with_dossier}\n\nTarget Audience Profile: {target_audience}"
+
             # Determine article type based on brief content and research parameters
             article_type = self._determine_article_type(brief, research_data)
             
@@ -133,13 +138,6 @@ class ArticleStructureGenerator:
             # Log section titles for debugging
             section_titles = [s.title for s in sections]
             self.logger.info(f"Generated section titles: {section_titles}")
-            
-            # Log section titles for debugging
-            section_titles = [s.title for s in sections]
-            self.logger.info(f"Generated section titles: {section_titles}")
-            
-            # Determine target audience
-            target_audience = self._determine_target_audience(brief, tone)
             
             # Generate call to action
             call_to_action = self._generate_call_to_action(article_type, tone)
@@ -847,8 +845,13 @@ Create {section_count} topic-specific sections that directly relate to this arti
             # Or just raise and let the try/catch in generate_structure handle it (it calls _create_fallback_structure)
             raise e
     
-    def _determine_target_audience(self, brief: str, tone: str) -> str:
-        """Determine target audience based on brief and tone."""
+    def _determine_target_audience(self, brief: str, tone: str, research_data: Optional[Dict[str, Any]] = None) -> str:
+        """Determine target audience based on research_data, brief, and tone."""
+        if research_data and research_data.get('target_audience'):
+            audience = str(research_data['target_audience']).strip()
+            if audience:
+                return audience
+
         brief_lower = brief.lower()
         
         if any(word in brief_lower for word in ['professional', 'business', 'corporate', 'executive']):

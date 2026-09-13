@@ -1267,34 +1267,29 @@ def _polish_and_format_article(
     structure: Dict[str, Any],
 ) -> str:
     """
-    Polishing & Smart Brevity Agent that runs at the end of content generation.
-    It takes the concatenated article HTML content and polishes it to ensure:
-    1) SMART BREVITY LEAD: Strict executive structure at the top:
-       - Punchy Lede sentence
-       - The big picture:
-       - By the numbers: (bullet points with bold values)
-       - Why it matters:
-       - The catch: (or Between the lines: / The bottom line:)
-       - Go deeper:
-    2) GO DEEPER SECTION:
-       - <h2>Go Deeper</h2> starting the in-depth body.
-       - Eliminates introductory fluff and throat-clearing from the body sections.
-       - Keeps paragraphs short (2-4 sentences max).
-       - Uses descriptive H3/H4 subheadings to structure subsections.
-       - Ensures 1-4 comparative HTML tables explaining concepts and numbers are present.
-    3) CITATION & LINK PRESERVATION:
-       - Keep ALL in-text citation markers like [1], [2], [^1], etc. intact and unchanged.
+    Polishing/formatting agent that runs on the generated article content to enforce
+    strict Smart Brevity formatting and demographic calibration.
     """
     if not html_content or not html_content.strip():
         return html_content
 
-    # Extract tone / writer notes from research_data
+    # Extract audience, tone, and writer notes from research_data/structure
+    target_audience = str(
+        research_data.get("target_audience")
+        or structure.get("target_audience")
+        or "General Audience"
+    ).strip()
     writer_notes = str(research_data.get("writer_notes") or "").strip()
     tone = str(research_data.get("tone") or "").strip()
-    primary_keyword = str(research_data.get("primary_keyword") or "").strip()
+    primary_keyword = str(
+        research_data.get("primary_keyword")
+        or structure.get("focus_keyword")
+        or ""
+    ).strip()
+    title = str(structure.get("title") or "").strip()
 
     # Log action
-    logger.info("Initializing Smart Brevity Polishing Agent pass...")
+    logger.info("Initializing Smart Brevity Mastering & Polishing pass...")
 
     # Initialize client for final review/polishing
     review_provider, review_model, review_key = get_llm_provider_for_role(LLM_ROLE_FINAL_REVIEW)
@@ -1306,82 +1301,78 @@ def _polish_and_format_article(
         provider=provider,
         model=model,
         api_key=api_key,
-        temperature=0.25,  # Slightly increased temperature to allow the agent to rewrite and weave in the personal narrative if missing
-        timeout=120,      # Give it plenty of time
+        temperature=0.2,
+        timeout=120,
         max_retries=2,
         max_tokens=6000,
     )
 
-    if writer_notes:
-        personal_touch_instruction = f'Ensure the writer\'s notes/reflections/firsthand narrative ("{writer_notes}") are woven naturally and prominently into the article (preferably in the opening Smart Brevity lead or early in Go Deeper). Do not quote them as external quotes; state them as the author\'s own experience or thoughts. Keep it natural, fluid, and not repetitive. Avoid clichés (e.g. staring at screens or kitchen tables).'
-    else:
-        if tone.lower() == 'friendly':
-            personal_touch_instruction = 'Ensure the article maintains a warm, friendly first-person perspective, incorporating natural and authentic personal reflections if appropriate. However, do NOT fabricate repetitive, generic clichés (e.g. "I remember sitting at my kitchen table" or "I remember staring at my laptop screen"). Keep any personal anecdotes natural, fluid, unique, and non-repetitive.'
-        else:
-            personal_touch_instruction = 'DO NOT introduce or fabricate first-person narrative, reflections, or fictional personal experiences (e.g. "I remember sitting at my kitchen table" or "I remember staring at my laptop screen"), especially since the tone is not friendly and no writer\'s notes were provided. Maintain the requested tone without forcing artificial first-person anecdotes.'
-
     prompt = f"""
-You are an expert editorial polishing agent and master of Smart Brevity.
-Your job is to transform, polish, and format the given article content (in HTML) to strictly follow Smart Brevity principles.
-Do NOT lose, omit, or modify any facts, concepts, numbers, references, citations, or information. Keep the core meaning and substance entirely intact.
+You are an expert editorial agent and master formatter specializing in Axios-style Smart Brevity and demographic precision.
+Your task is to polish and restructure the provided article HTML so it strictly matches the Smart Brevity format.
 
-============================================================
-STRICT SMART BREVITY STRUCTURE REQUIREMENTS
-============================================================
+TARGET AUDIENCE DEMOGRAPHIC: {target_audience}
+PRIMARY KEYWORD: {primary_keyword}
+WRITER NOTES: {writer_notes if writer_notes else "None provided"}
 
-1. **SMART BREVITY OPENING (At the very top of the article)**:
-   - **Lede / Punchy Hook**: Begin immediately with 1 crisp, punchy opening sentence capturing the central paradox or insight (no throat-clearing, no fluff).
-   - **The big picture:** 1 to 2 concise sentences stating the macro context: `<p><strong>The big picture:</strong> [Macro context]</p>`
-   - **By the numbers:** A clean bulleted list of 3 to 6 key quantifiable metrics, statistics, percentages, dollar figures, or ratios extracted from the article/evidence:
-     `<p><strong>By the numbers:</strong></p>`
-     `<ul>`
-       `<li><strong>[Stat/Metric]:</strong> [1-sentence context]</li>`
-     `</ul>`
-   - **Why it matters:** 2 to 3 sentences explaining the concrete impact, stakes, and consequences for the reader: `<p><strong>Why it matters:</strong> [Impact explanation]</p>`
-   - **The catch:** 1 to 2 punchy sentences highlighting the hidden obstacle, friction, cost, trade-off, or nuance (use <strong>The catch:</strong> or <strong>Between the lines:</strong>): `<p><strong>The catch:</strong> [Nuance/trade-off]</p>`
-   - **Go deeper:** 1 clear transition sentence prompting the reader into the deep-dive: `<p><strong>Go deeper:</strong> [Invite to review full data/analysis below].</p>`
+TARGET FORMAT & STRUCTURAL REQUIREMENTS (SMART BREVITY):
+1. **Zero Preamble & Immediate Hook**:
+   - Start directly with a punchy 1-sentence hook statement that grabs attention and delivers immediate value.
+   - Strip all conversational throat-clearing (e.g., "Ever wondered...", "In this article...", "When considering...", "Here is a guide...").
+   - Strip generic redundant headers like "At a glance", "Short Answer", or "Introduction".
 
-2. **"GO DEEPER" BODY SECTION**:
-   - Start the in-depth body with: `<h2>Go Deeper</h2>`
-   - Place ALL detailed explanations, background, technical breakdowns, step-by-step workflows, case studies, and extended evidence inside the Go Deeper section.
-   - Eliminate repetitive introductory fluff and throat-clearing from the body sections; keep the full substance, facts, and actionable details organized under descriptive <h3> and <h4> subheadings.
-   - **NO WALLS OF TEXT**: Keep all paragraphs short and digestible (typically 2 to 4 sentences max).
+2. **Axiom Headers**:
+   - Organize the core premises using bolded axiom signals:
+     * `<p><strong>The big picture:</strong> (1-2 sentences summarizing the core premise).</p>`
+     * `<p><strong>Why it matters:</strong> (1-2 sentences explaining the high-stakes impact and consequences).</p>`
+     * `<p><strong>By the numbers:</strong> (Must lead immediately into an HTML table or structured list).</p>`
+     * `<p><strong>The reality check:</strong> (A grounded fact or counter-intuitive truth).</p>`
+     * `<p><strong>Go deeper:</strong> (A bulleted list of specialized secondary considerations).</p>`
 
-3. **COMPARATIVE TABLES**:
-   - Ensure the Go Deeper body contains 1 to 4 clean HTML tables (<table>, <tr>, <th>, <td>) comparing concepts, listing metrics, or structuring quantitative data.
+3. **Front-Load Bolding in Lists**:
+   - In all bullet points (`<ul>`, `<ol>`), bold the first 2–5 words to summarize the takeaway before the sentence finishes:
+     `<li><strong>Key takeaway phrase:</strong> Explanation that follows...</li>`
 
-4. **WRITER'S PERSONAL TOUCH**:
-   - {personal_touch_instruction}
+4. **Kill Block Text**:
+   - Keep ALL paragraphs strictly under 3 sentences (1–2 sentences is ideal). Never allow dense walls of text.
 
-5. **KEEP CITATION MARKERS AND LINKS INTACT (CRITICAL)**:
-   - Keep ALL in-text citation markers like [1], [2], [3], [^1], etc. exactly intact where they appear in the text. DO NOT modify, delete, or rename them.
-   - Keep all links (<a href="...">...</a>) intact.
+5. **Tables Over Text**:
+   - Always format multi-variable comparisons, numerical metrics, or itemized criteria as clean HTML tables:
+     `<table style="border-collapse: collapse; width: 100%; margin: 1em 0;">`
+     `<thead><tr><th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2;">Header 1</th>...</tr></thead>`
+     `<tbody><tr><td style="border: 1px solid #ddd; padding: 8px;">...</td>...</tr></tbody>`
+     `</table>`
 
-INPUT INFORMATION:
-- Primary Tone: {tone}
-- Writer Notes: {writer_notes}
-- Primary Keyword: {primary_keyword}
+6. **Zero Fabricated Storytelling**:
+   - DO NOT invent fake friend stories (e.g., "Last spring my friend Daniel called me...", "I remember sitting at my kitchen table...").
+   - Maintain an authoritative, sharp, analytical tone. If writer notes were provided, weave them in as authentic author reflections without clichés.
 
-Original HTML Content to format and polish:
+7. **Demographic Nuance**:
+   - Ensure the content speaks directly to the {target_audience} (e.g. net cash flow vs. gross salary, partner visa logistics, international schooling, tax cliffs, wealth preservation, and lifestyle ROI).
+
+8. **Citations Integrity**:
+   - Keep all existing citation markers (e.g., [^1], [1], [2]) intact and in place.
+
+Original HTML Content to master and polish:
 {html_content}
 
 Output instructions:
-- Output ONLY the polished and formatted HTML content.
-- Do NOT wrap the output in markdown code blocks (e.g. do not use ```html).
-- Do NOT output any preamble, explanations, notes, or concluding text. Just return the clean HTML.
+- Output ONLY the polished and formatted HTML.
+- Do NOT wrap in markdown code blocks (no ```html).
+- Do NOT include any meta-commentary, introductory notes, or sign-offs. Return clean HTML only.
 """.strip()
 
     try:
         response = client.generate(
             [
-                {"role": "system", "content": "You are a professional HTML formatting, editing, and Smart Brevity polishing agent. Return clean, formatted HTML only. Do not wrap in markdown code blocks."},
+                {"role": "system", "content": "You are an expert editorial formatter. Transform the input into clean Smart Brevity HTML. Return only clean HTML without code fences or conversational commentary."},
                 {"role": "user", "content": prompt},
             ]
         )
         content = response.content
         if not content:
-            logger.warning("Smart Brevity polishing agent returned empty response. Falling back to original content with validation.")
-            return _validate_and_ensure_smart_brevity_structure(html_content, research_data, structure)
+            logger.warning("Polishing agent returned empty response. Falling back to original content.")
+            return html_content
 
         # Strip any accidental ```html wrappers
         cleaned = content.strip()
@@ -1394,18 +1385,15 @@ Output instructions:
         
         cleaned = cleaned.strip()
         if not cleaned:
-            logger.warning("Cleaned polished content was empty. Falling back to original content with validation.")
-            return _validate_and_ensure_smart_brevity_structure(html_content, research_data, structure)
+            logger.warning("Cleaned polished content was empty. Falling back to original content.")
+            return html_content
 
-        # Enforce and validate Smart Brevity structural integrity
-        validated = _validate_and_ensure_smart_brevity_structure(cleaned, research_data, structure)
-
-        logger.info(f"Smart Brevity polishing pass complete. Original chars: {len(html_content)}, Polished chars: {len(validated)}")
-        return validated
+        logger.info(f"Smart Brevity polishing pass complete. Original chars: {len(html_content)}, Polished chars: {len(cleaned)}")
+        return cleaned
 
     except Exception as e:
-        logger.error(f"Error in Smart Brevity polishing agent pass: {str(e)}")
-        return _validate_and_ensure_smart_brevity_structure(html_content, research_data, structure)
+        logger.error(f"Error in polishing agent pass: {str(e)}")
+        return html_content
 
 
 def _generate_faq_from_article(
@@ -2430,6 +2418,9 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                     writer_notes = title_row.get('writer_notes')
                     if writer_notes:
                         research_data['writer_notes'] = writer_notes
+                    target_audience = title_row.get('target_audience')
+                    if target_audience and not research_data.get('target_audience'):
+                        research_data['target_audience'] = target_audience
                     current_source_caps = _normalize_source_strategy(research_data)
                     use_dossier_context = (
                         current_source_caps["use_dossier"]
@@ -2941,6 +2932,7 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         'keyword_selection_reason': final_content.get('keyword_selection_reason', ''),
                         'keyword_strategy_version': final_content.get('keyword_strategy_version', ''),
                         'keyword_selection_source': final_content.get('keyword_selection_source', ''),
+                        'target_audience': final_content.get('target_audience') or research_data.get('target_audience') or current_row.get('target_audience') or '',
                     }
 
                     # 1) Save essential content first so we never lose generated article text.
@@ -2975,6 +2967,7 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
 
                         # First-pass known optional fields.
                         for field in [
+                            'target_audience',
                             'quality_report',
                             'confidence_map',
                             'quality_gate',
@@ -5793,6 +5786,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         # Combine all content - handle different content structures
         full_content = ""
         geo_auto_applied = False
+        geo_enforce_answer_first = bool(research_data.get('geo_enforce_answer_first', True))
         
         # Function to remove citation references if needed
         def remove_citations_from_text(text: str) -> str:
@@ -5857,10 +5851,6 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 else:
                     logger.warning(f"Finalization debug - No content found for section '{heading}'")
         
-        # Apply late-stage Formatting/Polishing Agent pass
-        full_content = _polish_and_format_article(full_content, research_data, structure)
-
-        # If still empty, create a basic structure
         # If still empty, raise an error - do NOT create fake success message
         # If still empty or very short (just headings), raise an error
         current_word_count = content.get('word_count', 0)
@@ -5890,93 +5880,8 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 f"Low-substance draft rejected (words={current_word_count}, placeholder_hits={placeholder_hits})."
             )
 
-        # Check if Smart Brevity is active in the article
-        has_smart_brevity = bool(
-            re.search(r'<strong>\s*the\s+big\s+picture\s*:?</strong>', full_content, re.IGNORECASE)
-        )
-
-        # Phase 6 GEO enforcement: If Smart Brevity is NOT present, ensure answer-first block near top when enabled.
-        geo_enforce_answer_first = bool(research_data.get('geo_enforce_answer_first', True))
-        lower_content = full_content.lower()
-        has_answer_first = any(
-            marker in lower_content for marker in [
-                "<h2>short answer",
-                "<h2>quick answer",
-                "in short,",
-                "the short answer",
-            ]
-        )
-        if not has_smart_brevity and geo_enforce_answer_first and not has_answer_first:
-            title = structure.get('title', 'this topic')
-            thesis = structure.get('thesis', '') or structure.get('excerpt', '')
-            answer_block = (
-                "<h2>Short Answer</h2>\n\n"
-                f"<p>In short: {thesis[:280].strip() if thesis else f'The best approach to {title} is to prioritize clear goals, evidence-based decisions, and practical execution.'}</p>\n\n"
-            )
-            full_content = answer_block + full_content
-            geo_auto_applied = True
-
-        # Phase 6.1 GEO enrichment: Pop any redundant takeaways block if Smart Brevity already covers key metrics
-        full_content, existing_takeaways_block = _pop_named_h2_section(
-            full_content,
-            r"(?:at\s+a\s+glance|key\s+takeaways|takeaways|tl;?\s*dr)",
-        )
-        full_content, existing_faq_block = _pop_named_h2_section(
-            full_content,
-            r"(?:faq|frequently\s+asked\s+questions)",
-        )
-        support_article_text = _extract_plain_text(full_content or "")
-
-        support_llm_client = None
-        generated_faq_block = ""
-        try:
-            support_llm_client = _create_support_section_llm_client(research_data)
-        except Exception as support_client_error:
-            logger.warning("Failed to initialize support-section generator client: %s", support_client_error)
-
-        if support_llm_client:
-            try:
-                generated_faq_block = _generate_faq_from_article(
-                    llm_client=support_llm_client,
-                    article_title=str(structure.get('title', 'Generated Article')),
-                    article_text=support_article_text,
-                )
-            except Exception as faq_error:
-                logger.warning("FAQ generation failed; trying HTML fallback. error=%s", faq_error)
-
-            if not generated_faq_block:
-                try:
-                    generated_faq_block = _generate_faq_from_article_html_fallback(
-                        llm_client=support_llm_client,
-                        article_title=str(structure.get('title', 'Generated Article')),
-                        article_text=support_article_text,
-                    )
-                except Exception as fallback_error:
-                    logger.warning("HTML FAQ fallback generation failed. error=%s", fallback_error)
-
-        faq_block = generated_faq_block or existing_faq_block
-        if not faq_block and not has_smart_brevity:
-            geo_primary_term = str(
-                structure.get('focus_keyword')
-                or research_data.get('primary_keyword')
-                or research_data.get('search_phrase')
-                or ''
-            ).strip()
-            geo_topic_phrase = geo_primary_term.title() if geo_primary_term else str(structure.get('title', 'This Strategy')).split(':')[0].strip() or "This Strategy"
-            geo_support_points = _collect_geo_support_points(
-                structure=structure,
-                research_data=research_data,
-                sections=sections,
-                claim_bundles=claim_bundles,
-            )
-            faq_block = _build_geo_faq_block(
-                topic_phrase=geo_topic_phrase,
-                support_points=geo_support_points,
-            )
-            logger.info("Fallback FAQ block appended after dedicated generator returned no usable output")
-
-        if faq_block:
-            full_content += "\n\n" + faq_block
+        # Apply late-stage Formatting/Polishing Agent pass to enforce Smart Brevity & Demographic Calibration
+        full_content = _polish_and_format_article(full_content, research_data, structure)
 
         # Normalize any markdown artifacts that leaked from generation/refinement.
         full_content = _normalize_markdown_artifacts_to_html(full_content)
@@ -6249,6 +6154,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             'html_content_in_text_citations': html_content_with_citations,  # With clickable citations
             'citations': citations,
             'sections': content.get('sections', []),
+            'target_audience': structure.get('target_audience') or research_data.get('target_audience', ''),
             # SEO fields for Titles table
             'seo_title_optimized': seo_title_optimized,
             'metaTitle': metaTitle,

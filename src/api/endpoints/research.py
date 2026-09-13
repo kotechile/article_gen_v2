@@ -605,6 +605,7 @@ def create_research_task():
             'seo_primary_keyword',
             'seo_secondary_keywords',
             'writer_notes',
+            'target_audience',
             'identify_controversies',
             'selected_controversies',
         ]

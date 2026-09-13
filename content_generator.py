@@ -506,32 +506,62 @@ class ContentGenerator:
     
     def _get_human_writing_instructions(self) -> str:
         """
-        Get instructions for human-like, natural writing.
+        Get instructions for authoritative, high-impact Smart Brevity writing.
         """
         return """
-                    HUMAN VOICE & PERSONALITY:
-                    - "Write like you're talking to a friend over coffee"
-                    - Use natural hesitations, self-corrections, or rhetorical questions
-                    - Include personal opinions or mild biases—humans aren't neutral
-                    - Vary sentence length dramatically. Short punch. Then a longer, winding thought that meanders a bit before finding its point.
-                    
-                    SPECIFIC TECHNIQUES:
-                    - Break grammar rules intentionally for effect (sentence fragments, starting with conjunctions)
-                    - Use concrete specifics instead of abstractions—'my neighbor's rusted Chevy' not 'a vehicle'
-                    - Add sensory details: smells, textures, sounds
-                    - Include conversational fillers: 'honestly,' 'look,' 'I mean,' 'you know?'
-                    
-                    RHYTHM & FLOW:
-                    - Read it aloud—if it sounds like a speech, make it messier
-                    - Avoid parallel structure; humans repeat words accidentally and change phrasing mid-thought
-                    - Use em-dashes for interruptions, not just punctuation
-                    - CRITICAL: Avoid big walls of text. Keep paragraphs very short (typically 2 to 4 sentences max). If a section contains a lot of explanation or is long, break it up using descriptive subheadings (H3 or H4) to keep it readable and engaging.
-                    
-                    CONTEXT & IMPERFECTION:
-                    - Reference pop culture, current events, or shared human experiences
-                    - Admit uncertainty: 'I think,' 'probably,' 'who knows?'
-                    - Include one slightly awkward phrase that a real person would say
+                    EDITORIAL VOICE & SMART BREVITY:
+                    - Write with high authority, precision, and zero conversational filler.
+                    - Start directly with the core hook or fact. Never use conversational throat-clearing (e.g. "Ever wondered...", "In this article...", "When we look at...", "Honestly, look...").
+                    - Keep every paragraph strictly under 3 sentences (1-2 punchy sentences is ideal).
+                    - Front-load bolding: Bold the first 2-5 words of bullet points to summarize the key takeaway before the sentence finishes.
+                    - Favor data and tables: Use comparative tables or itemized bullet structures over narrative walls of text.
+                    - Avoid fabricating fake first-person friend stories (e.g. "my friend Daniel called me...") unless real firsthand writer notes were provided.
+                    - Focus on high-stakes variables, concrete numbers, and strategic trade-offs.
         """
+
+    def _get_demographic_and_smart_brevity_instructions(self, context: Dict[str, Any]) -> str:
+        """
+        Get demographic calibration and smart brevity instructions based on target audience.
+        """
+        audience = str(context.get('target_audience') or 'general').strip()
+        audience_lower = audience.lower()
+
+        # Check for 35-45 / mid-career bracket cues
+        if any(marker in audience_lower for marker in ['35', '40', '45', 'mid-career', 'mid career', 'family', 'executive', 'experienced', 'wealth']):
+            demographic_guidelines = f"""
+DEMOGRAPHIC CALIBRATION FOR TARGET AUDIENCE: {audience}
+* Wealth over Salary: Shift focus from entry-level cost-of-living adjustments to dual-country/multi-asset net cash flow and long-term wealth preservation.
+* Family Logistics: Address partner visa restrictions (the trailing spouse penalty), out-of-pocket international school tuition, and healthcare infrastructure.
+* Financial Variables: Account for expatriate tax incentives, exit taxes, and the management of established investment portfolios across jurisdictions.
+* Lifestyle ROI: Emphasize the value of time, walkable infrastructure, and baseline quality of life over gross pay increases."""
+        elif audience and audience_lower not in ['general', 'general audience']:
+            demographic_guidelines = f"""
+DEMOGRAPHIC CALIBRATION FOR TARGET AUDIENCE: {audience}
+* Tailor vocabulary, practical depth, financial scope, and real-world stakes specifically for {audience}.
+* Address the primary pain points, workflow constraints, and decision criteria most relevant to {audience}.
+* Avoid entry-level platitudes or off-target assumptions that do not resonate with {audience}."""
+        else:
+            demographic_guidelines = f"""
+TARGET AUDIENCE: {audience}
+* Address the reader with clear, relevant, and actionable insights with high substance and zero fluff."""
+
+        return f"""
+                    ========================================
+                    DEMOGRAPHIC CALIBRATION & SMART BREVITY DIRECTIVES:
+                    ========================================
+                    {demographic_guidelines}
+
+                    SMART BREVITY FORMATTING RULES:
+                    1. Structural Intent & Axiom Headers: Use bolded axiom cues when appropriate to signal paragraph intent cleanly:
+                       - **The big picture:** (1-2 sentences summarizing the core premise).
+                       - **Why it matters:** (1-2 sentences explaining the high-stakes impact).
+                       - **By the numbers:** (Must lead immediately into a Markdown/HTML table or bulleted list).
+                       - **The reality check:** (A grounded fact or counter-intuitive truth).
+                       - **Go deeper:** (A bulleted list of specialized secondary considerations).
+                    2. Front-load bolding: Bold the first 2-5 words of bullet points to summarize the key takeaway before the sentence finishes.
+                    3. Kill block text: Keep paragraphs strictly under 3 sentences. Avoid monolithic text walls.
+                    4. Zero preamble: Start directly with the hook, facts, or analysis without introductory fluff or throat-clearing.
+                    5. Tables over text: Always prefer Markdown/HTML tables to display multi-variable comparisons or itemized data instead of narrative paragraphs."""
 
     def _get_content_avoidance_instructions(self) -> str:
         """
@@ -776,6 +806,7 @@ Previous Context:
                     
                     {self._get_writer_notes_instructions(context)}
                     {self._get_readability_instructions()}
+                    {self._get_demographic_and_smart_brevity_instructions(context)}
                     
                     ========================================
                     ⚠️ CRITICAL: THE TONE FOR THIS ARTICLE IS {context['tone'].upper()} ⚠️
@@ -952,6 +983,7 @@ Previous Context:
                     
                     {self._get_writer_notes_instructions(context)}
                     {self._get_readability_instructions()}
+                    {self._get_demographic_and_smart_brevity_instructions(context)}
                     
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
@@ -1063,6 +1095,7 @@ Previous Context:
                     
                     {self._get_writer_notes_instructions(context)}
                     {self._get_readability_instructions()}
+                    {self._get_demographic_and_smart_brevity_instructions(context)}
                     
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
@@ -1128,6 +1161,7 @@ Previous Context:
                     
                     {self._get_writer_notes_instructions(context)}
                     {self._get_readability_instructions()}
+                    {self._get_demographic_and_smart_brevity_instructions(context)}
                     
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
@@ -1257,6 +1291,7 @@ Previous Context:
                     
                     {self._get_writer_notes_instructions(context)}
                     {self._get_readability_instructions()}
+                    {self._get_demographic_and_smart_brevity_instructions(context)}
                     
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}

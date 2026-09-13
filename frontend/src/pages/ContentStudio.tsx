@@ -417,6 +417,7 @@ export const ContentStudio: React.FC = () => {
         sourceMode: 'live_web_only',
         claimsValidation: true,
         writerNotes: '',
+        targetAudience: '',
     });
 
     useEffect(() => {
@@ -651,6 +652,7 @@ export const ContentStudio: React.FC = () => {
                     }),
                     claimsValidation: hasLiveWeb,
                     writerNotes: (artData as any).writer_notes || '',
+                    targetAudience: normalizedArticle.target_audience || (normalizedArticle.idea_metadata as any)?.target_audience || '',
                 });
 
                 const competitorAnalysis = normalizedArticle.idea_metadata?.competitor_analysis || {};
@@ -843,6 +845,7 @@ export const ContentStudio: React.FC = () => {
                 rag_query_type: effectiveFormData.ragQueryType,
                 rag_balance_emphasis: effectiveFormData.emphasis,
                 estimated_reading_time: readingTime,
+                target_audience: effectiveFormData.targetAudience || null,
                 idea_metadata: updatedMetadata,
                 source_strategy: selectedSourceMode,
             };
@@ -1152,6 +1155,7 @@ export const ContentStudio: React.FC = () => {
                 generationBrief = [
                     `[LINKEDIN ${isMicroPost ? 'POST / MICRO-ARTICLE' : 'THOUGHT-LEADERSHIP ARTICLE'} DIRECTIVE]`,
                     `- TARGET PLATFORM: LinkedIn. Tailor voice, formatting, and structure specifically for the LinkedIn professional feed.`,
+                    formData.targetAudience ? `- TARGET AUDIENCE: ${formData.targetAudience}. Tailor vocabulary, stakes, and depth directly to this audience.` : '',
                     `- OPENING HOOK: Create a powerful 1-2 sentence opening hook that stops the scroll before the "...see more" cutoff.`,
                     `- FORMATTING: Write in short, punchy 1-2 sentence paragraphs with clean line breaks. Avoid text walls.`,
                     `- STRUCTURE: Deliver 3-5 high-value takeaways, actionable steps, or counter-intuitive insights using clean bullet points.`,
@@ -1161,7 +1165,7 @@ export const ContentStudio: React.FC = () => {
                     '',
                     `ORIGINAL CREATIVE INTENT:`,
                     effectiveDescription,
-                ].join('\n');
+                ].filter(Boolean).join('\n');
                 seodirective = 'linkedin_tailored';
             } else if (seoShiftEnabled && primaryKw) {
                 const geoCtx = computeGEOContext(primaryKw, article?.domain);
@@ -1169,6 +1173,7 @@ export const ContentStudio: React.FC = () => {
                 const seoParts = [
                     '[SEO + GENERATIVE ENGINE OPTIMIZATION (GEO) DIRECTIVE]',
                     `PRIMARY KEYWORD: "${primaryKw}"`,
+                    formData.targetAudience ? `TARGET AUDIENCE: "${formData.targetAudience}"` : '',
                     `- Integrate naturally in the H1, opening paragraph, and 2–3 subheadings.`,
                     `- Do NOT keyword-stuff; density should be ~1–2%.`,
                     secondaryKwList
@@ -1209,6 +1214,7 @@ export const ContentStudio: React.FC = () => {
                 seo_directive: seodirective || undefined,
                 target_platform: (formData.targetPlatform || 'blog').startsWith('linkedin') ? 'linkedin' : 'blog',
                 article_type: formData.targetPlatform || 'blog',
+                target_audience: formData.targetAudience || article?.target_audience || undefined,
                 // Keep normalized fields for compatibility with both research API variants.
                 depth: formData.emphasis === 'balanced' ? 'standard' : 'comprehensive',
                 tone: formData.tone,
@@ -1444,6 +1450,22 @@ export const ContentStudio: React.FC = () => {
                                 onChange={(e) => handleChange('description', e.target.value)}
                                 placeholder="Describe what you want to write about..."
                             />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium mb-1 flex items-center justify-between">
+                                <span>Target Audience</span>
+                                <span className="text-xs text-muted-foreground font-normal">Demographic calibration</span>
+                            </label>
+                            <input
+                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none"
+                                value={formData.targetAudience}
+                                onChange={(e) => handleChange('targetAudience', e.target.value)}
+                                placeholder="e.g., Mid-career professionals (aged 35–45), Tech founders, First-time homebuyers"
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                                Specify who this content is written for. The generation pipeline calibrates demographic nuance, depth, stakes, and Smart Brevity formatting to this audience.
+                            </p>
                         </div>
 
                         <div>
@@ -1957,7 +1979,7 @@ export const ContentStudio: React.FC = () => {
                                         <span className="text-sm text-muted-foreground block">Target Audience</span>
                                         <MetricTooltip explanation={METRIC_EXPLANATIONS.audience_align} />
                                     </div>
-                                    <span className="font-medium text-foreground text-sm">{article.target_audience || '-'}</span>
+                                    <span className="font-medium text-foreground text-sm">{formData.targetAudience || article.target_audience || '-'}</span>
                                 </div>
                             </div>
                         </div>

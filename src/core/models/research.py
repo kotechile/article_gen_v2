@@ -54,6 +54,7 @@ class ResearchRequest(BaseModel):
     depth: ResearchDepth = Field(default=ResearchDepth.STANDARD, description="Research depth")
     tone: ResearchTone = Field(default=ResearchTone.JOURNALISTIC, description="Article tone")
     target_word_count: int = Field(default=2000, ge=500, le=10000, description="Target word count")
+    target_audience: Optional[str] = Field(None, description="Target audience demographic or user persona")
     
     # Optional Features
     claims_research_enabled: bool = Field(default=True, description="Enable claims research")
