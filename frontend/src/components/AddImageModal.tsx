@@ -39,8 +39,8 @@ export const AddImageModal: React.FC<AddImageModalProps> = ({
     };
 
     const tabs = [
-        { id: 'smart' as ImageSourceTab, label: 'Image to Image', icon: Wand2 },
-        { id: 'ai' as ImageSourceTab, label: 'Text to Image', icon: Sparkles },
+        { id: 'smart' as ImageSourceTab, label: 'Smart Context AI Image', icon: Wand2 },
+        { id: 'ai' as ImageSourceTab, label: 'AI Image', icon: Sparkles },
         { id: 'stock' as ImageSourceTab, label: 'Stock Images', icon: Images },
         { id: 'upload' as ImageSourceTab, label: 'Upload', icon: Upload },
         { id: 'url' as ImageSourceTab, label: 'Image URL', icon: LinkIcon },

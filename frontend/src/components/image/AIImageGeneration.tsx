@@ -4,7 +4,7 @@ import {
     generateAIImage,
     getImageProviderModels,
     getImageApplicationConfig,
-    analyzeContextImage
+    synthesizeImagePrompt
 } from '../../services/imageService';
 import type { ImageProviderModel, ImageMetadata } from '../../types/image';
 
@@ -176,22 +176,14 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
         setError(null);
 
         try {
-            const styleInstruction = style
-                ? `Visual style: ${style.name} (${style.promptModifier})`
-                : 'Photorealistic high-quality image';
-
-            const res = await analyzeContextImage({
+            const res = await synthesizeImagePrompt({
                 text,
-                user_instructions: styleInstruction
+                style: style?.name,
+                style_prompt_modifier: style?.promptModifier,
             });
 
             if (res.prompt) {
-                let finalPrompt = res.prompt;
-                // If style modifier not in prompt, append it
-                if (style && !finalPrompt.toLowerCase().includes(style.name.toLowerCase())) {
-                    finalPrompt = `${finalPrompt}, ${style.promptModifier}`;
-                }
-                setPrompt(finalPrompt);
+                setPrompt(res.prompt);
             } else {
                 // Fallback prompt generation
                 const fallback = style
@@ -200,7 +192,7 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
                 setPrompt(fallback);
             }
         } catch (err) {
-            console.warn('Context analysis failed; using direct style formulation:', err);
+            console.warn('Synthesize prompt failed; using direct style formulation:', err);
             const fallback = style
                 ? `${text.slice(0, 150)}, ${style.promptModifier}`
                 : text;
@@ -322,7 +314,7 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
                     <Sparkles className="w-5 h-5 text-purple-600 dark:text-purple-400 mt-0.5 flex-shrink-0" />
                     <div>
                         <h3 className="text-sm font-semibold text-purple-950 dark:text-purple-200">
-                            Text to Image Generation
+                            AI Image Generation
                         </h3>
                         <p className="text-xs text-purple-700 dark:text-purple-300 mt-0.5">
                             Select or paste text from your article, pick a visual style preset, synthesize an image prompt, and generate high-fidelity AI imagery.

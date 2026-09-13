@@ -518,6 +518,48 @@ export async function analyzeContextImage(
     }
 }
 
+export interface SynthesizePromptRequest {
+    text: string;
+    style?: string;
+    style_prompt_modifier?: string;
+    user_instructions?: string;
+}
+
+export interface SynthesizePromptResponse {
+    status: string;
+    prompt: string;
+    main_object?: string;
+    entity_type?: string;
+    is_metaphorical?: boolean;
+}
+
+/**
+ * Synthesize a visual AI scene prompt from article text and style preset
+ */
+export async function synthesizeImagePrompt(
+    request: SynthesizePromptRequest
+): Promise<SynthesizePromptResponse> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/images/synthesize-prompt`, {
+            method: 'POST',
+            headers: getHeaders({
+                'Content-Type': 'application/json'
+            }),
+            body: JSON.stringify(request)
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || 'Failed to synthesize image prompt');
+        }
+
+        return response.json();
+    } catch (error) {
+        console.error('Error in synthesizeImagePrompt:', error);
+        throw error;
+    }
+}
+
 /**
  * Generate context-aware image conditioned on a reference photo
  */

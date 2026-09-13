@@ -1651,6 +1651,67 @@ def analyze_image_context():
         ).dict()), 500
 
 
+@images_bp.route('/synthesize-prompt', methods=['POST'])
+@limiter.limit("60 per minute")
+def synthesize_image_prompt_endpoint():
+    """
+    Synthesize a rich visual scene prompt from article text and visual style presets
+    using the LLM entity extractor.
+    """
+    try:
+        data = request.get_json() or {}
+        text = data.get('text', '').strip()
+        style = data.get('style', '').strip()
+        style_prompt_modifier = data.get('style_prompt_modifier', '').strip()
+        user_instructions = data.get('user_instructions', '').strip()
+
+        if not text:
+            return jsonify(ErrorResponse(
+                error="validation_error",
+                message="Text is required to synthesize prompt",
+                error_code="VALIDATION_ERROR",
+                status=400
+            ).dict()), 400
+
+        from src.services.context_image.entity_extractor import EntityExtractor
+        extractor = EntityExtractor()
+
+        # Build combined direction for the LLM
+        direction_parts = []
+        if style:
+            direction_parts.append(f"Visual Art Style: {style}")
+        if style_prompt_modifier:
+            direction_parts.append(f"Style Characteristics: {style_prompt_modifier}")
+        if user_instructions:
+            direction_parts.append(f"User Direction: {user_instructions}")
+
+        combined_instructions = " | ".join(direction_parts) if direction_parts else None
+
+        result = extractor.extract(text=text, user_instructions=combined_instructions)
+        prompt = result.generation_prompt.strip()
+
+        # If the style modifier isn't already included in the generated prompt, append it cleanly
+        if style_prompt_modifier and style_prompt_modifier.lower() not in prompt.lower():
+            prompt = f"{prompt}, {style_prompt_modifier}"
+
+        return jsonify({
+            "status": "success",
+            "prompt": prompt,
+            "main_object": result.main_object,
+            "entity_type": result.entity_type,
+            "is_metaphorical": result.is_metaphorical
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error in synthesize-prompt endpoint: {str(e)}", exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message=str(e),
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
 @images_bp.route('/context-generate', methods=['POST'])
 @limiter.limit("20 per minute")
 def generate_context_image_endpoint():
