@@ -531,10 +531,16 @@ export const Settings: React.FC = () => {
         if (!user) return;
         setIsSyncing(true);
         try {
-            await apiClient.post<any>('/wordpress/sync-posts', { user_id: user.id });
+            const res = await apiClient.post<any>('/wordpress/sync-posts', { user_id: user.id });
             await fetchImportedPosts();
-        } catch (err) {
+            if (res?.total_synced && res.total_synced > 0) {
+                alert(`Successfully synced ${res.total_synced} posts from your WordPress site(s)!`);
+            } else if (res?.details) {
+                alert(res.details);
+            }
+        } catch (err: any) {
             console.error("Sync error:", err);
+            alert(err?.response?.data?.error || err?.message || "Error syncing WordPress posts. Please check credentials under Projects: Niches/Websites.");
         } finally {
             setIsSyncing(false);
         }
@@ -1324,7 +1330,7 @@ export const Settings: React.FC = () => {
                                         {isBatchImporting ? "Importing..." : "Import All to Studio"}
                                     </Button>
                                 )}
-                                <Button onClick={handleSync} disabled={isSyncing || projects.filter(p => p.wordpress_key).length === 0} className="rounded-xl border-border text-xs h-9" variant="outline">
+                                <Button onClick={handleSync} disabled={isSyncing} className="rounded-xl border-border text-xs h-9" variant="outline">
                                     <RefreshCw className={cn("w-3.5 h-3.5 mr-1.5", isSyncing && "animate-spin")} />
                                     {isSyncing ? "Syncing..." : "Sync Posts"}
                                 </Button>

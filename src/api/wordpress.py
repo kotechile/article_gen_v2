@@ -708,12 +708,61 @@ def sync_wordpress_posts():
         if not user_id:
             return jsonify({'error': 'Missing user_id'}), 400
 
-        # 1. Get WP Credentials for User
-        response = supabase.table("wordPress_details").select("*").eq("user_id", user_id).execute()
-        sites = response.data
+        # 1. Get WP Credentials for User from both wordPress_details and projects tables
+        wp_sites = []
+        try:
+            wp_resp = supabase.table("wordPress_details").select("*").eq("user_id", user_id).execute()
+            if wp_resp.data:
+                wp_sites = wp_resp.data
+        except Exception as e:
+            logger.warning(f"Error fetching wordPress_details: {e}")
+
+        projects_data = []
+        try:
+            proj_resp = supabase.table("projects").select("*").eq("user_id", user_id).execute()
+            projects_data = proj_resp.data or []
+        except Exception as e:
+            logger.warning(f"Error fetching projects: {e}")
+
+        # Merge sites by domain to get full credentials
+        site_map = {}
+        for s in wp_sites:
+            d = (s.get("domain") or "").strip().lower()
+            if d:
+                site_map[d] = {
+                    "id": s.get("id"),
+                    "domain": s.get("domain"),
+                    "wpUserName": s.get("wpUserName") or s.get("wpusername"),
+                    "wordpress_key": s.get("wordpress_key"),
+                    "cms": s.get("cms") or s.get("cms_url"),
+                    "cms_url": s.get("cms_url"),
+                    "seo_plugin": s.get("seo_plugin"),
+                }
+
+        for p in projects_data:
+            d = (p.get("domain") or "").strip().lower()
+            if not d:
+                continue
+            existing = site_map.get(d, {})
+            merged = {
+                "id": existing.get("id") or p.get("id"),
+                "domain": p.get("domain") or existing.get("domain"),
+                "wpUserName": p.get("wpusername") or p.get("wpUserName") or existing.get("wpUserName"),
+                "wordpress_key": p.get("wordpress_key") or existing.get("wordpress_key"),
+                "cms": p.get("cms_url") or existing.get("cms"),
+                "cms_url": p.get("cms_url") or existing.get("cms_url"),
+                "seo_plugin": p.get("seo_plugin") or existing.get("seo_plugin"),
+            }
+            site_map[d] = merged
+
+        sites = [s for s in site_map.values() if s.get("wordpress_key") and s.get("wpUserName")]
         
         if not sites:
-            return jsonify({'total_synced': 0, 'details': "No WordPress sites configured", 'logs': ["No sites found"]}), 200
+            return jsonify({
+                'total_synced': 0,
+                'details': "No WordPress sites with complete credentials found (requires Domain, WP Username, and WordPress Application Password in Projects settings).",
+                'logs': ["No sites with credentials found"]
+            }), 200
 
         debug_logs = []
         debug_logs.append(f"Found {len(sites)} sites to sync")
