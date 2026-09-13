@@ -638,6 +638,7 @@ export const ContentStudio: React.FC = () => {
                             : normalizedArticle.Keywords || ''
                     ),
                     domain: normalizedArticle.domain || '',
+                    targetPlatform: (artData as any).article_type || (artData as any).target_platform || 'blog',
                     articleLength: normalizedArticle.articleLength || '2500',
                     tone: (artData as any).Tone || 'journalistic',
                     ragCollection: normalizedArticle.rag_collection_name || '',
@@ -1206,8 +1207,8 @@ export const ContentStudio: React.FC = () => {
                 seo_primary_keyword: primaryKw || undefined,
                 seo_secondary_keywords: article?.secondary_keywords?.length ? article.secondary_keywords : undefined,
                 seo_directive: seodirective || undefined,
-                target_platform: formData.targetPlatform.startsWith('linkedin') ? 'linkedin' : 'blog',
-                article_type: formData.targetPlatform,
+                target_platform: (formData.targetPlatform || 'blog').startsWith('linkedin') ? 'linkedin' : 'blog',
+                article_type: formData.targetPlatform || 'blog',
                 // Keep normalized fields for compatibility with both research API variants.
                 depth: formData.emphasis === 'balanced' ? 'standard' : 'comprehensive',
                 tone: formData.tone,
@@ -1569,7 +1570,7 @@ export const ContentStudio: React.FC = () => {
                         <div>
                             <label className="block text-sm font-medium mb-1 flex items-center gap-1.5">
                                 <span>Target Platform & Format</span>
-                                {formData.targetPlatform.startsWith('linkedin') && (
+                                {(formData.targetPlatform || 'blog').startsWith('linkedin') && (
                                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#0A66C2]/10 text-[#0A66C2] font-semibold">
                                         LinkedIn Tailored
                                     </span>
@@ -1577,7 +1578,7 @@ export const ContentStudio: React.FC = () => {
                             </label>
                             <select
                                 className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none text-sm"
-                                value={formData.targetPlatform}
+                                value={formData.targetPlatform || 'blog'}
                                 onChange={(e) => {
                                     const val = e.target.value;
                                     let newLength = formData.articleLength;
