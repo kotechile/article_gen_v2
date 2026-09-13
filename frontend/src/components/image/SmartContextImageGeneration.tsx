@@ -206,10 +206,10 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
                     <Wand2 className="w-5 h-5 text-indigo-600 dark:text-indigo-400 mt-0.5 flex-shrink-0" />
                     <div>
                         <h3 className="text-sm font-semibold text-indigo-950 dark:text-indigo-200">
-                            Smart Context Image Generation
+                            Image to Image Generation
                         </h3>
                         <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-0.5">
-                            Identifies the primary physical entity (gadget, car, product) from your article, retrieves online reference photography or uses your own uploaded photo, and generates a contextual scene.
+                            Identifies the primary physical entity (gadget, car, product) from your article, retrieves online reference photography or uses your own uploaded photo, and generates a contextual scene conditioned on the reference.
                         </p>
                     </div>
                 </div>

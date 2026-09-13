@@ -1530,6 +1530,12 @@ export const ArticleEditor: React.FC = () => {
         setIsAddImageModalOpen(true);
     };
 
+    const handleGenerateTextImage = () => {
+        setImagePickMode('content');
+        setImageModalInitialTab('ai');
+        setIsAddImageModalOpen(true);
+    };
+
     const setLink = () => {
         if (!editor) return;
 
@@ -2176,7 +2182,12 @@ export const ArticleEditor: React.FC = () => {
                                 <ToolbarButton
                                     onClick={handleGenerateSmartContextImage}
                                     icon={<Wand2 className="w-4 h-4 text-indigo-500" />}
-                                    tooltip="Smart Context Image (Auto Reference & Scene)"
+                                    tooltip="Image to Image (Auto Reference & Scene)"
+                                />
+                                <ToolbarButton
+                                    onClick={handleGenerateTextImage}
+                                    icon={<Sparkles className="w-4 h-4 text-purple-500" />}
+                                    tooltip="Text to Image (Styles & AI Synthesis)"
                                 />
                                 <ToolbarButton
                                     onClick={handleSuggestInternalLinks}
@@ -2597,7 +2608,17 @@ export const ArticleEditor: React.FC = () => {
                             disabled={!hasTextSelection}
                             className="w-full text-left px-3 py-1.5 hover:bg-accent text-indigo-600 dark:text-indigo-400 rounded-lg text-sm flex items-center gap-3 font-medium"
                         >
-                            <Wand2 className="w-4 h-4" /> Smart Context Image from Selection
+                            <Wand2 className="w-4 h-4" /> Image to Image from Selection
+                        </button>
+                        <button
+                            onClick={() => {
+                                handleGenerateTextImage();
+                                setContextMenu(null);
+                            }}
+                            disabled={!hasTextSelection}
+                            className="w-full text-left px-3 py-1.5 hover:bg-accent text-purple-600 dark:text-purple-400 rounded-lg text-sm flex items-center gap-3 font-medium"
+                        >
+                            <Sparkles className="w-4 h-4" /> Text to Image from Selection
                         </button>
                     </div>
                 </div>
