@@ -332,6 +332,15 @@ const FORMAT_OPTIONS = [
     { label: "LinkedIn Post (Micro-Article: ~400 words / 2,500 chars)", value: "linkedin_post" },
 ];
 
+const DEMOGRAPHIC_AUDIENCE_PRESETS = [
+    "Mid-career professionals (aged 35–45)",
+    "Executives & Founders",
+    "Technical Experts & Engineers",
+    "First-time Homebuyers",
+    "Real Estate Investors",
+    "General Audience",
+];
+
 const RAG_QUERY_TYPES = [
     { label: "Basic RAG", value: "/query_simple" },
     { label: "Hybrid Enhanced", value: "/query_hybrid_enhanced" },
@@ -1454,7 +1463,7 @@ export const ContentStudio: React.FC = () => {
 
                         <div>
                             <label className="block text-sm font-medium mb-1 flex items-center justify-between">
-                                <span>Target Audience</span>
+                                <span className="font-semibold text-primary">Target Audience</span>
                                 <span className="text-xs text-muted-foreground font-normal">Demographic calibration</span>
                             </label>
                             <input
@@ -1463,7 +1472,23 @@ export const ContentStudio: React.FC = () => {
                                 onChange={(e) => handleChange('targetAudience', e.target.value)}
                                 placeholder="e.g., Mid-career professionals (aged 35–45), Tech founders, First-time homebuyers"
                             />
-                            <p className="text-xs text-muted-foreground mt-1">
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                {DEMOGRAPHIC_AUDIENCE_PRESETS.map((preset) => (
+                                    <button
+                                        key={preset}
+                                        type="button"
+                                        onClick={() => handleChange('targetAudience', preset)}
+                                        className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${
+                                            formData.targetAudience === preset
+                                                ? 'bg-primary text-primary-foreground border-primary font-medium'
+                                                : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground'
+                                        }`}
+                                    >
+                                        {preset}
+                                    </button>
+                                ))}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1.5">
                                 Specify who this content is written for. The generation pipeline calibrates demographic nuance, depth, stakes, and Smart Brevity formatting to this audience.
                             </p>
                         </div>
@@ -1588,6 +1613,41 @@ export const ContentStudio: React.FC = () => {
 
                     <div className="bg-background p-6 rounded-2xl border border-border shadow-sm space-y-4">
                         <h3 className="font-semibold text-foreground">Configuration</h3>
+
+                        <div>
+                            <label className="block text-sm font-medium mb-1 flex items-center justify-between">
+                                <span className="flex items-center gap-1.5 font-semibold text-primary">
+                                    <Sparkles className="w-4 h-4 text-primary" />
+                                    <span>Target Audience</span>
+                                </span>
+                                <span className="text-xs text-muted-foreground font-normal">Demographic calibration</span>
+                            </label>
+                            <input
+                                className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none text-sm font-medium"
+                                value={formData.targetAudience}
+                                onChange={(e) => handleChange('targetAudience', e.target.value)}
+                                placeholder="e.g., Mid-career professionals (aged 35–45), Tech founders, First-time homebuyers"
+                            />
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                {DEMOGRAPHIC_AUDIENCE_PRESETS.map((preset) => (
+                                    <button
+                                        key={preset}
+                                        type="button"
+                                        onClick={() => handleChange('targetAudience', preset)}
+                                        className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${
+                                            formData.targetAudience === preset
+                                                ? 'bg-primary text-primary-foreground border-primary font-medium'
+                                                : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground'
+                                        }`}
+                                    >
+                                        {preset}
+                                    </button>
+                                ))}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1.5">
+                                Calibrates demographic nuance, depth, financial scope, and Smart Brevity formatting to this audience.
+                            </p>
+                        </div>
 
                         <div>
                             <label className="block text-sm font-medium mb-1 flex items-center gap-1.5">
@@ -1974,12 +2034,21 @@ export const ContentStudio: React.FC = () => {
                                     </div>
                                     <span className="font-medium text-foreground">{formatReadingTime(article.estimated_reading_time)}</span>
                                 </div>
-                                <div className="p-3 bg-muted/50 rounded-xl">
-                                    <div className="flex items-center gap-1 mb-1">
-                                        <span className="text-sm text-muted-foreground block">Target Audience</span>
-                                        <MetricTooltip explanation={METRIC_EXPLANATIONS.audience_align} />
+                                <div className="p-3 bg-muted/50 rounded-xl space-y-1.5">
+                                    <div className="flex items-center justify-between gap-1">
+                                        <div className="flex items-center gap-1">
+                                            <span className="text-sm font-medium text-foreground block">Target Audience</span>
+                                            <MetricTooltip explanation={METRIC_EXPLANATIONS.audience_align} />
+                                        </div>
+                                        <span className="text-[10px] text-muted-foreground uppercase font-medium">Editable</span>
                                     </div>
-                                    <span className="font-medium text-foreground text-sm">{formData.targetAudience || article.target_audience || '-'}</span>
+                                    <input
+                                        type="text"
+                                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-border bg-background focus:ring-2 focus:ring-ring outline-none font-medium text-foreground shadow-sm"
+                                        value={formData.targetAudience}
+                                        onChange={(e) => handleChange('targetAudience', e.target.value)}
+                                        placeholder="e.g. Mid-career professionals (aged 35–45)"
+                                    />
                                 </div>
                             </div>
                         </div>
