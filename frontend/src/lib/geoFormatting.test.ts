@@ -78,4 +78,34 @@ describe('ensureIntroKeyTakeaways', () => {
         expect(listItems[1]?.innerHTML).toContain('<strong>Underground utilities:</strong>');
         expect(listItems[1]?.innerHTML).not.toContain('**');
     });
+
+    it('does not duplicate takeaways when li elements contain p tags (TipTap format) across multiple saves', () => {
+        const html = `
+            <h1>Relocation to other countries</h1>
+            <h2>At a glance</h2>
+            <ul>
+                <li><p>The smartest way to decide if <a href="https://example.com/move">relocating for a job is worth it</a> is to look past cost-of-living salary math and weigh all trade-offs.</p></li>
+            </ul>
+            <p>Full article introduction and body text goes here.</p>
+        `;
+
+        // First pass (e.g. initial load)
+        const pass1 = ensureIntroKeyTakeaways(html);
+        const doc1 = new DOMParser().parseFromString(pass1, 'text/html');
+        const items1 = Array.from(doc1.querySelectorAll('section.geo-key-takeaways li'));
+        expect(items1).toHaveLength(1);
+        expect(items1[0]?.innerHTML).toContain('relocating for a job is worth it');
+
+        // Second pass (e.g. first save)
+        const pass2 = ensureIntroKeyTakeaways(pass1);
+        const doc2 = new DOMParser().parseFromString(pass2, 'text/html');
+        const items2 = Array.from(doc2.querySelectorAll('section.geo-key-takeaways li'));
+        expect(items2).toHaveLength(1);
+
+        // Third pass (e.g. repeated save)
+        const pass3 = ensureIntroKeyTakeaways(pass2);
+        const doc3 = new DOMParser().parseFromString(pass3, 'text/html');
+        const items3 = Array.from(doc3.querySelectorAll('section.geo-key-takeaways li'));
+        expect(items3).toHaveLength(1);
+    });
 });

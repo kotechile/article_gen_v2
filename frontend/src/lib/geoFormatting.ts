@@ -27,6 +27,7 @@ const normalizeTakeawayText = (value: string): string => {
 
 export const formatTakeawayHtml = (value: string): string => {
     let clean = normalizeTakeawayText(value);
+    clean = clean.replace(/^\s*<p[^>]*>(.*?)<\/p>\s*$/is, '$1').trim();
     clean = clean.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     clean = clean.replace(/__(.+?)__/g, '<strong>$1</strong>');
     clean = clean.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em>$1</em>');
@@ -54,7 +55,16 @@ const buildTakeawayCandidates = (articleData: any): string[] => {
         .map((item: unknown) => normalizeTakeawayText(String(item || '').trim()))
         .filter(isUsefulTakeaway);
 
-    return Array.from(new Set(candidates)).slice(0, 4);
+    const seenPlain = new Set<string>();
+    const unique: string[] = [];
+    for (const c of candidates) {
+        const plain = c.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (plain && !seenPlain.has(plain)) {
+            seenPlain.add(plain);
+            unique.push(c);
+        }
+    }
+    return unique.slice(0, 4);
 };
 
 const createKeyTakeawaysSection = (doc: Document, takeaways: string[]): HTMLElement | null => {
@@ -80,15 +90,29 @@ const createKeyTakeawaysSection = (doc: Document, takeaways: string[]): HTMLElem
 };
 
 const extractTakeawayTexts = (container: ParentNode): string[] => {
-    const contentNodes = Array.from(container.querySelectorAll('p, li'));
-    const collected = contentNodes
-        .map((node) => {
-            const raw = node.innerHTML.includes('<') ? node.innerHTML : (node.textContent || '');
-            return normalizeTakeawayText(raw);
-        })
-        .filter(isUsefulTakeaway);
+    const listItems = Array.from(container.querySelectorAll('li'));
+    const contentNodes = listItems.length > 0
+        ? listItems
+        : Array.from(container.querySelectorAll('p'));
 
-    return Array.from(new Set(collected)).slice(0, 5);
+    const seenPlain = new Set<string>();
+    const uniqueTakeaways: string[] = [];
+
+    for (const node of contentNodes) {
+        let raw = node.innerHTML.includes('<') ? node.innerHTML : (node.textContent || '');
+        // Strip any wrapping <p>...</p> tags
+        raw = raw.replace(/^\s*<p[^>]*>(.*?)<\/p>\s*$/is, '$1').trim();
+        const cleaned = normalizeTakeawayText(raw);
+        if (!isUsefulTakeaway(cleaned)) continue;
+
+        const plainKey = cleaned.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (plainKey && !seenPlain.has(plainKey)) {
+            seenPlain.add(plainKey);
+            uniqueTakeaways.push(cleaned);
+        }
+    }
+
+    return uniqueTakeaways.slice(0, 5);
 };
 
 const extractExistingKeyTakeawaysSection = (doc: Document): HTMLElement | null => {
