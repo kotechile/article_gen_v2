@@ -24,8 +24,16 @@ logger = logging.getLogger(__name__)
 def main():
     """Start the Celery worker."""
     try:
-        logger.info("Starting Content Generator V2 Celery Worker...")
-        logger.info("Worker will process tasks from the 'research' queue")
+        logger.info("==================================================")
+        logger.info("🚀 Starting Content Generator V2 Celery Worker...")
+        logger.info(f"Broker URL: {celery.conf.broker_url}")
+        logger.info(f"Result Backend: {celery.conf.result_backend}")
+        logger.info(f"Default Queue: {celery.conf.task_default_queue}")
+        logger.info("Queues monitored: ['research', 'monitoring']")
+        registered = [k for k in celery.tasks.keys() if not k.startswith('celery.')]
+        logger.info(f"Registered tasks: {registered}")
+        logger.info("==================================================")
+        sys.stdout.flush()
         
         # Start the worker
         worker = celery.Worker(
@@ -41,7 +49,7 @@ def main():
         logger.info("Worker stopped by user")
         sys.exit(0)
     except Exception as e:
-        logger.error(f"Worker failed to start: {str(e)}")
+        logger.error(f"Worker failed to start: {str(e)}", exc_info=True)
         sys.exit(1)
 
 if __name__ == '__main__':

@@ -590,6 +590,7 @@ def create_research_task():
         # Import here to avoid circular imports
         # Use the main pipeline tasks (top-level `tasks.py`) to keep full functionality
         from tasks import process_research_task
+        from celery_config import celery
         
         # Prepare task data - merge validated request with original data to preserve
         # fields not in Pydantic model (e.g., rag_collection_name, use_verbalized_sampling, etc.)
@@ -674,7 +675,22 @@ def create_research_task():
             estimated_completion=estimated_completion
         )
         
-        logger.info(f"Research task created: {task.id} for {request.remote_addr}")
+        logger.info(
+            f"Research task created: {task.id} (provider={provider}, model={model}, queue=research) for {request.remote_addr}"
+        )
+
+        # Inspect if any Celery worker is alive to catch missing worker issues early in logs
+        try:
+            inspector = celery.control.inspect(timeout=0.5)
+            active_workers = inspector.ping() if inspector else None
+            if not active_workers:
+                logger.warning(
+                    f"⚠️ [CELERY_WARNING] No active Celery workers responded! Task {task.id} was placed on Redis queue 'research' (broker: {celery.conf.broker_url}), but no worker is consuming it. Please ensure the Celery worker container/process is running."
+                )
+            else:
+                logger.info(f"Active Celery workers online: {list(active_workers.keys())}")
+        except Exception as inspect_err:
+            logger.debug(f"Could not inspect Celery workers: {inspect_err}")
         
         return jsonify(response.dict()), 202
         
@@ -1093,6 +1109,7 @@ def get_research_status(task_id):
         task_status = get_task_status(task_id)
         
         if not task_status:
+            logger.warning(f"Research task status lookup: task {task_id} not found")
             return jsonify(ErrorResponse(
                 error="task_not_found",
                 message="Research task not found",
@@ -1100,20 +1117,29 @@ def get_research_status(task_id):
                 status=404
             ).dict()), 404
         
+        status = task_status.get("status", "unknown")
+        progress = task_status.get("progress_percent", 0)
+        stage = task_status.get("stage") or task_status.get("current_stage", "")
+        message = task_status.get("message", "")
+
+        logger.info(
+            f"[RESEARCH_STATUS] Task {task_id} -> status={status}, stage={stage}, progress={progress}%, msg='{message}'"
+        )
+        
         # Build response
         response = {
             "task_id": task_id,
-            "status": task_status.get("status", "unknown"),
-            "progress_percent": task_status.get("progress_percent", 0),
+            "status": status,
+            "progress_percent": progress,
             "current_step": task_status.get("current_step", ""),
-            "message": task_status.get("message", ""),
-            "stage": task_status.get("stage", ""),
+            "message": message,
+            "stage": stage,
             "eta": task_status.get("eta"),
             "timestamp": datetime.utcnow().isoformat(),
             "info": {
-                "progress": task_status.get("progress_percent", 0),
-                "message": task_status.get("message", ""),
-                "stage": task_status.get("stage", ""),
+                "progress": progress,
+                "message": message,
+                "stage": stage,
                 "current_step": task_status.get("current_step", "")
             }
         }

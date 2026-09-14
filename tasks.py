@@ -2376,7 +2376,12 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
         Dictionary containing the generated article and metadata
     """
     task_id = self.request.id
-    logger.info(f"Starting research task {task_id} with data: {research_data}")
+    logger.info(f"🚀 [CELERY_WORKER] >>> Received & started research task {task_id}")
+    logger.info(f"🚀 [CELERY_WORKER] Task {task_id} payload: brief='{research_data.get('brief')}', model='{research_data.get('provider')}/{research_data.get('model')}', depth='{research_data.get('depth')}', target_words={research_data.get('target_word_count')}")
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
     if _is_source_strategy_refactor_enabled():
         source_caps = _normalize_source_strategy(research_data)
         logger.info(
