@@ -179,9 +179,15 @@ def _normalize_model_name(provider: Any, model_name: Any) -> str:
 
     if "deepseek" in normalized_provider:
         compact_model = normalized_model.strip().strip('"').strip("'")
-        lowered_model = compact_model.lower().replace("deepdeek", "deepseek")
-        if lowered_model in {"deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"}:
-            return lowered_model
+        lowered_model = compact_model.lower().replace("deepdeek", "deepseek").replace(" ", "-").replace("_", "-")
+        if any(k in lowered_model for k in ["v4-pro", "v4pro", "pro"]):
+            return "deepseek-v4-pro"
+        elif any(k in lowered_model for k in ["flash", "v4-flash", "v4.1-flash"]):
+            return "deepseek-flash"
+        elif "reasoner" in lowered_model or lowered_model == "r1":
+            return "deepseek-reasoner"
+        elif "chat" in lowered_model or lowered_model in {"v3", "deepseek-v3"}:
+            return "deepseek-chat"
         return lowered_model
 
     return normalized_model

@@ -178,8 +178,17 @@ class LLMClient:
             
         # Common model alias/legacy corrections
         if provider == "deepseek":
-            if clean_model in ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "flash"]:
+            normalized = clean_model.lower().replace("deepdeek", "deepseek").replace(" ", "-").replace("_", "-")
+            if any(k in normalized for k in ["v4-pro", "v4pro", "pro"]):
+                clean_model = "deepseek-v4-pro"
+            elif any(k in normalized for k in ["flash", "v4-flash", "v4.1-flash"]):
                 clean_model = "deepseek-flash"
+            elif "reasoner" in normalized or normalized == "r1":
+                clean_model = "deepseek-reasoner"
+            elif "chat" in normalized or normalized in {"v3", "deepseek-v3"}:
+                clean_model = "deepseek-chat"
+            else:
+                clean_model = normalized
         elif provider == "gemini":
             if clean_model in ["gemini-flash", "flash"]:
                 clean_model = "gemini-2.5-flash"
