@@ -178,5 +178,94 @@ def test_finalize_article_smart_brevity_structure():
     assert "<table>" in html
     assert "<strong>The reality check:</strong>" in html
     assert "<strong>Go deeper:</strong>" in html
+    assert "<h2>Go Deeper</h2>" in html
     assert "<h2>References</h2>" in html
+
+
+def test_smart_brevity_full_body_and_faq_preservation():
+    """Verify that polished output includes executive lead, in-depth body sections, and FAQ."""
+    import tasks
+    from unittest.mock import MagicMock, patch
+
+    full_polished_article = (
+        "<p>A $200K U.S. tech salary often shrinks below €140K in Europe, yet the savviest professionals still make the jump.</p>\n"
+        "<p><strong>The big picture:</strong> Deciding to relocate for a job requires looking past the gross salary offer and running the dual-country math to find your true net cash flow.</p>\n"
+        "<p><strong>Why it matters:</strong> For professionals in peak earning years, hidden variables like trailing spouse visa rules can turn a promotion into a net loss.</p>\n"
+        "<p><strong>By the numbers:</strong></p>\n"
+        "<table><thead><tr><th>Metric</th><th>US</th><th>EU</th></tr></thead><tbody><tr><td>Effective Tax</td><td>28%</td><td>42%</td></tr></tbody></table>\n"
+        "<p><strong>The reality check:</strong> Quality of life gains often compensate for lower gross savings.</p>\n"
+        "<p><strong>Go deeper:</strong> Explore the comprehensive compensation frameworks, tax structures, and family logistics below.</p>\n"
+        "<h2>Go Deeper</h2>\n"
+        "<h3>1. Dual-Country Tax Math</h3>\n"
+        "<p>Cross-border taxation requires analyzing double-tax treaties and exit taxes [1].</p>\n"
+        "<p>High earners must calculate foreign tax credits before signing relocation packages.</p>\n"
+        "<h3>2. Trailing Spouse & Family Logistics</h3>\n"
+        "<p>Visa restrictions often prohibit secondary earners from working immediately.</p>\n"
+        "<h2>Frequently Asked Questions</h2>\n"
+        "<h3>What is the trailing spouse penalty?</h3>\n"
+        "<p>It refers to the loss of household income when a partner cannot legally work in the destination country.</p>\n"
+        "<h3>How do European tax brackets affect U.S. expats?</h3>\n"
+        "<p>Higher marginal rates kick in at lower income thresholds, requiring specialized foreign earned income exclusions.</p>"
+    )
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = full_polished_article
+    mock_client.generate.return_value = mock_response
+
+    raw_body = " ".join(["Relocation analysis details and data points for international career growth."] * 100)
+    result = {
+        "structure": {
+            "title": "Relocating Overseas: The True Value of a Job-Driven Move",
+            "meta_description": "Compare net cash flow, visa rules, and family logistics for expat moves.",
+            "hook": "A $200K U.S. tech salary shrinks below €140K in Europe.",
+            "excerpt": "Relocating requires dual-country math.",
+            "target_audience": "Mid-career professionals (aged 35–45)",
+            "tone": "analytical",
+            "keywords": ["relocating overseas", "expat tax", "international school tuition"],
+        },
+        "content": {
+            "sections": [
+                {
+                    "title": "Introduction",
+                    "content": raw_body,
+                }
+            ],
+            "word_count": len(raw_body.split()),
+        },
+        "citations": [
+            {
+                "title": "Expat Financial Review",
+                "url": "https://example.com/expat-finance",
+                "author": "Global Mobility Inst",
+                "publication_date": "2026",
+            }
+        ],
+        "research_data": {
+            "target_audience": "Mid-career professionals (aged 35–45)",
+            "articleLength": 800,
+            "include_in_text_citations": True,
+        }
+    }
+
+    with patch("tasks.create_llm_client", return_value=mock_client):
+        finalized = tasks._finalize_article(result)
+        html = finalized["final_article"]["html_content"]
+
+    # Verify Smart Brevity axioms
+    assert "<strong>The big picture:</strong>" in html
+    assert "<strong>Why it matters:</strong>" in html
+    assert "<strong>By the numbers:</strong>" in html
+    assert "<strong>The reality check:</strong>" in html
+    assert "<strong>Go deeper:</strong>" in html
+    # Verify in-depth body sections
+    assert "<h2>Go Deeper</h2>" in html
+    assert "<h3>1. Dual-Country Tax Math</h3>" in html
+    assert "<h3>2. Trailing Spouse & Family Logistics</h3>" in html
+    # Verify FAQ section
+    assert "<h2>Frequently Asked Questions</h2>" in html or "<h2>FAQ</h2>" in html
+    assert "<h3>What is the trailing spouse penalty?</h3>" in html
+    # Verify references
+    assert "<h2>References</h2>" in html
+
 

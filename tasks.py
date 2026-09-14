@@ -1309,49 +1309,44 @@ def _polish_and_format_article(
 
     prompt = f"""
 You are an expert editorial agent and master formatter specializing in Axios-style Smart Brevity and demographic precision.
-Your task is to polish and restructure the provided article HTML so it strictly matches the Smart Brevity format.
+Your task is to polish and restructure the provided article HTML so it strictly matches the Smart Brevity format while PRESERVING and FULLY DEVELOPING all substantive body content and sections.
 
 TARGET AUDIENCE DEMOGRAPHIC: {target_audience}
 PRIMARY KEYWORD: {primary_keyword}
 WRITER NOTES: {writer_notes if writer_notes else "None provided"}
 
-TARGET FORMAT & STRUCTURAL REQUIREMENTS (SMART BREVITY):
-1. **Zero Preamble & Immediate Hook**:
-   - Start directly with a punchy 1-sentence hook statement that grabs attention and delivers immediate value.
-   - Strip all conversational throat-clearing (e.g., "Ever wondered...", "In this article...", "When considering...", "Here is a guide...").
+TARGET FORMAT & STRUCTURAL REQUIREMENTS:
+
+1. **Executive Smart Brevity Lead (Top of Article)**:
+   - Start immediately with a punchy 1-sentence hook statement that grabs attention and delivers immediate value.
+   - Strip all conversational throat-clearing, introductory meta-talk, or filler (e.g., "Ever wondered...", "In this article...", "When considering...", "Here is a guide...", "This article is optimized around...").
    - Strip generic redundant headers like "At a glance", "Short Answer", or "Introduction".
-
-2. **Axiom Headers**:
-   - Organize the core premises using bolded axiom signals:
+   - Present the core takeaways using bolded axiom signals:
      * `<p><strong>The big picture:</strong> (1-2 sentences summarizing the core premise).</p>`
-     * `<p><strong>Why it matters:</strong> (1-2 sentences explaining the high-stakes impact and consequences).</p>`
-     * `<p><strong>By the numbers:</strong> (Must lead immediately into an HTML table or structured list).</p>`
-     * `<p><strong>The reality check:</strong> (A grounded fact or counter-intuitive truth).</p>`
-     * `<p><strong>Go deeper:</strong> (A bulleted list of specialized secondary considerations).</p>`
+     * `<p><strong>Why it matters:</strong> (1-2 sentences explaining high-stakes impact and consequences for {target_audience}).</p>`
+     * `<p><strong>By the numbers:</strong></p>` followed immediately by a clean comparative HTML table or structured bulleted list with key metrics and data.
+     * `<p><strong>The reality check:</strong> (1-2 sentences providing a grounded fact, counter-intuitive truth, or critical catch).</p>`
+     * `<p><strong>Go deeper:</strong> (1 single sentence transition inviting the reader into the comprehensive deep-dive below).</p>`
 
-3. **Front-Load Bolding in Lists**:
-   - In all bullet points (`<ul>`, `<ol>`), bold the first 2–5 words to summarize the takeaway before the sentence finishes:
-     `<li><strong>Key takeaway phrase:</strong> Explanation that follows...</li>`
+2. **Substantive & In-Depth Body Sections (CRITICAL - DO NOT CONDENSE OR SUMMARIZE INTO BULLET POINTS)**:
+   - Demarcate the main body starting with `<h2>Go Deeper</h2>` followed by the fully developed topic sections using `<h3>` subsections.
+   - Retain and fully expand all topic-specific sections, explanations, frameworks, actionable steps, and real-world logistics from the original draft.
+   - Apply Smart Brevity readability across every section:
+     * Paragraph length: Maximum 3 sentences per paragraph (1–2 sentences preferred). Never write monolithic walls of text.
+     * Front-loaded bolding in lists: Bold the first 2–5 words of bullet points to summarize the key takeaway (`<li><strong>Key Takeaway:</strong> explanation...</li>`).
+     * Tables over text: Always format multi-variable comparisons, financial breakdowns, tax tiers, or step criteria as clean HTML tables (`<table>...</table>`).
+     * Authoritative tone: Zero fabricated personal friend anecdotes. Keep the analysis sharp, professional, and directly calibrated for {target_audience}.
 
-4. **Kill Block Text**:
-   - Keep ALL paragraphs strictly under 3 sentences (1–2 sentences is ideal). Never allow dense walls of text.
+3. **Frequently Asked Questions (FAQ)**:
+   - Include a dedicated `<h2>Frequently Asked Questions</h2>` section before References.
+   - Provide 3 to 5 realistic reader questions using `<h3>` and direct, concise answers using `<p>` (1 to 3 sentences per answer).
 
-5. **Tables Over Text**:
-   - Always format multi-variable comparisons, numerical metrics, or itemized criteria as clean HTML tables:
-     `<table style="border-collapse: collapse; width: 100%; margin: 1em 0;">`
-     `<thead><tr><th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2;">Header 1</th>...</tr></thead>`
-     `<tbody><tr><td style="border: 1px solid #ddd; padding: 8px;">...</td>...</tr></tbody>`
-     `</table>`
+4. **Demographic Nuance**:
+   - Speak directly to the specific realities of {target_audience} (e.g., for mid-career 35-45 professionals: dual-country net cash flow, trailing spouse visa restrictions, international school tuition, cross-border tax treaties, asset management, and lifestyle ROI).
 
-6. **Zero Fabricated Storytelling**:
-   - DO NOT invent fake friend stories (e.g., "Last spring my friend Daniel called me...", "I remember sitting at my kitchen table...").
-   - Maintain an authoritative, sharp, analytical tone. If writer notes were provided, weave them in as authentic author reflections without clichés.
-
-7. **Demographic Nuance**:
-   - Ensure the content speaks directly to the {target_audience} (e.g. net cash flow vs. gross salary, partner visa logistics, international schooling, tax cliffs, wealth preservation, and lifestyle ROI).
-
-8. **Citations Integrity**:
-   - Keep all existing citation markers (e.g., [^1], [1], [2]) intact and in place.
+5. **Citations & References**:
+   - Keep all existing citation markers (e.g., [1], [2], [^1]) intact and in place within the text.
+   - Do not delete or duplicate the References section.
 
 Original HTML Content to master and polish:
 {html_content}
@@ -1365,7 +1360,7 @@ Output instructions:
     try:
         response = client.generate(
             [
-                {"role": "system", "content": "You are an expert editorial formatter. Transform the input into clean Smart Brevity HTML. Return only clean HTML without code fences or conversational commentary."},
+                {"role": "system", "content": "You are an expert editorial formatter. Transform the input into clean Smart Brevity HTML while preserving all substantive body sections, FAQs, and citations. Return only clean HTML without code fences or conversational commentary."},
                 {"role": "user", "content": prompt},
             ]
         )
@@ -1387,6 +1382,18 @@ Output instructions:
         if not cleaned:
             logger.warning("Cleaned polished content was empty. Falling back to original content.")
             return html_content
+
+        # Clean any accidental meta phrases, preamble artifacts, or redundant wrapper headings
+        cleaned = re.sub(
+            r"(?i)<p>\s*(?:This article is optimized around|In this article,?\s+we|In this guide,?\s+we|Here is a (?:comprehensive )?guide).*?</p>",
+            "",
+            cleaned,
+        )
+        cleaned = re.sub(
+            r"(?i)<h[1-3]>\s*(?:At a glance|Short Answer|Introduction|Overview)\s*</h[1-3]>",
+            "",
+            cleaned,
+        )
 
         logger.info(f"Smart Brevity polishing pass complete. Original chars: {len(html_content)}, Polished chars: {len(cleaned)}")
         return cleaned
@@ -5882,6 +5889,32 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
 
         # Apply late-stage Formatting/Polishing Agent pass to enforce Smart Brevity & Demographic Calibration
         full_content = _polish_and_format_article(full_content, research_data, structure)
+
+        # Validate Smart Brevity structural integrity
+        full_content = _validate_and_ensure_smart_brevity_structure(full_content, research_data, structure)
+
+        # Ensure FAQ section is present before References
+        has_faq = bool(re.search(r"<h2[^>]*>\s*(?:Frequently Asked Questions|FAQ)\s*</h2>", full_content, re.IGNORECASE))
+        if not has_faq:
+            try:
+                support_client = _create_support_section_llm_client(research_data)
+                plain_text = _extract_plain_text(full_content)
+                art_title = structure.get('title', 'Generated Article')
+                faq_html = _generate_faq_from_article(
+                    llm_client=support_client,
+                    article_title=art_title,
+                    article_text=plain_text
+                )
+                if not faq_html:
+                    faq_html = _generate_faq_from_article_html_fallback(
+                        llm_client=support_client,
+                        article_title=art_title,
+                        article_text=plain_text
+                    )
+                if faq_html:
+                    full_content += f"\n\n{faq_html}\n"
+            except Exception as ex:
+                logger.warning(f"Failed to generate fallback FAQ in finalization: {str(ex)}")
 
         # Normalize any markdown artifacts that leaked from generation/refinement.
         full_content = _normalize_markdown_artifacts_to_html(full_content)

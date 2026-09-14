@@ -557,11 +557,12 @@ TARGET AUDIENCE: {audience}
                        - **Why it matters:** (1-2 sentences explaining the high-stakes impact).
                        - **By the numbers:** (Must lead immediately into a Markdown/HTML table or bulleted list).
                        - **The reality check:** (A grounded fact or counter-intuitive truth).
-                       - **Go deeper:** (A bulleted list of specialized secondary considerations).
-                    2. Front-load bolding: Bold the first 2-5 words of bullet points to summarize the key takeaway before the sentence finishes.
-                    3. Kill block text: Keep paragraphs strictly under 3 sentences. Avoid monolithic text walls.
-                    4. Zero preamble: Start directly with the hook, facts, or analysis without introductory fluff or throat-clearing.
-                    5. Tables over text: Always prefer Markdown/HTML tables to display multi-variable comparisons or itemized data instead of narrative paragraphs."""
+                       - **Go deeper:** (1 single sentence transition leading into the detailed body sections below).
+                    2. Substantive Body Expansion: Fully develop all topic sections and subsections with comprehensive analysis, actionable frameworks, and concrete data. Do not summarize sections into mere bullet points.
+                    3. Front-load bolding: Bold the first 2-5 words of bullet points to summarize the key takeaway before the sentence finishes.
+                    4. Kill block text: Keep paragraphs strictly under 3 sentences (1-2 sentences preferred). Avoid monolithic text walls.
+                    5. Zero preamble: Start directly with the hook, facts, or analysis without introductory fluff, meta-talk, or throat-clearing.
+                    6. Tables over text: Always prefer Markdown/HTML tables to display multi-variable comparisons, financial breakdowns, or itemized data instead of narrative paragraphs."""
 
     def _get_content_avoidance_instructions(self) -> str:
         """
