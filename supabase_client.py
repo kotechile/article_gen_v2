@@ -180,7 +180,7 @@ def _normalize_model_name(provider: Any, model_name: Any) -> str:
     if "deepseek" in normalized_provider:
         compact_model = normalized_model.strip().strip('"').strip("'")
         lowered_model = compact_model.lower().replace("deepdeek", "deepseek")
-        if lowered_model in {"deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"}:
+        if lowered_model in {"deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"}:
             return lowered_model
         return lowered_model
 

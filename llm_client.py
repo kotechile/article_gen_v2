@@ -126,6 +126,7 @@ class LLMClient:
             os.environ["MISTRAL_API_KEY"] = self.config.api_key
         elif self.config.provider == LLMProvider.DEEPSEEK.value:
             os.environ["DEEPSEEK_API_KEY"] = self.config.api_key
+            os.environ["DEEPSEEK_API_BASE"] = "https://api.deepseek.com"
         elif self.config.provider == LLMProvider.KIMI.value or self.config.provider == "moonshot":
             os.environ["MOONSHOT_API_KEY"] = self.config.api_key
         
@@ -150,6 +151,8 @@ class LLMClient:
                 "claude-3-haiku-20240307"
             ],
             LLMProvider.DEEPSEEK.value: [
+                "deepseek-flash",
+                "deepseek-v4-pro",
                 "deepseek-chat",
                 "deepseek-reasoner",
             ],
@@ -173,13 +176,10 @@ class LLMClient:
             provider = p.lower().strip()
             clean_model = m.strip()
             
-        # Common model alias/typo corrections
+        # Common model alias/legacy corrections
         if provider == "deepseek":
-            if clean_model in ["deepseek-flash", "flash"]:
-                self.logger.warning(
-                    f"Model '{clean_model}' is not a valid DeepSeek model. Auto-correcting to 'deepseek-chat'."
-                )
-                clean_model = "deepseek-chat"
+            if clean_model in ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "flash"]:
+                clean_model = "deepseek-flash"
         elif provider == "gemini":
             if clean_model in ["gemini-flash", "flash"]:
                 clean_model = "gemini-2.5-flash"
@@ -230,10 +230,11 @@ class LLMClient:
         params = {
             "model": self._get_model_name(model),
             "temperature": self.config.temperature,
-            "timeout": self.config.timeout
+            "timeout": self.config.timeout or 60,
+            "request_timeout": self.config.timeout or 60,
         }
         
-        # Pass API key directly to ensure it's used (more reliable than env vars)
+        # Pass API key and api_base directly to ensure they are used
         if self.config.provider == LLMProvider.GEMINI.value:
             params["api_key"] = self.config.api_key
         elif self.config.provider == LLMProvider.OPENAI.value:
@@ -242,6 +243,8 @@ class LLMClient:
             params["api_key"] = self.config.api_key
         elif self.config.provider == LLMProvider.DEEPSEEK.value:
             params["api_key"] = self.config.api_key
+            params["api_base"] = "https://api.deepseek.com"
+            params["base_url"] = "https://api.deepseek.com"
         
         # Add max_tokens or max_completion_tokens based on model
         if model in ["gpt-5"] and self.config.max_completion_tokens:
