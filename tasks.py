@@ -1308,8 +1308,8 @@ def _polish_and_format_article(
     )
 
     prompt = f"""
-You are an expert editorial agent and master formatter specializing in Axios-style Smart Brevity and demographic precision.
-Your task is to polish and restructure the provided article HTML so it strictly matches the Smart Brevity format while PRESERVING and FULLY DEVELOPING all substantive body content and sections.
+You are an expert editorial agent and master formatter specializing in Axios-style Smart Brevity lead formatting and rich, high-substance editorial depth.
+Your task is to polish and restructure the provided article HTML so it strictly matches the Smart Brevity format for the executive lead while PRESERVING and FULLY EXPANDING all substantive narrative body content and sections under "Go Deeper".
 
 TARGET AUDIENCE DEMOGRAPHIC: {target_audience}
 PRIMARY KEYWORD: {primary_keyword}
@@ -1328,13 +1328,15 @@ TARGET FORMAT & STRUCTURAL REQUIREMENTS:
      * `<p><strong>The reality check:</strong> (1-2 sentences providing a grounded fact, counter-intuitive truth, or critical catch).</p>`
      * `<p><strong>Go deeper:</strong> (1 single sentence transition inviting the reader into the comprehensive deep-dive below).</p>`
 
-2. **Substantive & In-Depth Body Sections (CRITICAL - DO NOT CONDENSE OR SUMMARIZE INTO BULLET POINTS)**:
+2. **Substantive & In-Depth Body Sections (CRITICAL - DO NOT CONDENSE OR SUMMARIZE INTO TELEGRAPHIC BULLET POINTS)**:
    - Demarcate the main body starting with `<h2>Go Deeper</h2>` followed by the fully developed topic sections using `<h3>` subsections.
    - Retain and fully expand all topic-specific sections, explanations, frameworks, actionable steps, and real-world logistics from the original draft.
-   - Apply Smart Brevity readability across every section:
-     * Paragraph length: Maximum 3 sentences per paragraph (1–2 sentences preferred). Never write monolithic walls of text.
-     * Front-loaded bolding in lists: Bold the first 2–5 words of bullet points to summarize the key takeaway (`<li><strong>Key Takeaway:</strong> explanation...</li>`).
-     * Tables over text: Always format multi-variable comparisons, financial breakdowns, tax tiers, or step criteria as clean HTML tables (`<table>...</table>`).
+   - Narrative Flow & Rich Prose:
+     * Write deep, narrative, and engaging body paragraphs that tell a complete story with real-world context, nuance, and smooth transitions.
+     * DO NOT turn standard body paragraphs into bold-prefixed pseudo-bullet points (e.g., avoid `<p><strong>Concept Name:</strong> One-sentence description.</p>`). Standard body paragraphs must be written as natural editorial prose.
+     * Paragraph length: Well-paced paragraphs (typically 2–4 sentences per paragraph). Avoid monolithic walls of text, but NEVER collapse paragraphs into telegram-like 1-sentence snippets.
+     * Bullet points: Use bulleted lists (`<ul><li>...</li></ul>`) ONLY for discrete items, checklists, steps, or feature sets. In actual lists, bold the first 2–5 words (`<li><strong>Key Takeaway:</strong> explanation...</li>`).
+     * Tables over text for structured data: Format multi-variable comparisons, financial breakdowns, tax tiers, or step criteria as clean HTML tables (`<table>...</table>`).
      * Authoritative tone: Zero fabricated personal friend anecdotes. Keep the analysis sharp, professional, and directly calibrated for {target_audience}.
 
 3. **Frequently Asked Questions (FAQ)**:
@@ -1347,7 +1349,7 @@ TARGET FORMAT & STRUCTURAL REQUIREMENTS:
 5. **Substance Over Word Count (Zero Fluff)**:
    - Word count targets are soft guidelines, NOT rigid quotas.
    - Strictly avoid padding, repetitive restatements, filler sentences, or artificial fluff added solely to lengthen the article.
-   - Maximize information density: deliver insights cleanly, concisely, and directly.
+   - Maximize information density: deliver insights cleanly, concisely, and with narrative depth.
 
 6. **Citations & References**:
    - Keep all existing citation markers (e.g., [1], [2], [^1]) intact and in place within the text.

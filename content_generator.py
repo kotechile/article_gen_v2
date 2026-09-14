@@ -489,17 +489,17 @@ class ContentGenerator:
     
     def _get_human_writing_instructions(self) -> str:
         """
-        Get instructions for authoritative, high-impact Smart Brevity writing.
+        Get instructions for authoritative, engaging editorial writing.
         """
         return """
-                    EDITORIAL VOICE & SMART BREVITY:
-                    - Write with high authority, precision, and zero conversational filler.
-                    - Start directly with the core hook or fact. Never use conversational throat-clearing (e.g. "Ever wondered...", "In this article...", "When we look at...", "Honestly, look...").
-                    - Keep every paragraph strictly under 3 sentences (1-2 punchy sentences is ideal).
-                    - Front-load bolding: Bold the first 2-5 words of bullet points to summarize the key takeaway before the sentence finishes.
-                    - Favor data and tables: Use comparative tables or itemized bullet structures over narrative walls of text.
+                    EDITORIAL VOICE & NARRATIVE CRAFT:
+                    - Write with high authority, precision, and compelling narrative flow.
+                    - Start directly with the core hook, context, or fact. Avoid conversational throat-clearing (e.g. "Ever wondered...", "In this article...", "When we look at...").
+                    - Pacing & Flow: Write well-developed paragraphs (2 to 4 sentences each) that connect smoothly and build a cohesive story. Avoid giant monolithic walls of text, but do NOT write telegram-like 1-sentence fragments.
+                    - Natural Prose over Pseudo-Bullets: Do NOT start standard body paragraphs with bolded label prefixes (e.g. do not write "<p><strong>Topic Concept:</strong> One sentence explanation.</p>"). Standard paragraphs should read as natural, articulate editorial prose.
+                    - Lists & Tables: Use bullet points (with bold lead-ins for items) and HTML tables ONLY when presenting discrete items, comparisons, or structured data—never as a substitute for narrative prose.
                     - Avoid fabricating fake first-person friend stories (e.g. "my friend Daniel called me...") unless real firsthand writer notes were provided.
-                    - Focus on high-stakes variables, concrete numbers, and strategic trade-offs.
+                    - Focus on high-stakes variables, concrete numbers, strategic trade-offs, and practical depth.
         """
 
     def _get_demographic_and_smart_brevity_instructions(self, context: Dict[str, Any]) -> str:
@@ -535,18 +535,19 @@ TARGET AUDIENCE: {audience}
                     {demographic_guidelines}
 
                     SMART BREVITY FORMATTING RULES:
-                    1. Structural Intent & Axiom Headers: Use bolded axiom cues when appropriate to signal paragraph intent cleanly:
+                    1. Executive Lead Structure (Top of Article):
+                       When generating or structuring the article lead, use bolded axiom cues to summarize core takeaways:
                        - **The big picture:** (1-2 sentences summarizing the core premise).
                        - **Why it matters:** (1-2 sentences explaining the high-stakes impact).
                        - **By the numbers:** (Must lead immediately into a Markdown/HTML table or bulleted list).
                        - **The reality check:** (A grounded fact or counter-intuitive truth).
                        - **Go deeper:** (1 single sentence transition leading into the detailed body sections below).
-                    2. Substantive Body Expansion: Fully develop all topic sections and subsections with comprehensive analysis, actionable frameworks, and concrete data. Do not summarize sections into mere bullet points.
-                    3. Front-load bolding: Bold the first 2-5 words of bullet points to summarize the key takeaway before the sentence finishes.
-                    4. Kill block text: Keep paragraphs strictly under 3 sentences (1-2 sentences preferred). Avoid monolithic text walls.
-                    5. Zero preamble: Start directly with the hook, facts, or analysis without introductory fluff, meta-talk, or throat-clearing.
-                    6. Tables over text: Always prefer Markdown/HTML tables to display multi-variable comparisons, financial breakdowns, or itemized data instead of narrative paragraphs.
-                    7. Substance Over Word Count (CRITICAL): Word count targets are soft guidelines, NOT mandatory quotas. Never generate fluff, repetitive restatements, or filler sentences simply to meet a word count. Maximize insight density with concise, high-value writing."""
+                    2. In-Depth Narrative Body Sections ("Go Deeper"):
+                       - Fully develop all topic sections and subsections with comprehensive analysis, actionable frameworks, storytelling, and concrete data.
+                       - Write natural, flowing paragraphs with substance, context, and narrative depth. Do NOT summarize body sections into telegraphic bullet points or bolded pseudo-bullet snippets.
+                       - Reserve bulleted lists for actual discrete items, steps, or checklists.
+                    3. Zero Preamble: Start directly with the hook, facts, or analysis without introductory fluff, meta-talk, or throat-clearing.
+                    4. Substance Over Word Count (CRITICAL): Word count targets are soft guidelines, NOT mandatory quotas. Never generate fluff, repetitive restatements, or filler sentences simply to meet a word count. Maximize insight density with concise, high-value writing."""
 
     def _get_content_avoidance_instructions(self) -> str:
         """
