@@ -2503,6 +2503,15 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                                             temperature=0.2,
                                             timeout=60,
                                         )
+                                        self.update_state(
+                                            state='PROGRESS',
+                                            meta={
+                                                'current_stage': 'COMPETITOR_ANALYSIS',
+                                                'progress': 5,
+                                                'progress_percent': 5,
+                                                'message': 'Analyzing top competitor articles and SERP gaps...',
+                                            }
+                                        )
                                         competitor_analysis = run_competitor_analysis_sync(
                                             primary_keyword=primary_keyword,
                                             brief=brief,

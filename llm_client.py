@@ -164,10 +164,27 @@ class LLMClient:
         return fallbacks.get(self.config.provider, [])
     
     def _get_model_name(self, model: str) -> str:
-        """Get full model name with provider prefix."""
-        if "/" in model:
-            return model
-        return f"{self.config.provider}/{model}"
+        """Get full model name with provider prefix, auto-normalizing common mistakes."""
+        clean_model = str(model or "").strip()
+        provider = self.config.provider.lower().strip()
+        
+        if "/" in clean_model:
+            p, m = clean_model.split("/", 1)
+            provider = p.lower().strip()
+            clean_model = m.strip()
+            
+        # Common model alias/typo corrections
+        if provider == "deepseek":
+            if clean_model in ["deepseek-flash", "flash"]:
+                self.logger.warning(
+                    f"Model '{clean_model}' is not a valid DeepSeek model. Auto-correcting to 'deepseek-chat'."
+                )
+                clean_model = "deepseek-chat"
+        elif provider == "gemini":
+            if clean_model in ["gemini-flash", "flash"]:
+                clean_model = "gemini-2.5-flash"
+                
+        return f"{provider}/{clean_model}"
     
     def _handle_llm_error(self, error: Exception, attempt: int) -> bool:
         """
