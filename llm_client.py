@@ -189,6 +189,8 @@ class LLMClient:
                 clean_model = "deepseek-chat"
             else:
                 clean_model = normalized
+            # Route through LiteLLM's OpenAI-compatible handler to ensure https://api.deepseek.com endpoint works cleanly
+            return f"openai/{clean_model}"
         elif provider == "gemini":
             if clean_model in ["gemini-flash", "flash"]:
                 clean_model = "gemini-2.5-flash"
