@@ -650,12 +650,27 @@ class ArticleStructureGenerator:
     ) -> List[SectionOutline]:
         """Generate detailed section outlines with balanced word distribution."""
         try:
-            # Calculate section count based on target word count with better distribution
-            section_count = max(4, min(8, target_word_count // 400))  # Increased base count and word target
+            # Calculate dynamic section count range based on target word count and format
+            if target_word_count <= 600:
+                min_sections = 2
+                max_sections = 3
+                section_count = 2 if target_word_count <= 400 else 3
+            elif target_word_count <= 1200:
+                min_sections = 3
+                max_sections = 5
+                section_count = max(3, min(4, target_word_count // 300))
+            elif target_word_count <= 2200:
+                min_sections = 4
+                max_sections = 7
+                section_count = max(4, min(6, target_word_count // 350))
+            else:
+                min_sections = 5
+                max_sections = 9
+                section_count = max(5, min(8, target_word_count // 350))
             
             # Calculate balanced word count per section
-            words_per_section = target_word_count // section_count
-            min_words = max(200, int(words_per_section * 0.7))  # 70% of target
+            words_per_section = max(150, target_word_count // max(1, section_count))
+            min_words = max(100, int(words_per_section * 0.7))  # 70% of target
             max_words = int(words_per_section * 1.3)  # 130% of target
             
             # Prepare context
@@ -672,7 +687,7 @@ class ArticleStructureGenerator:
                     "content": f"""You are an expert content strategist. Create a detailed, balanced outline for a {article_type} article.
                     
                     CRITICAL REQUIREMENTS:
-                    - Create exactly {section_count} main sections
+                    - Create between {min_sections} and {max_sections} logical main sections (recommended: ~{section_count} sections) based on the depth of the topic and target length.
                     - Each section should be {min_words}-{max_words} words (target: {words_per_section} words)
                     - Ensure BALANCED content distribution - no single section should dominate
                     - Match the {tone} tone
@@ -746,7 +761,7 @@ Search Intent: {search_intent}
 Target Word Count: {target_word_count}
 Tone: {tone}
 
-Create {section_count} topic-specific sections that directly relate to this article's content. Each section title should be unique to this topic, not a generic template. Analyze the brief and claims to determine what sections make sense for THIS specific article."""
+Create {min_sections} to {max_sections} topic-specific sections that directly relate to this article's content and target length ({target_word_count} words). Each section title should be unique to this topic, not a generic template. Analyze the brief and claims to determine what sections make sense for THIS specific article."""
                 }
             ]
             
