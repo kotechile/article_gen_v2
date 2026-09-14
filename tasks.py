@@ -2092,7 +2092,9 @@ def run_competitor_analysis_sync(
     ]
 
     try:
+        logger.info(f"Invoking competitor analysis LLM generation for keyword '{primary_keyword}'...")
         response = llm_client.generate(messages)
+        logger.info(f"Competitor analysis LLM call completed ({len(response.content or '')} chars). Parsing result...")
         result = _extract_json_payload_from_response(response.content)
         if isinstance(result, dict) and ("must_haves" in result or "competitive_edge" in result):
             cleaned_result = {
@@ -2102,10 +2104,10 @@ def run_competitor_analysis_sync(
             }
             cleaned_result["must_haves"] = list(dict.fromkeys([str(x).strip() for x in cleaned_result["must_haves"] if str(x).strip()]))
             cleaned_result["competitive_edge"] = list(dict.fromkeys([str(x).strip() for x in cleaned_result["competitive_edge"] if str(x).strip()]))
-            logger.info("Successfully extracted competitor analysis.")
+            logger.info(f"Successfully extracted competitor analysis: {len(cleaned_result['must_haves'])} must-haves, {len(cleaned_result['competitive_edge'])} competitive edges.")
             return cleaned_result
     except Exception as e:
-        logger.error(f"Error parsing or calling LLM for competitor analysis: {e}")
+        logger.warning(f"Competitor analysis LLM call failed or timed out: {e}. Continuing pipeline with defaults.")
 
     return {
         "competitors": [
@@ -2501,7 +2503,7 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                                             model=model,
                                             api_key=api_key,
                                             temperature=0.2,
-                                            timeout=60,
+                                            timeout=30,
                                         )
                                         self.update_state(
                                             state='PROGRESS',
@@ -2522,7 +2524,8 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                                         supabase.table('Titles').update({'idea_metadata': existing_metadata}).eq('id', article_id).execute()
                                         logger.info("Successfully executed and saved inline competitor analysis fallback.")
                                     except Exception as comp_err:
-                                        logger.error(f"Failed inline competitor analysis fallback: {comp_err}")
+                                        logger.warning(f"Failed inline competitor analysis fallback: {comp_err}. Proceeding with empty competitor analysis.")
+                                        competitor_analysis = {'enabled': True, 'must_haves': [], 'competitive_edge': []}
                         
                         research_data['competitor_analysis'] = competitor_analysis or {}
 

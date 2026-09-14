@@ -358,6 +358,45 @@ class LLMClient:
         # If all models and retries failed
         raise Exception(f"All models failed. Last error: {last_error}")
     
+    def _generate_deepseek_direct(self, messages: List[Dict[str, str]], model: str) -> LLMResponse:
+        """Call DeepSeek API directly via official OpenAI SDK to avoid LiteLLM hanging."""
+        import openai
+        clean_model = model.replace("deepseek/", "").replace("openai/", "")
+        client = openai.OpenAI(
+            api_key=self.config.api_key,
+            base_url="https://api.deepseek.com",
+            timeout=float(self.config.timeout or 60.0),
+        )
+        kwargs = {
+            "model": clean_model,
+            "messages": messages,
+            "temperature": self.config.temperature,
+        }
+        if self.config.max_tokens:
+            kwargs["max_tokens"] = self.config.max_tokens
+
+        start_time = time.time()
+        res = client.chat.completions.create(**kwargs)
+        elapsed = time.time() - start_time
+
+        choice = res.choices[0]
+        content = choice.message.content or ""
+        if not content and hasattr(choice.message, "reasoning_content"):
+            content = getattr(choice.message, "reasoning_content", "") or ""
+
+        usage = res.usage.model_dump() if hasattr(res.usage, "model_dump") else {}
+        self.logger.info(f"DeepSeek direct API call for {clean_model} succeeded in {elapsed:.2f}s")
+
+        return LLMResponse(
+            content=content,
+            model=clean_model,
+            provider="deepseek",
+            usage=usage,
+            cost=0.0,
+            response_time=elapsed,
+            retry_count=0
+        )
+
     def generate(
         self, 
         messages: List[Dict[str, str]], 
@@ -385,16 +424,20 @@ class LLMClient:
                 try:
                     self.logger.info(f"Attempting request with {current_model} (attempt {retry_attempt + 1})")
                     
+                    # For DeepSeek, use direct OpenAI SDK with base_url for highest reliability
+                    if self.config.provider == LLMProvider.DEEPSEEK.value or "deepseek" in str(current_model).lower():
+                        try:
+                            return self._generate_deepseek_direct(messages, current_model)
+                        except Exception as ds_err:
+                            self.logger.warning(f"DeepSeek direct call failed: {ds_err}, trying LiteLLM fallback...")
+                    
                     # Ensure API key is set in environment before each call (for concurrent tasks)
                     self._configure_litellm()
                     
                     params = self._get_request_params(current_model)
                     # For Gemini, LiteLLM requires api_key in a specific format
                     if self.config.provider == LLMProvider.GEMINI.value:
-                        # LiteLLM for Gemini uses api_key parameter or GEMINI_API_KEY env var
-                        # Pass it explicitly to avoid race conditions with concurrent tasks
-                        params.pop('api_key', None)  # Remove if added, we'll use env var
-                        # Ensure env var is set just before the call
+                        params.pop('api_key', None)
                         os.environ["GEMINI_API_KEY"] = self.config.api_key
                     
                     response = completion(
@@ -404,8 +447,6 @@ class LLMClient:
                     
                     response_time = time.time() - start_time
                     
-                    # Extract response data.
-                    # Never surface provider reasoning/thinking fields as user-facing output.
                     raw_content = response.choices[0].message.content
                     if not raw_content and hasattr(response.choices[0].message, 'reasoning_content'):
                         self.logger.warning(
