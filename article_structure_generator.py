@@ -101,7 +101,16 @@ class ArticleStructureGenerator:
             brief = research_data.get('brief', '')
             keywords = research_data.get('keywords', '')
             tone = research_data.get('tone', 'journalistic')
-            target_word_count = research_data.get('target_word_count', 2000)
+            raw_wc = (
+                research_data.get('target_word_count')
+                or research_data.get('articleLength')
+                or research_data.get('article_length')
+                or 2000
+            )
+            try:
+                target_word_count = int(str(raw_wc).strip() or 2000)
+            except Exception:
+                target_word_count = 2000
 
             # Add competitor analysis insights to the brief
             competitor_context = self._build_competitor_context_text(research_data)
@@ -133,7 +142,7 @@ class ArticleStructureGenerator:
                 self.logger.info(f"Using provided content_outline from database ({len(content_outline)} items)")
                 sections = self._generate_sections_from_outline(content_outline, target_word_count, tone)
             else:
-                sections = self._generate_sections(brief_with_dossier, claims, evidence, target_word_count, tone, article_type)
+                sections = self._generate_sections(brief_with_dossier, claims, evidence, target_word_count, tone, article_type, research_data=research_data)
             
             # Log section titles for debugging
             section_titles = [s.title for s in sections]
@@ -581,9 +590,11 @@ class ArticleStructureGenerator:
         return analysis
     
     def _generate_sections(self, brief: str, claims: List[Dict], evidence: List[Dict], 
-                          target_word_count: int, tone: str, article_type: str) -> List[SectionOutline]:
+                          target_word_count: int, tone: str, article_type: str,
+                          research_data: Optional[Dict[str, Any]] = None) -> List[SectionOutline]:
         """Generate detailed section outlines with balanced word distribution."""
         try:
+            research_data = research_data or {}
             # Calculate dynamic section count range based on target word count and format
             if target_word_count <= 600:
                 min_sections = 2
@@ -918,164 +929,90 @@ Create {min_sections} to {max_sections} topic-specific sections that directly re
     
     def _create_fallback_sections(self, brief: str, target_word_count: int, claims: List[Dict] = None) -> List[SectionOutline]:
         """Create fallback section outlines with topic-specific structure based on brief and claims."""
+        # Calculate dynamic section count range based on target word count
+        if target_word_count <= 600:
+            target_count = 2 if target_word_count <= 400 else 3
+        elif target_word_count <= 1200:
+            target_count = max(3, min(4, target_word_count // 300))
+        elif target_word_count <= 2200:
+            target_count = max(4, min(6, target_word_count // 350))
+        else:
+            target_count = max(5, min(8, target_word_count // 350))
+
         # Analyze brief to create more relevant sections
         brief_lower = brief.lower()
-        
-        # Extract key topics from brief (first few meaningful words)
-        brief_words = [w for w in brief.split() if len(w) > 3][:3]
-        topic_phrase = ' '.join(brief_words) if brief_words else "the topic"
+        brief_words = [w for w in brief.split() if len(w) > 3][:6]
+        main_topic = brief_words[0].title() if brief_words else "Strategy"
         
         # Extract key themes from claims if available
         claim_themes = []
         if claims:
-            for claim in claims[:3]:
+            for claim in claims[:6]:
                 claim_text = claim.get('claim', '')
-                # Extract key nouns/phrases (simple heuristic)
                 words = [w for w in claim_text.split() if w.lower() not in ['the', 'a', 'an', 'is', 'are', 'and', 'or', 'but']]
                 if words:
-                    claim_themes.append(' '.join(words[:2]))
-        
-        # Determine article focus and create topic-specific sections
-        if any(word in brief_lower for word in ['how to', 'guide', 'steps', 'process', 'tutorial']):
-            # How-to article structure - but make it topic-specific
-            main_topic = brief_words[0] if brief_words else "the process"
-            sections = [
+                    claim_themes.append(' '.join(words[:3]))
+
+        words_per_section = max(150, target_word_count // max(1, target_count))
+
+        # Build dynamic section list matching target_count
+        sections: List[SectionOutline] = [
+            SectionOutline(
+                title="Introduction",
+                key_points=["Overview of the topic", "Why this matters", "Key takeaways preview"],
+                word_count_target=min(250, max(120, words_per_section)),
+                order=1,
+                importance="high"
+            )
+        ]
+
+        # Candidate middle topic titles
+        middle_titles = []
+        for i in range(1, len(brief_words)):
+            middle_titles.append(f"{brief_words[i].title()} Analysis & Frameworks")
+        if claim_themes:
+            for ct in claim_themes:
+                middle_titles.append(f"{ct.title()} Dynamics")
+        default_titles = [
+            f"Core Dynamics of {main_topic}",
+            f"Key Financial & Operational Metrics",
+            f"Comparative Frameworks & Realities",
+            f"Strategic Implementation Steps",
+            f"Risk Management & Optimization",
+            f"Future Outlook & High-Impact Decisions",
+        ]
+        for dt in default_titles:
+            if len(middle_titles) < target_count:
+                middle_titles.append(dt)
+
+        # Add middle sections
+        middle_count = max(1, target_count - 2)
+        for idx in range(middle_count):
+            title = middle_titles[idx] if idx < len(middle_titles) else f"Key Consideration {idx+1}"
+            c_type = "table" if idx % 2 == 1 else "paragraph"
+            sections.append(
                 SectionOutline(
-                    title="Introduction",
-                    key_points=["Overview of the topic", "Why this matters", "What you'll learn"],
-                    word_count_target=200,
-                    order=1,
+                    title=title,
+                    key_points=[f"Primary factor for {title}", f"Comparative assessment", "Actionable guidance"],
+                    word_count_target=words_per_section,
+                    content_type=c_type,
+                    order=len(sections) + 1,
                     importance="high"
-                ),
-                SectionOutline(
-                    title=f"Essential {main_topic.title()} Basics" if main_topic else "Essential Basics",
-                    key_points=["Core concepts", "Important principles", "What you need to know"],
-                    word_count_target=400,
-                    order=2,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title=f"Mastering {main_topic.title()}" if main_topic else "Mastering the Process",
-                    key_points=["Detailed approach", "Best practices", "Pro tips"],
-                    word_count_target=600,
-                    content_type="table",
-                    order=3,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title="Conclusion",
-                    key_points=["Key takeaways", "Next steps", "Final thoughts"],
-                    word_count_target=200,
-                    order=4,
-                    importance="medium"
                 )
-            ]
-        elif any(word in brief_lower for word in ['investment', 'financial', 'market', 'analysis']):
-            # Financial/investment article structure
-            sections = [
-                SectionOutline(
-                    title="Introduction",
-                    key_points=["Market overview", "Current trends", "Why this matters"],
-                    word_count_target=200,
-                    order=1,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title="Market Analysis",
-                    key_points=["Current state", "Trends and patterns", "Data insights"],
-                    word_count_target=500,
-                    content_type="table",
-                    order=2,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title="Investment Strategies",
-                    key_points=["Approaches", "Risk assessment", "Opportunities"],
-                    word_count_target=500,
-                    order=3,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title="Conclusion",
-                    key_points=["Key takeaways", "Next steps", "Final thoughts"],
-                    word_count_target=200,
-                    order=4,
-                    importance="medium"
-                )
-            ]
-        elif any(word in brief_lower for word in ['skill', 'skills', 'career', 'development', 'learn']):
-            # Skills/career article structure - make it topic-specific
-            skill_focus = "Skills" if 'skill' in brief_lower else "Career Development"
-            sections = [
-                SectionOutline(
-                    title="Introduction",
-                    key_points=["Overview of the topic", "Why this matters", "What you'll learn"],
-                    word_count_target=200,
-                    order=1,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title=f"Top In-Demand {skill_focus} for 2026" if '2026' in brief_lower or '2025' in brief_lower else f"Essential {skill_focus} to Master",
-                    key_points=claim_themes[:3] if claim_themes else ["Key skills", "Why they matter", "Market demand"],
-                    word_count_target=500,
-                    content_type="table",
-                    order=2,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title=f"How to Develop These {skill_focus}" if 'skill' in brief_lower else "Building Your Career Path",
-                    key_points=["Actionable steps", "Learning resources", "Practical tips"],
-                    word_count_target=500,
-                    order=3,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title="Conclusion",
-                    key_points=["Key takeaways", "Next steps", "Final thoughts"],
-                    word_count_target=200,
-                    order=4,
-                    importance="medium"
-                )
-            ]
-        else:
-            # General article structure - try to make it topic-specific based on brief
-            # Extract main topic from brief
-            main_topic = brief_words[0].title() if brief_words else "Key Concepts"
-            second_topic = brief_words[1].title() if len(brief_words) > 1 else "Implementation"
-            
-            sections = [
-                SectionOutline(
-                    title="Introduction",
-                    key_points=["Overview of the topic", "Why this matters", "What you'll learn"],
-                    word_count_target=200,
-                    order=1,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title=f"Understanding {main_topic}" if main_topic else "Core Concepts",
-                    key_points=claim_themes[:3] if claim_themes else ["Core concepts", "Important principles", "Key insights"],
-                    word_count_target=400,
-                    content_type="table",
-                    order=2,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title=f"{second_topic} in Practice" if second_topic else "Practical Applications",
-                    key_points=["Practical examples", "Case studies", "Best practices"],
-                    word_count_target=500,
-                    order=3,
-                    importance="high"
-                ),
-                SectionOutline(
-                    title="Conclusion",
-                    key_points=["Key takeaways", "Next steps", "Final thoughts"],
-                    word_count_target=200,
-                    order=4,
-                    importance="medium"
-                )
-            ]
-        
-        self.logger.info(f"Created fallback sections: {[s.title for s in sections]}")
+            )
+
+        # Conclusion
+        sections.append(
+            SectionOutline(
+                title="Conclusion",
+                key_points=["Summary of strategic takeaways", "Next action steps", "Final perspective"],
+                word_count_target=min(250, max(120, words_per_section)),
+                order=len(sections) + 1,
+                importance="medium"
+            )
+        )
+
+        self.logger.info(f"Created {len(sections)} fallback sections (target_word_count={target_word_count}): {[s.title for s in sections]}")
         return sections
 
 # Factory function

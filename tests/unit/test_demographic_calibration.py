@@ -56,6 +56,23 @@ def test_article_structure_generator_target_audience_fallback():
     assert audience == "Experts and technical professionals"
 
 
+def test_article_structure_generator_section_scaling():
+    """Verify ArticleStructureGenerator scales section count based on target_word_count."""
+    generator = ArticleStructureGenerator(llm_client=None)
+    
+    # 400 words -> 2-3 sections
+    sections_short = generator._create_fallback_sections("Relocating for tech roles", 400)
+    assert len(sections_short) in [2, 3]
+
+    # 1000 words -> 3-5 sections
+    sections_med = generator._create_fallback_sections("Relocating for tech roles", 1000)
+    assert 3 <= len(sections_med) <= 5
+
+    # 2000 words -> 4-7 sections
+    sections_long = generator._create_fallback_sections("Relocating for tech roles", 2000)
+    assert 4 <= len(sections_long) <= 7
+
+
 def test_content_generator_demographic_instructions_35_45_bracket():
     """Verify ContentGenerator injects mid-career 35-45 wealth & logistics calibration."""
     generator = ContentGenerator(llm_client=None)
