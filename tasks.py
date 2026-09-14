@@ -1344,7 +1344,12 @@ TARGET FORMAT & STRUCTURAL REQUIREMENTS:
 4. **Demographic Nuance**:
    - Speak directly to the specific realities of {target_audience} (e.g., for mid-career 35-45 professionals: dual-country net cash flow, trailing spouse visa restrictions, international school tuition, cross-border tax treaties, asset management, and lifestyle ROI).
 
-5. **Citations & References**:
+5. **Substance Over Word Count (Zero Fluff)**:
+   - Word count targets are soft guidelines, NOT rigid quotas.
+   - Strictly avoid padding, repetitive restatements, filler sentences, or artificial fluff added solely to lengthen the article.
+   - Maximize information density: deliver insights cleanly, concisely, and directly.
+
+6. **Citations & References**:
    - Keep all existing citation markers (e.g., [1], [2], [^1]) intact and in place within the text.
    - Do not delete or duplicate the References section.
 

@@ -213,30 +213,13 @@ class ContentGenerator:
             else:  # Default to paragraph
                 content_blocks.extend(self._generate_paragraph_content(context, word_count_target))
             
-            # Add supporting content if needed - be more aggressive about meeting word count
+            # Add supporting content only if section generation failed or produced trivial content (< 40 words)
             current_word_count = sum(block.word_count for block in content_blocks)
-            if current_word_count < word_count_target * 0.9:  # Raise threshold from 0.8 to 0.9
-                remaining_words = word_count_target - current_word_count
-                self.logger.info(f"Content for '{title}' is {current_word_count} words (target: {word_count_target}), generating {remaining_words} more words")
-                # Pass evidence in context for supporting content
+            if current_word_count < 40:
+                self.logger.warning(f"Content for '{title}' is critically short ({current_word_count} words), generating supporting content")
                 supporting_context = context.copy()
-                additional_blocks = self._generate_supporting_content(supporting_context, remaining_words)
+                additional_blocks = self._generate_supporting_content(supporting_context, max(100, word_count_target))
                 content_blocks.extend(additional_blocks)
-            
-            # Check again and add more content if still short
-            final_word_count = sum(block.word_count for block in content_blocks)
-            if final_word_count < word_count_target * 0.85:
-                remaining_words = word_count_target - final_word_count
-                self.logger.warning(f"Content for '{title}' is still only {final_word_count} words, generating {remaining_words} more words")
-                # Pass evidence in context for supporting content
-                supporting_context = context.copy()
-                additional_blocks = self._generate_supporting_content(supporting_context, remaining_words)
-                content_blocks.extend(additional_blocks)
-            
-            # Balance word count if section exceeds target by more than 20%
-            final_word_count = sum(block.word_count for block in content_blocks)
-            if final_word_count > word_count_target * 1.2:
-                content_blocks = self._balance_content_blocks(content_blocks, word_count_target)
             
             return content_blocks
             
@@ -562,7 +545,8 @@ TARGET AUDIENCE: {audience}
                     3. Front-load bolding: Bold the first 2-5 words of bullet points to summarize the key takeaway before the sentence finishes.
                     4. Kill block text: Keep paragraphs strictly under 3 sentences (1-2 sentences preferred). Avoid monolithic text walls.
                     5. Zero preamble: Start directly with the hook, facts, or analysis without introductory fluff, meta-talk, or throat-clearing.
-                    6. Tables over text: Always prefer Markdown/HTML tables to display multi-variable comparisons, financial breakdowns, or itemized data instead of narrative paragraphs."""
+                    6. Tables over text: Always prefer Markdown/HTML tables to display multi-variable comparisons, financial breakdowns, or itemized data instead of narrative paragraphs.
+                    7. Substance Over Word Count (CRITICAL): Word count targets are soft guidelines, NOT mandatory quotas. Never generate fluff, repetitive restatements, or filler sentences simply to meet a word count. Maximize insight density with concise, high-value writing."""
 
     def _get_content_avoidance_instructions(self) -> str:
         """
@@ -570,6 +554,7 @@ TARGET AUDIENCE: {audience}
         """
         return """
                     WHAT TO AVOID (CRITICAL):
+                    - Fluff, filler sentences, or artificial padding added to meet an arbitrary word count
                     - Lists of three (e.g. "fast, easy, and secure") - vary the pattern
                     - Overly formal transitions ("Furthermore," "Moreover", "In conclusion", "Additionally")
                     - Perfect symmetry in structure
@@ -824,7 +809,7 @@ Previous Context:
                     ========================================
                     CONTENT REQUIREMENTS
                     ========================================
-                    - Target approximately {word_count_target} words (prioritize quality and flow over exact word count)
+                    - Word count guideline: ~{word_count_target} words (soft guideline). Prioritize substance, clarity, and conciseness; NEVER add fluff or filler to reach a word count.
                     - Target a Flesch Reading Ease score of 65-75 (Standard English, easily readable for 8th graders)
                     - MANDATORY: Use simple, direct language. Avoid complex vocabulary and long, convoluted sentences.
                     - Use varied sentence lengths: mix shorter, punchy sentences with slightly longer, explanatory ones
@@ -989,7 +974,7 @@ Previous Context:
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
                     - Create a well-structured list
-                    - Target approximately {word_count_target} words
+                    - Word count guideline: ~{word_count_target} words (soft guideline - prioritize insight density and conciseness over arbitrary length)
                     - Target a Flesch Reading Ease score of 65-75 (Standard English, easily readable for 8th graders)
                     - Cover the key points: {', '.join(context['key_points'])}
                     - Use evidence and claims to support each list item
@@ -1054,6 +1039,20 @@ Previous Context:
                     Supporting Evidence:
                     {self._format_evidence_for_citations(context['relevant_evidence'][:10])}
                     {self._get_citation_instructions(context)}"""
+                },
+                {
+                    "role": "user",
+                    "content": f"""Section: {context['title']}
+                    {f"Subtitle: {context['subtitle']}" if context['subtitle'] else ""}
+                    
+                    Key Points to Cover:
+                    {chr(10).join(f"- {point}" for point in context['key_points'])}
+                    
+                    Research Brief: {context['research_brief']}
+                    {f"Draft Title: {context['draft_title']}" if context.get('draft_title') else ""}
+                    Keywords to integrate naturally: {context.get('keywords', '')}
+                    
+                    Create a comprehensive, well-structured list section based on the above information."""
                 }
             ]
             
@@ -1101,7 +1100,7 @@ Previous Context:
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
                     - Create clear, actionable steps
-                    - Target approximately {word_count_target} words
+                    - Word count guideline: ~{word_count_target} words (soft guideline - prioritize conciseness and actionable clarity)
                     - Cover the key points: {', '.join(context['key_points'])}
                     - Use evidence and claims to support each step
                     - Write for {context['target_audience']} audience
@@ -1120,6 +1119,23 @@ Previous Context:
                     Supporting Evidence:
                     {self._format_evidence_for_citations(context['relevant_evidence'][:10])}
                     {self._get_citation_instructions(context)}"""
+                },
+                {
+                    "role": "user",
+                    "content": f"""Section: {context['title']}
+                    {f"Subtitle: {context['subtitle']}" if context['subtitle'] else ""}
+                    
+                    Key Points to Cover:
+                    {chr(10).join(f"- {point}" for point in context['key_points'])}
+                    
+                    Research Brief: {context['research_brief']}
+                    {f"Draft Title: {context['draft_title']}" if context.get('draft_title') else ""}
+                    Keywords to integrate naturally: {context.get('keywords', '')}
+                    
+                    Relevant Claims:
+                    {chr(10).join(f"- {claim.get('claim', '')}" for claim in context['relevant_claims'][:3])}
+                    
+                    Create a complete step-by-step guide that provides actionable, practical advice for readers."""
                 }
             ]
             
@@ -1153,12 +1169,12 @@ Previous Context:
             return [self._create_fallback_content_block(context['title'], word_count_target)]
     
     def _generate_comparison_content(self, context: Dict[str, Any], word_count_target: int) -> List[ContentBlock]:
-        """Generate comparison-based content."""
+        """Generate comparison content."""
         try:
             messages = [
                 {
                     "role": "system",
-                    "content": f"""You are an expert analytical writer. Create a detailed comparison for a {context['tone']} article.
+                    "content": f"""You are an expert comparison analyst. Create a detailed, objective comparison for a {context['tone']} article.
                     
                     {self._get_writer_notes_instructions(context)}
                     {self._get_readability_instructions()}
@@ -1167,7 +1183,7 @@ Previous Context:
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
                     - Create a complete, detailed comparison - this is the core of this section
-                    - Target EXACTLY {word_count_target} words - be complete and detailed
+                    - Word count guideline: ~{word_count_target} words (soft guideline - prioritize sharp analytical value and clean comparison tables over padding)
                     - Cover ALL the key points: {', '.join(context['key_points'])}
                     - Use evidence and claims to support comparisons - cite sources when using them
                     - Write for {context['target_audience']} audience with appropriate depth
@@ -1297,7 +1313,7 @@ Previous Context:
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
                     - Create detailed, data-rich content with a comparative table explaining concepts, numbers, features, or strategies. Including a comparative table is MANDATORY in this section.
-                    - Target approximately {word_count_target} words
+                    - Word count guideline: ~{word_count_target} words (soft guideline - focus on data substance and clear takeaways)
                     - Cover the key points: {', '.join(context['key_points'])}
                     - Use evidence and claims to support data presentation when available
                     - Write for {context['target_audience']} audience
@@ -1415,11 +1431,11 @@ Previous Context:
             messages = [
                 {
                     "role": "system",
-                    "content": f"""You are an expert content writer. Add supporting content to complete the section and meet word count requirements.
+                    "content": f"""You are an expert content writer. Add concise supporting content to complete any missing aspects of this section.
                     
                     Requirements:
                     {self._get_tone_specific_instructions(context['tone'])}
-                    - Add EXACTLY {remaining_words} words - be complete and detailed
+                    - Add concise supporting content (~{remaining_words} words guideline) - be dense, factual, and actionable. Never add fluff or padding.
                     - Provide additional context, examples, case studies, statistics, or practical insights
                     - Use evidence from the provided sources to support points - cite sources with [1], [2], etc.
                     - Make it clear and useful - avoid generic filler
@@ -1439,7 +1455,7 @@ Previous Context:
                     {self._format_evidence_for_citations(context.get('relevant_evidence', [])[:5])}
                     {self._get_citation_instructions(context)}
                     
-                    Return only the additional content that adds real value and meets the word count target."""
+                    Return only the additional content that adds real value."""
                 },
                 {
                     "role": "user",
