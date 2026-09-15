@@ -473,18 +473,30 @@ export const Settings: React.FC = () => {
                 social_default_image_url: formData.social_default_image_url?.trim() || null,
                 branding_updated_at: new Date().toISOString(),
             };
-            let saveError;
-            if (editingId && editingId !== 'new') {
-                const { error: err } = await supabase.from('projects').update(projectsPayload).eq('id', editingId);
-                saveError = err;
-            } else {
-                const { error: err } = await supabase.from('projects').insert([projectsPayload]);
-                saveError = err;
+            let currentPayload: Record<string, any> = { ...projectsPayload };
+            let saveError: any;
+            for (let attempt = 0; attempt < 5; attempt++) {
+                if (editingId && editingId !== 'new') {
+                    const { error: err } = await supabase.from('projects').update(currentPayload).eq('id', editingId);
+                    saveError = err;
+                } else {
+                    const { error: err } = await supabase.from('projects').insert([currentPayload]);
+                    saveError = err;
+                }
+                if (!saveError) break;
+
+                const missingColMatch = saveError.message?.match(/Could not find the '(\w+)' column/i);
+                if (missingColMatch && missingColMatch[1] && missingColMatch[1] in currentPayload) {
+                    console.warn(`[Settings] Column '${missingColMatch[1]}' not in projects schema; stripping and retrying save.`);
+                    delete currentPayload[missingColMatch[1]];
+                } else {
+                    break;
+                }
             }
             if (saveError) throw saveError;
 
             if (normalizedDomain) {
-                const wpBrandPayload = {
+                const wpBrandPayload: Record<string, any> = {
                     user_id: user.id,
                     domain: normalizedDomain,
                     app_name: projectsPayload.app_name || null,
@@ -509,15 +521,35 @@ export const Settings: React.FC = () => {
                     .eq('domain', normalizedDomain)
                     .maybeSingle();
 
-                if (existingWpSite?.id) {
-                    await supabase
-                        .from('wordPress_details')
-                        .update(wpBrandPayload)
-                        .eq('id', existingWpSite.id);
-                } else if (showWpFields || projectsPayload.brand_primary_color || projectsPayload.brand_text_color || projectsPayload.brand_secondary_color || projectsPayload.brand_neutral_color) {
-                    await supabase
-                        .from('wordPress_details')
-                        .insert([wpBrandPayload]);
+                let currentWpPayload = { ...wpBrandPayload };
+                let wpError: any;
+                for (let attempt = 0; attempt < 5; attempt++) {
+                    if (existingWpSite?.id) {
+                        const { error: err } = await supabase
+                            .from('wordPress_details')
+                            .update(currentWpPayload)
+                            .eq('id', existingWpSite.id);
+                        wpError = err;
+                    } else if (showWpFields || projectsPayload.brand_primary_color || projectsPayload.brand_text_color || projectsPayload.brand_secondary_color || projectsPayload.brand_neutral_color) {
+                        const { error: err } = await supabase
+                            .from('wordPress_details')
+                            .insert([currentWpPayload]);
+                        wpError = err;
+                    } else {
+                        break;
+                    }
+                    if (!wpError) break;
+
+                    const missingColMatch = wpError.message?.match(/Could not find the '(\w+)' column/i);
+                    if (missingColMatch && missingColMatch[1] && missingColMatch[1] in currentWpPayload) {
+                        console.warn(`[Settings] Column '${missingColMatch[1]}' not in wordPress_details schema; stripping and retrying save.`);
+                        delete currentWpPayload[missingColMatch[1]];
+                    } else {
+                        break;
+                    }
+                }
+                if (wpError) {
+                    console.error('[Settings] Error saving WordPress details:', wpError);
                 }
             }
 

@@ -696,6 +696,7 @@ export const ArticleEditor: React.FC = () => {
     const [hook, setHook] = useState('');
     const [thesis, setThesis] = useState('');
     const [deck, setDeck] = useState(''); // New Deck state
+    const [excerpt, setExcerpt] = useState(''); // Excerpt state
     const [featuredImage, setFeaturedImage] = useState<ImageMetadata | null>(null);
     const [imagePickMode, setImagePickMode] = useState<'content' | 'featured'>('content');
     const [isAddImageModalOpen, setIsAddImageModalOpen] = useState(false);
@@ -730,7 +731,7 @@ export const ArticleEditor: React.FC = () => {
 
     const isInitialLoad = useRef(true);
 
-    // Track metadata changes to mark editor as dirty
+    // Track dirty state
     useEffect(() => {
         if (loading) return;
         if (isInitialLoad.current) {
@@ -739,7 +740,7 @@ export const ArticleEditor: React.FC = () => {
             return;
         }
         setIsDirty(true);
-    }, [title, hook, thesis, deck, featuredImage, loading]);
+    }, [title, hook, thesis, deck, excerpt, featuredImage, loading]);
 
     // Update save status indicator based on dirty state
     useEffect(() => {
@@ -927,8 +928,10 @@ export const ArticleEditor: React.FC = () => {
                 setTitle(d.Title || d.title || '');
                 setHook(d.hook || d.Hook || '');
                 setThesis(d.thesis || d.Thesis || '');
-                // Fetch Deck from root column (priority) or metadata or wp_custom_fields or excerpt
-                const metaDeck = d.deck || d.metadata?.deck || d.wp_custom_fields?.deck || d.excerpt || '';
+                // Fetch Excerpt and Deck
+                const rawExcerpt = d.excerpt || d.Excerpt || d.wp_excerpt_auto_generated || d.metadata?.excerpt || '';
+                setExcerpt(rawExcerpt);
+                const metaDeck = d.deck || d.metadata?.deck || d.wp_custom_fields?.deck || '';
                 setDeck(metaDeck);
 
 
@@ -1235,6 +1238,7 @@ export const ArticleEditor: React.FC = () => {
             hook: hook,
             thesis: thesis,
             deck: deck,
+            excerpt: excerpt,
             htmlArticle: htmlContent,
             featuredImageURL: featuredImage?.url || null,
             ImageAuthor: featuredImage?.author || null,
@@ -1267,6 +1271,7 @@ export const ArticleEditor: React.FC = () => {
         hook,
         thesis,
         deck,
+        excerpt,
         featuredImage,
         showInTextCitations
     ]);
@@ -1982,6 +1987,7 @@ export const ArticleEditor: React.FC = () => {
                                             hook: hook,
                                             thesis: thesis,
                                             deck: deck,
+                                            excerpt: excerpt,
                                             selected_citations: JSON.stringify(Array.from(selectedCitations)),
                                             include_in_text_citations: showInTextCitations,
                                             featuredImageUrl: featuredImage?.url,
@@ -2008,6 +2014,7 @@ export const ArticleEditor: React.FC = () => {
                                             hook: hook,
                                             thesis: thesis,
                                             deck: deck,
+                                            excerpt: excerpt,
                                             featuredImageUrl: featuredImage?.url,
                                             ImageAuthor: featuredImage?.author,
                                             mediaAltText: featuredImage?.alt,
@@ -2071,7 +2078,7 @@ export const ArticleEditor: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Title, Hook, Thesis Input Fields */}
+                        {/* Title, Hook, Thesis, Deck, Excerpt Input Fields */}
                         <div className="bg-background rounded-xl shadow-sm border border-border p-6 space-y-4">
                             <div>
                                 <label className="block text-sm font-medium mb-1">Article Title</label>
@@ -2107,16 +2114,30 @@ export const ArticleEditor: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Deck Input */}
-                            <div>
-                                <label className="block text-sm font-medium mb-1">Deck (Subtitle/Summary)</label>
-                                <textarea
-                                    value={deck}
-                                    onChange={(e) => setDeck(e.target.value)}
-                                    rows={2}
-                                    className="w-full px-4 py-2 rounded-lg border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none transition resize-none"
-                                    placeholder="A brief summary or subtitle for the article (often used below the headline)..."
-                                />
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* Deck Input */}
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Deck (Subtitle / Kicker)</label>
+                                    <textarea
+                                        value={deck}
+                                        onChange={(e) => setDeck(e.target.value)}
+                                        rows={2}
+                                        className="w-full px-4 py-2 rounded-lg border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none transition resize-none"
+                                        placeholder="A brief subtitle or secondary headline (displayed below the title)..."
+                                    />
+                                </div>
+
+                                {/* Excerpt Input */}
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Excerpt (WordPress / SEO Summary)</label>
+                                    <textarea
+                                        value={excerpt}
+                                        onChange={(e) => setExcerpt(e.target.value)}
+                                        rows={2}
+                                        className="w-full px-4 py-2 rounded-lg border border-border bg-muted/50 focus:ring-2 focus:ring-ring outline-none transition resize-none"
+                                        placeholder="The article summary used for WordPress post_excerpt, social cards, and RSS feeds..."
+                                    />
+                                </div>
                             </div>
                         </div>
 
