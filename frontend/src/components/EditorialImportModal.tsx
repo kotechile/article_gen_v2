@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Loader2, BookOpen, ExternalLink, Sparkles, CheckCircle2, AlertCircle, ArrowRight, Globe } from 'lucide-react';
+import { X, Search, Loader2, BookOpen, ExternalLink, Sparkles, CheckCircle2, AlertCircle, ArrowRight, Globe, ArrowUpDown, Calendar, Filter } from 'lucide-react';
 import { editorialFactoryService, type EditorialArticle } from '../services/editorial-factory.service';
 import { useProject } from '../context/project-context';
 
@@ -22,6 +22,7 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedDomain, setSelectedDomain] = useState<string>(activeProject?.domain || '');
     const [filterStatus, setFilterStatus] = useState<'all' | 'new' | 'imported'>('all');
+    const [sortBy, setSortBy] = useState<'date_desc' | 'date_asc' | 'title_asc' | 'word_count_desc'>('date_desc');
     const [error, setError] = useState<string | null>(null);
     const [previewArticle, setPreviewArticle] = useState<EditorialArticle | null>(null);
 
@@ -96,11 +97,33 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
         imported: articles.filter(a => a.is_imported).length,
     };
 
-    const filteredArticles = articles.filter(article => {
-        if (filterStatus === 'new' && article.is_imported) return false;
-        if (filterStatus === 'imported' && !article.is_imported) return false;
-        return true;
-    });
+    const filteredAndSortedArticles = useMemo(() => {
+        const filtered = articles.filter(article => {
+            if (filterStatus === 'new' && article.is_imported) return false;
+            if (filterStatus === 'imported' && !article.is_imported) return false;
+            return true;
+        });
+
+        return [...filtered].sort((a, b) => {
+            if (sortBy === 'date_desc') {
+                const dateA = new Date(a.created_at).getTime() || 0;
+                const dateB = new Date(b.created_at).getTime() || 0;
+                return dateB - dateA;
+            }
+            if (sortBy === 'date_asc') {
+                const dateA = new Date(a.created_at).getTime() || 0;
+                const dateB = new Date(b.created_at).getTime() || 0;
+                return dateA - dateB;
+            }
+            if (sortBy === 'title_asc') {
+                return (a.title || '').localeCompare(b.title || '');
+            }
+            if (sortBy === 'word_count_desc') {
+                return (b.word_count || 0) - (a.word_count || 0);
+            }
+            return 0;
+        });
+    }, [articles, filterStatus, sortBy]);
 
     if (!isOpen) return null;
 
@@ -134,56 +157,108 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
                         </button>
                     </div>
 
-                    {/* Toolbar: Search + Status Filter + Project Domain selector */}
-                    <div className="px-6 py-3 border-b border-border bg-muted/10 flex flex-col sm:flex-row gap-3 items-center justify-between">
-                        <form onSubmit={handleSearchSubmit} className="relative flex-1 w-full">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <input
-                                type="text"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Search articles by title or keyword..."
-                                className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-border bg-background text-foreground focus:ring-2 focus:ring-ring outline-none"
-                            />
-                        </form>
-
-                        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap">
-                            <select
-                                value={filterStatus}
-                                onChange={(e) => setFilterStatus(e.target.value as 'all' | 'new' | 'imported')}
-                                className="px-3 py-2 text-xs rounded-xl border border-border bg-background text-foreground focus:ring-2 focus:ring-ring outline-none font-medium"
-                                title="Filter by status"
-                            >
-                                <option value="all">All Articles ({counts.all})</option>
-                                <option value="new">New Only ({counts.new})</option>
-                                <option value="imported">Already Imported ({counts.imported})</option>
-                            </select>
-
-                            <div className="flex items-center gap-1.5 border border-border rounded-xl px-2.5 py-1 bg-background">
-                                <Globe className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                                <select
-                                    value={selectedDomain}
-                                    onChange={(e) => setSelectedDomain(e.target.value)}
-                                    className="py-1 text-xs bg-transparent text-foreground focus:ring-0 outline-none"
-                                    title="Target Project Domain"
-                                >
-                                    <option value="">No Domain (Unassigned)</option>
-                                    {projects.map((p) => (
-                                        <option key={p.id} value={p.domain || p.app_name}>
-                                            {p.domain || p.app_name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
+                    {/* Toolbar: Search + Status Filter + Sort By + Project Domain selector */}
+                    <div className="px-6 py-3 border-b border-border bg-muted/10 flex flex-col gap-2.5">
+                        {/* Row 1: Search */}
+                        <div className="flex flex-col sm:flex-row gap-2.5 items-center justify-between">
+                            <form onSubmit={handleSearchSubmit} className="relative flex-1 w-full">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    placeholder="Search articles by title or keyword..."
+                                    className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-border bg-background text-foreground focus:ring-2 focus:ring-ring outline-none"
+                                />
+                            </form>
 
                             <button
                                 type="button"
                                 onClick={() => void fetchArticles(searchQuery, selectedDomain)}
                                 disabled={loading}
-                                className="px-3 py-2 text-xs font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50"
+                                className="w-full sm:w-auto px-4 py-2 text-xs font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50 shrink-0 flex items-center justify-center gap-1.5"
                             >
                                 {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Refresh'}
                             </button>
+                        </div>
+
+                        {/* Row 2: Status Filter Pills + Sort Dropdown + Domain Selector */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5 text-xs">
+                            {/* Status Filter Tabs */}
+                            <div className="flex items-center gap-1 bg-background border border-border rounded-xl p-1 shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={() => setFilterStatus('all')}
+                                    className={`px-3 py-1 rounded-lg font-medium transition ${
+                                        filterStatus === 'all'
+                                            ? 'bg-primary text-primary-foreground shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                    }`}
+                                >
+                                    All ({counts.all})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFilterStatus('new')}
+                                    className={`px-3 py-1 rounded-lg font-medium transition flex items-center gap-1 ${
+                                        filterStatus === 'new'
+                                            ? 'bg-primary text-primary-foreground shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                    }`}
+                                >
+                                    <Sparkles className="w-3 h-3" />
+                                    New Only ({counts.new})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFilterStatus('imported')}
+                                    className={`px-3 py-1 rounded-lg font-medium transition flex items-center gap-1 ${
+                                        filterStatus === 'imported'
+                                            ? 'bg-emerald-600 text-white shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                    }`}
+                                >
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    Already Imported ({counts.imported})
+                                </button>
+                            </div>
+
+                            {/* Sort & Domain Controls */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {/* Sort dropdown */}
+                                <div className="flex items-center gap-1.5 border border-border rounded-xl px-2.5 py-1 bg-background">
+                                    <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                                    <select
+                                        value={sortBy}
+                                        onChange={(e) => setSortBy(e.target.value as any)}
+                                        className="py-1 text-xs bg-transparent text-foreground focus:ring-0 outline-none font-medium cursor-pointer"
+                                        title="Sort articles"
+                                    >
+                                        <option value="date_desc">Newest First (Created Date)</option>
+                                        <option value="date_asc">Oldest First (Created Date)</option>
+                                        <option value="title_asc">Title (A to Z)</option>
+                                        <option value="word_count_desc">Word Count (High to Low)</option>
+                                    </select>
+                                </div>
+
+                                {/* Domain selector */}
+                                <div className="flex items-center gap-1.5 border border-border rounded-xl px-2.5 py-1 bg-background">
+                                    <Globe className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                                    <select
+                                        value={selectedDomain}
+                                        onChange={(e) => setSelectedDomain(e.target.value)}
+                                        className="py-1 text-xs bg-transparent text-foreground focus:ring-0 outline-none cursor-pointer"
+                                        title="Target Project Domain"
+                                    >
+                                        <option value="">No Domain (Unassigned)</option>
+                                        {projects.map((p) => (
+                                            <option key={p.id} value={p.domain || p.app_name}>
+                                                {p.domain || p.app_name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
