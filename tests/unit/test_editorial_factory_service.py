@@ -2,6 +2,7 @@
 Unit tests for EditorialFactoryService and content transformation pipeline.
 """
 
+import re
 import pytest
 from unittest.mock import MagicMock, patch
 from src.services.editorial_factory_service import EditorialFactoryService
@@ -170,3 +171,149 @@ def test_import_article_to_titles(service):
         assert success is True
         assert new_id == "new-title-uuid"
         mock_local_supabase.table.assert_called_with("Titles")
+
+
+def test_list_articles_with_imported_flags(service):
+    mock_ef_articles = [
+        {
+            "id": "ef-101",
+            "title": "Article One: Emerging Tech",
+            "content": "Body text for article one",
+            "summary": "Summary one",
+            "tags": ["Tech"],
+            "created_at": "2026-09-10T10:00:00Z",
+            "author": "Author A"
+        },
+        {
+            "id": "ef-102",
+            "title": "Article Two: Clean Energy",
+            "content": "Body text for article two",
+            "summary": "Summary two",
+            "tags": ["Energy"],
+            "created_at": "2026-09-11T10:00:00Z",
+            "author": "Author B"
+        },
+        {
+            "id": "ef-103",
+            "title": "Article Three: Title Match Only",
+            "content": "Body text for article three",
+            "summary": "Summary three",
+            "tags": ["Finance"],
+            "created_at": "2026-09-12T10:00:00Z",
+            "author": "Author C"
+        }
+    ]
+
+    mock_client = MagicMock()
+    mock_query = MagicMock()
+    mock_query.order.return_value.range.return_value.execute.return_value = MagicMock(data=mock_ef_articles)
+    mock_client.table.return_value.select.return_value = mock_query
+
+    # Mock local Titles returning ef-101 (by editorial_factory_id) and ef-103 (by Title)
+    mock_local_supabase = MagicMock()
+    mock_titles_query = MagicMock()
+    mock_titles_query.execute.return_value = MagicMock(data=[
+        {
+            "id": "title-uuid-101",
+            "Title": "Article One: Emerging Tech",
+            "idea_metadata": {
+                "source": "editorial-factory",
+                "editorial_factory_id": "ef-101",
+                "imported_at": "2026-09-12T15:00:00Z"
+            },
+            "dateCreatedOn": "2026-09-12T15:00:00Z",
+            "domain": "giniloh.com",
+            "user_id": "user-123"
+        },
+        {
+            "id": "title-uuid-103",
+            "Title": "Article Three: Title Match Only",
+            "idea_metadata": None,
+            "dateCreatedOn": "2026-09-13T10:00:00Z",
+            "domain": "giniloh.com",
+            "user_id": "user-123"
+        }
+    ])
+    # Handle chain for eq
+    mock_titles_query.eq.return_value = mock_titles_query
+    mock_local_supabase.table.return_value.select.return_value = mock_titles_query
+
+    with patch.object(service, "get_client", return_value=mock_client), \
+         patch("src.services.editorial_factory_service.get_supabase_client", return_value=mock_local_supabase):
+
+        results = service.list_articles(search="", limit=10, user_id="user-123", domain="giniloh.com")
+
+        assert len(results) == 3
+
+        # ef-101 should be marked imported via editorial_factory_id
+        assert results[0]["id"] == "ef-101"
+        assert results[0]["is_imported"] is True
+        assert results[0]["imported_title_id"] == "title-uuid-101"
+        assert results[0]["imported_at"] == "2026-09-12T15:00:00Z"
+
+        # ef-102 should NOT be imported
+        assert results[1]["id"] == "ef-102"
+        assert results[1]["is_imported"] is False
+        assert results[1]["imported_title_id"] is None
+
+        # ef-103 should be marked imported via Title match
+        assert results[2]["id"] == "ef-103"
+        assert results[2]["is_imported"] is True
+        assert results[2]["imported_title_id"] == "title-uuid-103"
+
+
+def test_import_article_strips_duplicate_takeaways_at_end(service):
+    raw_markdown = """# The four patterns that actually won Google's AI Agents Challenge
+
+On September 2, Google shared a review of its Artificial Intelligence (AI) Agents Challenge. The contest drew thousands of builders.
+
+The deeper limit is that these patterns stack, but they do not scale on their own. The system choice happens long before you write the code.
+
+Most "multi-agent" systems are just one model chaining prompts with agent names attached; the Google Artificial Intelligence Agents Challenge winners stood out with four predictable patterns, not bigger models.
+
+The four moves: expose your agent's own tools as a Model Context Protocol server, replace call chains with an event bus, force every fallback through one checking function, and route cheap checks before the model.
+
+Exposing reasoning to outside callers demands real access control, and the 40 percent routing figure is one team's own count rather than a universal standard.
+"""
+
+    mock_article = {
+        "id": "ef-multi-agent",
+        "title": "The four patterns that actually won Google's AI Agents Challenge",
+        "content": raw_markdown,
+        "summary": "Google AI Agents Challenge breakdown",
+        "tags": ["AI", "Multi-Agent"],
+        "author": "Editorial Factory",
+        "created_at": "2026-09-12T12:00:00Z",
+    }
+
+    mock_local_supabase = MagicMock()
+    mock_insert_builder = MagicMock()
+    mock_insert_builder.execute.return_value = MagicMock(data=[{"id": "title-multi-agent-uuid"}])
+    mock_local_supabase.table.return_value.insert.return_value = mock_insert_builder
+
+    with patch.object(service, "get_article", return_value=mock_article), \
+         patch("src.services.editorial_factory_service.get_supabase_client", return_value=mock_local_supabase):
+
+        success, new_id, _ = service.import_article_to_titles(
+            article_id="ef-multi-agent",
+            user_id="user-123",
+            target_domain="giniloh.com"
+        )
+
+        assert success is True
+        # Inspect the payload sent to Supabase
+        call_args = mock_local_supabase.table.return_value.insert.call_args[0][0]
+        html_article = call_args["htmlArticle"]
+
+        # Verify "At a glance" section is injected at the top
+        assert '<section class="geo-key-takeaways" data-geo-injected="key-takeaways">' in html_article
+        assert '<h2>At a glance</h2>' in html_article
+
+        # Verify the end of the article ends with the real last paragraph, NOT the duplicated takeaway paragraphs
+        assert html_article.endswith('<p>The deeper limit is that these patterns stack, but they do not scale on their own. The system choice happens long before you write the code.</p>')
+        # The body should not have the takeaways repeated outside the geo-key-takeaways section
+        body_without_takeaways_section = re.sub(r'<section class="geo-key-takeaways"[\s\S]*?</section>', '', html_article)
+        assert 'Most &quot;multi-agent&quot; systems are just one model chaining prompts' not in body_without_takeaways_section
+        assert 'The four moves: expose your agent&#39;s own tools' not in body_without_takeaways_section
+
+

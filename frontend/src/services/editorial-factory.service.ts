@@ -19,6 +19,10 @@ export interface EditorialArticle {
     author?: string;
     word_count?: number;
     raw_data?: Record<string, any>;
+    is_imported?: boolean;
+    imported_title_id?: string | null;
+    imported_at?: string | null;
+    imported_domain?: string | null;
 }
 
 export interface ImportEditorialArticlePayload {
@@ -43,12 +47,14 @@ class EditorialFactoryClientService {
         search?: string;
         limit?: number;
         offset?: number;
+        domain?: string;
     }): Promise<EditorialArticle[]> {
         try {
             const queryParams = new URLSearchParams();
             if (params?.search) queryParams.set('search', params.search);
             if (params?.limit) queryParams.set('limit', String(params.limit));
             if (params?.offset) queryParams.set('offset', String(params.offset));
+            if (params?.domain) queryParams.set('domain', params.domain);
 
             const queryString = queryParams.toString();
             const url = `/api/v1/editorial-factory/articles${queryString ? `?${queryString}` : ''}`;

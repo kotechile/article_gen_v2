@@ -91,14 +91,73 @@ class EditorialFactoryService:
                 self._client = None
         return self._client
 
+    def _fetch_imported_status_map(
+        self,
+        user_id: Optional[str] = None,
+        domain: Optional[str] = None
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Fetch existing Titles from the local database to determine which Editorial Factory
+        articles have already been imported.
+        Returns a map keyed by editorial_factory_id and normalized title.
+        """
+        imported_map: Dict[str, Dict[str, Any]] = {}
+        local_supabase = get_supabase_client()
+        if not local_supabase:
+            return imported_map
+
+        try:
+            query = local_supabase.table("Titles").select("id, Title, idea_metadata, dateCreatedOn, domain, user_id")
+            if user_id:
+                query = query.eq("user_id", user_id)
+            if domain:
+                query = query.eq("domain", domain)
+
+            res = query.execute()
+            rows = res.data or []
+
+            # If user_id or domain filter was applied but returned no records, fall back to checking across user's titles
+            if not rows and domain:
+                fallback_query = local_supabase.table("Titles").select("id, Title, idea_metadata, dateCreatedOn, domain, user_id")
+                if user_id:
+                    fallback_query = fallback_query.eq("user_id", user_id)
+                fallback_res = fallback_query.execute()
+                rows = fallback_res.data or []
+
+            for row in rows:
+                meta = row.get("idea_metadata") if isinstance(row.get("idea_metadata"), dict) else {}
+                ed_id = str(meta.get("editorial_factory_id") or "").strip()
+                row_title = str(row.get("Title") or "").strip().lower()
+                clean_row_title = clean_citation_numbers(row_title).strip().lower()
+
+                record_info = {
+                    "title_id": row.get("id"),
+                    "imported_at": meta.get("imported_at") or row.get("dateCreatedOn"),
+                    "domain": row.get("domain"),
+                }
+
+                if ed_id:
+                    imported_map[ed_id] = record_info
+                if row_title:
+                    imported_map[f"title:{row_title}"] = record_info
+                if clean_row_title and clean_row_title != row_title:
+                    imported_map[f"title:{clean_row_title}"] = record_info
+        except Exception as err:
+            logger.warning(f"[EditorialFactoryService] Failed to fetch imported titles map: {err}")
+
+        return imported_map
+
     def list_articles(
         self,
         search: str = "",
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
+        user_id: Optional[str] = None,
+        domain: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         List articles from the Editorial Factory 'articles' table.
+        Enriches results with is_imported flag by checking the local Titles table.
         Falls back to REST API or empty list if client initialization fails.
         """
         client = self.get_client()
@@ -140,11 +199,35 @@ class EditorialFactoryService:
             except Exception as req_err:
                 logger.warning(f"[EditorialFactoryService] Direct REST fetch failed: {req_err}")
 
-        # Normalize article structures
+        # Fetch local imported map
+        imported_map = self._fetch_imported_status_map(user_id=user_id, domain=domain)
+
+        # Normalize article structures and enrich with imported metadata
         normalized: List[Dict[str, Any]] = []
         for art in articles:
             norm = self._normalize_article(art)
             if norm:
+                art_id = str(norm.get("id") or "").strip()
+                norm_title = str(norm.get("title") or "").strip().lower()
+                clean_norm_title = clean_citation_numbers(norm_title).strip().lower()
+
+                match = (
+                    (imported_map.get(art_id) if art_id else None)
+                    or (imported_map.get(f"title:{norm_title}") if norm_title else None)
+                    or (imported_map.get(f"title:{clean_norm_title}") if clean_norm_title else None)
+                )
+
+                if match:
+                    norm["is_imported"] = True
+                    norm["imported_title_id"] = match.get("title_id")
+                    norm["imported_at"] = match.get("imported_at")
+                    norm["imported_domain"] = match.get("domain")
+                else:
+                    norm["is_imported"] = False
+                    norm["imported_title_id"] = None
+                    norm["imported_at"] = None
+                    norm["imported_domain"] = None
+
                 normalized.append(norm)
 
         return normalized
@@ -219,6 +302,14 @@ class EditorialFactoryService:
         tags = row.get("tags") or row.get("keywords") or row.get("Keywords") or []
         created_at = row.get("created_at") or row.get("dateCreatedOn") or datetime.utcnow().isoformat()
         author = row.get("author") or row.get("writer") or "Editorial Factory"
+        takeaways = (
+            row.get("takeaways")
+            or row.get("key_takeaways")
+            or row.get("at_a_glance")
+            or row.get("tldr")
+            or ((row.get("metadata") or {}).get("takeaways") if isinstance(row.get("metadata"), dict) else None)
+            or []
+        )
 
         # Calculate word count
         words = len(re.findall(r"\w+", content)) if content else 0
@@ -231,6 +322,7 @@ class EditorialFactoryService:
             "hook": clean_citation_numbers(hook),
             "thesis": clean_citation_numbers(thesis),
             "tags": tags if isinstance(tags, list) else [str(tags)],
+            "takeaways": takeaways if isinstance(takeaways, list) else [str(takeaways)],
             "created_at": created_at,
             "author": author,
             "word_count": words,
@@ -248,6 +340,14 @@ class EditorialFactoryService:
             "",
             text,
             flags=re.IGNORECASE
+        ).strip()
+
+        # Remove explicit "At a glance" / "Key Takeaways" markdown headers if present in body
+        text = re.sub(
+            r"(?:^|\n)(?:#{1,4}\s*(?:At\s+a\s+glance|Key\s+Takeaways|TL;?DR|Executive\s+Summary))\s*$",
+            "",
+            text,
+            flags=re.IGNORECASE | re.MULTILINE
         ).strip()
 
         # If it's already HTML (contains <p> or <h[1-6]>), return cleaned version
@@ -527,14 +627,45 @@ class EditorialFactoryService:
             deck = " ".join(sentences[:2])
 
         # 4. TL;DR Takeaways
+        # 4. TL;DR Takeaways
         takeaways: List[str] = []
-        # Check if content has bullet points
-        bullet_matches = re.findall(r"^[*\-•]\s+(.+)$", content_without_refs, re.MULTILINE)
-        if bullet_matches:
-            for b in bullet_matches[:4]:
-                cleaned_b = clean_citation_numbers(b)
-                if len(cleaned_b) > 25 and not re.search(r"^(references|sources|bibliography)", cleaned_b, re.IGNORECASE):
-                    takeaways.append(cleaned_b)
+
+        # 4a. Check explicit takeaways from normalized article / raw data
+        raw_takeaways = article.get("takeaways") or (article.get("raw_data") or {}).get("takeaways")
+        if isinstance(raw_takeaways, list) and raw_takeaways:
+            takeaways = [clean_citation_numbers(str(t)) for t in raw_takeaways if len(clean_citation_numbers(str(t))) > 15]
+
+        # 4b. Check explicit "At a glance" / "Key Takeaways" / "TL;DR" section in content
+        if not takeaways:
+            section_m = re.search(
+                r"(?:^|\n)(?:#{1,4}\s*(?:At\s+a\s+glance|Key\s+Takeaways|TL;?DR|Takeaways|Executive\s+Summary)[^\n]*|<h[1-6]>[^<]*(?:At\s+a\s+glance|Key\s+Takeaways|TL;?DR)[^<]*</h[1-6]>)\s*\n([\s\S]*?)(?=(?:^|\n)#{1,4}\s|\Z)",
+                content_without_refs,
+                re.IGNORECASE
+            )
+            if section_m:
+                sec_text = section_m.group(1).strip()
+                sec_bullets = re.findall(r"^[*\-•\d.]*\s*(.+)$", sec_text, re.MULTILINE)
+                if sec_bullets:
+                    takeaways = [clean_citation_numbers(b) for b in sec_bullets if len(clean_citation_numbers(b)) > 20]
+
+        # 4c. Check bullet points across content
+        if not takeaways:
+            bullet_matches = re.findall(r"^[*\-•]\s+(.+)$", content_without_refs, re.MULTILINE)
+            if bullet_matches:
+                for b in bullet_matches[:4]:
+                    cleaned_b = clean_citation_numbers(b)
+                    if len(cleaned_b) > 25 and not re.search(r"^(references|sources|bibliography)", cleaned_b, re.IGNORECASE):
+                        takeaways.append(cleaned_b)
+
+        # 4d. Check trailing distinct takeaway block (common in Editorial Factory where 2-4 takeaways sit at the end)
+        if not takeaways:
+            raw_blocks = [b.strip() for b in re.split(r"\n\s*\n", content_without_refs.strip()) if b.strip()]
+            if len(raw_blocks) >= 4:
+                last_3 = raw_blocks[-3:]
+                if all(25 < len(clean_citation_numbers(b)) < 350 and not b.startswith("#") for b in last_3):
+                    takeaways = [clean_citation_numbers(b) for b in last_3]
+
+        # 4e. Fallback to top sentences
         if not takeaways and len(sentences) >= 3:
             takeaways = sentences[1:4]
 
@@ -551,6 +682,59 @@ class EditorialFactoryService:
             "primary_keyword": primary_kw,
             "secondary_keywords": secondary_kws,
         }
+
+    def remove_duplicate_takeaways_from_body(self, html_content: str, takeaways: List[str]) -> str:
+        """
+        Remove any trailing or standalone paragraphs/blocks from the body HTML that duplicate
+        the key takeaways / At a glance items.
+        """
+        if not html_content or not takeaways:
+            return html_content
+
+        def _simplify(s: str) -> str:
+            cleaned = clean_citation_numbers(re.sub(r"<[^>]+>", " ", s or ""))
+            return re.sub(r"[^a-zA-Z0-9]+", "", cleaned).lower()
+
+        simplified_takeaways = [_simplify(t) for t in takeaways if len(_simplify(t)) > 20]
+        if not simplified_takeaways:
+            return html_content
+
+        # Remove any existing trailing or heading blocks for "At a glance" / "Key Takeaways" / "TL;DR"
+        html_content = re.sub(
+            r"<(?:h[1-6]|p|div|section)[^>]*>\s*(?:<strong>)?\s*(?:At\s+a\s+glance|Key\s+Takeaways|TL;?DR|Takeaways|Executive\s+Summary)\s*(?:</strong>)?\s*</(?:h[1-6]|p|div|section)>",
+            "",
+            html_content,
+            flags=re.IGNORECASE
+        )
+
+        # Split into HTML blocks (<p>...</p>, <li>...</li>, <blockquote>...</blockquote>, etc.)
+        block_pattern = r"(<(?:p|li|blockquote|div)\b[^>]*>[\s\S]*?</(?:p|li|blockquote|div)>)"
+        parts = re.split(block_pattern, html_content, flags=re.IGNORECASE)
+
+        filtered_parts = []
+        for part in parts:
+            if not part:
+                continue
+            if re.match(r"^<(?:p|li|blockquote|div)\b", part.strip(), re.IGNORECASE):
+                simplified_part = _simplify(part)
+                is_duplicate = False
+                if len(simplified_part) > 20:
+                    for simp_t in simplified_takeaways:
+                        if simp_t == simplified_part or simp_t in simplified_part or simplified_part in simp_t:
+                            is_duplicate = True
+                            break
+                        if len(simp_t) > 30 and len(simplified_part) > 30:
+                            if simp_t[:40] in simplified_part or simplified_part[:40] in simp_t:
+                                is_duplicate = True
+                                break
+                if not is_duplicate:
+                    filtered_parts.append(part)
+            else:
+                filtered_parts.append(part)
+
+        cleaned_html = "".join(filtered_parts)
+        cleaned_html = re.sub(r"(?:<p>\s*</p>\s*)+", "", cleaned_html)
+        return cleaned_html.strip()
 
     def inject_key_takeaways_html(self, html_content: str, takeaways: List[str]) -> str:
         """Inject structured At a glance section after the first header/paragraph."""
@@ -597,12 +781,19 @@ class EditorialFactoryService:
         # Transform content
         raw_content = article.get("content", "")
         citations = self.extract_citations(article)
-        html_body = self.markdown_to_html(raw_content)
         metadata = self.synthesize_metadata(article)
+        takeaways = metadata.get("takeaways", [])
+
+        # Convert markdown to html
+        html_body = self.markdown_to_html(raw_content)
+
+        # Remove duplicate takeaway paragraphs from body HTML
+        if takeaways:
+            html_body = self.remove_duplicate_takeaways_from_body(html_body, takeaways)
 
         # Inject Key Takeaways if available
-        if metadata.get("takeaways"):
-            html_body = self.inject_key_takeaways_html(html_body, metadata["takeaways"])
+        if takeaways:
+            html_body = self.inject_key_takeaways_html(html_body, takeaways)
 
         # If citations exist and html_body doesn't have an HTML References section, append standard References HTML
         if citations and not re.search(r"<h[1-6]>[^<]*References</h[1-6]>", html_body, re.IGNORECASE):

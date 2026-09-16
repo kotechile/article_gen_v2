@@ -59,11 +59,15 @@ def list_articles():
         search = request.args.get("search", "").strip()
         limit = int(request.args.get("limit", 50))
         offset = int(request.args.get("offset", 0))
+        domain = request.args.get("domain", "").strip() or None
+        user_id = _get_user_id_from_auth() or request.args.get("user_id", "").strip() or None
 
         articles = editorial_factory_service.list_articles(
             search=search,
             limit=min(limit, 100),
-            offset=max(offset, 0)
+            offset=max(offset, 0),
+            user_id=user_id,
+            domain=domain
         )
 
         return jsonify({
