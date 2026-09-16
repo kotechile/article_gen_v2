@@ -97,7 +97,7 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
         imported: articles.filter(a => a.is_imported).length,
     };
 
-    const filteredAndSortedArticles = useMemo(() => {
+    const filteredArticles = useMemo(() => {
         const filtered = articles.filter(article => {
             if (filterStatus === 'new' && article.is_imported) return false;
             if (filterStatus === 'imported' && !article.is_imported) return false;
