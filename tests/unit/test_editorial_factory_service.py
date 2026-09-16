@@ -317,3 +317,30 @@ Exposing reasoning to outside callers demands real access control, and the 40 pe
         assert 'The four moves: expose your agent&#39;s own tools' not in body_without_takeaways_section
 
 
+def test_smart_brevity_takeaway_conciseness(service):
+    long_takeaways = [
+        "The Emporia Vue is a professional-grade, circuit-level energy monitor that can turn granular data into meaningful savings and smart-home automation—if you install the CT clamps carefully, configure the app thoughtfully, and understand its compatibility and cloud limits; this guide walks through setup, app mastery, accuracy testing, and ROI so you can decide whether it deserves a place in your panel.",
+        "Thinking about an Emporia Vue? This friendly, hands-on review shows exactly how this Emporia energy monitor turns your electrical panel into a circuit-by-circuit savings map—not just another whole-home meter. You’ll get a true step-by-step install guide, from safely opening the panel and placing CT clamps to handling 240V double-pole circuits and knowing when to call an electrician. Then we walk through the Emporia app: account setup, Wi-Fi pairing, naming circuits, tariffs, real-time and historical graphs, solar/net metering, notifications, and data export. We also test accuracy, latency, connectivity, and firmware quirks, compare Vue generations and Sense, and share real kWh case studies with payback math. Electricity prices keep climbing; every month without circuit-level visibility is money left on the table. Try the app’s demo mode today—then decide if Vue 3 belongs in your panel.",
+        "While most home energy monitors only show total consumption, the Emporia Vue energy monitor delivers circuit-level data that pinpoints exactly which appliances are draining your wallet—and here's how to install and master it."
+    ]
+
+    article = {
+        "title": "Emporia Vue Review & Setup Guide",
+        "content": "Full article content about energy monitoring...",
+        "takeaways": long_takeaways,
+    }
+
+    meta = service.synthesize_metadata(article)
+    takeaways = meta["takeaways"]
+
+    assert len(takeaways) >= 2
+    for t in takeaways:
+        # Each bullet point should be concise, not a massive 800-character paragraph
+        assert len(t) <= 240
+        # No meta fluff
+        assert "this guide walks through" not in t.lower()
+        assert "here's how to install" not in t.lower()
+        assert "try the app's demo" not in t.lower()
+
+
+

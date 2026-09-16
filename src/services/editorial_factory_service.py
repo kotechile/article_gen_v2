@@ -61,6 +61,67 @@ def _render_inline_markdown(text: str) -> str:
     return escaped
 
 
+def clean_smart_brevity_takeaway(text: str) -> Optional[str]:
+    """
+    Format a takeaway into a concise, scannable Smart Brevity bullet point.
+    - Strips citation numbers, markdown artifacts, and conversational meta-text.
+    - Trims run-on clauses, trailers, and multi-sentence dumps.
+    - Limits to 1 crisp, plain-English sentence (~15-35 words / max ~200 chars).
+    """
+    if not text:
+        return None
+
+    cleaned = clean_citation_numbers(str(text)).strip()
+    # Remove leading bullets or numbers
+    cleaned = re.sub(r"^(?:[\s\u2022\u2023\u25E6\u2043\u2219\-\–\—]+|(?:\*\s+)|(?:\d+[.)]\s+))+", "", cleaned).strip()
+
+    # If it contains multiple sentences, find the most informative sentence
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", cleaned) if len(s.strip()) > 15]
+
+    fluff_pattern = re.compile(
+        r"^(?:thinking about|in this (?:guide|article|review)|this (?:guide|review|article) (?:walks|shows|explores|dives)|"
+        r"here(?:'s| is) (?:how|everything|what)|try the (?:app|demo)|read on to|let's dive|we (?:also )?test|you'll get|"
+        r"decide if|whether it deserves|click here|subscribe today)",
+        re.IGNORECASE
+    )
+
+    informative_sentences = [s for s in sentences if not fluff_pattern.search(s.strip())]
+    if informative_sentences:
+        target = informative_sentences[0]
+    elif sentences:
+        target = sentences[0]
+    else:
+        target = cleaned
+
+    # Trim meta trailers like "; this guide walks through...", "—and here's how to...", "—then decide if..."
+    target = re.sub(r";\s*(?:this|our|the)\s+(?:guide|article|review|walkthrough)[\s\S]*$", ".", target, flags=re.IGNORECASE)
+    target = re.sub(r"[—–-]\s*(?:and\s+)?here(?:'s| is)\s+how[\s\S]*$", ".", target, flags=re.IGNORECASE)
+    target = re.sub(r"[—–-]\s*then\s+decide\s+if[\s\S]*$", ".", target, flags=re.IGNORECASE)
+    target = re.sub(r"\s+(?:to\s+)?learn\s+more[\s\S]*$", ".", target, flags=re.IGNORECASE)
+    target = re.sub(r"\s+so\s+you\s+can\s+decide[\s\S]*$", ".", target, flags=re.IGNORECASE)
+
+    # If still long (> 200 chars), break at semicolon, em-dash, or major conjunction if first clause forms a full statement
+    if len(target) > 200:
+        parts = re.split(r"[;—–]", target)
+        if len(parts) > 1 and len(parts[0].strip()) > 40:
+            target = parts[0].strip()
+            if not target.endswith((".", "!", "?")):
+                target += "."
+
+    target = target.strip()
+    if not target.endswith((".", "!", "?")):
+        target += "."
+
+    target = re.sub(r"\s{2,}", " ", target).strip()
+    if 25 <= len(target) <= 240:
+        return target
+    elif len(target) > 240:
+        truncated = target[:200].rsplit(" ", 1)[0].rstrip(",;:-—") + "."
+        return truncated
+
+    return None
+
+
 class EditorialFactoryService:
     """Service to interact with the Editorial Factory Supabase database."""
 
@@ -626,17 +687,16 @@ class EditorialFactoryService:
         if not deck and sentences:
             deck = " ".join(sentences[:2])
 
-        # 4. TL;DR Takeaways
-        # 4. TL;DR Takeaways
-        takeaways: List[str] = []
+        # 4. TL;DR Takeaways (Smart Brevity format: concise, plain-English bullet points)
+        raw_takeaways_list: List[str] = []
 
         # 4a. Check explicit takeaways from normalized article / raw data
         raw_takeaways = article.get("takeaways") or (article.get("raw_data") or {}).get("takeaways")
         if isinstance(raw_takeaways, list) and raw_takeaways:
-            takeaways = [clean_citation_numbers(str(t)) for t in raw_takeaways if len(clean_citation_numbers(str(t))) > 15]
+            raw_takeaways_list.extend(raw_takeaways)
 
         # 4b. Check explicit "At a glance" / "Key Takeaways" / "TL;DR" section in content
-        if not takeaways:
+        if not raw_takeaways_list:
             section_m = re.search(
                 r"(?:^|\n)(?:#{1,4}\s*(?:At\s+a\s+glance|Key\s+Takeaways|TL;?DR|Takeaways|Executive\s+Summary)[^\n]*|<h[1-6]>[^<]*(?:At\s+a\s+glance|Key\s+Takeaways|TL;?DR)[^<]*</h[1-6]>)\s*\n([\s\S]*?)(?=(?:^|\n)#{1,4}\s|\Z)",
                 content_without_refs,
@@ -646,28 +706,54 @@ class EditorialFactoryService:
                 sec_text = section_m.group(1).strip()
                 sec_bullets = re.findall(r"^[*\-•\d.]*\s*(.+)$", sec_text, re.MULTILINE)
                 if sec_bullets:
-                    takeaways = [clean_citation_numbers(b) for b in sec_bullets if len(clean_citation_numbers(b)) > 20]
+                    raw_takeaways_list.extend(sec_bullets)
 
         # 4c. Check bullet points across content
-        if not takeaways:
+        if not raw_takeaways_list:
             bullet_matches = re.findall(r"^[*\-•]\s+(.+)$", content_without_refs, re.MULTILINE)
             if bullet_matches:
                 for b in bullet_matches[:4]:
                     cleaned_b = clean_citation_numbers(b)
                     if len(cleaned_b) > 25 and not re.search(r"^(references|sources|bibliography)", cleaned_b, re.IGNORECASE):
-                        takeaways.append(cleaned_b)
+                        raw_takeaways_list.append(cleaned_b)
 
         # 4d. Check trailing distinct takeaway block (common in Editorial Factory where 2-4 takeaways sit at the end)
-        if not takeaways:
+        if not raw_takeaways_list:
             raw_blocks = [b.strip() for b in re.split(r"\n\s*\n", content_without_refs.strip()) if b.strip()]
             if len(raw_blocks) >= 4:
                 last_3 = raw_blocks[-3:]
-                if all(25 < len(clean_citation_numbers(b)) < 350 and not b.startswith("#") for b in last_3):
-                    takeaways = [clean_citation_numbers(b) for b in last_3]
+                if all(25 < len(clean_citation_numbers(b)) < 400 and not b.startswith("#") for b in last_3):
+                    raw_takeaways_list.extend(last_3)
 
         # 4e. Fallback to top sentences
-        if not takeaways and len(sentences) >= 3:
-            takeaways = sentences[1:4]
+        if not raw_takeaways_list and len(sentences) >= 3:
+            raw_takeaways_list.extend(sentences[1:5])
+
+        # Filter, condense, and deduplicate takeaways into Smart Brevity bullet points (max ~200 chars / 1 concise sentence each)
+        takeaways: List[str] = []
+        seen_keys: set = set()
+
+        for raw_t in raw_takeaways_list:
+            condensed = clean_smart_brevity_takeaway(raw_t)
+            if condensed:
+                key = re.sub(r"[^a-zA-Z0-9]+", "", condensed).lower()[:40]
+                if key and key not in seen_keys:
+                    seen_keys.add(key)
+                    takeaways.append(condensed)
+
+        # If fewer than 3 takeaways, supplement with informative sentences from article text
+        if len(takeaways) < 3 and sentences:
+            for s in sentences:
+                condensed = clean_smart_brevity_takeaway(s)
+                if condensed:
+                    key = re.sub(r"[^a-zA-Z0-9]+", "", condensed).lower()[:40]
+                    if key and key not in seen_keys:
+                        seen_keys.add(key)
+                        takeaways.append(condensed)
+                        if len(takeaways) >= 3:
+                            break
+
+        takeaways = takeaways[:4]
 
         # 5. Keywords
         tags = article.get("tags", [])
@@ -678,7 +764,7 @@ class EditorialFactoryService:
             "hook": clean_citation_numbers(hook),
             "thesis": clean_citation_numbers(thesis),
             "deck": clean_citation_numbers(deck),
-            "takeaways": [clean_citation_numbers(t) for t in takeaways],
+            "takeaways": takeaways,
             "primary_keyword": primary_kw,
             "secondary_keywords": secondary_kws,
         }
