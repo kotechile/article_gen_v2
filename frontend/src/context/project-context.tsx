@@ -42,7 +42,41 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
                 return;
             }
 
-            const fetched = (data as Project[]) || [];
+            let fetched = (data as Project[]) || [];
+            try {
+                const { data: wpDetails } = await supabase
+                    .from('wordPress_details')
+                    .select('*')
+                    .eq('user_id', user.id);
+
+                if (wpDetails && wpDetails.length > 0) {
+                    fetched = fetched.map(p => {
+                        const normP = (p.domain || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+                        const matchedWp = wpDetails.find(w => {
+                            const normW = (w.domain || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+                            return (normW && normW === normP) || (w.app_name && p.app_name && w.app_name.toLowerCase() === p.app_name.toLowerCase());
+                        });
+                        if (matchedWp) {
+                            return {
+                                ...p,
+                                wpUserName: p.wpUserName || (p as any).wpusername || matchedWp.wpUserName || matchedWp.wpusername || '',
+                                wpusername: (p as any).wpusername || p.wpUserName || matchedWp.wpusername || matchedWp.wpUserName || '',
+                                wordpress_key: p.wordpress_key || matchedWp.wordpress_key || '',
+                                seo_plugin: p.seo_plugin || matchedWp.seo_plugin || 'unknown',
+                                cms_url: (p as any).cms_url || matchedWp.cms_url || matchedWp.cms || '',
+                            };
+                        }
+                        return {
+                            ...p,
+                            wpUserName: p.wpUserName || (p as any).wpusername || '',
+                            wpusername: (p as any).wpusername || p.wpUserName || '',
+                        };
+                    });
+                }
+            } catch (wpErr) {
+                console.warn('ProjectContext: Could not enrich with wordPress_details', wpErr);
+            }
+
             setProjects(fetched);
 
             // Restore previously selected project from localStorage

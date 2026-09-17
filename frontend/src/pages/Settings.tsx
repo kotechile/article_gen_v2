@@ -260,14 +260,49 @@ export const Settings: React.FC = () => {
     };
 
     const fetchProjects = async () => {
+        if (!user) return;
         const { data, error } = await supabase
             .from('projects')
             .select('*')
-            .eq('user_id', user!.id)
+            .eq('user_id', user.id)
             .order('created_at', { ascending: false });
 
-        if (!error) {
-            setProjects((data as Project[]) || []);
+        if (!error && data) {
+            let enrichedProjects = (data as Project[]) || [];
+            try {
+                const { data: wpDetails } = await supabase
+                    .from('wordPress_details')
+                    .select('*')
+                    .eq('user_id', user.id);
+
+                if (wpDetails && wpDetails.length > 0) {
+                    enrichedProjects = enrichedProjects.map(p => {
+                        const normP = normalizeProjectDomain(p.domain) || '';
+                        const matchedWp = wpDetails.find(w => 
+                            (w.domain && normalizeProjectDomain(w.domain) === normP) ||
+                            (w.app_name && p.app_name && w.app_name.toLowerCase() === p.app_name.toLowerCase())
+                        );
+                        if (matchedWp) {
+                            return {
+                                ...p,
+                                wpUserName: p.wpUserName || (p as any).wpusername || matchedWp.wpUserName || matchedWp.wpusername || '',
+                                wpusername: (p as any).wpusername || p.wpUserName || matchedWp.wpusername || matchedWp.wpUserName || '',
+                                wordpress_key: p.wordpress_key || matchedWp.wordpress_key || '',
+                                seo_plugin: p.seo_plugin || matchedWp.seo_plugin || 'unknown',
+                                cms_url: (p as any).cms_url || matchedWp.cms_url || matchedWp.cms || '',
+                            };
+                        }
+                        return {
+                            ...p,
+                            wpUserName: p.wpUserName || (p as any).wpusername || '',
+                            wpusername: (p as any).wpusername || p.wpUserName || '',
+                        };
+                    });
+                }
+            } catch (err) {
+                console.warn("[Settings] Could not enrich projects with wordPress_details:", err);
+            }
+            setProjects(enrichedProjects);
         }
     };
 
@@ -847,8 +882,19 @@ export const Settings: React.FC = () => {
                                                     }
                                                 </CardDescription>
                                             </div>
-                                            <div className="flex gap-1">
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => { setEditingId(project.id); setFormData(project); setShowWpFields(!!project.wordpress_key || !!project.wpUserName); }}>
+                                             <div className="flex gap-1">
+                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => {
+                                                    setEditingId(project.id);
+                                                    const wpUser = project.wpUserName || (project as any).wpusername || '';
+                                                    const wpKey = project.wordpress_key || '';
+                                                    setFormData({
+                                                        ...project,
+                                                        wpUserName: wpUser,
+                                                        wpusername: wpUser,
+                                                        wordpress_key: wpKey,
+                                                    });
+                                                    setShowWpFields(!!wpKey || !!wpUser);
+                                                }}>
                                                     <Edit2 className="h-4 w-4" />
                                                 </Button>
                                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-500 dark:hover:text-red-400" onClick={() => handleDeleteProject(project.id)}>
@@ -1049,9 +1095,12 @@ export const Settings: React.FC = () => {
                                             <div className="space-y-2">
                                                 <Label className="text-xs font-semibold">WP Username</Label>
                                                 <Input
-                                                    placeholder="admin"
-                                                    value={formData.wpUserName || ''}
-                                                    onChange={e => setFormData({ ...formData, wpUserName: e.target.value })}
+                                                    placeholder="admin or email"
+                                                    value={formData.wpUserName || formData.wpusername || ''}
+                                                    onChange={e => {
+                                                        const val = e.target.value;
+                                                        setFormData({ ...formData, wpUserName: val, wpusername: val });
+                                                    }}
                                                     className="h-10 rounded-lg"
                                                 />
                                             </div>
