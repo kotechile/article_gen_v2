@@ -14,6 +14,20 @@ from datetime import datetime
 wordpress_bp = Blueprint('wordpress', __name__)
 logger = logging.getLogger(__name__)
 
+WORDPRESS_API_HOST_OVERRIDES: dict[str, str] = {
+    "giniloh.com": "cms.giniloh.com",
+    "www.giniloh.com": "cms.giniloh.com",
+}
+
+
+def _normalize_api_domain(domain_str: str | None) -> str:
+    if not domain_str:
+        return ""
+    d = str(domain_str).strip()
+    d = re.sub(r"^https?://", "", d, flags=re.IGNORECASE)
+    d = d.split("/")[0].strip()
+    return d
+
 
 def _slugify(value: str) -> str:
     value = (value or "").strip().lower()
@@ -1230,33 +1244,43 @@ def sync_project_categories_to_wordpress():
             return jsonify({'error': 'Project not found'}), 404
         project = project_rows[0]
 
-        project_domain = (project.get("domain") or "").strip()
+        project_domain = _normalize_api_domain(project.get("domain") or "")
         username = (project.get("wpusername") or project.get("wpUserName") or "").strip()
         app_password = (project.get("wordpress_key") or "").strip()
-        api_domain = project_domain
-        
+        cms_domain = (project.get("cms_url") or project.get("cms") or "").strip()
+        api_domain = _normalize_api_domain(cms_domain) if cms_domain else project_domain
+
         # Load credentials and CMS domain from wordPress_details if available to override projects table
-        if project_domain:
-            try:
-                wp_resp = (
-                    supabase
-                    .table("wordPress_details")
-                    .select("wpUserName, wordpress_key, cms, cms_url")
-                    .eq("user_id", user_id)
-                    .eq("domain", project_domain)
-                    .limit(1)
-                    .execute()
-                )
-                if wp_resp.data:
-                    wp_detail = wp_resp.data[0]
-                    username = (wp_detail.get("wpUserName") or wp_detail.get("wpusername") or username).strip()
-                    app_password = (wp_detail.get("wordpress_key") or app_password).strip()
-                    
-                    cms_domain = (wp_detail.get("cms") or wp_detail.get("cms_url") or "").strip()
-                    if cms_domain:
-                        api_domain = cms_domain
-            except Exception as wp_err:
-                logger.warning("Failed to fetch credentials from wordPress_details for domain %s: %s", project_domain, wp_err)
+        try:
+            wp_resp = (
+                supabase
+                .table("wordPress_details")
+                .select("wpUserName, wpusername, wordpress_key, cms, cms_url, domain")
+                .eq("user_id", user_id)
+                .execute()
+            )
+            if wp_resp.data:
+                matched_wp = next((
+                    w for w in wp_resp.data
+                    if _normalize_api_domain(w.get("domain") or "") == project_domain or
+                       (project.get("app_name") and w.get("app_name") and str(w.get("app_name")).strip().lower() == str(project.get("app_name")).strip().lower())
+                ), None)
+                if matched_wp:
+                    username = (matched_wp.get("wpUserName") or matched_wp.get("wpusername") or username).strip()
+                    app_password = (matched_wp.get("wordpress_key") or app_password).strip()
+                    matched_cms = (matched_wp.get("cms_url") or matched_wp.get("cms") or "").strip()
+                    if matched_cms:
+                        api_domain = _normalize_api_domain(matched_cms)
+        except Exception as wp_err:
+            logger.warning("Failed to fetch credentials from wordPress_details for domain %s: %s", project_domain, wp_err)
+
+        if not api_domain and project_domain:
+            api_domain = project_domain
+
+        if api_domain in WORDPRESS_API_HOST_OVERRIDES:
+            api_domain = WORDPRESS_API_HOST_OVERRIDES[api_domain]
+
+        logger.info("Syncing categories for project=%s using API domain=%s and username=%s", project_id, api_domain, username)
 
         if not api_domain or not username or not app_password:
             return jsonify({'error': 'WordPress credentials are incomplete for this project'}), 400
