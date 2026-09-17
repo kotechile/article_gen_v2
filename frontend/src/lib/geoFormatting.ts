@@ -131,18 +131,48 @@ const extractExistingKeyTakeawaysSection = (doc: Document): HTMLElement | null =
     if (!(heading instanceof HTMLElement) || !heading.parentElement) return null;
 
     const fragment = doc.createElement('div');
-    const nodesToRemove: Element[] = [];
-    let current: Element | null = heading;
-    while (current) {
-        const next: Element | null = current.nextElementSibling;
-        fragment.appendChild(current.cloneNode(true));
-        nodesToRemove.push(current);
+    const nodesToRemove: Element[] = [heading];
+    fragment.appendChild(heading.cloneNode(true));
 
-        if (!next) break;
-        if (/^H[1-3]$/i.test(next.tagName)) break;
-        if (!/^(UL|OL|P)$/i.test(next.tagName)) break;
+    let next: Element | null = heading.nextElementSibling;
+    let consumedList = false;
 
-        current = next;
+    while (next) {
+        if (/^H[1-6]$/i.test(next.tagName)) {
+            // Reached next section heading
+            break;
+        }
+
+        if (next.tagName === 'UL' || next.tagName === 'OL') {
+            fragment.appendChild(next.cloneNode(true));
+            nodesToRemove.push(next);
+            consumedList = true;
+            // The takeaways list has been consumed; any subsequent paragraphs are article body
+            break;
+        }
+
+        if (next.tagName === 'P') {
+            const rawText = (next.textContent || '').trim();
+            // Only consume <p> if it appears before a list and has takeaway prefix or bullet markers
+            // or matches candidate takeaway patterns. Once a regular body paragraph is reached, stop.
+            const isTakeawayPara =
+                /^[\s\-\u2022\*]/.test(rawText) ||
+                TAKEAWAY_PREFIX.test(rawText) ||
+                TAKEAWAY_META_PATTERNS.some((pattern) => pattern.test(rawText));
+
+            if (isTakeawayPara) {
+                fragment.appendChild(next.cloneNode(true));
+                nodesToRemove.push(next);
+                next = next.nextElementSibling;
+                continue;
+            } else {
+                // This is a normal body paragraph - do NOT remove it!
+                break;
+            }
+        }
+
+        // Any other element (img, div, figure, table, etc.) - stop immediately
+        break;
     }
 
     const takeaways = extractTakeawayTexts(fragment);

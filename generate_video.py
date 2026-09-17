@@ -421,6 +421,7 @@ def generate_image_via_flux(model_config, prompt):
     if 'kie' in provider or 'flux-2' in model:
         # KIE implementation
         create_url = "https://api.kie.ai/api/v1/jobs/createTask"
+        poll_url = "https://api.kie.ai/api/v1/jobs/recordInfo"
         clean_key = str(api_key or "").strip()
         if clean_key.lower().startswith("bearer "):
             clean_key = clean_key[7:].strip()
@@ -429,57 +430,94 @@ def generate_image_via_flux(model_config, prompt):
             "Authorization": f"Bearer {clean_key}",
             "Content-Type": "application/json",
         }
-        create_payload = {
-            "model": model,
-            "input": {
-                "prompt": prompt,
-                "aspect_ratio": "9:16",
-                "resolution": "1K",
-                "nsfw_checker": False
-            }
-        }
-        r = requests.post(create_url, headers=headers, json=create_payload, timeout=30)
-        r.raise_for_status()
-        res_data = r.json()
-        code = res_data.get("code")
-        if code is not None and code != 200:
-            msg = res_data.get("msg") or res_data.get("message") or "Unknown error"
-            if code == 401:
-                raise Exception(
-                    f"KIE.AI authentication failed (401 Unauthorized: {msg}). "
-                    f"Please verify that your KIE.AI API key in the database is valid and active."
-                )
-            raise Exception(f"KIE.AI task creation failed with code {code}: {msg}")
 
-        task_id = ((res_data.get("data") or {}).get("taskId") or "").strip()
-        if not task_id:
-            raise Exception(f"KIE did not return taskId: {res_data}")
-            
-        poll_url = "https://api.kie.ai/api/v1/jobs/recordInfo"
-        import time
-        for _ in range(60):
-            time.sleep(2)
-            poll_resp = requests.get(poll_url, headers={"Authorization": f"Bearer {clean_key}"}, params={"taskId": task_id}, timeout=15)
-            poll_resp.raise_for_status()
-            poll_data = poll_resp.json()
-            data = poll_data.get("data") or {}
-            state = str(data.get("state") or "").lower()
-            if state == "success":
-                result_json = data.get("resultJson")
-                parsed_result = {}
-                if isinstance(result_json, dict):
-                    parsed_result = result_json
-                elif isinstance(result_json, str) and result_json.strip():
-                    parsed_result = json.loads(result_json)
-                image_url = (parsed_result.get("resultUrls") or [None])[0]
-                if not image_url:
-                    raise Exception(f"No resultUrls found: {poll_data}")
-                img_r = requests.get(image_url, timeout=30)
-                img_r.raise_for_status()
-                return img_r.content
-            elif state == "fail":
-                raise Exception(f"KIE generation failed: {data.get('failMsg')}")
-        raise Exception("KIE generation timed out")
+        m_lower = str(model or "").strip().lower()
+        if "flux-2" in m_lower:
+            primary_model = "flux-2/pro-text-to-image" if "pro" in m_lower else "flux-2/flex-text-to-image"
+        elif "flux-kontext" in m_lower or "flux1-kontext" in m_lower:
+            primary_model = "flux1-kontext"
+        else:
+            primary_model = model
+
+        models_to_try = [primary_model]
+        if "flux-2/pro" in primary_model and "flux-2/flex-text-to-image" not in models_to_try:
+            models_to_try.append("flux-2/flex-text-to-image")
+        elif "flux-2/flex" in primary_model and "flux-2/pro-text-to-image" not in models_to_try:
+            models_to_try.append("flux-2/pro-text-to-image")
+
+        last_error = None
+        for attempt_idx, target_model in enumerate(models_to_try):
+            try:
+                create_payload = {
+                    "model": target_model,
+                    "input": {
+                        "prompt": prompt,
+                        "aspect_ratio": "9:16",
+                        "resolution": "1K",
+                        "nsfw_checker": False
+                    }
+                }
+                r = requests.post(create_url, headers=headers, json=create_payload, timeout=30)
+                r.raise_for_status()
+                res_data = r.json()
+                code = res_data.get("code")
+                if code is not None and code != 200:
+                    msg = res_data.get("msg") or res_data.get("message") or "Unknown error"
+                    if code == 401:
+                        raise Exception(
+                            f"KIE.AI authentication failed (401 Unauthorized: {msg}). "
+                            f"Please verify that your KIE.AI API key in the database is valid and active."
+                        )
+                    raise Exception(f"KIE.AI task creation failed with code {code}: {msg}")
+
+                task_id = ((res_data.get("data") or {}).get("taskId") or "").strip()
+                if not task_id:
+                    raise Exception(f"KIE did not return taskId: {res_data}")
+
+                import time
+                for _ in range(60):
+                    time.sleep(2)
+                    poll_resp = requests.get(poll_url, headers={"Authorization": f"Bearer {clean_key}"}, params={"taskId": task_id}, timeout=15)
+                    poll_resp.raise_for_status()
+                    poll_data = poll_resp.json()
+                    data = poll_data.get("data") or {}
+                    state = str(data.get("state") or "").lower()
+                    if state == "success":
+                        result_json = data.get("resultJson")
+                        parsed_result = {}
+                        if isinstance(result_json, dict):
+                            parsed_result = result_json
+                        elif isinstance(result_json, str) and result_json.strip():
+                            parsed_result = json.loads(result_json)
+                        result_urls = parsed_result.get("resultUrls") or [parsed_result.get("resultUrl")] or [None]
+                        image_url = result_urls[0] if isinstance(result_urls, list) and result_urls else None
+                        if not image_url:
+                            raise Exception(f"No resultUrls found: {poll_data}")
+                        img_r = requests.get(image_url, timeout=30)
+                        img_r.raise_for_status()
+                        return img_r.content
+                    elif state == "fail":
+                        fail_code = str(data.get("failCode") or "").strip()
+                        fail_msg = str(data.get("failMsg") or "").strip()
+                        err_text = f"KIE Flux task failed: {fail_msg} (code={fail_code})"
+                        if (fail_code == "500" or "internal error" in fail_msg.lower()) and attempt_idx + 1 < len(models_to_try):
+                            last_error = Exception(err_text)
+                            break
+                        raise Exception(f"KIE generation failed for {target_model}: {fail_msg} (code={fail_code})")
+                else:
+                    raise Exception(f"KIE generation timed out for {target_model}")
+            except Exception as e:
+                last_error = e
+                if "401" in str(e):
+                    raise
+                if attempt_idx + 1 < len(models_to_try):
+                    print(f"⚠️ Retrying KIE with fallback model {models_to_try[attempt_idx + 1]} due to: {e}")
+                    continue
+                raise
+
+        if last_error:
+            raise last_error
+        raise Exception("KIE generation failed after all attempts")
     else:
         # fluxapi.ai implementation
         generate_url = 'https://api.fluxapi.ai/api/v1/flux/kontext/generate'

@@ -162,11 +162,108 @@ class TestFlux2Generation(unittest.TestCase):
 
         self.assertEqual(image_bytes, b"flux2-image-bytes")
         create_payload = mock_post.call_args[1]["json"]
-        # Model should switch to text-to-image flux-2/flex when no reference image is provided
-        self.assertEqual(create_payload["model"], "flux-2/flex")
+        # Model should normalize to text-to-image flux-2/flex-text-to-image when no reference image is provided
+        self.assertEqual(create_payload["model"], "flux-2/flex-text-to-image")
         self.assertNotIn("input_urls", create_payload["input"])
         self.assertEqual(create_payload["input"]["aspect_ratio"], "16:9")
         self.assertEqual(create_payload["input"]["resolution"], "2K")
+
+    @patch("requests.get")
+    @patch("requests.post")
+    def test_flux2_pro_text_to_image_normalization(self, mock_post, mock_get):
+        create_resp = MagicMock()
+        create_resp.status_code = 200
+        create_resp.json.return_value = {"code": 200, "data": {"taskId": "task-uuid-pro"}}
+        mock_post.return_value = create_resp
+
+        poll_resp = MagicMock()
+        poll_resp.status_code = 200
+        poll_resp.json.return_value = {
+            "code": 200,
+            "data": {
+                "state": "success",
+                "resultJson": json.dumps({"resultUrls": ["https://cdn.example.com/output-pro.jpg"]})
+            }
+        }
+        img_resp = MagicMock()
+        img_resp.status_code = 200
+        img_resp.content = b"flux2-pro-image-bytes"
+
+        mock_get.side_effect = [poll_resp, img_resp]
+
+        image_bytes = generate_kie_flux_image(
+            prompt="Hyperrealistic photo of an ancient temple",
+            api_key="fake-kie-key",
+            model="flux-2/pro",
+            aspect_ratio="1:1",
+            reference_image_urls=None,
+            resolution="1K"
+        )
+
+        self.assertEqual(image_bytes, b"flux2-pro-image-bytes")
+        create_payload = mock_post.call_args[1]["json"]
+        self.assertEqual(create_payload["model"], "flux-2/pro-text-to-image")
+
+    @patch("requests.get")
+    @patch("requests.post")
+    def test_flux2_pro_500_fallback_to_flex(self, mock_post, mock_get):
+        # Attempt 1 (Pro) creates task 101, but poll returns fail with 500 Internal Error
+        create_resp_pro = MagicMock()
+        create_resp_pro.status_code = 200
+        create_resp_pro.json.return_value = {"code": 200, "data": {"taskId": "task-pro-failed"}}
+
+        # Attempt 2 (Flex fallback) creates task 102, poll returns success
+        create_resp_flex = MagicMock()
+        create_resp_flex.status_code = 200
+        create_resp_flex.json.return_value = {"code": 200, "data": {"taskId": "task-flex-success"}}
+
+        mock_post.side_effect = [create_resp_pro, create_resp_flex]
+
+        # Poll 1 (Pro): fail with 500 Internal Error
+        poll_fail = MagicMock()
+        poll_fail.status_code = 200
+        poll_fail.json.return_value = {
+            "code": 200,
+            "data": {
+                "state": "fail",
+                "failCode": "500",
+                "failMsg": "Internal Error"
+            }
+        }
+
+        # Poll 2 (Flex): success
+        poll_success = MagicMock()
+        poll_success.status_code = 200
+        poll_success.json.return_value = {
+            "code": 200,
+            "data": {
+                "state": "success",
+                "resultJson": json.dumps({"resultUrls": ["https://cdn.example.com/output-flex.jpg"]})
+            }
+        }
+
+        # Image download
+        img_resp = MagicMock()
+        img_resp.status_code = 200
+        img_resp.content = b"flux2-flex-fallback-bytes"
+
+        mock_get.side_effect = [poll_fail, poll_success, img_resp]
+
+        image_bytes = generate_kie_flux_image(
+            prompt="High tech dashboard with data visualizations",
+            api_key="fake-kie-key",
+            model="flux-2/pro-text-to-image",
+            aspect_ratio="16:9",
+            reference_image_urls=None,
+            resolution="1K"
+        )
+
+        self.assertEqual(image_bytes, b"flux2-flex-fallback-bytes")
+        self.assertEqual(mock_post.call_count, 2)
+        # First call was pro
+        self.assertEqual(mock_post.call_args_list[0][1]["json"]["model"], "flux-2/pro-text-to-image")
+        # Second call was flex fallback
+        self.assertEqual(mock_post.call_args_list[1][1]["json"]["model"], "flux-2/flex-text-to-image")
 
     @patch("requests.get")
     @patch("requests.post")

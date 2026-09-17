@@ -107,5 +107,42 @@ describe('ensureIntroKeyTakeaways', () => {
         const doc3 = new DOMParser().parseFromString(pass3, 'text/html');
         const items3 = Array.from(doc3.querySelectorAll('section.geo-key-takeaways li'));
         expect(items3).toHaveLength(1);
+        expect(doc3.body.innerHTML).toContain('Full article introduction and body text goes here.');
+    });
+
+    it('preserves all introduction and body paragraphs between At a glance and an inserted image across saves', () => {
+        const html = `
+            <h2>At a glance</h2>
+            <ul>
+                <li>Adoption hit a record: 40% of billion-dollar companies use AI agents.</li>
+                <li>The build-versus-buy line flipped.</li>
+                <li>The fix requires workflow redesign.</li>
+            </ul>
+            <p>Introduction paragraph: AI in the enterprise is experiencing a seismic shift.</p>
+            <p>First, consider how executive teams are responding to automation budgets.</p>
+            <img src="https://example.com/build-vs-buy.jpg" alt="Build vs Buy" />
+            <p>Second, treat the build-versus-buy choice as a daily question rather than a yearly review.</p>
+        `;
+
+        // Save pass 1 (e.g. initial load / TipTap normalize)
+        const pass1 = ensureIntroKeyTakeaways(html);
+        expect(pass1).toContain('Introduction paragraph: AI in the enterprise');
+        expect(pass1).toContain('First, consider how executive teams');
+        expect(pass1).toContain('Second, treat the build-versus-buy');
+        expect(pass1).toContain('https://example.com/build-vs-buy.jpg');
+
+        // Save pass 2 (e.g. autosave after inserting image)
+        const pass2 = ensureIntroKeyTakeaways(pass1);
+        expect(pass2).toContain('Introduction paragraph: AI in the enterprise');
+        expect(pass2).toContain('First, consider how executive teams');
+        expect(pass2).toContain('Second, treat the build-versus-buy');
+        expect(pass2).toContain('https://example.com/build-vs-buy.jpg');
+
+        // Verify DOM structure
+        const doc = new DOMParser().parseFromString(pass2, 'text/html');
+        const paragraphs = Array.from(doc.querySelectorAll('p')).map((p) => p.textContent?.trim());
+        expect(paragraphs).toContain('Introduction paragraph: AI in the enterprise is experiencing a seismic shift.');
+        expect(paragraphs).toContain('First, consider how executive teams are responding to automation budgets.');
+        expect(paragraphs).toContain('Second, treat the build-versus-buy choice as a daily question rather than a yearly review.');
     });
 });

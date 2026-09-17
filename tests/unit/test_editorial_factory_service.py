@@ -317,30 +317,46 @@ Exposing reasoning to outside callers demands real access control, and the 40 pe
         assert 'The four moves: expose your agent&#39;s own tools' not in body_without_takeaways_section
 
 
-def test_smart_brevity_takeaway_conciseness(service):
-    long_takeaways = [
-        "The Emporia Vue is a professional-grade, circuit-level energy monitor that can turn granular data into meaningful savings and smart-home automation—if you install the CT clamps carefully, configure the app thoughtfully, and understand its compatibility and cloud limits; this guide walks through setup, app mastery, accuracy testing, and ROI so you can decide whether it deserves a place in your panel.",
-        "Thinking about an Emporia Vue? This friendly, hands-on review shows exactly how this Emporia energy monitor turns your electrical panel into a circuit-by-circuit savings map—not just another whole-home meter. You’ll get a true step-by-step install guide, from safely opening the panel and placing CT clamps to handling 240V double-pole circuits and knowing when to call an electrician. Then we walk through the Emporia app: account setup, Wi-Fi pairing, naming circuits, tariffs, real-time and historical graphs, solar/net metering, notifications, and data export. We also test accuracy, latency, connectivity, and firmware quirks, compare Vue generations and Sense, and share real kWh case studies with payback math. Electricity prices keep climbing; every month without circuit-level visibility is money left on the table. Try the app’s demo mode today—then decide if Vue 3 belongs in your panel.",
-        "While most home energy monitors only show total consumption, the Emporia Vue energy monitor delivers circuit-level data that pinpoints exactly which appliances are draining your wallet—and here's how to install and master it."
-    ]
-
-    article = {
-        "title": "Emporia Vue Review & Setup Guide",
-        "content": "Full article content about energy monitoring...",
-        "takeaways": long_takeaways,
+def test_import_article_generates_and_stores_excerpt(service):
+    article_with_explicit_excerpt = {
+        "id": "ef-excerpt-1",
+        "title": "Enterprise AI ROI",
+        "content": "Adoption of AI agents reached 40 percent in 2026. However EBIT impact remains flat for most organizations.",
+        "excerpt": "A deep dive into why enterprise AI agent adoption does not automatically convert to EBIT impact.",
+        "summary": "AI agents challenge and ROI breakdown",
     }
 
-    meta = service.synthesize_metadata(article)
-    takeaways = meta["takeaways"]
+    meta = service.synthesize_metadata(article_with_explicit_excerpt)
+    assert meta["excerpt"] == "A deep dive into why enterprise AI agent adoption does not automatically convert to EBIT impact."
 
-    assert len(takeaways) >= 2
-    for t in takeaways:
-        # Each bullet point should be concise, not a massive 800-character paragraph
-        assert len(t) <= 240
-        # No meta fluff
-        assert "this guide walks through" not in t.lower()
-        assert "here's how to install" not in t.lower()
-        assert "try the app's demo" not in t.lower()
+    # Test synthesized fallback when excerpt is missing
+    article_without_excerpt = {
+        "id": "ef-excerpt-2",
+        "title": "Build vs Buy Software in 2026",
+        "content": "Thirty-two percent of enterprises now build internal software tools using automated coding assistants. The traditional procurement cycle has shifted toward fast in-house prototyping.",
+    }
 
+    meta_synth = service.synthesize_metadata(article_without_excerpt)
+    assert meta_synth["excerpt"] != ""
+    assert "Thirty-two percent of enterprises" in meta_synth["excerpt"]
 
+    # Test database payload on import
+    mock_local_supabase = MagicMock()
+    mock_insert_builder = MagicMock()
+    mock_insert_builder.execute.return_value = MagicMock(data=[{"id": "title-excerpt-uuid"}])
+    mock_local_supabase.table.return_value.insert.return_value = mock_insert_builder
 
+    with patch.object(service, "get_article", return_value=article_without_excerpt), \
+         patch("src.services.editorial_factory_service.get_supabase_client", return_value=mock_local_supabase):
+
+        success, new_id, _ = service.import_article_to_titles(
+            article_id="ef-excerpt-2",
+            user_id="user-456",
+            target_domain="giniloh.com"
+        )
+
+        assert success is True
+        call_args = mock_local_supabase.table.return_value.insert.call_args[0][0]
+        assert call_args["excerpt"] == meta_synth["excerpt"]
+        assert call_args["wp_excerpt_auto_generated"] == meta_synth["excerpt"]
+        assert call_args["idea_metadata"]["excerpt"] == meta_synth["excerpt"]

@@ -358,6 +358,17 @@ class EditorialFactoryService:
             or row.get("userDescription")
             or ""
         )
+        excerpt = (
+            row.get("excerpt")
+            or row.get("Excerpt")
+            or row.get("seo_description")
+            or row.get("meta_description")
+            or row.get("wp_excerpt_auto_generated")
+            or row.get("summary")
+            or row.get("deck")
+            or row.get("description")
+            or ""
+        )
         hook = row.get("hook") or row.get("Hook") or ""
         thesis = row.get("thesis") or row.get("Thesis") or ""
         tags = row.get("tags") or row.get("keywords") or row.get("Keywords") or []
@@ -380,6 +391,7 @@ class EditorialFactoryService:
             "title": clean_citation_numbers(title),
             "content": content,
             "summary": clean_citation_numbers(summary),
+            "excerpt": clean_citation_numbers(excerpt),
             "hook": clean_citation_numbers(hook),
             "thesis": clean_citation_numbers(thesis),
             "tags": tags if isinstance(tags, list) else [str(tags)],
@@ -682,10 +694,25 @@ class EditorialFactoryService:
         elif not thesis and sentences:
             thesis = sentences[0]
 
-        # 3. Deck / TL;DR
+        # 3. Deck / Excerpt / SEO Summary
+        raw_excerpt = (
+            article.get("excerpt")
+            or article.get("seo_description")
+            or article.get("summary")
+            or article.get("description")
+            or ""
+        )
+        excerpt = clean_citation_numbers(raw_excerpt)
+        if not excerpt and sentences:
+            # Generate a clean 1-2 sentence summary (~150-250 chars) suitable for WordPress post_excerpt and SEO meta descriptions
+            candidate_excerpt = " ".join(sentences[:2])
+            if len(candidate_excerpt) > 300:
+                candidate_excerpt = sentences[0]
+            excerpt = candidate_excerpt
+
         deck = clean_citation_numbers(summary)
-        if not deck and sentences:
-            deck = " ".join(sentences[:2])
+        if not deck:
+            deck = excerpt if excerpt else (" ".join(sentences[:2]) if sentences else "")
 
         # 4. TL;DR Takeaways (Smart Brevity format: concise, plain-English bullet points)
         raw_takeaways_list: List[str] = []
@@ -764,6 +791,7 @@ class EditorialFactoryService:
             "hook": clean_citation_numbers(hook),
             "thesis": clean_citation_numbers(thesis),
             "deck": clean_citation_numbers(deck),
+            "excerpt": clean_citation_numbers(excerpt),
             "takeaways": takeaways,
             "primary_keyword": primary_kw,
             "secondary_keywords": secondary_kws,
@@ -905,7 +933,9 @@ class EditorialFactoryService:
             "hook": metadata.get("hook") or article.get("hook", ""),
             "thesis": metadata.get("thesis") or article.get("thesis", ""),
             "deck": metadata.get("deck") or article.get("summary", ""),
-            "userDescription": metadata.get("deck") or article.get("summary", ""),
+            "excerpt": metadata.get("excerpt") or article.get("excerpt", "") or metadata.get("deck", ""),
+            "userDescription": metadata.get("deck") or metadata.get("excerpt") or article.get("summary", ""),
+            "wp_excerpt_auto_generated": metadata.get("excerpt") or metadata.get("deck", "") or "",
             "Keywords": ", ".join(article.get("tags", [])) if article.get("tags") else "",
             "primary_keyword": metadata.get("primary_keyword") or None,
             "secondary_keywords_json": metadata.get("secondary_keywords") or [],
@@ -921,6 +951,7 @@ class EditorialFactoryService:
                 "imported_at": now_iso,
                 "author": article.get("author", "Editorial Factory"),
                 "key_takeaways": metadata.get("takeaways", []),
+                "excerpt": metadata.get("excerpt") or "",
             }
         }
 

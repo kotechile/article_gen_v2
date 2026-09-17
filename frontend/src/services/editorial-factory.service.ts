@@ -11,6 +11,7 @@ export interface EditorialArticle {
     id: string;
     title: string;
     summary: string;
+    excerpt?: string;
     content: string;
     hook?: string;
     thesis?: string;
