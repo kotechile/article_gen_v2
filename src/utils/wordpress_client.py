@@ -134,11 +134,17 @@ class WordPressClient:
                 try:
                     err = response.json() or {}
                     if err.get("code") == "term_exists":
-                        existing_id = ((err.get("data") or {}).get("term_id"))
+                        data = err.get("data") or {}
+                        existing_id = data.get("term_id") or data.get("resource_id") or (data if isinstance(data, int) else None)
                         if existing_id:
                             return self.get_category(int(existing_id))
-                except Exception:
-                    pass
+                    msg = err.get("message")
+                    code = err.get("code")
+                    if msg:
+                        raise Exception(f"WordPress error ({response.status_code} {code}): {msg}")
+                except Exception as inner_e:
+                    if "WordPress error" in str(inner_e):
+                        raise inner_e
                 response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
@@ -167,8 +173,19 @@ class WordPressClient:
                 payload["description"] = description
 
             response = requests.post(url, headers={**self.headers, 'Content-Type': 'application/json'}, json=payload, timeout=15, verify=False)
-            response.raise_for_status()
+            if not response.ok:
+                try:
+                    err = response.json() or {}
+                    msg = err.get("message")
+                    code = err.get("code")
+                    if msg:
+                        raise Exception(f"WordPress error ({response.status_code} {code}): {msg}")
+                except Exception as inner_e:
+                    if "WordPress error" in str(inner_e):
+                        raise inner_e
+                response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
             print(f"Error updating category {category_id} on {self.base_url}: {str(e)}")
             raise e
+

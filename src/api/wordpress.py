@@ -1368,10 +1368,14 @@ def sync_project_categories_to_wordpress():
         level_2 = [c for c in local_categories if int(c.get("level") or 0) == 2]
 
         by_slug_global = {}
+        by_name_global = {}
         for cat in wp_categories:
             slug = (cat.get("slug") or "").strip().lower()
+            name = (cat.get("name") or "").strip().lower()
             if slug:
                 by_slug_global[slug] = cat
+            if name:
+                by_name_global[name] = cat
 
         category_descriptions = _generate_category_descriptions(
             domain=api_domain,
@@ -1400,16 +1404,10 @@ def sync_project_categories_to_wordpress():
 
                 if mapped_wp_id <= 0:
                     mapped_wp_id = None
-
             else:
                 mapped_wp_id = None
 
             if mapped_wp_id is not None:
-                try:
-                    mapped_wp_id = int(mapped_wp_id)
-                except (TypeError, ValueError):
-                    raise Exception(f"Invalid stored wordpress_category_id: {mapped_wp_id}")
-
                 existing = by_id.get(mapped_wp_id)
                 if existing is None:
                     try:
@@ -1430,12 +1428,16 @@ def sync_project_categories_to_wordpress():
                             by_slug_global[existing_slug] = existing
                         if existing_name:
                             by_name_parent[(existing_name, existing_parent)] = existing
-            if mapped_wp_id is None:
+                            by_name_global[existing_name] = existing
+
+            if existing is None:
                 existing = (
-                    by_slug_parent.get((slug, parent_wp_id))
-                    or by_name_parent.get((wp_name.lower(), parent_wp_id))
+                    by_slug_parent.get((slug, int(parent_wp_id or 0)))
+                    or by_name_parent.get((wp_name.lower(), int(parent_wp_id or 0)))
                     or by_slug_global.get(slug)
+                    or by_name_global.get(wp_name.lower())
                 )
+
             if existing:
                 cat_id = int(existing.get("id"))
                 needs_update = (
@@ -1470,6 +1472,7 @@ def sync_project_categories_to_wordpress():
             by_slug_parent[(slug, int(parent_wp_id or 0))] = existing
             by_name_parent[(wp_name.lower(), int(parent_wp_id or 0))] = existing
             by_slug_global[slug] = existing
+            by_name_global[wp_name.lower()] = existing
             synced_count += 1
             return cat_id
 
@@ -1479,6 +1482,13 @@ def sync_project_categories_to_wordpress():
             try:
                 wp_id = ensure_wp_category(cat, parent_wp_id=0)
             except Exception as e:
+                logger.error(
+                    "WordPress category sync failed for category '%s' (domain=%s, level=1): %s",
+                    cat.get("name"),
+                    project_domain,
+                    e,
+                    exc_info=True,
+                )
                 sync_errors.append({
                     "local_category_id": local_id,
                     "name": cat.get("name"),
@@ -1511,6 +1521,14 @@ def sync_project_categories_to_wordpress():
             try:
                 wp_id = ensure_wp_category(cat, parent_wp_id=parent_wp_id)
             except Exception as e:
+                logger.error(
+                    "WordPress category sync failed for subcategory '%s' (domain=%s, level=2, parent_wp_id=%s): %s",
+                    cat.get("name"),
+                    project_domain,
+                    parent_wp_id,
+                    e,
+                    exc_info=True,
+                )
                 sync_errors.append({
                     "local_category_id": local_id,
                     "name": cat.get("name"),
@@ -1564,8 +1582,22 @@ def sync_project_categories_to_wordpress():
                         "error": str(persist_err),
                     })
 
+        distinct_reasons = []
+        for err_item in sync_errors:
+            err_msg = str(err_item.get("error") or "")
+            if err_msg and err_msg not in distinct_reasons:
+                distinct_reasons.append(err_msg)
+
+        details_msg = (
+            f"Synced {synced_count} categories to WordPress "
+            f"({created_count} created, {updated_count} updated, "
+            f"{len(sync_errors)} sync errors, {len(mapping_update_errors)} mapping update errors)."
+        )
+        if distinct_reasons:
+            details_msg += f" Error details: {'; '.join(distinct_reasons[:2])}"
+
         return jsonify({
-            "success": True,
+            "success": len(sync_errors) == 0,
             "project_id": project_id,
             "domain": project_domain,
             "synced": synced_count,
@@ -1576,11 +1608,7 @@ def sync_project_categories_to_wordpress():
             "mapping_update_errors_count": len(mapping_update_errors),
             "mapping_update_errors": mapping_update_errors,
             "category_results": sync_details,
-            "details": (
-                f"Synced {synced_count} categories to WordPress "
-                f"({created_count} created, {updated_count} updated, "
-                f"{len(sync_errors)} sync errors, {len(mapping_update_errors)} mapping update errors)."
-            ),
+            "details": details_msg,
         }), 200
     except Exception as e:
         logger.error(f"Project category sync error: {str(e)}", exc_info=True)

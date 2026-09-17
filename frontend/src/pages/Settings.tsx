@@ -671,7 +671,9 @@ export const Settings: React.FC = () => {
 
             await fetchCategories(editingId);
             if (payload?.errors_count > 0) {
-                setError(payload?.details || 'Category sync completed with errors. Check WordPress credentials and category slugs.');
+                const firstErr = payload?.errors?.[0]?.error;
+                const details = payload?.details || `Category sync completed with ${payload.errors_count} errors.`;
+                setError(details);
             } else {
                 setSuccess(payload?.details || 'Categories synced with WordPress.');
             }
