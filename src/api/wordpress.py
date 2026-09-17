@@ -1305,6 +1305,17 @@ def sync_project_categories_to_wordpress():
 
         client = WordPressClient(api_domain, username, app_password)
         try:
+            current_user = client.verify_and_optimize_auth()
+            logger.info("WordPress authenticated user for domain %s: %s (id=%s, roles=%s)", api_domain, current_user.get("name"), current_user.get("id"), current_user.get("roles"))
+        except Exception as auth_err:
+            logger.warning("WordPress auth check (/users/me) failed for %s: %s", api_domain, auth_err)
+            return jsonify({
+                "success": False,
+                "error": f"WordPress Authentication Failed: {str(auth_err)}",
+                "details": f"Authentication check failed: {str(auth_err)}. Please verify your username and Application Password (from Users -> Profile). If using Apache/LiteSpeed/Nginx, ensure the HTTP_AUTHORIZATION header is forwarded to PHP in .htaccess."
+            }), 401
+
+        try:
             wp_categories = client.get_categories_detailed()
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response is not None else None

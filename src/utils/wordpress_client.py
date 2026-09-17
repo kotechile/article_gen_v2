@@ -13,8 +13,8 @@ class WordPressClient:
         else:
             self.base_url = f"{domain}/wp-json/wp/v2"
             
-        self.username = username
-        self.app_password = app_password
+        self.username = (username or "").strip()
+        self.app_password = (app_password or "").strip()
         
         # Create auth header
         if self.username and self.app_password:
@@ -23,6 +23,49 @@ class WordPressClient:
             self.headers = {'Authorization': f'Basic {token}'}
         else:
             self.headers = {}
+
+    def get_current_user(self) -> Dict:
+        """Fetch current authenticated user to verify credentials."""
+        try:
+            url = f"{self.base_url}/users/me"
+            response = requests.get(url, headers=self.headers, timeout=15, verify=False)
+            if not response.ok:
+                try:
+                    err = response.json() or {}
+                    msg = err.get("message")
+                    code = err.get("code")
+                    if msg:
+                        raise Exception(f"WordPress error ({response.status_code} {code}): {msg}")
+                except Exception as inner_e:
+                    if "WordPress error" in str(inner_e):
+                        raise inner_e
+                response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error authenticating with WordPress on {self.base_url}: {str(e)}")
+            raise e
+
+    def verify_and_optimize_auth(self) -> Dict:
+        """Verify authentication with /users/me, trying variations (with/without spaces) if needed."""
+        try:
+            return self.get_current_user()
+        except Exception as first_err:
+            if not self.username or not self.app_password:
+                raise first_err
+
+            # If password had spaces, try stripped; if stripped, try with spaces
+            clean_pass = self.app_password.replace(" ", "")
+            if clean_pass != self.app_password:
+                try:
+                    alt_token = base64.b64encode(f"{self.username}:{clean_pass}".encode()).decode()
+                    orig_headers = dict(self.headers)
+                    self.headers = {'Authorization': f'Basic {alt_token}'}
+                    user_data = self.get_current_user()
+                    self.app_password = clean_pass
+                    return user_data
+                except Exception:
+                    self.headers = orig_headers
+            raise first_err
 
     def get_posts(self, page: int = 1, per_page: int = 20, embed: bool = True, fields: Optional[str] = None) -> List[Dict]:
         """Fetch posts from WordPress site with full SEO metadata and embedded media/terms."""
