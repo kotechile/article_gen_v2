@@ -708,7 +708,6 @@ export function GeneratedIdeasPanel({
                             raw_dataforseo_output: rawOutput ?? activeGeneratedIdea.raw_dataforseo_output,
                         }
                         onIdeaUpdated(updatedIdea)
-                        setShowKeywordModal(false)
                     }}
                 />
             )}

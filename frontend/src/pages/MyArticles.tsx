@@ -1634,7 +1634,13 @@ export const MyArticles: React.FC = () => {
                                 }
                                 return ok
                             }}
-                            onSaved={() => setKwIntelOpen(false)}
+                            onSaved={(primaryClean, secondaryClean, metrics, rawOutput) => {
+                                setArticles((prev) => prev.map((a) =>
+                                    a.id === kwIntelArticle.id
+                                        ? mergeKeywordSelectionState(a as any, primaryClean, secondaryClean, metrics, rawOutput) as any
+                                        : a
+                                ))
+                            }}
                         />
                     )
                 })()}

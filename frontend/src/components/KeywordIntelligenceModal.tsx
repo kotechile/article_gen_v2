@@ -860,18 +860,50 @@ export function KeywordIntelligenceModal({
 }: KeywordIntelligenceModalProps) {
     const { user } = useAuth();
 
-    // Parse the DataForSEO output once, then allow additions via useState
-    const baseParsed = React.useMemo(() => {
+    // Resolve selections and parsed data from stored idea
+    const resolveSelectionsFromIdea = React.useCallback((ideaToUse: ContentIdea, base: DFSParsedOutput | null) => {
+        const lookup = new Map<string, string>();
+        for (const row of base?.rows ?? []) {
+            const key = normalizeKeywordKey(row.keyword);
+            if (!key || lookup.has(key)) continue;
+            lookup.set(key, row.keyword);
+        }
+
+        const storedPrimary = (ideaToUse as any).primary_keywords ?? (ideaToUse as any).primary_keyword ?? (ideaToUse as any).keywords ?? [];
+        const primaryList = extractKeywordValues(storedPrimary);
+        const nextPrimaryRaw = primaryList[0] ? String(primaryList[0]).trim() : null;
+        const canonicalPrimary = nextPrimaryRaw
+            ? lookup.get(normalizeKeywordKey(nextPrimaryRaw)) ?? nextPrimaryRaw
+            : null;
+
+        const rawSecondary = (ideaToUse as any).secondary_keywords ?? (ideaToUse as any).secondary_keywords_json;
+        let secondaryList = extractKeywordValues(rawSecondary);
+        if (secondaryList.length === 0) {
+            const storedKeywords = (ideaToUse as any).keywords ?? [];
+            secondaryList = extractKeywordValues(storedKeywords).slice(1);
+        }
+        const canonicalSecondary = Array.from(
+            new Set(
+                secondaryList
+                    .map((kw) => lookup.get(normalizeKeywordKey(kw)) ?? kw)
+                    .filter(Boolean)
+            )
+        ).filter((kw) => kw !== canonicalPrimary);
+
+        return { canonicalPrimary, canonicalSecondary };
+    }, []);
+
+    const buildParsedForIdea = React.useCallback((ideaToUse: ContentIdea): DFSParsedOutput | null => {
         const rawField =
-            (idea as any).raw_dataforseo_output ??
-            (idea as any).raw_supabase_output ??
-            (idea as any).idea_metadata?.seo_offer_enrichment?.raw_dataforseo_output;
-        const parsed = parseDataForSEOOutput(rawField) ?? buildSyntheticParsedFromIdea(idea);
-        return mergeParsedWithIdeaKeywordPool(parsed, idea);
-    }, [idea]);
+            (ideaToUse as any).raw_dataforseo_output ??
+            (ideaToUse as any).raw_supabase_output ??
+            (ideaToUse as any).idea_metadata?.seo_offer_enrichment?.raw_dataforseo_output;
+        const parsedResult = parseDataForSEOOutput(rawField) ?? buildSyntheticParsedFromIdea(ideaToUse);
+        return mergeParsedWithIdeaKeywordPool(parsedResult, ideaToUse);
+    }, []);
 
     // Mutable copy of parsed so we can append expanded rows
-    const [parsed, setParsed] = React.useState<DFSParsedOutput | null>(baseParsed);
+    const [parsed, setParsed] = React.useState<DFSParsedOutput | null>(() => buildParsedForIdea(idea));
     // Track which keywords came from Keyword Expander (show NEW badge)
     const [expandedKeywords, setExpandedKeywords] = React.useState<Set<string>>(new Set());
 
@@ -884,36 +916,58 @@ export function KeywordIntelligenceModal({
     const [expanderQualifiedOnly, setExpanderQualifiedOnly] = React.useState(true);
     const [showQualifiedOnly, setShowQualifiedOnly] = React.useState(false);
 
-    // Resolve initial selections from stored idea data
-    const initialPrimary = React.useMemo(() => {
-        const stored = (idea as any).primary_keywords ?? (idea as any).primary_keyword ?? (idea as any).keywords ?? [];
-        const list = extractKeywordValues(stored);
-        return list[0] ?? null;
-    }, [idea.id]);
+    const initialSelections = React.useMemo(() => {
+        const initialBase = buildParsedForIdea(idea);
+        return resolveSelectionsFromIdea(idea, initialBase);
+    }, [idea.id, buildParsedForIdea, resolveSelectionsFromIdea]);
 
-    const initialSecondary = React.useMemo(() => {
-        const raw = (idea as any).secondary_keywords ?? (idea as any).secondary_keywords_json;
-        const parsedSecondary = extractKeywordValues(raw);
-        if (parsedSecondary.length > 0) return parsedSecondary;
-        // Fall back to keywords[1..] if secondary_keywords is empty
-        const stored = (idea as any).keywords ?? [];
-        const list = extractKeywordValues(stored);
-        return list.slice(1);
-    }, [idea.id, (idea as any).secondary_keywords, (idea as any).secondary_keywords_json, (idea as any).keywords]);
-
-    const [primaryKeyword, setPrimaryKeyword] = React.useState<string | null>(initialPrimary);
-    const [secondaryKeywords, setSecondaryKeywords] = React.useState<string[]>(initialSecondary);
+    const [primaryKeyword, setPrimaryKeyword] = React.useState<string | null>(initialSelections.canonicalPrimary);
+    const [secondaryKeywords, setSecondaryKeywords] = React.useState<string[]>(initialSelections.canonicalSecondary);
     const [expandedChart, setExpandedChart] = React.useState<string | null>(null);
     const [saving, setSaving] = React.useState(false);
     const [saved, setSaved] = React.useState(false);
     const [saveError, setSaveError] = React.useState<string | null>(null);
-    const [lastAutoSavedPrimary, setLastAutoSavedPrimary] = React.useState<string | null>(null);
-    const [lastAutoSavedSecondary, setLastAutoSavedSecondary] = React.useState<string[]>([]);
+    const [lastAutoSavedPrimary, setLastAutoSavedPrimary] = React.useState<string | null>(initialSelections.canonicalPrimary);
+    const [lastAutoSavedSecondary, setLastAutoSavedSecondary] = React.useState<string[]>(initialSelections.canonicalSecondary);
     const autoSaveTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Internal loading state - activates when modal opens but no data yet
     const [isDataLoading, setIsDataLoading] = React.useState(false);
     const dataLoadTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Track open state and idea ID to only re-initialize when modal opens or idea changes
+    const prevOpenRef = React.useRef(isOpen);
+    const prevIdeaIdRef = React.useRef(idea.id);
+
+    // Re-sync selections ONLY when modal opens or a different idea is selected
+    React.useEffect(() => {
+        const justOpened = isOpen && !prevOpenRef.current;
+        const ideaChanged = isOpen && prevIdeaIdRef.current !== idea.id;
+
+        if (justOpened || ideaChanged) {
+            const nextBaseParsed = buildParsedForIdea(idea);
+            const { canonicalPrimary, canonicalSecondary } = resolveSelectionsFromIdea(idea, nextBaseParsed);
+
+            setParsed(nextBaseParsed);
+            setExpandedKeywords(new Set());
+            setExpanderOpen(false);
+            setExpanderSeed(canonicalPrimary || "");
+            setExpanderError(null);
+            setExpanderAdded(0);
+            setExpanderQualifiedOnly(true);
+            setShowQualifiedOnly(false);
+            setPrimaryKeyword(canonicalPrimary);
+            setSecondaryKeywords(canonicalSecondary);
+            setExpandedChart(null);
+            setSaved(false);
+            setSaveError(null);
+            setLastAutoSavedPrimary(canonicalPrimary);
+            setLastAutoSavedSecondary(canonicalSecondary);
+        }
+
+        prevOpenRef.current = isOpen;
+        prevIdeaIdRef.current = idea.id;
+    }, [isOpen, idea.id, buildParsedForIdea, resolveSelectionsFromIdea]);
 
     // Show loading indicator when modal opens but data isn't available yet
     React.useEffect(() => {
@@ -970,16 +1024,6 @@ export function KeywordIntelligenceModal({
         };
     }, []);
 
-    const baseParsedKeywordLookup = React.useMemo(() => {
-        const map = new Map<string, string>();
-        for (const row of baseParsed?.rows ?? []) {
-            const key = normalizeKeywordKey(row.keyword);
-            if (!key || map.has(key)) continue;
-            map.set(key, row.keyword);
-        }
-        return map;
-    }, [baseParsed]);
-
     const parsedKeywordLookup = React.useMemo(() => {
         const map = new Map<string, string>();
         for (const row of parsed?.rows ?? []) {
@@ -989,39 +1033,6 @@ export function KeywordIntelligenceModal({
         }
         return map;
     }, [parsed]);
-
-    // Re-sync selections when idea changes (e.g. re-opened for different idea)
-    React.useEffect(() => {
-        if (isOpen) {
-            const nextPrimaryRaw = initialPrimary ? String(initialPrimary).trim() : null;
-            const canonicalPrimary = nextPrimaryRaw
-                ? baseParsedKeywordLookup.get(normalizeKeywordKey(nextPrimaryRaw)) ?? nextPrimaryRaw
-                : null;
-            const canonicalSecondary = Array.from(
-                new Set(
-                    initialSecondary
-                        .map((kw) => baseParsedKeywordLookup.get(normalizeKeywordKey(kw)) ?? null)
-                        .filter((kw): kw is string => Boolean(kw))
-                )
-            ).filter((kw) => kw !== canonicalPrimary);
-
-            setParsed(baseParsed);
-            setExpandedKeywords(new Set());
-            setExpanderOpen(false);
-            setExpanderSeed(canonicalPrimary || "");
-            setExpanderError(null);
-            setExpanderAdded(0);
-            setExpanderQualifiedOnly(true);
-            setShowQualifiedOnly(false);
-            setPrimaryKeyword(canonicalPrimary);
-            setSecondaryKeywords(canonicalSecondary);
-            setExpandedChart(null);
-            setSaved(false);
-            setSaveError(null);
-            setLastAutoSavedPrimary(canonicalPrimary);
-            setLastAutoSavedSecondary(canonicalSecondary);
-        }
-    }, [idea.id, isOpen, baseParsedKeywordLookup]);
 
     const persistKeywordSelection = React.useCallback(async (
         primary: string | null,
@@ -1121,7 +1132,7 @@ export function KeywordIntelligenceModal({
 
             // Skip if nothing changed since last auto-save
             if (primary === lastAutoSavedPrimary &&
-                JSON.stringify(secondary.sort()) === JSON.stringify([...lastAutoSavedSecondary].sort())) {
+                JSON.stringify([...secondary].sort()) === JSON.stringify([...lastAutoSavedSecondary].sort())) {
                 return;
             }
             console.log("[KeywordIntelligenceModal] Auto-saving keyword selection...", {
@@ -1130,7 +1141,7 @@ export function KeywordIntelligenceModal({
             });
             await persistKeywordSelection(primary, secondary);
         }, 1500);
-    }, [persistKeywordSelection, lastAutoSavedPrimary, lastAutoSavedSecondary]);
+    }, [persistKeywordSelection, lastAutoSavedPrimary, lastAutoSavedSecondary, user]);
 
     const handleClose = React.useCallback(async () => {
         if (autoSaveTimeoutRef.current) {
