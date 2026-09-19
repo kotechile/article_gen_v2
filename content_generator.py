@@ -542,6 +542,7 @@ TARGET AUDIENCE: {audience}
                        - **By the numbers:** (Must lead immediately into a Markdown/HTML table or bulleted list).
                        - **The reality check:** (A grounded fact or counter-intuitive truth).
                        - **Go deeper:** (1 single sentence transition leading into the detailed body sections below).
+                       - Bullet Points / Takeaways: Maximum limit of 60 words per bullet point. If a concept does not fit within 60 words, split it into a new bullet point.
                     2. In-Depth Narrative Body Sections ("Go Deeper"):
                        - Fully develop all topic sections and subsections with comprehensive analysis, actionable frameworks, storytelling, and concrete data.
                        - Write natural, flowing paragraphs with substance, context, and narrative depth. Do NOT summarize body sections into telegraphic bullet points or bolded pseudo-bullet snippets.

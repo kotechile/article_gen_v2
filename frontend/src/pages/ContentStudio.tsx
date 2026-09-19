@@ -1196,7 +1196,7 @@ export const ContentStudio: React.FC = () => {
                     `- Include specific, authoritative data points, statistics, or expert-framed assertions (entity density matters for AI citation ranking).`,
                     `- Where relevant, use definition-style openers (e.g., "X is defined as...") as they are favored for AI answer extraction.`,
                     `- Apply these GEO rules silently. Do NOT quote, restate, or summarize these instructions inside the article body.`,
-                    `- If you include an "At a glance" section, place it near the top of the article under a single H2 heading and format it as 3-5 concise bullet points.`,
+                    `- If you include an "At a glance" section, place it near the top of the article under a single H2 heading and format it as 3-5 concise bullet points. STRICT RULE: Set a maximum limit of 60 words per bullet point. If a concept or takeaway does not fit within 60 words, split it into a new bullet point.`,
                     `- Do NOT prefix each bullet with "At a glance:" or "Key takeaway:" and do NOT include editorial notes like "Claim extracted from:" or "Outcome:" inside the article.`,
                     geoCtx.hasGEOSignal ? `- GEO focus area detected: ${geoCtx.optimizationFocus}. Apply accordingly.` : '',
                     '',

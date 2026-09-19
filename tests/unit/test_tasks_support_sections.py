@@ -141,3 +141,45 @@ def test_pop_named_h2_section_removes_existing_support_block():
     assert "<h2>Key Takeaways</h2>" not in cleaned
     assert "<h2>Body</h2>" in cleaned
     assert extracted.startswith("<h2>Key Takeaways</h2>")
+
+
+def test_split_takeaway_text_to_max_words_splits_long_text():
+    long_bullet = (
+        "Forty percent of billion-dollar companies now deploy AI agents across their operations—up from just 27 percent a year ago. "
+        "That's not incremental growth. That's a strategic inflection point, and IT leaders who treat agentic AI adoption as a wait-and-see proposition are already behind. "
+        "Agentic AI is defined as autonomous software systems that perceive their environment, make decisions, and execute multi-step tasks with minimal human intervention—distinct from generative AI's content creation and traditional automation's rigid rule-following. "
+        "The enterprises pulling ahead aren't just experimenting. They're delegating routine workflows to agents while repositioning human talent toward judgment, oversight, and strategy. "
+        "The payoff is measurable: operational efficiency gains, faster cycle times, and workforce augmentation that multiplies output without proportional headcount growth. "
+        "But scaling requires more than procurement—it demands governance frameworks, security protocols, and a phased roadmap that moves from pilot to production without exposing the enterprise to runaway autonomy or compliance failure. "
+        "The adoption window is narrowing. Competitors are already building the playbooks, and the gap between early movers and laggards compounds quarterly."
+    )
+
+    chunks = tasks._split_takeaway_text_to_max_words(long_bullet, max_words=60)
+    assert len(chunks) > 1
+    for chunk in chunks:
+        words = chunk.split()
+        assert len(words) <= 60
+        assert chunk.endswith(".")
+
+
+def test_enforce_at_a_glance_bullet_word_limit_splits_long_lis():
+    long_li = (
+        "Forty percent of billion-dollar companies now deploy AI agents across their operations—up from just 27 percent a year ago. "
+        "That's not incremental growth. That's a strategic inflection point, and IT leaders who treat agentic AI adoption as a wait-and-see proposition are already behind. "
+        "Agentic AI is defined as autonomous software systems that perceive their environment, make decisions, and execute multi-step tasks with minimal human intervention—distinct from generative AI's content creation and traditional automation's rigid rule-following. "
+        "The enterprises pulling ahead aren't just experimenting. They're delegating routine workflows to agents while repositioning human talent toward judgment, oversight, and strategy. "
+        "The payoff is measurable: operational efficiency gains, faster cycle times, and workforce augmentation that multiplies output without proportional headcount growth. "
+        "But scaling requires more than procurement—it demands governance frameworks, security protocols, and a phased roadmap that moves from pilot to production without exposing the enterprise to runaway autonomy or compliance failure. "
+        "The adoption window is narrowing. Competitors are already building the playbooks, and the gap between early movers and laggards compounds quarterly."
+    )
+    html = f"<h2>At a glance</h2>\n<ul>\n<li>Short takeaway.</li>\n<li>{long_li}</li>\n</ul>\n<p>Body</p>"
+
+    transformed = tasks._enforce_at_a_glance_bullet_word_limit(html, max_words=60)
+    assert "<h2>At a glance</h2>" in transformed
+    import re
+    lis = re.findall(r"<li>(.*?)</li>", transformed, re.DOTALL)
+    assert len(lis) > 2
+    for li in lis:
+        words = re.sub(r"<[^>]+>", " ", li).strip().split()
+        assert len(words) <= 60
+

@@ -61,12 +61,92 @@ def _render_inline_markdown(text: str) -> str:
     return escaped
 
 
+def _split_takeaway_text_to_max_words(text: str, max_words: int = 60) -> List[str]:
+    """
+    Ensures takeaway bullet point text does not exceed max_words (default 60 words).
+    If it exceeds max_words, splits into multiple logical sentences/chunks of at most max_words each.
+    """
+    clean_text = str(text or "").strip()
+    if not clean_text:
+        return []
+
+    words = clean_text.split()
+    if len(words) <= max_words:
+        return [clean_text]
+
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", clean_text) if s.strip()]
+    if not sentences:
+        sentences = [clean_text]
+
+    chunks: List[str] = []
+    current_chunk: List[str] = []
+    current_count = 0
+
+    for sentence in sentences:
+        s_words = sentence.split()
+        if len(s_words) > max_words:
+            if current_chunk:
+                chunks.append(" ".join(current_chunk).strip())
+                current_chunk = []
+                current_count = 0
+
+            clause_parts = [c.strip() for c in re.split(r"(?<=[;:,—–])\s+", sentence) if c.strip()]
+            if len(clause_parts) > 1:
+                sub_chunk: List[str] = []
+                sub_count = 0
+                for clause in clause_parts:
+                    c_words = clause.split()
+                    if sub_count + len(c_words) <= max_words or not sub_chunk:
+                        sub_chunk.append(clause)
+                        sub_count += len(c_words)
+                    else:
+                        sub_text = " ".join(sub_chunk).strip()
+                        if not re.search(r"[.!?]$", sub_text):
+                            sub_text += "."
+                        chunks.append(sub_text)
+                        sub_chunk = [clause]
+                        sub_count = len(c_words)
+                if sub_chunk:
+                    sub_text = " ".join(sub_chunk).strip()
+                    if not re.search(r"[.!?]$", sub_text):
+                        sub_text += "."
+                    chunks.append(sub_text)
+            else:
+                for i in range(0, len(s_words), max_words):
+                    chunk_slice = s_words[i : i + max_words]
+                    chunk_text = " ".join(chunk_slice).strip()
+                    if not re.search(r"[.!?]$", chunk_text):
+                        chunk_text += "."
+                    chunks.append(chunk_text)
+        elif current_count + len(s_words) <= max_words:
+            current_chunk.append(sentence)
+            current_count += len(s_words)
+        else:
+            chunks.append(" ".join(current_chunk).strip())
+            current_chunk = [sentence]
+            current_count = len(s_words)
+
+    if current_chunk:
+        chunks.append(" ".join(current_chunk).strip())
+
+    result = []
+    for c in chunks:
+        c_clean = c.strip()
+        if not c_clean:
+            continue
+        if not re.search(r"[.!?]$", c_clean):
+            c_clean += "."
+        result.append(c_clean)
+
+    return result
+
+
 def clean_smart_brevity_takeaway(text: str) -> Optional[str]:
     """
     Format a takeaway into a concise, scannable Smart Brevity bullet point.
     - Strips citation numbers, markdown artifacts, and conversational meta-text.
     - Trims run-on clauses, trailers, and multi-sentence dumps.
-    - Limits to 1 crisp, plain-English sentence (~15-35 words / max ~200 chars).
+    - Limits to at most 60 words (~15-35 words / max ~240 chars).
     """
     if not text:
         return None
@@ -100,8 +180,8 @@ def clean_smart_brevity_takeaway(text: str) -> Optional[str]:
     target = re.sub(r"\s+(?:to\s+)?learn\s+more[\s\S]*$", ".", target, flags=re.IGNORECASE)
     target = re.sub(r"\s+so\s+you\s+can\s+decide[\s\S]*$", ".", target, flags=re.IGNORECASE)
 
-    # If still long (> 200 chars), break at semicolon, em-dash, or major conjunction if first clause forms a full statement
-    if len(target) > 200:
+    # If still long (> 200 chars or > 60 words), break at semicolon, em-dash, or major conjunction
+    if len(target.split()) > 60 or len(target) > 200:
         parts = re.split(r"[;—–]", target)
         if len(parts) > 1 and len(parts[0].strip()) > 40:
             target = parts[0].strip()
@@ -113,10 +193,14 @@ def clean_smart_brevity_takeaway(text: str) -> Optional[str]:
         target += "."
 
     target = re.sub(r"\s{2,}", " ", target).strip()
-    if 25 <= len(target) <= 240:
+    words = target.split()
+    if len(words) > 60:
+        target = " ".join(words[:60]).rstrip(",;:-—") + "."
+
+    if 25 <= len(target) <= 300 and len(target.split()) <= 60:
         return target
-    elif len(target) > 240:
-        truncated = target[:200].rsplit(" ", 1)[0].rstrip(",;:-—") + "."
+    elif len(target) > 300:
+        truncated = target[:240].rsplit(" ", 1)[0].rstrip(",;:-—") + "."
         return truncated
 
     return None
@@ -760,7 +844,12 @@ class EditorialFactoryService:
         takeaways: List[str] = []
         seen_keys: set = set()
 
+        expanded_raw_takeaways = []
         for raw_t in raw_takeaways_list:
+            splits = _split_takeaway_text_to_max_words(raw_t, max_words=60)
+            expanded_raw_takeaways.extend(splits if splits else [raw_t])
+
+        for raw_t in expanded_raw_takeaways:
             condensed = clean_smart_brevity_takeaway(raw_t)
             if condensed:
                 key = re.sub(r"[^a-zA-Z0-9]+", "", condensed).lower()[:40]
@@ -771,16 +860,20 @@ class EditorialFactoryService:
         # If fewer than 3 takeaways, supplement with informative sentences from article text
         if len(takeaways) < 3 and sentences:
             for s in sentences:
-                condensed = clean_smart_brevity_takeaway(s)
-                if condensed:
-                    key = re.sub(r"[^a-zA-Z0-9]+", "", condensed).lower()[:40]
-                    if key and key not in seen_keys:
-                        seen_keys.add(key)
-                        takeaways.append(condensed)
-                        if len(takeaways) >= 3:
-                            break
+                splits = _split_takeaway_text_to_max_words(s, max_words=60)
+                for sub_s in splits:
+                    condensed = clean_smart_brevity_takeaway(sub_s)
+                    if condensed:
+                        key = re.sub(r"[^a-zA-Z0-9]+", "", condensed).lower()[:40]
+                        if key and key not in seen_keys:
+                            seen_keys.add(key)
+                            takeaways.append(condensed)
+                            if len(takeaways) >= 3:
+                                break
+                if len(takeaways) >= 3:
+                    break
 
-        takeaways = takeaways[:4]
+        takeaways = takeaways[:5]
 
         # 5. Keywords
         tags = article.get("tags", [])

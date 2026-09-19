@@ -828,9 +828,9 @@ _SUPPORT_SECTION_NOISE_PATTERNS = (
     r"\banalysis\b",
     r"\bchain of thought\b",
     r"\bclaim extracted from\b",
-    r"\boutcome:\b",
+    r"\boutcome\b",
     r"\boriginal creative intent\b",
-    r"\bprimary keyword:\b",
+    r"\bprimary keyword\b",
     r"\bsecondary keywords?\b",
     r"\bgenerative engine optimization\b",
     r"\bgeo directive\b",
@@ -884,21 +884,6 @@ def _looks_like_support_section_noise(value: str, min_len: int = 20) -> bool:
     return False
 
 
-def _sanitize_takeaway_text(value: str) -> str:
-    text = re.sub(r"^(?:[\s\u2022\u2023\u25E6\u2043\u2219\-\–\—]+|(?:\*\s+)|(?:\d+[.)]\s+))+", "", str(value or "")).strip()
-    text = re.sub(r"\s+", " ", text).strip(" -:;,.")
-    text = re.sub(r"^(at a glance|key takeaway|takeaway|tl;?dr)\s*:\s*", "", text, flags=re.IGNORECASE).strip()
-    if not text:
-        return ""
-    if _looks_like_support_section_noise(text, min_len=20):
-        return ""
-    if len(text) < 35 or len(text) > 320:
-        return ""
-    if not re.search(r"[.!?]$", text):
-        text = f"{text}."
-    return text
-
-
 def _sanitize_faq_question(value: str) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip(" -:;,.")
     text = re.sub(r"^(q|question)\s*[:.-]\s*", "", text, flags=re.IGNORECASE).strip()
@@ -923,6 +908,102 @@ def _sanitize_faq_answer(value: str) -> str:
     return text
 
 
+def _split_takeaway_text_to_max_words(text: str, max_words: int = 60) -> List[str]:
+    """
+    Ensures takeaway bullet point text does not exceed max_words (default 60 words).
+    If it exceeds max_words, splits into multiple logical sentences/chunks of at most max_words each.
+    """
+    clean_text = str(text or "").strip()
+    if not clean_text:
+        return []
+
+    words = clean_text.split()
+    if len(words) <= max_words:
+        return [clean_text]
+
+    # Split into sentences using punctuation boundaries
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", clean_text) if s.strip()]
+    if not sentences:
+        sentences = [clean_text]
+
+    chunks: List[str] = []
+    current_chunk: List[str] = []
+    current_count = 0
+
+    for sentence in sentences:
+        s_words = sentence.split()
+        if len(s_words) > max_words:
+            if current_chunk:
+                chunks.append(" ".join(current_chunk).strip())
+                current_chunk = []
+                current_count = 0
+
+            clause_parts = [c.strip() for c in re.split(r"(?<=[;:,—–])\s+", sentence) if c.strip()]
+            if len(clause_parts) > 1:
+                sub_chunk: List[str] = []
+                sub_count = 0
+                for clause in clause_parts:
+                    c_words = clause.split()
+                    if sub_count + len(c_words) <= max_words or not sub_chunk:
+                        sub_chunk.append(clause)
+                        sub_count += len(c_words)
+                    else:
+                        sub_text = " ".join(sub_chunk).strip()
+                        if not re.search(r"[.!?]$", sub_text):
+                            sub_text += "."
+                        chunks.append(sub_text)
+                        sub_chunk = [clause]
+                        sub_count = len(c_words)
+                if sub_chunk:
+                    sub_text = " ".join(sub_chunk).strip()
+                    if not re.search(r"[.!?]$", sub_text):
+                        sub_text += "."
+                    chunks.append(sub_text)
+            else:
+                for i in range(0, len(s_words), max_words):
+                    chunk_slice = s_words[i : i + max_words]
+                    chunk_text = " ".join(chunk_slice).strip()
+                    if not re.search(r"[.!?]$", chunk_text):
+                        chunk_text += "."
+                    chunks.append(chunk_text)
+        elif current_count + len(s_words) <= max_words:
+            current_chunk.append(sentence)
+            current_count += len(s_words)
+        else:
+            chunks.append(" ".join(current_chunk).strip())
+            current_chunk = [sentence]
+            current_count = len(s_words)
+
+    if current_chunk:
+        chunks.append(" ".join(current_chunk).strip())
+
+    result = []
+    for c in chunks:
+        c_clean = c.strip()
+        if not c_clean:
+            continue
+        if not re.search(r"[.!?]$", c_clean):
+            c_clean += "."
+        result.append(c_clean)
+
+    return result
+
+
+def _sanitize_takeaway_text(value: str) -> str:
+    text = re.sub(r"^(?:[\s\u2022\u2023\u25E6\u2043\u2219\-\–\—]+|(?:\*\s+)|(?:\d+[.)]\s+))+", "", str(value or "")).strip()
+    text = re.sub(r"\s+", " ", text).strip(" -:;,.")
+    text = re.sub(r"^(at a glance|key takeaway|takeaway|tl;?dr)\s*:\s*", "", text, flags=re.IGNORECASE).strip()
+    if not text:
+        return ""
+    if _looks_like_support_section_noise(text, min_len=20):
+        return ""
+    if len(text) < 25:
+        return ""
+    if not re.search(r"[.!?]$", text):
+        text = f"{text}."
+    return text
+
+
 def _normalize_takeaway_items(payload: Any) -> List[str]:
     raw_items = payload.get("takeaways") if isinstance(payload, dict) else payload
     if not isinstance(raw_items, list):
@@ -938,14 +1019,18 @@ def _normalize_takeaway_items(payload: Any) -> List[str]:
         text = _sanitize_takeaway_text(str(value or ""))
         if not text:
             continue
-        dedupe_key = re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
-        if not dedupe_key or dedupe_key in seen:
-            continue
-        seen.add(dedupe_key)
-        cleaned.append(text)
-        if len(cleaned) >= 5:
-            break
-    return cleaned[:5] if len(cleaned) >= 1 else []
+        # Split into <= 60 word chunks if necessary
+        split_items = _split_takeaway_text_to_max_words(text, max_words=60)
+        for sub_item in split_items:
+            sub_sanitized = _sanitize_takeaway_text(sub_item)
+            if not sub_sanitized:
+                continue
+            dedupe_key = re.sub(r"[^a-z0-9]+", " ", sub_sanitized.lower()).strip()
+            if not dedupe_key or dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            cleaned.append(sub_sanitized)
+    return cleaned if len(cleaned) >= 1 else []
 
 
 def _normalize_faq_items(payload: Any) -> List[Dict[str, str]]:
@@ -970,6 +1055,62 @@ def _normalize_faq_items(payload: Any) -> List[Dict[str, str]]:
         if len(cleaned) >= 8:
             break
     return cleaned[:8] if len(cleaned) >= 1 else []
+
+
+def _enforce_at_a_glance_bullet_word_limit(html_content: str, max_words: int = 60) -> str:
+    """
+    Scans HTML content for 'At a glance' / 'Key Takeaways' / 'TL;DR' sections or .geo-key-takeaways
+    and ensures each <li> bullet point contains at most max_words (default 60 words).
+    If a bullet exceeds max_words, it splits it into multiple <li> bullet items.
+    """
+    if not html_content or not str(html_content).strip():
+        return html_content
+
+    def _split_lis_in_list(list_html: str) -> str:
+        li_pattern = re.compile(r"<li\b[^>]*>([\s\S]*?)</li>", re.IGNORECASE)
+        items = li_pattern.findall(list_html)
+        if not items:
+            return list_html
+        new_items = []
+        for raw_li in items:
+            plain = re.sub(r"<[^>]+>", " ", raw_li).strip()
+            words = plain.split()
+            if len(words) <= max_words:
+                new_items.append(f"<li>{raw_li.strip()}</li>")
+            else:
+                split_parts = _split_takeaway_text_to_max_words(raw_li, max_words=max_words)
+                for part in split_parts:
+                    new_items.append(f"<li>{part.strip()}</li>")
+        return "".join(f"\n    {item}" for item in new_items) + "\n  "
+
+    # 1. Match headings for At a glance / Key Takeaways / TL;DR followed by <ul> or <ol>
+    heading_pattern = re.compile(
+        r"(<(?:h[1-6]|p|div)\b[^>]*>\s*(?:<strong>)?\s*(?:At\s+a\s+glance|Key\s+Takeaways|Takeaways|TL;?DR)\s*(?:</strong>)?\s*</(?:h[1-6]|p|div)>\s*<(ul|ol)\b[^>]*>)([\s\S]*?)(</\2>)",
+        re.IGNORECASE,
+    )
+
+    def _heading_replacer(match: re.Match) -> str:
+        prefix = match.group(1)
+        body = match.group(3)
+        suffix = match.group(4)
+        return f"{prefix}{_split_lis_in_list(body)}{suffix}"
+
+    content = heading_pattern.sub(_heading_replacer, html_content)
+
+    # 2. Match <section class="geo-key-takeaways"...> ... <(ul|ol)> ... </(ul|ol)> ... </section>
+    geo_pattern = re.compile(
+        r'(<section\b[^>]*class=["\'][^"\']*geo-key-takeaways[^"\']*["\'][^>]*>[\s\S]*?<(ul|ol)\b[^>]*>)([\s\S]*?)(</\2>[\s\S]*?</section>)',
+        re.IGNORECASE,
+    )
+
+    def _geo_replacer(match: re.Match) -> str:
+        prefix = match.group(1)
+        body = match.group(3)
+        suffix = match.group(4)
+        return f"{prefix}{_split_lis_in_list(body)}{suffix}"
+
+    content = geo_pattern.sub(_geo_replacer, content)
+    return content
 
 
 def _render_key_takeaways_html(items: List[str]) -> str:
@@ -1033,6 +1174,7 @@ Read the full article and return STRICT JSON only.
 
 Rules:
 - Generate 3 to 5 takeaway bullets.
+- Set a strict maximum limit of 60 words per bullet point. If a concept does not fit within 60 words, split it into a new bullet point.
 - Each takeaway must be specific, meaningful, and reader-facing.
 - Use complete sentences.
 - Do not mention prompts, instructions, reasoning, analysis, SEO, GEO, keywords, or citations.
@@ -1321,6 +1463,7 @@ TARGET FORMAT & STRUCTURAL REQUIREMENTS:
    - Start immediately with a punchy 1-sentence hook statement that grabs attention and delivers immediate value.
    - Strip all conversational throat-clearing, introductory meta-talk, or filler (e.g., "Ever wondered...", "In this article...", "When considering...", "Here is a guide...", "This article is optimized around...").
    - Strip generic redundant headers like "At a glance", "Short Answer", or "Introduction".
+   - For any bullet points in summary, key takeaways, or "At a glance" sections, enforce a strict maximum limit of 60 words per bullet point. If a concept exceeds 60 words, split it into a new bullet point.
    - Present the core takeaways using bolded axiom signals:
      * `<p><strong>The big picture:</strong> (1-2 sentences summarizing the core premise).</p>`
      * `<p><strong>Why it matters:</strong> (1-2 sentences explaining high-stakes impact and consequences for {target_audience}).</p>`
@@ -1335,7 +1478,7 @@ TARGET FORMAT & STRUCTURAL REQUIREMENTS:
      * Write deep, narrative, and engaging body paragraphs that tell a complete story with real-world context, nuance, and smooth transitions.
      * DO NOT turn standard body paragraphs into bold-prefixed pseudo-bullet points (e.g., avoid `<p><strong>Concept Name:</strong> One-sentence description.</p>`). Standard body paragraphs must be written as natural editorial prose.
      * Paragraph length: Well-paced paragraphs (typically 2–4 sentences per paragraph). Avoid monolithic walls of text, but NEVER collapse paragraphs into telegram-like 1-sentence snippets.
-     * Bullet points: Use bulleted lists (`<ul><li>...</li></ul>`) ONLY for discrete items, checklists, steps, or feature sets. In actual lists, bold the first 2–5 words (`<li><strong>Key Takeaway:</strong> explanation...</li>`).
+     * Bullet points: Use bulleted lists (`<ul><li>...</li></ul>`) ONLY for discrete items, checklists, steps, or feature sets. In actual lists, bold the first 2–5 words (`<li><strong>Key Takeaway:</strong> explanation...</li>`). Ensure every bullet point is at most 60 words (split if longer).
      * Tables over text for structured data: Format multi-variable comparisons, financial breakdowns, tax tiers, or step criteria as clean HTML tables (`<table>...</table>`).
      * Authoritative tone: Zero fabricated personal friend anecdotes. Keep the analysis sharp, professional, and directly calibrated for {target_audience}.
 
@@ -1402,6 +1545,7 @@ Output instructions:
             cleaned,
         )
 
+        cleaned = _enforce_at_a_glance_bullet_word_limit(cleaned, max_words=60)
         logger.info(f"Smart Brevity polishing pass complete. Original chars: {len(html_content)}, Polished chars: {len(cleaned)}")
         return cleaned
 
@@ -5306,6 +5450,7 @@ def _build_refinement_user_message(
 AT A GLANCE / SUMMARY SECTION RULES:
 - Make this section feel crisp, fluid, and non-repetitive.
 - Keep it to 3-5 bullet points only.
+- Strict limit of at most 60 words per bullet point. If a concept does not fit within 60 words, split it into a new bullet point.
 - Each bullet must communicate a distinct takeaway, not a reworded version of another bullet.
 - Prefer one sentence per bullet and keep each bullet concise.
 - Remove repeated framing, repeated qualifiers, and repeated mentions of the same core phrase unless necessary for clarity.
@@ -5596,7 +5741,7 @@ Rules:
 - Remove overstatements that are not supported.
 - Preserve all HTML structure and any citation markers.
 - Keep wording concise and concrete.
-- {"For 'At a glance' or Key Takeaways sections, keep only distinct bullets and remove overlapping points." if takeaways_section else "Keep section structure intact."}
+- {"For 'At a glance' or Key Takeaways sections, keep bullet points strictly under 60 words each (split into a new bullet if a concept exceeds 60 words), keep only distinct bullets, and remove overlapping points." if takeaways_section else "Keep section structure intact."}
 - Return only cleaned HTML."""
             factual_result = _run_refinement_pass("factual_integrity", factual_prompt, refined_content)
             if factual_result:
@@ -5616,7 +5761,7 @@ Rules:
 - Reduce hedging and repetitive transitions.
 - Remove banned/generic phrases.
 - CRITICAL: Split long, dense paragraphs into small, digestible paragraphs (typically 2 to 4 sentences or 35 to 70 words per paragraph). Avoid walls of text.
-- {"For 'At a glance' or Key Takeaways sections, tighten repeated ideas into 3-5 distinct bullets and remove redundant setup language." if takeaways_section else "Keep the current section structure unless a cleaner equivalent is clearly better."}
+- {"For 'At a glance' or Key Takeaways sections, keep bullet points strictly under 60 words each (split into a new bullet if a concept exceeds 60 words), tighten repeated ideas into 3-5 distinct bullets, and remove redundant setup language." if takeaways_section else "Keep the current section structure unless a cleaner equivalent is clearly better."}
 - Keep the same facts and HTML structure.
 - Keep tone as {tone}.
 - Return only revised HTML."""
@@ -5653,7 +5798,7 @@ Rules:
             - Avoid repetitive, cliché personal anecdotes/stories (such as "I remember sitting at my kitchen table" or "I remember staring at my laptop screen"). Make sure any personal narratives are natural, fluid, unique, and never repeat similar phrasing or concepts.
             - If the tone is Journalistic, Professional, Academic, or Technical, ensure there are NO fabricated first-person anecdotes or fictional personal stories injected.
             - CRITICAL: Proactively split any long, dense paragraphs into smaller, bite-sized, digestible paragraphs (typically 2 to 4 sentences or 30 to 70 words each) to avoid fatigue, improve readability, and keep the layout scannable.
-            - {"If this is an 'At a glance' or Key Takeaways section, make it more fluid and concise by using 3-5 short, distinct bullets with minimal overlap." if takeaways_section else "Avoid unnecessary repetition and keep each section focused."}
+            - {"If this is an 'At a glance' or Key Takeaways section, keep bullet points strictly under 60 words each (split into a new bullet if a concept exceeds 60 words), make it more fluid and concise by using 3-5 short, distinct bullets with minimal overlap." if takeaways_section else "Avoid unnecessary repetition and keep each section focused."}
             - Maintain the original meaning and factual accuracy
             - Maintain HTML structure exactly as provided
             {citation_instructions}
@@ -5942,6 +6087,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
 
         # Normalize any markdown artifacts that leaked from generation/refinement.
         full_content = _normalize_markdown_artifacts_to_html(full_content)
+        full_content = _enforce_at_a_glance_bullet_word_limit(full_content, max_words=60)
         
         # Create clickable citation links only if in-text citations are enabled
         if include_in_text_citations:

@@ -67,8 +67,94 @@ const buildTakeawayCandidates = (articleData: any): string[] => {
     return unique.slice(0, 4);
 };
 
+export const splitTakeawayTextToMaxWords = (text: string, maxWords: number = 60): string[] => {
+    const cleanText = (text || '').trim();
+    if (!cleanText) return [];
+
+    const plainWords = cleanText.replace(/<[^>]+>/g, ' ').trim().split(/\s+/).filter(Boolean);
+    if (plainWords.length <= maxWords) {
+        return [cleanText];
+    }
+
+    // Split into sentences using punctuation boundaries
+    const sentences = cleanText.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+    if (sentences.length === 0) return [cleanText];
+
+    const chunks: string[] = [];
+    let currentChunk: string[] = [];
+    let currentCount = 0;
+
+    for (const sentence of sentences) {
+        const sWords = sentence.replace(/<[^>]+>/g, ' ').trim().split(/\s+/).filter(Boolean);
+        if (sWords.length > maxWords) {
+            if (currentChunk.length > 0) {
+                chunks.push(currentChunk.join(' ').trim());
+                currentChunk = [];
+                currentCount = 0;
+            }
+
+            const clauseParts = sentence.split(/(?<=[;:,—–])\s+/).map((c) => c.trim()).filter(Boolean);
+            if (clauseParts.length > 1) {
+                let subChunk: string[] = [];
+                let subCount = 0;
+                for (const clause of clauseParts) {
+                    const cWords = clause.replace(/<[^>]+>/g, ' ').trim().split(/\s+/).filter(Boolean);
+                    if (subCount + cWords.length <= maxWords || subChunk.length === 0) {
+                        subChunk.push(clause);
+                        subCount += cWords.length;
+                    } else {
+                        let subText = subChunk.join(' ').trim();
+                        if (!/[.!?]$/.test(subText)) subText += '.';
+                        chunks.push(subText);
+                        subChunk = [clause];
+                        subCount = cWords.length;
+                    }
+                }
+                if (subChunk.length > 0) {
+                    let subText = subChunk.join(' ').trim();
+                    if (!/[.!?]$/.test(subText)) subText += '.';
+                    chunks.push(subText);
+                }
+            } else {
+                for (let i = 0; i < sWords.length; i += maxWords) {
+                    const chunkSlice = sWords.slice(i, i + maxWords);
+                    let chunkText = chunkSlice.join(' ').trim();
+                    if (!/[.!?]$/.test(chunkText)) chunkText += '.';
+                    chunks.push(chunkText);
+                }
+            }
+        } else if (currentCount + sWords.length <= maxWords) {
+            currentChunk.push(sentence);
+            currentCount += sWords.length;
+        } else {
+            chunks.push(currentChunk.join(' ').trim());
+            currentChunk = [sentence];
+            currentCount = sWords.length;
+        }
+    }
+
+    if (currentChunk.length > 0) {
+        chunks.push(currentChunk.join(' ').trim());
+    }
+
+    return chunks
+        .map((c) => c.trim())
+        .filter(Boolean)
+        .map((c) => (/[.!?]$/.test(c) ? c : `${c}.`));
+};
+
 const createKeyTakeawaysSection = (doc: Document, takeaways: string[]): HTMLElement | null => {
-    if (takeaways.length === 0) return null;
+    const expandedTakeaways: string[] = [];
+    takeaways.forEach((item) => {
+        const splits = splitTakeawayTextToMaxWords(item, 60);
+        if (splits.length > 0) {
+            expandedTakeaways.push(...splits);
+        } else {
+            expandedTakeaways.push(item);
+        }
+    });
+
+    if (expandedTakeaways.length === 0) return null;
 
     const section = doc.createElement('section');
     section.className = 'geo-key-takeaways';
@@ -79,7 +165,7 @@ const createKeyTakeawaysSection = (doc: Document, takeaways: string[]): HTMLElem
     section.appendChild(heading);
 
     const list = doc.createElement('ul');
-    takeaways.forEach((item) => {
+    expandedTakeaways.forEach((item) => {
         const listItem = doc.createElement('li');
         listItem.innerHTML = formatTakeawayHtml(item);
         list.appendChild(listItem);
@@ -105,14 +191,17 @@ const extractTakeawayTexts = (container: ParentNode): string[] => {
         const cleaned = normalizeTakeawayText(raw);
         if (!isUsefulTakeaway(cleaned)) continue;
 
-        const plainKey = cleaned.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-        if (plainKey && !seenPlain.has(plainKey)) {
-            seenPlain.add(plainKey);
-            uniqueTakeaways.push(cleaned);
+        const splits = splitTakeawayTextToMaxWords(cleaned, 60);
+        for (const splitItem of (splits.length > 0 ? splits : [cleaned])) {
+            const plainKey = splitItem.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+            if (plainKey && !seenPlain.has(plainKey)) {
+                seenPlain.add(plainKey);
+                uniqueTakeaways.push(splitItem);
+            }
         }
     }
 
-    return uniqueTakeaways.slice(0, 5);
+    return uniqueTakeaways.slice(0, 8);
 };
 
 const extractExistingKeyTakeawaysSection = (doc: Document): HTMLElement | null => {
