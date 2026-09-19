@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Loader2, BookOpen, ExternalLink, Sparkles, CheckCircle2, AlertCircle, ArrowRight, Globe, ArrowUpDown, Calendar, Filter } from 'lucide-react';
+import { X, Search, Loader2, BookOpen, Sparkles, CheckCircle2, AlertCircle, ArrowRight, Globe, ArrowUpDown, Filter, Zap } from 'lucide-react';
 import { editorialFactoryService, type EditorialArticle } from '../services/editorial-factory.service';
 import { useProject } from '../context/project-context';
+import { findBestMatchingDomain, type DomainMatchResult } from '../lib/editorialDomainMatcher';
 
 interface EditorialImportModalProps {
     isOpen: boolean;
@@ -20,26 +21,23 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
     const [loading, setLoading] = useState(false);
     const [importingId, setImportingId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedDomain, setSelectedDomain] = useState<string>(activeProject?.domain || '');
+    // Global filter: '' means show all / auto-route; otherwise filter by specific domain
+    const [domainFilter, setDomainFilter] = useState<string>('all');
     const [filterStatus, setFilterStatus] = useState<'all' | 'new' | 'imported'>('all');
     const [sortBy, setSortBy] = useState<'date_desc' | 'date_asc' | 'title_asc' | 'word_count_desc'>('date_desc');
     const [error, setError] = useState<string | null>(null);
     const [previewArticle, setPreviewArticle] = useState<EditorialArticle | null>(null);
 
-    useEffect(() => {
-        if (activeProject?.domain && !selectedDomain) {
-            setSelectedDomain(activeProject.domain);
-        }
-    }, [activeProject?.domain]);
+    // Per-article target domain overrides { [articleId]: domainString }
+    const [articleTargetDomains, setArticleTargetDomains] = useState<Record<string, string>>({});
 
-    const fetchArticles = async (query = '', domain = selectedDomain) => {
+    const fetchArticles = async (query = '') => {
         setLoading(true);
         setError(null);
         try {
             const data = await editorialFactoryService.listArticles({
                 search: query,
                 limit: 50,
-                domain: domain || undefined,
             });
             setArticles(data);
         } catch (err: any) {
@@ -53,22 +51,49 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
 
     useEffect(() => {
         if (isOpen) {
-            void fetchArticles(searchQuery, selectedDomain);
+            void fetchArticles(searchQuery);
         }
-    }, [isOpen, selectedDomain]);
+    }, [isOpen]);
 
     const handleSearchSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        void fetchArticles(searchQuery, selectedDomain);
+        void fetchArticles(searchQuery);
+    };
+
+    // Calculate smart match results per article
+    const getTargetDomainInfo = (article: EditorialArticle): { domain: string; matchResult: DomainMatchResult; isCustom: boolean } => {
+        const matchResult = findBestMatchingDomain(article, projects, activeProject?.domain || '');
+        const customDomain = articleTargetDomains[article.id];
+        if (customDomain !== undefined) {
+            return {
+                domain: customDomain,
+                matchResult,
+                isCustom: customDomain !== matchResult.domain,
+            };
+        }
+        return {
+            domain: matchResult.domain,
+            matchResult,
+            isCustom: false,
+        };
+    };
+
+    const handleArticleDomainChange = (articleId: string, newDomain: string) => {
+        setArticleTargetDomains(prev => ({
+            ...prev,
+            [articleId]: newDomain,
+        }));
     };
 
     const handleImport = async (article: EditorialArticle) => {
         setImportingId(article.id);
         setError(null);
+        const { domain: targetDomain } = getTargetDomainInfo(article);
+
         try {
             const res = await editorialFactoryService.importArticle({
                 article_id: article.id,
-                domain: selectedDomain || undefined,
+                domain: targetDomain || undefined,
             });
 
             if (res.success && res.title_id) {
@@ -78,6 +103,7 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
                     is_imported: true,
                     imported_title_id: res.title_id,
                     imported_at: new Date().toISOString(),
+                    imported_domain: targetDomain,
                 } : a));
                 onClose();
                 onImportSuccess(res.title_id);
@@ -99,8 +125,20 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
 
     const filteredArticles = useMemo(() => {
         const filtered = articles.filter(article => {
+            // Status filter
             if (filterStatus === 'new' && article.is_imported) return false;
             if (filterStatus === 'imported' && !article.is_imported) return false;
+
+            // Domain filter
+            if (domainFilter !== 'all') {
+                const targetDomain = getTargetDomainInfo(article).domain;
+                if (domainFilter === '__unassigned__') {
+                    if (targetDomain) return false;
+                } else {
+                    if (targetDomain !== domainFilter) return false;
+                }
+            }
+
             return true;
         });
 
@@ -123,7 +161,7 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
             }
             return 0;
         });
-    }, [articles, filterStatus, sortBy]);
+    }, [articles, filterStatus, domainFilter, sortBy, articleTargetDomains, projects, activeProject]);
 
     if (!isOpen) return null;
 
@@ -145,7 +183,7 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
                             <div>
                                 <h2 className="text-lg font-bold text-foreground">Import from Editorial Factory</h2>
                                 <p className="text-xs text-muted-foreground">
-                                    Browse articles from your secondary Supabase database, copy them into the editor, and enrich with illustrations & SEO.
+                                    Browse articles from your secondary Supabase database with smart niche auto-routing across your domains.
                                 </p>
                             </div>
                         </div>
@@ -167,14 +205,14 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
                                     type="text"
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    placeholder="Search articles by title or keyword..."
+                                    placeholder="Search articles by title, tag, or keyword..."
                                     className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-border bg-background text-foreground focus:ring-2 focus:ring-ring outline-none"
                                 />
                             </form>
 
                             <button
                                 type="button"
-                                onClick={() => void fetchArticles(searchQuery, selectedDomain)}
+                                onClick={() => void fetchArticles(searchQuery)}
                                 disabled={loading}
                                 className="w-full sm:w-auto px-4 py-2 text-xs font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50 shrink-0 flex items-center justify-center gap-1.5"
                             >
@@ -182,7 +220,7 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
                             </button>
                         </div>
 
-                        {/* Row 2: Status Filter Pills + Sort Dropdown + Domain Selector */}
+                        {/* Row 2: Status Filter Pills + Sort Dropdown + Domain Filter */}
                         <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5 text-xs">
                             {/* Status Filter Tabs */}
                             <div className="flex items-center gap-1 bg-background border border-border rounded-xl p-1 shrink-0">
@@ -223,7 +261,7 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
                                 </button>
                             </div>
 
-                            {/* Sort & Domain Controls */}
+                            {/* Sort & Domain Filter Controls */}
                             <div className="flex items-center gap-2 flex-wrap">
                                 {/* Sort dropdown */}
                                 <div className="flex items-center gap-1.5 border border-border rounded-xl px-2.5 py-1 bg-background">
@@ -241,21 +279,22 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
                                     </select>
                                 </div>
 
-                                {/* Domain selector */}
+                                {/* Domain Filter selector */}
                                 <div className="flex items-center gap-1.5 border border-border rounded-xl px-2.5 py-1 bg-background">
-                                    <Globe className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                                    <Filter className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                                     <select
-                                        value={selectedDomain}
-                                        onChange={(e) => setSelectedDomain(e.target.value)}
-                                        className="py-1 text-xs bg-transparent text-foreground focus:ring-0 outline-none cursor-pointer"
-                                        title="Target Project Domain"
+                                        value={domainFilter}
+                                        onChange={(e) => setDomainFilter(e.target.value)}
+                                        className="py-1 text-xs bg-transparent text-foreground focus:ring-0 outline-none cursor-pointer font-medium"
+                                        title="Filter by Target Domain"
                                     >
-                                        <option value="">No Domain (Unassigned)</option>
+                                        <option value="all">All Domains (Auto-Routed ✨)</option>
                                         {projects.map((p) => (
                                             <option key={p.id} value={p.domain || p.app_name}>
-                                                {p.domain || p.app_name}
+                                                Filter: {p.domain || p.app_name}
                                             </option>
                                         ))}
+                                        <option value="__unassigned__">Filter: Unassigned / No Domain</option>
                                     </select>
                                 </div>
                             </div>
@@ -288,105 +327,130 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
                                             : 'No Editorial Articles Found'}
                                 </h3>
                                 <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                                    {filterStatus === 'new'
-                                        ? 'All available articles from this database have already been imported into your library.'
-                                        : filterStatus === 'imported'
-                                            ? 'You haven\'t imported any articles from Editorial Factory yet.'
-                                            : 'No articles matched your search query in the secondary Supabase database. Try clearing the search or adding articles in Editorial Factory.'}
+                                    {domainFilter !== 'all'
+                                        ? `No articles match the current filters for ${domainFilter}. Try selecting "All Domains (Auto-Routed)" or clearing search terms.`
+                                        : filterStatus === 'new'
+                                            ? 'All available articles from this database have already been imported into your library.'
+                                            : filterStatus === 'imported'
+                                                ? "You haven't imported any articles from Editorial Factory yet."
+                                                : 'No articles matched your search query in the secondary Supabase database. Try clearing the search or adding articles in Editorial Factory.'}
                                 </p>
                             </div>
                         ) : (
                             filteredArticles.map((article) => {
                                 const isImported = Boolean(article.is_imported);
+                                const { domain: targetDomain, matchResult, isCustom } = getTargetDomainInfo(article);
 
                                 return (
                                     <div
                                         key={article.id}
-                                        className={`p-4 rounded-2xl border transition flex flex-col sm:flex-row gap-4 items-start justify-between ${
+                                        className={`p-4 rounded-2xl border transition flex flex-col gap-3.5 ${
                                             isImported
                                                 ? 'border-emerald-500/30 bg-emerald-500/[0.03] hover:bg-emerald-500/[0.06]'
                                                 : 'border-border bg-card/60 hover:bg-muted/30'
                                         }`}
                                     >
-                                        <div className="flex-1 space-y-1.5 min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <h3 className="font-semibold text-foreground text-sm truncate">
-                                                    {article.title}
-                                                </h3>
+                                        <div className="flex flex-col sm:flex-row gap-4 items-start justify-between">
+                                            <div className="flex-1 space-y-1.5 min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <h3 className="font-semibold text-foreground text-sm truncate">
+                                                        {article.title}
+                                                    </h3>
+                                                    {isImported ? (
+                                                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
+                                                            <CheckCircle2 className="w-3 h-3" />
+                                                            Already Imported {article.imported_domain ? `(${article.imported_domain})` : ''}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">
+                                                            <Sparkles className="w-2.5 h-2.5" />
+                                                            New
+                                                        </span>
+                                                    )}
+                                                    {article.word_count ? (
+                                                        <span className="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                                                            ~{article.word_count} words
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+
+                                                {article.summary && (
+                                                    <p className="text-xs text-muted-foreground line-clamp-2">
+                                                        {article.summary}
+                                                    </p>
+                                                )}
+
+                                                <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-muted-foreground">
+                                                    <span>By {article.author || 'Editorial Factory'}</span>
+                                                    <span>·</span>
+                                                    <span>{new Date(article.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                                                    {article.tags && article.tags.length > 0 && (
+                                                        <>
+                                                            <span>·</span>
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {article.tags.slice(0, 3).map((tag, i) => (
+                                                                    <span key={i} className="px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 text-[10px]">
+                                                                        {tag}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Action Buttons */}
+                                            <div className="shrink-0 flex items-center gap-2 self-end sm:self-center flex-wrap justify-end">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setPreviewArticle(previewArticle?.id === article.id ? null : article)}
+                                                    className="px-3 py-1.5 text-xs font-medium rounded-xl border border-border hover:bg-muted transition text-foreground"
+                                                >
+                                                    {previewArticle?.id === article.id ? 'Hide Preview' : 'Preview'}
+                                                </button>
+
                                                 {isImported ? (
-                                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
-                                                        <CheckCircle2 className="w-3 h-3" />
-                                                        Already Imported
-                                                    </span>
-                                                ) : (
-                                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">
-                                                        <Sparkles className="w-2.5 h-2.5" />
-                                                        New
-                                                    </span>
-                                                )}
-                                                {article.word_count ? (
-                                                    <span className="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
-                                                        ~{article.word_count} words
-                                                    </span>
-                                                ) : null}
-                                            </div>
-
-                                            {article.summary && (
-                                                <p className="text-xs text-muted-foreground line-clamp-2">
-                                                    {article.summary}
-                                                </p>
-                                            )}
-
-                                            <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-muted-foreground">
-                                                <span>By {article.author || 'Editorial Factory'}</span>
-                                                <span>·</span>
-                                                <span>{new Date(article.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                                                {article.tags && article.tags.length > 0 && (
                                                     <>
-                                                        <span>·</span>
-                                                        <div className="flex flex-wrap gap-1">
-                                                            {article.tags.slice(0, 3).map((tag, i) => (
-                                                                <span key={i} className="px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 text-[10px]">
-                                                                    {tag}
-                                                                </span>
-                                                            ))}
-                                                        </div>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <div className="shrink-0 flex items-center gap-2 self-end sm:self-center flex-wrap justify-end">
-                                            <button
-                                                type="button"
-                                                onClick={() => setPreviewArticle(previewArticle?.id === article.id ? null : article)}
-                                                className="px-3 py-1.5 text-xs font-medium rounded-xl border border-border hover:bg-muted transition text-foreground"
-                                            >
-                                                {previewArticle?.id === article.id ? 'Hide Preview' : 'Preview'}
-                                            </button>
-
-                                            {isImported ? (
-                                                <>
-                                                    {article.imported_title_id && (
+                                                        {article.imported_title_id && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    onClose();
+                                                                    onImportSuccess(article.imported_title_id!);
+                                                                }}
+                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition"
+                                                                title="Open the existing article in Article Editor"
+                                                            >
+                                                                <span>Open in Editor</span>
+                                                                <ArrowRight className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        )}
                                                         <button
                                                             type="button"
-                                                            onClick={() => {
-                                                                onClose();
-                                                                onImportSuccess(article.imported_title_id!);
-                                                            }}
-                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition"
-                                                            title="Open the existing article in Article Editor"
+                                                            onClick={() => handleImport(article)}
+                                                            disabled={importingId === article.id}
+                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl border border-border bg-background hover:bg-muted text-foreground transition shadow-sm disabled:opacity-50"
+                                                            title="Import again as a fresh copy"
                                                         >
-                                                            <span>Open in Editor</span>
-                                                            <ArrowRight className="w-3.5 h-3.5" />
+                                                            {importingId === article.id ? (
+                                                                <>
+                                                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                                    <span>Importing...</span>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <Sparkles className="w-3.5 h-3.5 text-primary" />
+                                                                    <span>Import Again</span>
+                                                                </>
+                                                            )}
                                                         </button>
-                                                    )}
+                                                    </>
+                                                ) : (
                                                     <button
                                                         type="button"
                                                         onClick={() => handleImport(article)}
                                                         disabled={importingId === article.id}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl border border-border bg-background hover:bg-muted text-foreground transition shadow-sm disabled:opacity-50"
-                                                        title="Import again as a fresh copy"
+                                                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition shadow-sm disabled:opacity-50"
                                                     >
                                                         {importingId === article.id ? (
                                                             <>
@@ -395,38 +459,68 @@ export const EditorialImportModal: React.FC<EditorialImportModalProps> = ({
                                                             </>
                                                         ) : (
                                                             <>
-                                                                <Sparkles className="w-3.5 h-3.5 text-primary" />
-                                                                <span>Import Again</span>
+                                                                <Sparkles className="w-3.5 h-3.5" />
+                                                                <span>Import & Edit</span>
+                                                                <ArrowRight className="w-3.5 h-3.5" />
                                                             </>
                                                         )}
                                                     </button>
-                                                </>
-                                            ) : (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleImport(article)}
-                                                    disabled={importingId === article.id}
-                                                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition shadow-sm disabled:opacity-50"
-                                                >
-                                                    {importingId === article.id ? (
-                                                        <>
-                                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                                            <span>Importing...</span>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Sparkles className="w-3.5 h-3.5" />
-                                                            <span>Import & Edit</span>
-                                                            <ArrowRight className="w-3.5 h-3.5" />
-                                                        </>
-                                                    )}
-                                                </button>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Target Domain Bar & Smart Matching Pill */}
+                                        <div className="pt-2 border-t border-border/40 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+                                                    <Globe className="w-3.5 h-3.5" />
+                                                    Target Website:
+                                                </span>
+
+                                                <div className="flex items-center gap-1.5 bg-background border border-border rounded-lg px-2 py-0.5">
+                                                    <select
+                                                        value={targetDomain}
+                                                        onChange={(e) => handleArticleDomainChange(article.id, e.target.value)}
+                                                        className="py-0.5 text-xs bg-transparent text-foreground font-semibold focus:ring-0 outline-none cursor-pointer"
+                                                        title="Target Domain for this Article"
+                                                    >
+                                                        <option value="">No Domain (Unassigned)</option>
+                                                        {projects.map((p) => (
+                                                            <option key={p.id} value={p.domain || p.app_name}>
+                                                                {p.domain || p.app_name}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+
+                                                {/* Smart Match Status Indicator */}
+                                                {!isCustom && matchResult.isAutoMatched && (
+                                                    <span
+                                                        className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20"
+                                                        title={matchResult.matchReason || 'Auto-matched to niche'}
+                                                    >
+                                                        <Zap className="w-2.5 h-2.5 text-violet-500" />
+                                                        Auto-routed ({matchResult.matchReason || 'niche match'})
+                                                    </span>
+                                                )}
+
+                                                {isCustom && (
+                                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                                        Manually selected
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            {targetDomain && (
+                                                <span className="text-[11px] text-muted-foreground/80 hidden sm:inline">
+                                                    Will be saved under <span className="font-semibold text-foreground">{targetDomain}</span>
+                                                </span>
                                             )}
                                         </div>
 
                                         {/* Inline Preview */}
                                         {previewArticle?.id === article.id && (
-                                            <div className="w-full mt-3 p-4 rounded-xl border border-border/80 bg-background/90 text-xs space-y-2">
+                                            <div className="w-full mt-2 p-4 rounded-xl border border-border/80 bg-background/90 text-xs space-y-2">
                                                 <div className="font-semibold text-foreground">Content Preview:</div>
                                                 <div className="max-h-48 overflow-y-auto font-mono text-[11px] text-muted-foreground whitespace-pre-wrap">
                                                     {article.content.slice(0, 1000)}...
