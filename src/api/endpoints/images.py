@@ -256,24 +256,33 @@ def generate_google_imagen(
         raise
 
 
-def _normalize_kie_model(model: str, has_reference_images: bool) -> str:
-    """Normalize model string to valid KIE Market API model identifier."""
+def normalize_kie_model_name(model: str, has_reference_images: bool = False) -> str:
+    """Normalize model string to KIE.ai supported model names."""
     m = str(model or "").strip().lower()
+
+    if "banana" in m or "gemini" in m:
+        return "nano-banana-pro"
+
     if "flux-2" in m:
         is_pro = "pro" in m
         if has_reference_images:
             return "flux-2/pro-image-to-image" if is_pro else "flux-2/flex-image-to-image"
         else:
             return "flux-2/pro-text-to-image" if is_pro else "flux-2/flex-text-to-image"
+
     if "flux-kontext" in m or "flux1-kontext" in m:
         return "flux1-kontext"
-    return model
+
+    return model or "nano-banana-pro"
 
 
-def generate_kie_flux_image(
+_normalize_kie_model = normalize_kie_model_name
+
+
+def generate_kie_image(
     prompt: str,
     api_key: str,
-    model: str,
+    model: str = "nano-banana-pro",
     aspect_ratio: str = "1:1",
     reference_image_urls=None,
     resolution: str = "1K",
@@ -281,6 +290,7 @@ def generate_kie_flux_image(
     """
     Generate image through KIE Market API task endpoints with automatic retry
     and fallback handling for transient 500 / upstream provider errors.
+    Supports nano-banana-pro, flux-2/*, etc.
     """
     try:
         create_url = "https://api.kie.ai/api/v1/jobs/createTask"
@@ -301,7 +311,7 @@ def generate_kie_flux_image(
         ]
         has_refs = bool(image_urls)
 
-        primary_model = _normalize_kie_model(model, has_reference_images=has_refs)
+        primary_model = normalize_kie_model_name(model, has_reference_images=has_refs)
 
         # Build prioritized list of model candidates (fallback to sibling if 500 internal error occurs)
         models_to_try = [primary_model]
@@ -321,10 +331,15 @@ def generate_kie_flux_image(
                     "prompt": prompt,
                     "aspect_ratio": aspect_ratio or "1:1",
                     "resolution": resolution or "1K",
+                    "output_format": "png",
                     "nsfw_checker": False,
                 }
                 if image_urls:
+                    input_payload["image_input"] = image_urls
                     input_payload["input_urls"] = image_urls
+                    input_payload["image_urls"] = image_urls
+                else:
+                    input_payload["image_input"] = []
 
                 create_payload = {
                     "model": target_model,
@@ -332,7 +347,7 @@ def generate_kie_flux_image(
                 }
 
                 logger.info(
-                    "Submitting KIE Flux task for model '%s' (attempt %d/%d)",
+                    "Submitting KIE task for model '%s' (attempt %d/%d)",
                     target_model,
                     attempt_idx + 1,
                     len(models_to_try),
@@ -340,7 +355,7 @@ def generate_kie_flux_image(
                 create_resp = requests.post(create_url, headers=headers, json=create_payload, timeout=30)
                 create_resp.raise_for_status()
                 create_data = create_resp.json()
-                logger.info("KIE Flux createTask response: %s", create_data)
+                logger.info("KIE createTask response: %s", create_data)
 
                 # Handle KIE response error codes
                 code = create_data.get("code")
@@ -383,13 +398,20 @@ def generate_kie_flux_image(
                             except Exception:
                                 logger.warning("Failed to parse KIE resultJson for task_id=%s: %s", task_id, result_json)
 
-                        result_urls = parsed_result.get("resultUrls") if isinstance(parsed_result, dict) else None
-                        if not result_urls and isinstance(parsed_result, dict):
-                            single_url = parsed_result.get("resultUrl") or parsed_result.get("url") or parsed_result.get("imageUrl")
-                            if single_url:
-                                result_urls = [single_url]
+                        # Find result image URL across candidate keys
+                        image_url = None
+                        for candidate_dict in [parsed_result, data]:
+                            if not isinstance(candidate_dict, dict):
+                                continue
+                            urls = candidate_dict.get("resultUrls") or candidate_dict.get("result_urls") or candidate_dict.get("images") or candidate_dict.get("image_urls")
+                            if isinstance(urls, list) and len(urls) > 0 and urls[0]:
+                                image_url = urls[0]
+                                break
+                            single_url = candidate_dict.get("resultUrl") or candidate_dict.get("url") or candidate_dict.get("imageUrl")
+                            if single_url and isinstance(single_url, str):
+                                image_url = single_url
+                                break
 
-                        image_url = result_urls[0] if isinstance(result_urls, list) and result_urls else None
                         if not image_url:
                             raise Exception(f"KIE task completed but no result URL found. task_id={task_id} payload={poll_data}")
 
@@ -399,9 +421,9 @@ def generate_kie_flux_image(
 
                     if state == "fail":
                         fail_code = str(data.get("failCode") or "").strip()
-                        fail_msg = str(data.get("failMsg") or "").strip()
-                        err_text = f"KIE Flux task failed. task_id={task_id} fail_code={fail_code or 'n/a'} fail_msg={fail_msg or 'no provider message'}"
-                        logger.warning("KIE Flux task failed for model '%s': %s", target_model, err_text)
+                        fail_msg = str(data.get("failMsg") or data.get("msg") or data.get("message") or "").strip()
+                        err_text = f"KIE task failed. task_id={task_id} fail_code={fail_code or 'n/a'} fail_msg={fail_msg or 'no provider message'}"
+                        logger.warning("KIE task failed for model '%s': %s", target_model, err_text)
 
                         # If this is a transient 500 error / Internal Error and we have fallback models, loop to next model
                         if (fail_code == "500" or "internal error" in fail_msg.lower()) and attempt_idx + 1 < len(models_to_try):
@@ -409,7 +431,7 @@ def generate_kie_flux_image(
                             break  # Break inner polling loop to try next model
 
                         raise Exception(
-                            f"KIE Flux task failed for model '{target_model}'. task_id={task_id} "
+                            f"KIE task failed for model '{target_model}'. task_id={task_id} "
                             f"fail_code={fail_code or 'n/a'} fail_msg={fail_msg or 'Internal Error'}. "
                             "The upstream AI provider encountered an issue. Please try again or switch model in Settings."
                         )
@@ -417,7 +439,7 @@ def generate_kie_flux_image(
                     # still processing: waiting / queuing / generating / empty
                     continue
                 else:
-                    raise Exception(f"KIE Flux generation timed out for model '{target_model}'")
+                    raise Exception(f"KIE generation timed out for model '{target_model}'")
 
             except Exception as e:
                 last_error = e
@@ -434,10 +456,13 @@ def generate_kie_flux_image(
 
         if last_error:
             raise last_error
-        raise Exception("KIE Flux image generation failed after all attempts")
+        raise Exception("KIE image generation failed after all attempts")
     except Exception as e:
-        logger.error(f"KIE Flux API error: {str(e)}")
+        logger.error(f"KIE API error: {str(e)}")
         raise
+
+
+generate_kie_flux_image = generate_kie_image
 
 
 def generate_fluxapi_image(prompt: str, api_key: str, model: str = "flux-kontext-pro", 
@@ -565,8 +590,8 @@ def generate_flux_image(
     provider_name = str(provider or "").strip().lower()
     model_name = str(model or "").strip().lower()
 
-    if "kie.ai" in provider_name or model_name.startswith("flux-2/") or "flux" in provider_name or "flux-2" in model_name:
-        return generate_kie_flux_image(
+    if "kie" in provider_name or model_name.startswith("flux-2/") or "flux-2" in model_name:
+        return generate_kie_image(
             prompt,
             api_key,
             model,
@@ -576,6 +601,116 @@ def generate_flux_image(
         )
 
     return generate_fluxapi_image(prompt, api_key, model, aspect_ratio)
+
+
+def generate_image_with_provider(
+    prompt: str,
+    provider: str,
+    model: str,
+    api_key: str,
+    aspect_ratio: str = "1:1",
+    resolution: str = "1K",
+    reference_image: Optional[bytes] = None,
+    reference_image_urls: Optional[list[str]] = None,
+) -> bytes:
+    """
+    Unified router for image generation across supported providers:
+    - KIE.AI (nano-banana-pro, flux-2/flex, flux-2/pro, flux-kontext-pro)
+    - Google Imagen / Gemini API (gemini-3-pro-image-preview, imagen-4.0-generate-001)
+    - FluxAPI (flux-kontext-pro)
+    - Stability AI (sd3)
+    """
+    prov = str(provider or "").strip().lower()
+    mod = str(model or "").strip().lower()
+
+    if "kie" in prov or "kie.ai" in prov:
+        return generate_kie_image(
+            prompt=prompt,
+            api_key=api_key,
+            model=model,
+            aspect_ratio=aspect_ratio,
+            reference_image_urls=reference_image_urls,
+            resolution=resolution,
+        )
+    elif "fluxapi" in prov:
+        return generate_fluxapi_image(
+            prompt=prompt,
+            api_key=api_key,
+            model=model,
+            aspect_ratio=aspect_ratio,
+        )
+    elif "flux" in prov:
+        if mod.startswith("flux-2") or "flux-2" in mod:
+            return generate_kie_image(
+                prompt=prompt,
+                api_key=api_key,
+                model=model,
+                aspect_ratio=aspect_ratio,
+                reference_image_urls=reference_image_urls,
+                resolution=resolution,
+            )
+        return generate_fluxapi_image(
+            prompt=prompt,
+            api_key=api_key,
+            model=model,
+            aspect_ratio=aspect_ratio,
+        )
+    elif "stable" in prov or "stability" in prov:
+        return generate_stable_diffusion_image(
+            prompt=prompt,
+            api_key=api_key,
+            aspect_ratio=aspect_ratio,
+            model=model,
+            reference_image=reference_image,
+        )
+    elif "google" in prov or "imagen" in prov or "gemini" in prov:
+        return generate_google_imagen(
+            prompt=prompt,
+            api_key=api_key,
+            model=model,
+            aspect_ratio=aspect_ratio,
+            resolution=resolution,
+            reference_image=reference_image,
+        )
+    else:
+        # Fallback when provider is empty or unrecognized:
+        if "kie" in mod or mod.startswith("flux-2") or "flux-2" in mod:
+            return generate_kie_image(
+                prompt=prompt,
+                api_key=api_key,
+                model=model,
+                aspect_ratio=aspect_ratio,
+                reference_image_urls=reference_image_urls,
+                resolution=resolution,
+            )
+        elif "flux" in mod:
+            return generate_flux_image(
+                prompt=prompt,
+                api_key=api_key,
+                model=model,
+                aspect_ratio=aspect_ratio,
+                provider=provider,
+                reference_image_urls=reference_image_urls,
+                resolution=resolution,
+            )
+        elif "banana" in mod or "gemini" in mod or "imagen" in mod:
+            return generate_google_imagen(
+                prompt=prompt,
+                api_key=api_key,
+                model=model,
+                aspect_ratio=aspect_ratio,
+                resolution=resolution,
+                reference_image=reference_image,
+            )
+        elif "sd" in mod or "stable" in mod:
+            return generate_stable_diffusion_image(
+                prompt=prompt,
+                api_key=api_key,
+                aspect_ratio=aspect_ratio,
+                model=model,
+                reference_image=reference_image,
+            )
+        raise ValueError(f"Provider '{provider}' not supported for model '{model}'")
 
 
 @images_bp.route('/application-config', methods=['GET'])
@@ -715,37 +850,16 @@ def generate_ai_image():
                 logger.warning(f"Could not upload reference image to storage for URL-based provider: {e}")
         
         # Generate image based on provider
-        image_data = None
-        if 'stable' in provider or 'stability' in provider:
-            image_data = generate_stable_diffusion_image(
-                prompt, api_key, aspect_ratio, model_to_use, reference_image
-            )
-        elif 'google' in provider or 'imagen' in provider or 'gemini' in provider or 'banana' in model_to_use.lower():
-            image_data = generate_google_imagen(
-                prompt,
-                api_key,
-                model_to_use,
-                aspect_ratio,
-                resolution=resolution,
-                reference_image=reference_image,
-            )
-        elif 'flux' in provider or 'kie.ai' in provider or model_to_use.lower().startswith("flux-2/") or "flux" in model_to_use.lower():
-            image_data = generate_flux_image(
-                prompt,
-                api_key,
-                model_to_use,
-                aspect_ratio,
-                provider,
-                reference_image_urls=reference_image_urls,
-                resolution=resolution,
-            )
-        else:
-            return jsonify(ErrorResponse(
-                error="unsupported_provider",
-                message=f"Provider {provider} not supported",
-                error_code="UNSUPPORTED_PROVIDER",
-                status=400
-            ).dict()), 400
+        image_data = generate_image_with_provider(
+            prompt=prompt,
+            provider=provider,
+            model=model_to_use,
+            api_key=api_key,
+            aspect_ratio=aspect_ratio,
+            resolution=resolution,
+            reference_image=reference_image,
+            reference_image_urls=reference_image_urls,
+        )
         
         # Upload to Supabase
         filename = f"ai_{datetime.utcnow().timestamp()}.jpg"
@@ -1851,43 +1965,17 @@ def generate_context_image_endpoint():
             ).dict()), 400
 
         # Conditioned generation
-        image_data = None
         ref_urls = [ref_http_url] if ref_http_url else ([reference_image_url] if reference_image_url else [])
-
-        if 'flux' in provider or 'kie.ai' in provider or model_to_use.lower().startswith("flux-2/") or "flux" in model_to_use.lower():
-            image_data = generate_flux_image(
-                prompt,
-                api_key,
-                model_to_use,
-                aspect_ratio,
-                provider,
-                reference_image_urls=ref_urls if ref_urls else None,
-                resolution=resolution,
-            )
-        elif 'google' in provider or 'imagen' in provider or 'gemini' in provider or 'banana' in model_to_use.lower():
-            image_data = generate_google_imagen(
-                prompt,
-                api_key,
-                model_to_use,
-                aspect_ratio,
-                resolution=resolution,
-                reference_image=ref_bytes,
-            )
-        elif 'stable' in provider or 'stability' in provider:
-            image_data = generate_stable_diffusion_image(
-                prompt,
-                api_key,
-                aspect_ratio,
-                model_to_use,
-                reference_image=ref_bytes,
-            )
-        else:
-            return jsonify(ErrorResponse(
-                error="unsupported_provider",
-                message=f"Provider {provider} not supported",
-                error_code="UNSUPPORTED_PROVIDER",
-                status=400
-            ).dict()), 400
+        image_data = generate_image_with_provider(
+            prompt=prompt,
+            provider=provider,
+            model=model_to_use,
+            api_key=api_key,
+            aspect_ratio=aspect_ratio,
+            resolution=resolution,
+            reference_image=ref_bytes,
+            reference_image_urls=ref_urls if ref_urls else None,
+        )
 
         # Upload generated image to Supabase Storage
         filename = f"context_ai_{int(datetime.utcnow().timestamp())}.jpg"
@@ -1973,41 +2061,16 @@ def generate_ai_infographic_endpoint():
             ).dict()), 400
 
         # Dispatch generation
-        image_data = None
-        if 'google' in provider or 'imagen' in provider or 'gemini' in provider or 'banana' in model_to_use.lower():
-            image_data = generate_google_imagen(
-                prompt,
-                api_key,
-                model_to_use,
-                aspect_ratio,
-                resolution=resolution,
-                reference_image=None
-            )
-        elif 'flux' in provider or 'kie.ai' in provider or model_to_use.lower().startswith("flux-2/") or "flux" in model_to_use.lower():
-            image_data = generate_flux_image(
-                prompt,
-                api_key,
-                model_to_use,
-                aspect_ratio,
-                provider,
-                reference_image_urls=None,
-                resolution=resolution
-            )
-        elif 'stable' in provider or 'stability' in provider:
-            image_data = generate_stable_diffusion_image(
-                prompt,
-                api_key,
-                aspect_ratio,
-                model_to_use,
-                reference_image=None
-            )
-        else:
-            return jsonify(ErrorResponse(
-                error="unsupported_provider",
-                message=f"Provider {provider} not supported for infographics",
-                error_code="UNSUPPORTED_PROVIDER",
-                status=400
-            ).dict()), 400
+        image_data = generate_image_with_provider(
+            prompt=prompt,
+            provider=provider,
+            model=model_to_use,
+            api_key=api_key,
+            aspect_ratio=aspect_ratio,
+            resolution=resolution,
+            reference_image=None,
+            reference_image_urls=None,
+        )
 
         # Upload generated infographic to Supabase Storage
         filename = f"infographic_ai_{int(datetime.utcnow().timestamp())}.jpg"

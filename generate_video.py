@@ -418,7 +418,7 @@ def generate_image_via_flux(model_config, prompt):
     print(f"🎨 Finally using Flux Model: '{model_config.get('display_name')}' [Model: '{model}', Provider: '{provider}']")
     print(f"   Prompt: '{prompt}'")
     
-    if 'kie' in provider or 'flux-2' in model:
+    if 'kie' in provider or 'flux-2' in str(model or '').lower():
         # KIE implementation
         create_url = "https://api.kie.ai/api/v1/jobs/createTask"
         poll_url = "https://api.kie.ai/api/v1/jobs/recordInfo"
@@ -432,12 +432,14 @@ def generate_image_via_flux(model_config, prompt):
         }
 
         m_lower = str(model or "").strip().lower()
-        if "flux-2" in m_lower:
+        if "banana" in m_lower or "gemini" in m_lower:
+            primary_model = "nano-banana-pro"
+        elif "flux-2" in m_lower:
             primary_model = "flux-2/pro-text-to-image" if "pro" in m_lower else "flux-2/flex-text-to-image"
         elif "flux-kontext" in m_lower or "flux1-kontext" in m_lower:
             primary_model = "flux1-kontext"
         else:
-            primary_model = model
+            primary_model = model or "nano-banana-pro"
 
         models_to_try = [primary_model]
         if "flux-2/pro" in primary_model and "flux-2/flex-text-to-image" not in models_to_try:
@@ -454,6 +456,8 @@ def generate_image_via_flux(model_config, prompt):
                         "prompt": prompt,
                         "aspect_ratio": "9:16",
                         "resolution": "1K",
+                        "image_input": [],
+                        "output_format": "png",
                         "nsfw_checker": False
                     }
                 }
@@ -488,9 +492,24 @@ def generate_image_via_flux(model_config, prompt):
                         if isinstance(result_json, dict):
                             parsed_result = result_json
                         elif isinstance(result_json, str) and result_json.strip():
-                            parsed_result = json.loads(result_json)
-                        result_urls = parsed_result.get("resultUrls") or [parsed_result.get("resultUrl")] or [None]
-                        image_url = result_urls[0] if isinstance(result_urls, list) and result_urls else None
+                            try:
+                                parsed_result = json.loads(result_json)
+                            except Exception:
+                                pass
+
+                        image_url = None
+                        for candidate_dict in [parsed_result, data]:
+                            if not isinstance(candidate_dict, dict):
+                                continue
+                            urls = candidate_dict.get("resultUrls") or candidate_dict.get("result_urls") or candidate_dict.get("images") or candidate_dict.get("image_urls")
+                            if isinstance(urls, list) and len(urls) > 0 and urls[0]:
+                                image_url = urls[0]
+                                break
+                            single_url = candidate_dict.get("resultUrl") or candidate_dict.get("url") or candidate_dict.get("imageUrl")
+                            if single_url and isinstance(single_url, str):
+                                image_url = single_url
+                                break
+
                         if not image_url:
                             raise Exception(f"No resultUrls found: {poll_data}")
                         img_r = requests.get(image_url, timeout=30)
@@ -498,8 +517,8 @@ def generate_image_via_flux(model_config, prompt):
                         return img_r.content
                     elif state == "fail":
                         fail_code = str(data.get("failCode") or "").strip()
-                        fail_msg = str(data.get("failMsg") or "").strip()
-                        err_text = f"KIE Flux task failed: {fail_msg} (code={fail_code})"
+                        fail_msg = str(data.get("failMsg") or data.get("msg") or "").strip()
+                        err_text = f"KIE task failed: {fail_msg} (code={fail_code})"
                         if (fail_code == "500" or "internal error" in fail_msg.lower()) and attempt_idx + 1 < len(models_to_try):
                             last_error = Exception(err_text)
                             break

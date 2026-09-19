@@ -88,6 +88,47 @@ class TestAIInfographicEndpoint(unittest.TestCase):
             self.assertIn("metadata", res)
             self.assertIn("AI Infographic - Nano Banana Pro", res["metadata"]["ImageAuthor"])
 
+    @patch.object(images_mod, "request")
+    @patch.object(images_mod, "resolve_image_provider")
+    @patch.object(images_mod, "generate_kie_image")
+    @patch.object(images_mod, "upload_to_supabase_storage")
+    def test_successful_infographic_generation_kie(
+        self,
+        mock_upload,
+        mock_generate_kie,
+        mock_resolve,
+        mock_request
+    ):
+        mock_request.get_json.return_value = {
+            "text": "How neural networks learn through backpropagation and gradient descent.",
+            "archetype": "modular_explainer",
+            "user_instructions": "clean infographic",
+            "aspectRatio": "16:9",
+            "resolution": "1K",
+            "user_id": "user-789"
+        }
+
+        mock_resolve.return_value = {
+            "provider": "kie.ai",
+            "model": "nano-banana-pro",
+            "api_key": "sk-kie-valid-key",
+            "display_name": "Nano Banana Pro (KIE)"
+        }
+        mock_generate_kie.return_value = b"kie-infographic-bytes"
+        mock_upload.return_value = "https://storage.supabase.co/infographic_kie.jpg"
+
+        with patch.object(images_mod, "jsonify", side_effect=lambda x: x):
+            res, status = generate_ai_infographic_endpoint()
+            self.assertEqual(status, 200)
+            self.assertEqual(res["imageUrl"], "https://storage.supabase.co/infographic_kie.jpg")
+            self.assertEqual(res["archetype"], "modular_explainer")
+            self.assertEqual(res["model"], "nano-banana-pro")
+            self.assertEqual(res["provider"], "kie.ai")
+            mock_generate_kie.assert_called_once()
+            call_kwargs = mock_generate_kie.call_args[1]
+            self.assertEqual(call_kwargs["api_key"], "sk-kie-valid-key")
+            self.assertEqual(call_kwargs["model"], "nano-banana-pro")
+
 
 if __name__ == "__main__":
     unittest.main()

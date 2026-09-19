@@ -28,8 +28,102 @@ sys.modules["src.api.endpoints.images"] = images_mod
 spec.loader.exec_module(images_mod)
 
 generate_google_imagen = images_mod.generate_google_imagen
+generate_kie_image = images_mod.generate_kie_image
 generate_kie_flux_image = images_mod.generate_kie_flux_image
 generate_flux_image = images_mod.generate_flux_image
+generate_image_with_provider = images_mod.generate_image_with_provider
+
+
+class TestKieBananaProGeneration(unittest.TestCase):
+    @patch("requests.get")
+    @patch("requests.post")
+    def test_kie_banana_pro_generation_without_reference(self, mock_post, mock_get):
+        create_resp = MagicMock()
+        create_resp.status_code = 200
+        create_resp.json.return_value = {"code": 200, "data": {"taskId": "task-banana-123"}}
+        mock_post.return_value = create_resp
+
+        poll_resp = MagicMock()
+        poll_resp.status_code = 200
+        poll_resp.json.return_value = {
+            "code": 200,
+            "data": {
+                "state": "success",
+                "resultJson": json.dumps({"resultUrls": ["https://cdn.kie.ai/output-banana.png"]})
+            }
+        }
+        img_resp = MagicMock()
+        img_resp.status_code = 200
+        img_resp.content = b"kie-banana-image-bytes"
+
+        mock_get.side_effect = [poll_resp, img_resp]
+
+        image_bytes = generate_kie_image(
+            prompt="Comic poster of cool banana hero in shades",
+            api_key="sk-kie-secret",
+            model="nano-banana-pro",
+            aspect_ratio="1:1",
+            resolution="1K",
+            reference_image_urls=None
+        )
+
+        self.assertEqual(image_bytes, b"kie-banana-image-bytes")
+        mock_post.assert_called_once()
+        create_url = mock_post.call_args[0][0]
+        self.assertEqual(create_url, "https://api.kie.ai/api/v1/jobs/createTask")
+        headers = mock_post.call_args[1]["headers"]
+        self.assertEqual(headers["Authorization"], "Bearer sk-kie-secret")
+        payload = mock_post.call_args[1]["json"]
+        self.assertEqual(payload["model"], "nano-banana-pro")
+        self.assertEqual(payload["input"]["prompt"], "Comic poster of cool banana hero in shades")
+        self.assertEqual(payload["input"]["aspect_ratio"], "1:1")
+        self.assertEqual(payload["input"]["resolution"], "1K")
+        self.assertEqual(payload["input"]["output_format"], "png")
+        self.assertEqual(payload["input"]["image_input"], [])
+
+
+class TestGenerateImageWithProviderRouting(unittest.TestCase):
+    @patch.object(images_mod, "generate_kie_image")
+    def test_routing_to_kie_for_nano_banana_pro(self, mock_kie):
+        mock_kie.return_value = b"kie-bytes"
+        res = generate_image_with_provider(
+            prompt="A sample prompt",
+            provider="kie.ai",
+            model="nano-banana-pro",
+            api_key="kie-key",
+            aspect_ratio="16:9",
+            resolution="1K"
+        )
+        self.assertEqual(res, b"kie-bytes")
+        mock_kie.assert_called_once_with(
+            prompt="A sample prompt",
+            api_key="kie-key",
+            model="nano-banana-pro",
+            aspect_ratio="16:9",
+            reference_image_urls=None,
+            resolution="1K"
+        )
+
+    @patch.object(images_mod, "generate_google_imagen")
+    def test_routing_to_google_for_gemini(self, mock_google):
+        mock_google.return_value = b"google-bytes"
+        res = generate_image_with_provider(
+            prompt="A sample prompt",
+            provider="google",
+            model="gemini-3-pro-image-preview",
+            api_key="goog-key",
+            aspect_ratio="16:9",
+            resolution="1K"
+        )
+        self.assertEqual(res, b"google-bytes")
+        mock_google.assert_called_once_with(
+            prompt="A sample prompt",
+            api_key="goog-key",
+            model="gemini-3-pro-image-preview",
+            aspect_ratio="16:9",
+            resolution="1K",
+            reference_image=None
+        )
 
 
 class TestNanoBananaProGeneration(unittest.TestCase):
@@ -305,7 +399,7 @@ class TestFlux2Generation(unittest.TestCase):
         self.assertEqual(create_payload["input"]["aspect_ratio"], "3:2")
         self.assertEqual(create_payload["input"]["resolution"], "1K")
 
-    @patch.object(images_mod, "generate_kie_flux_image")
+    @patch.object(images_mod, "generate_kie_image")
     def test_generate_flux_image_routing(self, mock_kie):
         mock_kie.return_value = b"routed-bytes"
 
@@ -332,3 +426,4 @@ class TestFlux2Generation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
