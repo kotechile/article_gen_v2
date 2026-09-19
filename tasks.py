@@ -1175,6 +1175,7 @@ Read the full article and return STRICT JSON only.
 Rules:
 - Generate 3 to 5 takeaway bullets.
 - Set a strict maximum limit of 60 words per bullet point. If a concept does not fit within 60 words, split it into a new bullet point.
+- Every takeaway bullet MUST be directly based on and thoroughly explained within the substantive body of the article. Do not introduce outside concepts, claims, or metrics that are not developed in the body.
 - Each takeaway must be specific, meaningful, and reader-facing.
 - Use complete sentences.
 - Do not mention prompts, instructions, reasoning, analysis, SEO, GEO, keywords, or citations.
@@ -1471,7 +1472,12 @@ TARGET FORMAT & STRUCTURAL REQUIREMENTS:
      * `<p><strong>The reality check:</strong> (1-2 sentences providing a grounded fact, counter-intuitive truth, or critical catch).</p>`
      * `<p><strong>Go deeper:</strong> (1 single sentence transition inviting the reader into the comprehensive deep-dive below).</p>`
 
-2. **Substantive & In-Depth Body Sections (CRITICAL - DO NOT CONDENSE OR SUMMARIZE INTO TELEGRAPHIC BULLET POINTS)**:
+2. **CRITICAL ALIGNMENT - COMPLETE CONCEPT DEVELOPMENT UNDER 'GO DEEPER' (NO ORPHAN CONCEPTS OR FAQ TOPICS)**:
+   - Every single topic, theme, concept, statistic, data point, and comparison mentioned in the Executive Smart Brevity Lead / 'At a glance' axioms (such as "The big picture", "Why it matters", "By the numbers", "The reality check") or the Frequently Asked Questions (FAQ) MUST be thoroughly and substantively developed, explained, and substantiated inside the substantive body sections under `<h2>Go Deeper</h2>`.
+   - If the summary lead or FAQ mentions a specific subject or metric (for example, "build versus buy", specific percentages, market dynamics, operational bottlenecks, cost breakdowns, or ROI timelines), you MUST ensure the 'Go Deeper' body contains a dedicated section or substantive paragraphs thoroughly exploring and analyzing that exact subject in depth.
+   - NEVER allow an orphan topic or statistic to appear in the 'At a glance' summary or FAQ without full exposition in the body.
+
+3. **Substantive & In-Depth Body Sections (CRITICAL - DO NOT CONDENSE OR SUMMARIZE INTO TELEGRAPHIC BULLET POINTS)**:
    - Demarcate the main body starting with `<h2>Go Deeper</h2>` followed by the fully developed topic sections using `<h3>` subsections.
    - Retain and fully expand all topic-specific sections, explanations, frameworks, actionable steps, and real-world logistics from the original draft.
    - Narrative Flow & Rich Prose:
@@ -1482,19 +1488,20 @@ TARGET FORMAT & STRUCTURAL REQUIREMENTS:
      * Tables over text for structured data: Format multi-variable comparisons, financial breakdowns, tax tiers, or step criteria as clean HTML tables (`<table>...</table>`).
      * Authoritative tone: Zero fabricated personal friend anecdotes. Keep the analysis sharp, professional, and directly calibrated for {target_audience}.
 
-3. **Frequently Asked Questions (FAQ)**:
+4. **Frequently Asked Questions (FAQ)**:
    - Include a dedicated `<h2>Frequently Asked Questions</h2>` section before References.
    - Provide 3 to 5 realistic reader questions using `<h3>` and direct, concise answers using `<p>` (1 to 3 sentences per answer).
+   - Questions and answers must strictly reflect, clarify, and reinforce topics that are actively developed and explained in the substantive body under 'Go Deeper'. Do NOT introduce questions about concepts that are absent from the body.
 
-4. **Demographic Nuance**:
+5. **Demographic Nuance**:
    - Speak directly to the specific realities of {target_audience} (e.g., for mid-career 35-45 professionals: dual-country net cash flow, trailing spouse visa restrictions, international school tuition, cross-border tax treaties, asset management, and lifestyle ROI).
 
-5. **Substance Over Word Count (Zero Fluff)**:
+6. **Substance Over Word Count (Zero Fluff)**:
    - Word count targets are soft guidelines, NOT rigid quotas.
    - Strictly avoid padding, repetitive restatements, filler sentences, or artificial fluff added solely to lengthen the article.
    - Maximize information density: deliver insights cleanly, concisely, and with narrative depth.
 
-6. **Citations & References**:
+7. **Citations & References**:
    - Keep all existing citation markers (e.g., [1], [2], [^1]) intact and in place within the text.
    - Do not delete or duplicate the References section.
 
@@ -1569,7 +1576,8 @@ Read the full article and return STRICT JSON only.
 
 Rules:
 - Generate 5 to 8 FAQs.
-- Questions must reflect realistic reader follow-up questions about the article.
+- Questions and answers must strictly address and clarify topics that are fully developed and explained in the substantive "Go Deeper" body sections of the article.
+- Do NOT introduce new concepts, claims, metrics, or terms in the FAQ that were only briefly mentioned in the opening summary or that are not substantively analyzed in the body.
 - Answers must be concise, direct, and professional.
 - Each answer should be 1 to 3 sentences.
 - Do not mention prompts, instructions, reasoning, analysis, SEO, GEO, keywords, or citations.
@@ -1616,7 +1624,8 @@ Do not include any outer wrappers, markdown code blocks, metadata, preamble, rea
 
 Rules:
 - Generate 5 to 8 FAQs.
-- Questions must reflect realistic reader follow-up questions about the article.
+- Questions and answers must strictly address and clarify topics that are fully developed and explained in the substantive "Go Deeper" body sections of the article.
+- Do NOT introduce new concepts, claims, metrics, or terms in the FAQ that were only briefly mentioned in the summary or that are not substantively analyzed in the body.
 - Answers must be concise, direct, and professional (1 to 3 sentences).
 - Do not mention prompts, instructions, reasoning, analysis, SEO, GEO, keywords, or citations.
 - Output format must be strictly like:

@@ -545,6 +545,7 @@ TARGET AUDIENCE: {audience}
                        - Bullet Points / Takeaways: Maximum limit of 60 words per bullet point. If a concept does not fit within 60 words, split it into a new bullet point.
                     2. In-Depth Narrative Body Sections ("Go Deeper"):
                        - Fully develop all topic sections and subsections with comprehensive analysis, actionable frameworks, storytelling, and concrete data.
+                       - CRITICAL - COMPLETE CONCEPT COVERAGE: Every subject, topic, statistic, comparison, and concept mentioned in the executive lead ("At a glance", "The big picture", "Why it matters", "By the numbers", "The reality check") or in FAQs MUST be fully explored, contextualized, and substantiated in depth within the body sections under "Go Deeper". Never leave a concept or metric mentioned in the lead without dedicated discussion in the body.
                        - Write natural, flowing paragraphs with substance, context, and narrative depth. Do NOT summarize body sections into telegraphic bullet points or bolded pseudo-bullet snippets.
                        - Reserve bulleted lists for actual discrete items, steps, or checklists.
                     3. Zero Preamble: Start directly with the hook, facts, or analysis without introductory fluff, meta-talk, or throat-clearing.

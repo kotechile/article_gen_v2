@@ -654,6 +654,7 @@ class ArticleStructureGenerator:
                     - Order sections logically with smooth transitions
                     - Include practical, actionable content
                     - Distribute evidence and claims evenly across sections
+                    - COMPLETE TOPIC & CONCEPT COVERAGE: Ensure the outline plans sections and key points that cover and fully develop all core themes, claims, statistics, and strategic comparisons (e.g., build vs. buy, cost/ROI disconnects, execution roadmaps, governance) present in the brief and claims, so that every concept highlighted in summaries and takeaways is thoroughly developed in the body sections.
                     - Integrate Competitor Insights: Incorporate all "Competitor Must-Haves" across the sections, and dedicate specific focus or sub-points to highlight our "Competitive Edge".{controversies_prompt_text}
                     
                     ⚠️ CRITICAL: AVOID GENERIC SECTION TITLES ⚠️

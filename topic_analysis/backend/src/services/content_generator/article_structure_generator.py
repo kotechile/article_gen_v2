@@ -695,6 +695,7 @@ class ArticleStructureGenerator:
                     - Order sections logically with smooth transitions
                     - Include practical, actionable content
                     - Distribute evidence and claims evenly across sections
+                    - COMPLETE TOPIC & CONCEPT COVERAGE: Ensure the outline plans sections and key points that cover and fully develop all core themes, claims, statistics, and strategic comparisons (e.g., build vs. buy, cost/ROI disconnects, execution roadmaps, governance) present in the brief and claims, so that every concept highlighted in summaries and takeaways is thoroughly developed in the body sections.
                     - Align sections to search intent: {search_intent}
                     - Prioritize high-confidence claims while explicitly handling mixed-signal claims with nuance
                     

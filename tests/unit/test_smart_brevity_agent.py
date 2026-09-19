@@ -223,3 +223,25 @@ def test_finalize_article_with_smart_brevity_integration():
     assert "<h2>Go Deeper</h2>" in html
     assert "References" in html
     assert 'href="https://example.com/mobility-index"' in html
+
+
+def test_polish_and_format_article_prompt_mandates_go_deeper_concept_coverage(monkeypatch):
+    captured_prompts = []
+
+    class CapturingLLMClient:
+        def generate(self, messages):
+            captured_prompts.extend([m.get("content", "") for m in messages])
+            return SimpleNamespace(content="<p><strong>The big picture:</strong> AI is evolving.</p><h2>Go Deeper</h2><p>Full breakdown.</p>")
+
+    monkeypatch.setattr(tasks, "create_llm_client", lambda **kwargs: CapturingLLMClient())
+
+    tasks._polish_and_format_article(
+        "<p>Initial draft.</p>",
+        {"primary_keyword": "agentic AI"},
+        {"title": "Agentic AI Adoption"}
+    )
+
+    combined = "\n".join(captured_prompts)
+    assert "CRITICAL ALIGNMENT - COMPLETE CONCEPT DEVELOPMENT UNDER 'GO DEEPER'" in combined
+    assert "Every single topic, theme, concept, statistic, data point, and comparison mentioned in the Executive Smart Brevity Lead" in combined
+    assert "MUST be thoroughly and substantively developed, explained, and substantiated inside the substantive body sections under `<h2>Go Deeper</h2>`" in combined
