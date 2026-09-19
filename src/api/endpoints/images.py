@@ -16,6 +16,7 @@ import html
 import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime
+from typing import Optional, List, Dict, Any, Tuple
 from flask import Blueprint, request, jsonify, current_app
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
