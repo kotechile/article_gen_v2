@@ -2025,6 +2025,7 @@ def generate_ai_infographic_endpoint():
         text = data.get('text') or data.get('storyText') or ''
         text = text.strip()
         archetype = data.get('archetype', 'auto')
+        style = data.get('style') or data.get('style_preset')
         user_instructions = data.get('user_instructions') or ''
         aspect_ratio = data.get('aspectRatio') or data.get('aspect_ratio') or '16:9'
         resolution = data.get('resolution') or '1K'
@@ -2043,7 +2044,8 @@ def generate_ai_infographic_endpoint():
         prompt, effective_archetype = InfographicAIService.synthesize_prompt(
             text=text,
             archetype=archetype,
-            user_instructions=user_instructions
+            user_instructions=user_instructions,
+            style=style
         )
 
         # Resolve provider/model from Supabase used_for for 'infographics'
@@ -2089,6 +2091,7 @@ def generate_ai_infographic_endpoint():
             "imageUrl": image_url,
             "metadata": metadata,
             "archetype": effective_archetype,
+            "style": style or effective_archetype,
             "model": model_to_use,
             "provider": provider,
             "application": application,
@@ -2105,5 +2108,33 @@ def generate_ai_infographic_endpoint():
             error_code="INTERNAL_ERROR",
             status=500
         ).dict()), 500
+
+
+@images_bp.route('/infographic-styles', methods=['GET'])
+def get_infographic_styles_endpoint():
+    """
+    Get available infographic categories, style presets, and classic archetypes.
+    """
+    try:
+        from src.services.infographic_ai_service import (
+            InfographicAIService,
+            ARCHETYPE_DESCRIPTIONS,
+            STYLE_PRESETS,
+            INFOGRAPHIC_CATEGORIES
+        )
+        return jsonify({
+            "categories": INFOGRAPHIC_CATEGORIES,
+            "styles": STYLE_PRESETS,
+            "archetypes": ARCHETYPE_DESCRIPTIONS
+        }), 200
+    except Exception as e:
+        logger.error(f"Error retrieving infographic styles: {str(e)}", exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message=str(e),
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
 
 

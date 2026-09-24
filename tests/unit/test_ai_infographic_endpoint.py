@@ -129,6 +129,55 @@ class TestAIInfographicEndpoint(unittest.TestCase):
             self.assertEqual(call_kwargs["api_key"], "sk-kie-valid-key")
             self.assertEqual(call_kwargs["model"], "nano-banana-pro")
 
+    @patch.object(images_mod, "request")
+    @patch.object(images_mod, "resolve_image_provider")
+    @patch.object(images_mod, "generate_google_imagen")
+    @patch.object(images_mod, "upload_to_supabase_storage")
+    def test_successful_infographic_generation_with_style_preset(
+        self,
+        mock_upload,
+        mock_generate,
+        mock_resolve,
+        mock_request
+    ):
+        mock_request.get_json.return_value = {
+            "text": "The Evolution of Contextual Fidelity in Multi-Agent AI",
+            "archetype": "timeline_historical",
+            "style": "timeline_modern",
+            "aspectRatio": "16:9",
+            "resolution": "1K",
+            "user_id": "user-456"
+        }
+
+        mock_resolve.return_value = {
+            "provider": "google",
+            "model": "gemini-3-pro-image-preview",
+            "api_key": "fake-key",
+            "display_name": "Nano Banana Pro"
+        }
+        mock_generate.return_value = b"infographic-bytes"
+        mock_upload.return_value = "https://storage.supabase.co/infographic_timeline_modern.jpg"
+
+        with patch.object(images_mod, "jsonify", side_effect=lambda x: x):
+            res, status = generate_ai_infographic_endpoint()
+            self.assertEqual(status, 200)
+            self.assertEqual(res["archetype"], "timeline_modern")
+            self.assertEqual(res["style"], "timeline_modern")
+            self.assertIn("sleek, modern chronological timeline", res["prompt"])
+            self.assertIn("without any antique or parchment textures", res["prompt"])
+
+    def test_get_infographic_styles_endpoint(self):
+        with patch.object(images_mod, "jsonify", side_effect=lambda x: x):
+            res, status = images_mod.get_infographic_styles_endpoint()
+            self.assertEqual(status, 200)
+            self.assertIn("categories", res)
+            self.assertIn("styles", res)
+            self.assertIn("archetypes", res)
+            self.assertIn("step_by_step_isometric", res["styles"])
+            self.assertIn("timeline_modern", res["styles"])
+            self.assertIn("process_sequential", res["categories"])
+
 
 if __name__ == "__main__":
     unittest.main()
+

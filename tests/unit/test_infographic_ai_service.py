@@ -1,9 +1,14 @@
 """
-Unit tests for InfographicAIService (7 archetypes + auto detection).
+Unit tests for InfographicAIService (7 archetypes + 21 curated styles + auto detection).
 """
 
 import unittest
-from src.services.infographic_ai_service import InfographicAIService, ARCHETYPE_DESCRIPTIONS
+from src.services.infographic_ai_service import (
+    InfographicAIService,
+    ARCHETYPE_DESCRIPTIONS,
+    STYLE_PRESETS,
+    INFOGRAPHIC_CATEGORIES
+)
 
 
 class TestInfographicAIService(unittest.TestCase):
@@ -19,6 +24,51 @@ class TestInfographicAIService(unittest.TestCase):
         ]
         for arch in expected_archetypes:
             self.assertIn(arch, ARCHETYPE_DESCRIPTIONS)
+
+    def test_all_21_style_presets_present(self):
+        expected_styles = [
+            # Process & Sequential Flow
+            "step_by_step_isometric",
+            "timeline_modern",
+            "timeline_historical_vintage",
+            "user_journey_flat",
+            "lifecycle_loop_watercolor",
+            # Comparison & Contrast
+            "side_by_side_neon",
+            "pros_cons_scandinavian",
+            "venn_diagram_glassmorphism",
+            "quadrant_matrix_bauhaus",
+            # Data & Statistics
+            "corporate_dashboard_ui",
+            "typography_stat_sheet_swiss",
+            "geographic_map_hologram",
+            "funnel_chart_neumorphism",
+            # Structure & Hierarchy
+            "pyramid_hierarchy_lowpoly",
+            "hub_and_spoke_material",
+            "anatomy_exploded_blueprint",
+            "mind_map_doodle",
+            # Lists & Summaries
+            "checklist_synthwave",
+            "top_10_listicle_popart",
+            "cheat_sheet_monochrome",
+            "problem_solution_duotone"
+        ]
+        for style_key in expected_styles:
+            self.assertIn(style_key, STYLE_PRESETS)
+            preset = STYLE_PRESETS[style_key]
+            self.assertTrue(preset.get("name"))
+            self.assertTrue(preset.get("style_tag"))
+            self.assertTrue(preset.get("category_id"))
+            self.assertTrue(preset.get("prompt_template"))
+
+    def test_categories_present(self):
+        categories = InfographicAIService.get_categories()
+        self.assertIn("process_sequential", categories)
+        self.assertIn("comparison_contrast", categories)
+        self.assertIn("data_statistics", categories)
+        self.assertIn("structure_hierarchy", categories)
+        self.assertIn("lists_summaries", categories)
 
     def test_auto_detect_timeline(self):
         text = "The timeline and history of modern computing started in the 20th century, reaching the 1980s."
@@ -70,6 +120,71 @@ class TestInfographicAIService(unittest.TestCase):
         )
         self.assertEqual(archetype, "step_by_step")
         self.assertIn("step-by-step visual instructional infographic", prompt)
+
+    def test_prompt_synthesis_isometric_flowchart(self):
+        text = "How to onboard new software engineers"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            archetype="step_by_step_isometric"
+        )
+        self.assertEqual(effective, "step_by_step_isometric")
+        self.assertIn("3D isometric infographic", prompt)
+        self.assertIn("Smart Brevity", prompt)
+        self.assertIn("How to onboard new software engineers", prompt)
+
+    def test_prompt_synthesis_side_by_side_duel_comparison(self):
+        text = "React vs Vue.js for enterprise frontend development"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            archetype="side_by_side_neon"
+        )
+        self.assertEqual(effective, "side_by_side_neon")
+        self.assertIn("cyberpunk aesthetic with glowing neon accents", prompt)
+        self.assertIn("React", prompt)
+        self.assertIn("Vue.js", prompt)
+
+    def test_prompt_synthesis_modern_timeline_no_antique_look(self):
+        text = "The Evolution of Contextual Fidelity in Multi-Agent AI"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            archetype="timeline_modern"
+        )
+        self.assertEqual(effective, "timeline_modern")
+        self.assertIn("sleek, modern chronological timeline", prompt)
+        self.assertIn("Contemporary high-tech aesthetic", prompt)
+        self.assertIn("without any antique or parchment textures", prompt)
+
+    def test_prompt_synthesis_historical_timeline_vintage(self):
+        text = "The Industrial Revolution across 18th and 19th centuries"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            archetype="timeline_historical_vintage"
+        )
+        self.assertEqual(effective, "timeline_historical_vintage")
+        self.assertIn("vertical timeline infographic", prompt)
+        self.assertIn("Vintage/retro aesthetic with muted earthy tones", prompt)
+        self.assertIn("textured paper background", prompt)
+
+    def test_default_timeline_archetype_modernized(self):
+        text = "AI agents roadmap 2024 to 2026"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            archetype="timeline_historical"
+        )
+        self.assertEqual(effective, "timeline_historical")
+        self.assertIn("sleek modern chronological timeline", prompt)
+        self.assertIn("no antique scrolls or parchment textures", prompt)
+        self.assertNotIn("museum-grade", prompt)
+
+    def test_style_param_overrides_archetype(self):
+        text = "10 tips to boost developer productivity"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            archetype="technical_scientific",
+            style="top_10_listicle_popart"
+        )
+        self.assertEqual(effective, "top_10_listicle_popart")
+        self.assertIn("Vintage comic book/Pop Art", prompt)
 
 
 if __name__ == "__main__":

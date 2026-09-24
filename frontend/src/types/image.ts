@@ -179,11 +179,39 @@ export type InfographicArchetype =
     | 'modular_explainer'
     | 'timeline_historical'
     | 'data_visualization'
-    | 'playful_viral';
+    | 'playful_viral'
+    // Process & Sequential Flow
+    | 'step_by_step_isometric'
+    | 'timeline_modern'
+    | 'timeline_historical_vintage'
+    | 'user_journey_flat'
+    | 'lifecycle_loop_watercolor'
+    // Comparison & Contrast
+    | 'side_by_side_neon'
+    | 'pros_cons_scandinavian'
+    | 'venn_diagram_glassmorphism'
+    | 'quadrant_matrix_bauhaus'
+    // Data & Statistics
+    | 'corporate_dashboard_ui'
+    | 'typography_stat_sheet_swiss'
+    | 'geographic_map_hologram'
+    | 'funnel_chart_neumorphism'
+    // Structure & Hierarchy
+    | 'pyramid_hierarchy_lowpoly'
+    | 'hub_and_spoke_material'
+    | 'anatomy_exploded_blueprint'
+    | 'mind_map_doodle'
+    // Lists & Summaries
+    | 'checklist_synthwave'
+    | 'top_10_listicle_popart'
+    | 'cheat_sheet_monochrome'
+    | 'problem_solution_duotone'
+    | (string & {});
 
 export interface AIInfographicRequest {
     text: string;
     archetype?: InfographicArchetype;
+    style?: string;
     user_instructions?: string;
     aspectRatio?: string;
     resolution?: string;
@@ -194,6 +222,7 @@ export interface AIInfographicResponse {
     imageUrl: string;
     metadata: Partial<ImageMetadata>;
     archetype: string;
+    style?: string;
     model?: string;
     provider?: string;
     application?: string;
@@ -201,5 +230,6 @@ export interface AIInfographicResponse {
     resolution?: string;
     prompt?: string;
 }
+
 
 

@@ -614,4 +614,27 @@ export async function generateAIInfographic(
     }
 }
 
+/**
+ * Fetch available infographic style presets, categories, and archetypes from the backend
+ */
+export async function getInfographicStyles(): Promise<{
+    categories: Record<string, string>;
+    styles: Record<string, any>;
+    archetypes: Record<string, string>;
+}> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/images/infographic-styles`, {
+            headers: getHeaders()
+        });
+        if (!response.ok) {
+            throw new Error('Failed to fetch infographic styles');
+        }
+        return response.json();
+    } catch (error) {
+        console.error('Error fetching infographic styles:', error);
+        throw error;
+    }
+}
+
+
 
