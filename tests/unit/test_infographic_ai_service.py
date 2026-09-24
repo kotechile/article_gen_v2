@@ -186,6 +186,94 @@ class TestInfographicAIService(unittest.TestCase):
         self.assertEqual(effective, "top_10_listicle_popart")
         self.assertIn("Vintage comic book/Pop Art", prompt)
 
+    def test_venn_diagram_adapts_to_two_items(self):
+        text = "Comparing React vs Vue for interactive dashboards"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            style="venn_diagram_glassmorphism"
+        )
+        self.assertEqual(effective, "venn_diagram_glassmorphism")
+        self.assertIn("Two intersecting circles", prompt)
+        self.assertIn("React", prompt)
+        self.assertIn("Vue", prompt)
+        self.assertNotIn("Three intersecting circles", prompt)
+
+    def test_venn_diagram_adapts_to_three_items(self):
+        text = "The intersection of Design, Engineering, and Business in product teams"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            style="venn_diagram_glassmorphism"
+        )
+        self.assertEqual(effective, "venn_diagram_glassmorphism")
+        self.assertIn("Three intersecting circles", prompt)
+        self.assertIn("Design", prompt)
+        self.assertIn("Engineering", prompt)
+        self.assertIn("Business", prompt)
+
+    def test_venn_diagram_adapts_to_four_items(self):
+        text = "Overlap of Frontend, Backend, DevOps, and QA in modern software delivery"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            style="venn_diagram_glassmorphism"
+        )
+        self.assertEqual(effective, "venn_diagram_glassmorphism")
+        self.assertIn("Four intersecting circles", prompt)
+        self.assertIn("Frontend", prompt)
+        self.assertIn("Backend", prompt)
+
+    def test_lifecycle_loop_adapts_to_stages(self):
+        text = "Water Cycle:\n1. Evaporation\n2. Condensation\n3. Precipitation\n4. Collection"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            style="lifecycle_loop_watercolor"
+        )
+        self.assertEqual(effective, "lifecycle_loop_watercolor")
+        self.assertIn("4 arrows forming a closed circle", prompt)
+        self.assertIn("Evaporation", prompt)
+        self.assertIn("Collection", prompt)
+
+    def test_hub_and_spoke_adapts_to_node_count(self):
+        text = "Microservices platform components:\n- Auth Service\n- Billing Service\n- Database Cluster\n- Notification Queue\n- Gateway"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            style="hub_and_spoke_material"
+        )
+        self.assertEqual(effective, "hub_and_spoke_material")
+        self.assertIn("5 surrounding nodes", prompt)
+        self.assertIn("Auth Service", prompt)
+
+    def test_user_journey_adapts_to_phases(self):
+        text = "User onboarding:\n1. Discovery\n2. Sign Up\n3. First Project\n4. Team Invite\n5. Subscription"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            style="user_journey_flat"
+        )
+        self.assertEqual(effective, "user_journey_flat")
+        self.assertIn("divided into 5 distinct phases", prompt)
+        self.assertIn("Discovery", prompt)
+        self.assertIn("Subscription", prompt)
+
+    def test_funnel_adapts_to_layers(self):
+        text = "Conversion funnel:\n- Website Visitors\n- Lead Signups\n- Active Trials"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            style="funnel_chart_neumorphism"
+        )
+        self.assertEqual(effective, "funnel_chart_neumorphism")
+        self.assertIn("divided into 3 horizontal layers", prompt)
+        self.assertIn("Website Visitors", prompt)
+
+    def test_top_listicle_adapts_to_count(self):
+        text = "7 Essential Habits of High-Performing Engineers"
+        prompt, effective = InfographicAIService.synthesize_prompt(
+            text=text,
+            style="top_10_listicle_popart"
+        )
+        self.assertEqual(effective, "top_10_listicle_popart")
+        self.assertIn("top 7 facts about", prompt)
+        self.assertIn("(1-7)", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()
+

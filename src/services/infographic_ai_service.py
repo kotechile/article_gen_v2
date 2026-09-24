@@ -225,6 +225,40 @@ STYLE_PRESETS: Dict[str, Dict[str, str]] = {
 }
 
 
+NUMBER_WORDS = {
+    1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five",
+    6: "Six", 7: "Seven", 8: "Eight", 9: "Nine", 10: "Ten",
+    11: "Eleven", 12: "Twelve"
+}
+WORD_TO_NUMBER = {v.lower(): k for k, v in NUMBER_WORDS.items()}
+
+
+def clean_item_title(item: str) -> str:
+    """Cleans a single extracted item/step/category string."""
+    cleaned = item.strip().strip("-*•.:'\"").strip()
+    cleaned = re.sub(
+        r'^(?:compare|comparison of|analyzing|analysis of|intersection of|overlap of|differences between|between)\s+',
+        '',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+    cleaned = re.sub(r'^\d+[\.\)\:\-]\s*', '', cleaned)
+    cleaned = re.sub(
+        r'^(?:step|phase|stage|item|tier|level|pillar)\s*\d+[\.\:\-]?\s*',
+        '',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+    # Strip trailing contextual prepositional phrases (e.g. 'Business in modern product management' -> 'Business')
+    cleaned = re.sub(
+        r'\s+(?:in|for|of|across|within)\s+(?:modern|enterprise|web|mobile|product|today|saas|industry).*$',
+        '',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+    return cleaned.strip()
+
+
 class InfographicAIService:
     """Service to classify text and build high-fidelity infographic diffusion prompts."""
 
@@ -235,6 +269,215 @@ class InfographicAIService:
     @staticmethod
     def get_categories() -> Dict[str, str]:
         return INFOGRAPHIC_CATEGORIES
+
+    @classmethod
+    def extract_items_and_count(cls, text: str) -> Tuple[list, int]:
+        """
+        Understands and extracts the specific items/steps/phases and total count from text.
+        Supports:
+        - Numbered lists (1. ..., Step 1: ..., Phase 1: ...)
+        - Bullet points (- ..., * ..., • ...)
+        - Comparison sequences ('X vs Y', 'A versus B versus C')
+        - Colon-delimited Oxford comma lists ('Disciplines: Design, Engineering, and Business')
+        - Explicit count phrases ('5 stages of ...', '3 pillars of ...')
+        """
+        # 1. Numbered items
+        numbered = re.findall(
+            r'(?:^|\n)\s*(?:(?:\d+|[a-zA-Z])[\.\)\:]|step\s*\d+[\.\:\-]?|phase\s*\d+[\.\:\-]?)\s*([^\n]+)',
+            text,
+            flags=re.IGNORECASE
+        )
+        if len(numbered) >= 2:
+            cleaned = [clean_item_title(it) for it in numbered if clean_item_title(it)]
+            if len(cleaned) >= 2:
+                return cleaned, len(cleaned)
+
+        # 2. Bullet list
+        bullets = re.findall(r'(?:^|\n)\s*[\-\*\•\–]\s*([^\n]+)', text)
+        if len(bullets) >= 2:
+            cleaned = [clean_item_title(b) for b in bullets if clean_item_title(b)]
+            if len(cleaned) >= 2:
+                return cleaned, len(cleaned)
+
+        # 3. 'vs' or 'versus' / 'compared to'
+        vs_parts = re.split(r'\s+(?:vs\.?|versus|compared to)\s+', text, flags=re.IGNORECASE)
+        if len(vs_parts) >= 2:
+            cleaned = [clean_item_title(p) for p in vs_parts if clean_item_title(p)]
+            if len(cleaned) >= 2:
+                return cleaned, len(cleaned)
+
+        # 4. Check for explicit count mentions: e.g. '5 stages of ...', '3 pillars of ...', '7 Essential Habits'
+        match_count = re.search(
+            r'\b(\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:[a-zA-Z\-]+\s+)?(?:steps|stages|phases|pillars|layers|nodes|circles|facts|tips|principles|habits|items|rules|elements|levels|components|tiers)\b',
+            text,
+            flags=re.IGNORECASE
+        )
+        explicit_count = 0
+        if match_count:
+            token = match_count.group(1).lower()
+            if token.isdigit():
+                explicit_count = int(token)
+            elif token in WORD_TO_NUMBER:
+                explicit_count = WORD_TO_NUMBER[token]
+
+        # 5. Colon list or Oxford comma separated list
+        colon_match = re.search(r':\s*([^\n\.]+)', text)
+        candidate_text = colon_match.group(1) if colon_match else text
+
+        sub_text = re.sub(
+            r'^(?:the\s+)?(?:intersection|overlap|difference|comparison)\s+(?:of|between|among)\s+',
+            '',
+            candidate_text,
+            flags=re.IGNORECASE
+        ).strip()
+
+        if ',' in sub_text:
+            parts = re.split(r',\s*(?:and\s+)?|\s+and\s+', sub_text)
+            cleaned = [clean_item_title(p) for p in parts if clean_item_title(p) and len(clean_item_title(p)) < 50]
+            if len(cleaned) >= 2:
+                return cleaned, len(cleaned)
+
+        if explicit_count > 0:
+            return [], explicit_count
+
+        return [], 0
+
+    @classmethod
+    def adapt_prompt_for_items(
+        cls,
+        prompt: str,
+        style_key: str,
+        items: list,
+        count: int
+    ) -> str:
+        """
+        Dynamically adapts layout and item count descriptions in the prompt
+        to match the specific items and count understood from the user's text.
+        """
+        if count <= 0:
+            return prompt
+
+        count_word = NUMBER_WORDS.get(count, str(count))
+        item_summary = ""
+        if items:
+            if len(items) <= 6:
+                item_summary = ", ".join(items[:-1]) + f" and {items[-1]}" if len(items) > 1 else items[0]
+            else:
+                item_summary = ", ".join(items[:6]) + f" and {len(items) - 6} more"
+
+        # 1. Venn Diagram (Glassmorphism): e.g. "Three intersecting circles" -> "Two intersecting circles representing 'A' and 'B'"
+        if style_key == "venn_diagram_glassmorphism":
+            if items:
+                desc = f"{count_word} intersecting circles representing '{item_summary}'"
+            else:
+                desc = f"{count_word} intersecting circles"
+            return re.sub(
+                r'Three intersecting circles',
+                desc,
+                prompt,
+                flags=re.IGNORECASE
+            )
+
+        # 2. Lifecycle Loop (Organic Watercolor): e.g. "4 to 5 arrows forming a closed circle" -> "N arrows..."
+        elif style_key == "lifecycle_loop_watercolor":
+            if items:
+                desc = f"{count} arrows forming a closed circle representing the {count} stages ({item_summary})"
+            else:
+                desc = f"{count} arrows forming a closed circle representing the {count} stages"
+            return re.sub(
+                r'4 to 5 arrows forming a closed circle',
+                desc,
+                prompt,
+                flags=re.IGNORECASE
+            )
+
+        # 3. User Journey Map (Minimalist Flat): e.g. "divided into 4 distinct phases (Awareness, Consideration, Action, Loyalty)"
+        elif style_key == "user_journey_flat":
+            if items:
+                desc = f"divided into {count} distinct phases ({item_summary})"
+            else:
+                desc = f"divided into {count} distinct phases"
+            return re.sub(
+                r'divided into 4 distinct phases\s*\([^)]*\)',
+                desc,
+                prompt,
+                flags=re.IGNORECASE
+            )
+
+        # 4. Hub and Spoke (Material Design): e.g. "connected by solid lines to 6 surrounding nodes"
+        elif style_key == "hub_and_spoke_material":
+            if items:
+                desc = f"connected by solid lines to {count} surrounding nodes ({item_summary})"
+            else:
+                desc = f"connected by solid lines to {count} surrounding nodes"
+            return re.sub(
+                r'connected by solid lines to 6 surrounding nodes',
+                desc,
+                prompt,
+                flags=re.IGNORECASE
+            )
+
+        # 5. Funnel / Conversion Chart (Neumorphism): e.g. "divided into 4 horizontal layers"
+        elif style_key == "funnel_chart_neumorphism":
+            if items:
+                desc = f"divided into {count} horizontal layers ({item_summary})"
+            else:
+                desc = f"divided into {count} horizontal layers"
+            return re.sub(
+                r'divided into 4 horizontal layers',
+                desc,
+                prompt,
+                flags=re.IGNORECASE
+            )
+
+        # 6. Pyramid / Hierarchy (Low-Poly Art): e.g. "divided into horizontal slices"
+        elif style_key == "pyramid_hierarchy_lowpoly":
+            if items:
+                desc = f"divided into {count} horizontal tiers/slices representing {item_summary}"
+            else:
+                desc = f"divided into {count} horizontal slices"
+            return re.sub(
+                r'divided into horizontal slices',
+                desc,
+                prompt,
+                flags=re.IGNORECASE
+            )
+
+        # 7. Top 10 Listicle (Pop Art / Comic Book): e.g. "top facts about [TOPIC]" -> "top N facts about [TOPIC]", "(1-10)" -> "(1-N)"
+        elif style_key == "top_10_listicle_popart":
+            p = re.sub(r'top facts about', f'top {count} facts about', prompt, flags=re.IGNORECASE)
+            p = re.sub(r'\(1-10\)', f'(1-{count})', p)
+            if items:
+                p = re.sub(r'cascading down the page\.', f'cascading down the page featuring: {item_summary}.', p)
+            return p
+
+        # 8. Step-by-Step Flowchart (Isometric 3D)
+        elif style_key == "step_by_step_isometric":
+            if items:
+                desc = f"A sequential, left-to-right zigzag path illustrating the {count} steps ({item_summary})."
+            else:
+                desc = f"A sequential, left-to-right zigzag path illustrating the {count} steps."
+            return re.sub(
+                r'A sequential, left-to-right zigzag path\.',
+                desc,
+                prompt,
+                flags=re.IGNORECASE
+            )
+
+        # 9. Checklist / Playbook (Synthwave)
+        elif style_key == "checklist_synthwave":
+            if items:
+                desc = f"A vertical list of {count} large, stylized checkboxes featuring: {item_summary}."
+            else:
+                desc = f"A vertical list of {count} large, stylized checkboxes."
+            return re.sub(
+                r'A vertical list of large, stylized checkboxes with short, actionable steps next to them\.',
+                desc,
+                prompt,
+                flags=re.IGNORECASE
+            )
+
+        return prompt
 
     @staticmethod
     def auto_detect_archetype(text: str) -> str:
@@ -282,11 +525,14 @@ class InfographicAIService:
         Synthesizes a visual diffusion generation prompt tailored for Nano Banana Pro / Gemini
         to generate an aesthetic, legible infographic.
 
-        Supports specific style presets as well as classic archetypes.
+        Understands item count and names from text, and dynamically updates layout prompts.
         Returns: (final_prompt, effective_archetype_or_style)
         """
         clean_text = " ".join(text.strip().split())[:800]
         extra_inst = f"\nCreative Instructions: {user_instructions.strip()}" if user_instructions else ""
+
+        # Extract items and count from the text
+        detected_items, detected_count = cls.extract_items_and_count(text)
 
         # Determine target style / archetype
         target_key = (style or archetype or "auto").strip().lower()
@@ -297,15 +543,22 @@ class InfographicAIService:
             template = preset["prompt_template"]
 
             if "[TOPIC A] vs [TOPIC B]" in template:
-                parts = re.split(r'\s+(?:vs\.?|versus|compared to)\s+', clean_text, maxsplit=1, flags=re.IGNORECASE)
-                if len(parts) == 2:
-                    prompt = template.replace("[TOPIC A]", f"'{parts[0].strip()}'").replace("[TOPIC B]", f"'{parts[1].strip()}'")
+                if len(detected_items) >= 2:
+                    prompt = template.replace("[TOPIC A]", f"'{detected_items[0]}'").replace("[TOPIC B]", f"'{detected_items[1]}'")
                 else:
-                    prompt = template.replace("[TOPIC A] vs [TOPIC B]", f"'{clean_text}'")
+                    parts = re.split(r'\s+(?:vs\.?|versus|compared to)\s+', clean_text, maxsplit=1, flags=re.IGNORECASE)
+                    if len(parts) == 2:
+                        prompt = template.replace("[TOPIC A]", f"'{parts[0].strip()}'").replace("[TOPIC B]", f"'{parts[1].strip()}'")
+                    else:
+                        prompt = template.replace("[TOPIC A] vs [TOPIC B]", f"'{clean_text}'")
             else:
                 prompt = template.replace("[TOPIC]", f"'{clean_text}'")
 
+            # Dynamically adapt prompt layout for item count
+            prompt = cls.adapt_prompt_for_items(prompt, target_key, detected_items, detected_count)
+
             return f"{prompt}{extra_inst}", target_key
+
 
         # 2. Check if archetype is a classic archetype
         effective_archetype = archetype.lower()

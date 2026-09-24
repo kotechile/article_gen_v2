@@ -318,6 +318,64 @@ const INFOGRAPHIC_STYLES: StyleOption[] = [
     }
 ];
 
+function cleanItemTitle(item: string): string {
+    let cleaned = item.trim().replace(/^[-*•.:'"\s]+|[-*•.:'"\s]+$/g, '');
+    cleaned = cleaned.replace(/^(?:compare|comparison of|analyzing|analysis of|intersection of|overlap of|differences between|between)\s+/i, '');
+    cleaned = cleaned.replace(/^\d+[\.\)\:\-]\s*/, '');
+    cleaned = cleaned.replace(/^(?:step|phase|stage|item|tier|level|pillar)\s*\d+[\.\:\-]?\s*/i, '');
+    cleaned = cleaned.replace(/\s+(?:in|for|of|across|within)\s+(?:modern|enterprise|web|mobile|product|today|saas|industry).*$/i, '');
+    return cleaned.trim();
+}
+
+function detectItemsFromText(text: string): { items: string[]; count: number } {
+    if (!text.trim()) return { items: [], count: 0 };
+
+    // 1. Numbered items
+    const numberedMatches = text.match(/(?:^|\n)\s*(?:(?:\d+|[a-zA-Z])[\.\)\:]|step\s*\d+[\.\:\-]?|phase\s*\d+[\.\:\-]?)\s*([^\n]+)/gi);
+    if (numberedMatches && numberedMatches.length >= 2) {
+        const cleaned = numberedMatches.map(cleanItemTitle).filter(Boolean);
+        if (cleaned.length >= 2) return { items: cleaned, count: cleaned.length };
+    }
+
+    // 2. Bullet list
+    const bulletMatches = text.match(/(?:^|\n)\s*[\-\*\•\–]\s*([^\n]+)/g);
+    if (bulletMatches && bulletMatches.length >= 2) {
+        const cleaned = bulletMatches.map(cleanItemTitle).filter(Boolean);
+        if (cleaned.length >= 2) return { items: cleaned, count: cleaned.length };
+    }
+
+    // 3. 'vs' or 'versus'
+    const vsParts = text.split(/\s+(?:vs\.?|versus|compared to)\s+/i);
+    if (vsParts.length >= 2) {
+        const cleaned = vsParts.map(cleanItemTitle).filter(Boolean);
+        if (cleaned.length >= 2) return { items: cleaned, count: cleaned.length };
+    }
+
+    // 4. Colon list or comma list
+    const colonMatch = text.match(/:\s*([^\n\.]+)/);
+    const candidate = colonMatch ? colonMatch[1] : text;
+    const sub = candidate.replace(/^(?:the\s+)?(?:intersection|overlap|difference|comparison)\s+(?:of|between|among)\s+/i, '').trim();
+    if (sub.includes(',')) {
+        const parts = sub.split(/,\s*(?:and\s+)?|\s+and\s+/i);
+        const cleaned = parts.map(cleanItemTitle).filter((p) => Boolean(p) && p.length < 50);
+        if (cleaned.length >= 2) return { items: cleaned, count: cleaned.length };
+    }
+
+    // 5. Explicit count mention in text
+    const wordNumbers: Record<string, number> = {
+        two: 2, three: 3, four: 4, five: 5, six: 6,
+        seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12
+    };
+    const matchCount = text.match(/\b(\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:[a-zA-Z\-]+\s+)?(?:steps|stages|phases|pillars|layers|nodes|circles|facts|tips|principles|habits|items|rules|elements|levels|components|tiers)\b/i);
+    if (matchCount) {
+        const token = matchCount[1].toLowerCase();
+        const num = /^\d+$/.test(token) ? parseInt(token, 10) : wordNumbers[token] || 0;
+        if (num > 0) return { items: [], count: num };
+    }
+
+    return { items: [], count: 0 };
+}
+
 export const InfographicGenerator: React.FC<InfographicGeneratorProps> = ({
     userId,
     selectedText = '',
@@ -354,6 +412,10 @@ export const InfographicGenerator: React.FC<InfographicGeneratorProps> = ({
             console.error('Error loading infographics app config:', err);
         }
     };
+
+    const detectedInfo = useMemo(() => {
+        return detectItemsFromText(storyText);
+    }, [storyText]);
 
     const filteredStyles = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
@@ -446,7 +508,29 @@ export const InfographicGenerator: React.FC<InfographicGeneratorProps> = ({
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-gray-900 dark:text-white placeholder-gray-400 text-sm"
                     placeholder="Highlight or paste an article section explaining a process, system architecture, history, or metrics..."
                 />
+                {detectedInfo.count >= 2 && (
+                    <div className="mt-2 flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 text-xs text-emerald-900 dark:text-emerald-200 shadow-sm">
+                        <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                            <div className="font-semibold flex items-center gap-1.5">
+                                <span>Detected {detectedInfo.count} items from text</span>
+                                <span className="text-[10px] font-normal px-2 py-0.5 bg-emerald-200/60 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 rounded-full">
+                                    Auto-adapted
+                                </span>
+                            </div>
+                            <div className="font-medium text-emerald-700 dark:text-emerald-300 mt-0.5">
+                                {detectedInfo.items.length > 0
+                                    ? detectedInfo.items.slice(0, 5).join(', ') + (detectedInfo.items.length > 5 ? ` (+${detectedInfo.items.length - 5} more)` : '')
+                                    : `${detectedInfo.count} distinct elements`}
+                            </div>
+                            <div className="text-[11px] text-emerald-600/90 dark:text-emerald-400/90 mt-0.5">
+                                Diagram layouts (e.g. Venn circles, lifecycle arrows, hub nodes, funnel layers) will automatically generate {detectedInfo.count} matching elements.
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
+
 
             {/* Infographic Style & Archetype Selector */}
             <div className="space-y-3">
@@ -458,6 +542,11 @@ export const InfographicGenerator: React.FC<InfographicGeneratorProps> = ({
                         {selectedStyleObj && (
                             <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5 font-medium">
                                 Active: <span className="font-semibold">{selectedStyleObj.label}</span> ({selectedStyleObj.tag})
+                                {detectedInfo.count >= 2 && (
+                                    <span className="ml-1 text-emerald-700 dark:text-emerald-300 font-normal">
+                                        — auto-adapting to {detectedInfo.count} items
+                                    </span>
+                                )}
                             </p>
                         )}
                     </div>
