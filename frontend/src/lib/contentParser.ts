@@ -1,5 +1,4 @@
 import { supabase, withSessionRetry } from '../lib/supabase';
-import { ensureIntroKeyTakeaways } from './geoFormatting';
 
 // ----------  citation helpers ----------
 
@@ -396,11 +395,7 @@ export const assembleArticleHtml = async (options: AssembleOptions) => {
         // However, keeping ToC in the editor is fine if it's part of the content user can edit.
         finalHtml = postBody;
     } else {
-        // For Preview: Full structured page
-        finalHtml = ensureIntroKeyTakeaways(
-            titleHtml + metadataHtml + postBody,
-            { thesis: options.thesis, hook: options.hook },
-        );
+        finalHtml = titleHtml + metadataHtml + postBody;
 
         // NOW wrap everything in the styled container
         finalHtml = `<div class="preview-content">${finalHtml}</div>`;

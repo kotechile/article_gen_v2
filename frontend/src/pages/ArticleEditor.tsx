@@ -32,7 +32,6 @@ import type { ImageMetadata } from '../types/image';
 import { rankCitationDomains } from '../lib/citationAuthority';
 import { InfographicBlock } from '../components/editor/InfographicBlock';
 import { materializeInfographicHtml, normalizeInfographicHtmlForEditor, beautifyTablesHtml } from '../lib/infographicSvg';
-import { ensureIntroKeyTakeaways } from '../lib/geoFormatting';
 
 
 const HeadingIdExtension = Extension.create({
@@ -751,12 +750,11 @@ export const ArticleEditor: React.FC = () => {
 
     const materializeEditorHtml = React.useCallback((html: string) => {
         let processed = materializeInfographicHtml(html);
-        processed = ensureIntroKeyTakeaways(processed, articleData);
         return beautifyTablesHtml(processed);
-    }, [articleData]);
+    }, []);
     const normalizeEditorHtml = React.useCallback(
-        (html: string) => convertTextMathToHtmlMath(ensureIntroKeyTakeaways(normalizeInfographicHtmlForEditor(html), articleData)),
-        [articleData],
+        (html: string) => convertTextMathToHtmlMath(normalizeInfographicHtmlForEditor(html)),
+        [],
     );
 
     const extensions = React.useMemo(() => [
@@ -1202,7 +1200,7 @@ export const ArticleEditor: React.FC = () => {
                         content = normalizeCitations(content, parsedCitations, restoredSelected, d.include_in_text_citations ?? d.includeInTextCitations ?? true);
                     }
                     const cleanedContent = normalizeResidualMarkdownHeadings(content);
-                    editor.commands.setContent(ensureIntroKeyTakeaways(normalizeEditorHtml(cleanedContent), d));
+                    editor.commands.setContent(normalizeEditorHtml(cleanedContent));
                 }
 
                 // Store article data for WordPress export

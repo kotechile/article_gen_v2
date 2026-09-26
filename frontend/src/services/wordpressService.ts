@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
+import { apiClient } from '../api-client';
 import { materializeInfographicHtml, beautifyTablesHtml } from '../lib/infographicSvg';
-import { ensureIntroKeyTakeaways } from '../lib/geoFormatting';
 import type {
     WordPressSite,
     WordPressCategory,
@@ -574,68 +574,24 @@ const inlineExportTakeawaysCard = (html: string): string => {
     return doc.body.innerHTML;
 };
 
-const injectGeoFormatting = (html: string, articleData: any): string => {
-    if (!html.trim()) return html;
-    let formatted = html;
-    formatted = ensureIntroKeyTakeaways(formatted, articleData);
-    formatted = inlineExportTakeawaysCard(formatted);
-
-    const hasFaqJsonLd = /<script[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*"@type"\s*:\s*"FAQPage"[\s\S]*<\/script>/i.test(formatted);
-    if (!hasFaqJsonLd) {
-        const faqEntries = extractFaqEntries(formatted);
-        const faqScript = buildFaqJsonLdScript(faqEntries);
-        if (faqScript) {
-            formatted = `${formatted}\n${faqScript}`;
-        }
-    }
-
-    return formatted;
-};
-
-/**
- * Formats the article body to include metadata elements (Deck, Hook, Thesis, Image)
- * logically integrated into the text with professional styling.
- */
 const formatArticleBody = (articleData: any): string => {
-    let content = '';
-
-    // 1. Featured Image - REMOVED to avoid duplication (WP Theme handles this via featured_media ID)
-
-    // 2. The Deck (Lead/Intro text) - Italicized, larger font
-    if (articleData.deck) {
-        content += `
-            <div class="article-deck" style="font-size: 1.25em; line-height: 1.6; color: #4b5563; font-style: italic; margin-bottom: 2em; border-left: 4px solid #4f46e5; padding-left: 1em;">
-                ${articleData.deck}
-            </div>`;
-    }
-
-    // 3. Hook & Thesis (Context Setting)
-    if (articleData.hook || articleData.thesis) {
-        content += `<div class="article-context" style="background-color: #f9fafb; border-radius: 0.75rem; padding: 1.5em; margin-bottom: 2em; border: 1px solid #e5e7eb;">`;
-
-        if (articleData.hook) {
-            content += `<p style="margin-bottom: 1em; font-size: 1.1em;">${articleData.hook}</p>`;
-        }
-
-        if (articleData.thesis) {
-            content += `
-                <div style="display: flex; gap: 0.75em; align-items: flex-start;">
-                    <span style="font-size: 1.25em;">💡</span>
-                    <p style="margin: 0; font-weight: 500; color: #1f2937;">${articleData.thesis}</p>
-                </div>`;
-        }
-
-        content += `</div>`;
-    }
-
-    // 4. Main Body Content - Decode base64-encoded SVGs and beautify tables before sending to WordPress
+    // Decode base64-encoded SVGs and beautify tables before sending to WordPress
     const rawHtml = articleData.htmlArticle || articleData.htmlarticle || '';
     let processedHtml = materializeInfographicHtml(rawHtml);
     processedHtml = beautifyTablesHtml(processedHtml);
-    content += processedHtml;
+    processedHtml = inlineExportTakeawaysCard(processedHtml);
 
-    return injectGeoFormatting(content, articleData);
-}
+    const hasFaqJsonLd = /<script[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*"@type"\s*:\s*"FAQPage"[\s\S]*<\/script>/i.test(processedHtml);
+    if (!hasFaqJsonLd) {
+        const faqEntries = extractFaqEntries(processedHtml);
+        const faqScript = buildFaqJsonLdScript(faqEntries);
+        if (faqScript) {
+            processedHtml = `${processedHtml}\n${faqScript}`;
+        }
+    }
+
+    return processedHtml;
+};
 
 
 

@@ -271,7 +271,7 @@ const extractExistingKeyTakeawaysSection = (doc: Document): HTMLElement | null =
     return createKeyTakeawaysSection(doc, takeaways);
 };
 
-export const ensureIntroKeyTakeaways = (html: string, articleData?: any): string => {
+export const ensureIntroKeyTakeaways = (html: string, _articleData?: any): string => {
     if (!html.trim()) return html;
 
     const parser = new DOMParser();
@@ -279,12 +279,7 @@ export const ensureIntroKeyTakeaways = (html: string, articleData?: any): string
     const body = doc.body;
     if (!body) return html;
 
-    let takeawaysSection = extractExistingKeyTakeawaysSection(doc);
-    if (!takeawaysSection) {
-        const fallbackTakeaways = buildTakeawayCandidates(articleData);
-        takeawaysSection = createKeyTakeawaysSection(doc, fallbackTakeaways);
-    }
-
+    const takeawaysSection = extractExistingKeyTakeawaysSection(doc);
     if (!takeawaysSection) return html;
 
     const leadingIntroHeading = Array.from(body.children).find((node) =>
