@@ -1272,14 +1272,15 @@ def _validate_and_ensure_smart_brevity_structure(
 ) -> str:
     """
     Validates and enforces the complete Smart Brevity structure on the article HTML.
-    If any Smart Brevity component is missing from the top, synthesizes and places it properly.
+    If any Smart Brevity component is missing from the top, cleanly inserts it without
+    duplicating content or leaving 'At a glance' artifacts.
     
     Required Components:
-    1. Punchy Hook / Lede sentence
+    1. Punchy Hook / Lede sentence (no 'At a glance' or meta headers)
     2. The big picture: (<p><strong>The big picture:</strong> ...</p>)
-    3. By the numbers: (<p><strong>By the numbers:</strong></p><ul><li><strong>...:</strong> ...</li></ul>)
-    4. Why it matters: (<p><strong>Why it matters:</strong> ...</p>)
-    5. The catch: (<p><strong>The catch:</strong> ...</p> or Between the lines / The bottom line)
+    3. Why it matters: (<p><strong>Why it matters:</strong> ...</p>)
+    4. By the numbers: (<p><strong>By the numbers:</strong></p><ul><li><strong>...:</strong> ...</li></ul>)
+    5. The bottom line / The catch: (<p><strong>The bottom line:</strong> ...</p> or The catch / The reality check)
     6. Go deeper: (<p><strong>Go deeper:</strong> ...</p>)
     7. <h2>Go Deeper</h2> (Demarcating the transition to deep-dive body sections)
     """
@@ -1288,19 +1289,36 @@ def _validate_and_ensure_smart_brevity_structure(
 
     content = html_content.strip()
 
-    # 1. Normalize markdown bold to HTML strong tags for Smart Brevity axioms
+    # 1. Strip any legacy "At a glance", "Overview", "Introduction" headers or standalone label paragraphs
+    content = re.sub(
+        r'(?i)<h[1-4]>\s*(?:At a glance|Key Takeaways?|Overview|Introduction|Executive Summary|Short Answer|Summary)\s*</h[1-4]>\s*',
+        '',
+        content
+    )
+    content = re.sub(
+        r'(?i)<p>\s*(?:<strong>|<b>)?\s*(?:At a glance|Key Takeaways?|Executive Summary|Short Answer|Summary):?\s*(?:</strong>|</b>)?\s*</p>\s*',
+        '',
+        content
+    )
+    content = re.sub(
+        r'(?i)^(?:At a glance|Key Takeaways?|Overview|Introduction|Executive Summary)\s*\n+',
+        '',
+        content
+    )
+
+    # 2. Normalize markdown bold to HTML strong tags for Smart Brevity axioms
     axiom_names = [
         r'The\s+big\s+picture',
         r'By\s+the\s+numbers',
         r'Why\s+it\s+matters',
         r'The\s+catch',
+        r'The\s+reality\s+check',
         r'Between\s+the\s+lines',
         r'The\s+bottom\s+line',
         r'What\s+to\s+watch',
         r'Go\s+deeper',
     ]
     for axiom in axiom_names:
-        # Match **Axiom:** or **Axiom**:
         content = re.sub(
             rf'\*\*\s*({axiom})\s*:\s*\*\*',
             r'<strong>\1:</strong>',
@@ -1313,7 +1331,6 @@ def _validate_and_ensure_smart_brevity_structure(
             content,
             flags=re.IGNORECASE
         )
-        # Match <b>Axiom:</b> or <b>Axiom</b>:
         content = re.sub(
             rf'<b>\s*({axiom})\s*:\s*</b>',
             r'<strong>\1:</strong>',
@@ -1329,10 +1346,10 @@ def _validate_and_ensure_smart_brevity_structure(
 
     # Check presence of individual components
     has_big_picture = bool(re.search(r'<strong>\s*the\s+big\s+picture\s*:?</strong>', content, re.IGNORECASE))
-    has_by_numbers = bool(re.search(r'<strong>\s*by\s+the\s+numbers\s*:?</strong>', content, re.IGNORECASE))
     has_why_matters = bool(re.search(r'<strong>\s*why\s+it\s+matters\s*:?</strong>', content, re.IGNORECASE))
-    has_catch = bool(re.search(
-        r'<strong>\s*(?:the\s+catch|between\s+the\s+lines|the\s+bottom\s+line|what\s+to\s+watch)\s*:?</strong>',
+    has_by_numbers = bool(re.search(r'<strong>\s*by\s+the\s+numbers\s*:?</strong>', content, re.IGNORECASE))
+    has_bottom_line_or_catch = bool(re.search(
+        r'<strong>\s*(?:the\s+bottom\s+line|the\s+reality\s+check|the\s+catch|between\s+the\s+lines|what\s+to\s+watch)\s*:?</strong>',
         content,
         re.IGNORECASE
     ))
@@ -1340,7 +1357,7 @@ def _validate_and_ensure_smart_brevity_structure(
     has_go_deeper_h2 = bool(re.search(r'<h2>\s*go\s+deeper\s*</h2>', content, re.IGNORECASE))
 
     # If all Smart Brevity components already exist cleanly
-    if (has_big_picture and has_by_numbers and has_why_matters and has_catch and has_go_deeper_prompt and has_go_deeper_h2):
+    if (has_big_picture and has_why_matters and has_by_numbers and has_bottom_line_or_catch and has_go_deeper_prompt and has_go_deeper_h2):
         return content
 
     # Build missing elements
@@ -1354,6 +1371,10 @@ def _validate_and_ensure_smart_brevity_structure(
         bp_text = thesis if thesis else f"Understanding the key dynamics of {topic} is critical for making informed, high-ROI decisions."
         missing_blocks.append(f"<p><strong>The big picture:</strong> {bp_text}</p>")
 
+    if not has_why_matters:
+        why_text = hook if (hook and hook != thesis) else f"Mastering the fundamentals of {topic} directly impacts operational efficiency, cost management, and long-term positioning."
+        missing_blocks.append(f"<p><strong>Why it matters:</strong> {why_text}</p>")
+
     if not has_by_numbers:
         num_items = _extract_numbers_for_smart_brevity(content, research_data, structure)
         num_html = "<p><strong>By the numbers:</strong></p>\n<ul>\n"
@@ -1362,31 +1383,33 @@ def _validate_and_ensure_smart_brevity_structure(
         num_html += "</ul>"
         missing_blocks.append(num_html)
 
-    if not has_why_matters:
-        why_text = hook if (hook and hook != thesis) else f"Mastering the fundamentals of {topic} directly impacts operational efficiency, cost management, and long-term positioning."
-        missing_blocks.append(f"<p><strong>Why it matters:</strong> {why_text}</p>")
-
-    if not has_catch:
-        catch_text = f"While the potential benefits of {topic} are substantial, execution often introduces hidden friction, compliance demands, or unexpected costs that require careful planning."
-        missing_blocks.append(f"<p><strong>The catch:</strong> {catch_text}</p>")
+    if not has_bottom_line_or_catch:
+        catch_text = f"Evaluate the full lifecycle costs and operational trade-offs before committing resources to {topic}."
+        missing_blocks.append(f"<p><strong>The bottom line:</strong> {catch_text}</p>")
 
     if not has_go_deeper_prompt:
         missing_blocks.append(f"<p><strong>Go deeper:</strong> Review the detailed breakdown, comparative analysis, and step-by-step guidance below.</p>")
 
-    # Prepend any synthesized missing blocks to the top if the whole opening was missing
+    # If missing blocks exist, integrate them cleanly
     if missing_blocks:
         sb_intro = "\n\n".join(missing_blocks)
-        content = f"{sb_intro}\n\n{content}"
+        if has_go_deeper_h2:
+            # Insert missing blocks right before <h2>Go Deeper</h2>
+            h2_pos = re.search(r'<h2>\s*go\s+deeper\s*</h2>', content, re.IGNORECASE)
+            if h2_pos:
+                content = content[:h2_pos.start()].rstrip() + "\n\n" + sb_intro + "\n\n" + content[h2_pos.start():]
+            else:
+                content = f"{sb_intro}\n\n{content}"
+        else:
+            content = f"{sb_intro}\n\n{content}"
 
     # Ensure <h2>Go Deeper</h2> exists
     if not has_go_deeper_h2:
-        # Find where the Smart Brevity lead ends (after Go deeper: prompt or after the last intro axiom)
         go_deeper_match = re.search(r'(<p><strong>\s*go\s+deeper\s*:?</strong>.*?</p>)', content, re.IGNORECASE | re.DOTALL)
         if go_deeper_match:
             end_pos = go_deeper_match.end()
             content = content[:end_pos] + "\n\n<h2>Go Deeper</h2>\n\n" + content[end_pos:]
         else:
-            # Place <h2>Go Deeper</h2> before the first <h2> in the body
             first_h2 = re.search(r'<h2>', content, re.IGNORECASE)
             if first_h2:
                 content = content[:first_h2.start()] + "<h2>Go Deeper</h2>\n\n" + content[first_h2.start():]
@@ -1395,7 +1418,7 @@ def _validate_and_ensure_smart_brevity_structure(
 
     # Clean up redundant duplicate headings like <h2>Introduction</h2> right after <h2>Go Deeper</h2>
     content = re.sub(
-        r'<h2>\s*go\s+deeper\s*</h2>\s*<h2>\s*(?:introduction|overview|background)\s*</h2>',
+        r'<h2>\s*go\s+deeper\s*</h2>\s*<h2>\s*(?:introduction|overview|background|at a glance)\s*</h2>',
         '<h2>Go Deeper</h2>',
         content,
         flags=re.IGNORECASE
@@ -1411,12 +1434,11 @@ def _polish_and_format_article(
 ) -> str:
     """
     Polishing/formatting agent that runs on the generated article content to enforce
-    strict Smart Brevity formatting and demographic calibration.
+    strict Axios Smart Brevity formatting and demographic calibration.
     """
     if not html_content or not html_content.strip():
         return html_content
 
-    # Extract audience, tone, and writer notes from research_data/structure
     target_audience = str(
         research_data.get("target_audience")
         or structure.get("target_audience")
@@ -1431,10 +1453,8 @@ def _polish_and_format_article(
     ).strip()
     title = str(structure.get("title") or "").strip()
 
-    # Log action
-    logger.info("Initializing Smart Brevity Mastering & Polishing pass...")
+    logger.info("Initializing Smart Brevity Executive Lead & Full Body Mastering pass...")
 
-    # Initialize client for final review/polishing
     review_provider, review_model, review_key = get_llm_provider_for_role(LLM_ROLE_FINAL_REVIEW)
     provider = review_provider or research_data.get('provider', 'openai')
     model = review_model or research_data.get('model', 'gpt-4')
@@ -1451,73 +1471,74 @@ def _polish_and_format_article(
     )
 
     prompt = f"""
-You are an expert editorial agent and master formatter specializing in Axios-style Smart Brevity lead formatting and rich, high-substance editorial depth.
-Your task is to polish and restructure the provided article HTML so it strictly matches the Smart Brevity format for the executive lead while PRESERVING and FULLY EXPANDING all substantive narrative body content and sections under "Go Deeper".
+You are an expert executive editor trained strictly in Axios-style Smart Brevity and demographic precision.
+Your objective is to polish and restructure the provided article HTML so it strictly matches the Smart Brevity format for the executive lead while PRESERVING and FULLY EXPANDING all substantive body content, deep-dive sections, comparative tables, and FAQs under "Go Deeper".
 
 TARGET AUDIENCE DEMOGRAPHIC: {target_audience}
 PRIMARY KEYWORD: {primary_keyword}
 WRITER NOTES: {writer_notes if writer_notes else "None provided"}
 
-TARGET FORMAT & STRUCTURAL REQUIREMENTS:
+STRICT SMART BREVITY EXECUTIVE LEAD REQUIREMENTS (TOP OF ARTICLE):
+At the very top of the article, create a razor-sharp executive lead matching this EXACT sequence:
 
-1. **Executive Smart Brevity Lead (Top of Article)**:
-   - Start immediately with a punchy 1-sentence hook statement that grabs attention and delivers immediate value.
-   - Strip all conversational throat-clearing, introductory meta-talk, or filler (e.g., "Ever wondered...", "In this article...", "When considering...", "Here is a guide...", "This article is optimized around...").
-   - Strip generic redundant headers like "At a glance", "Short Answer", or "Introduction".
-   - For any bullet points in summary, key takeaways, or "At a glance" sections, enforce a strict maximum limit of 60 words per bullet point. If a concept exceeds 60 words, split it into a new bullet point.
-   - Present the core takeaways using bolded axiom signals:
-     * `<p><strong>The big picture:</strong> (1-2 sentences summarizing the core premise).</p>`
-     * `<p><strong>Why it matters:</strong> (1-2 sentences explaining high-stakes impact and consequences for {target_audience}).</p>`
-     * `<p><strong>By the numbers:</strong></p>` followed immediately by a clean comparative HTML table or structured bulleted list with key metrics and data.
-     * `<p><strong>The reality check:</strong> (1-2 sentences providing a grounded fact, counter-intuitive truth, or critical catch).</p>`
-     * `<p><strong>Go deeper:</strong> (1 single sentence transition inviting the reader into the comprehensive deep-dive below).</p>`
+1. **The Tease (The Lede Hook)**:
+   - Exactly 1 to 2 punchy sentences that state the most critical takeaway or core truth immediately.
+   - State the conclusion first.
+   - NEVER use "At a glance", "Introduction", or conversational throat-clearing (e.g., "In this article...", "When considering...", "Ever wondered...").
 
-2. **CRITICAL ALIGNMENT - COMPLETE CONCEPT DEVELOPMENT UNDER 'GO DEEPER' (NO ORPHAN CONCEPTS OR FAQ TOPICS)**:
-   - Every single topic, theme, concept, statistic, data point, and comparison mentioned in the Executive Smart Brevity Lead / 'At a glance' axioms (such as "The big picture", "Why it matters", "By the numbers", "The reality check") or the Frequently Asked Questions (FAQ) MUST be thoroughly and substantively developed, explained, and substantiated inside the substantive body sections under `<h2>Go Deeper</h2>`.
-   - If the summary lead or FAQ mentions a specific subject or metric (for example, "build versus buy", specific percentages, market dynamics, operational bottlenecks, cost breakdowns, or ROI timelines), you MUST ensure the 'Go Deeper' body contains a dedicated section or substantive paragraphs thoroughly exploring and analyzing that exact subject in depth.
-   - NEVER allow an orphan topic or statistic to appear in the 'At a glance' summary or FAQ without full exposition in the body.
+2. **The Axiom Pivot**:
+   - `<p><strong>The big picture:</strong> (1-2 crisp sentences on why this shift is happening).</p>`
+   - `<p><strong>Why it matters:</strong> (1-2 sentences explaining high-stakes impact and consequences for {target_audience}).</p>`
 
-3. **Substantive & In-Depth Body Sections (CRITICAL - DO NOT CONDENSE OR SUMMARIZE INTO TELEGRAPHIC BULLET POINTS)**:
-   - Demarcate the main body starting with `<h2>Go Deeper</h2>` followed by the fully developed topic sections using `<h3>` subsections.
-   - Retain and fully expand all topic-specific sections, explanations, frameworks, actionable steps, and real-world logistics from the original draft.
-   - Narrative Flow & Rich Prose:
-     * Write deep, narrative, and engaging body paragraphs that tell a complete story with real-world context, nuance, and smooth transitions.
-     * DO NOT turn standard body paragraphs into bold-prefixed pseudo-bullet points (e.g., avoid `<p><strong>Concept Name:</strong> One-sentence description.</p>`). Standard body paragraphs must be written as natural editorial prose.
-     * Paragraph length: Well-paced paragraphs (typically 2–4 sentences per paragraph). Avoid monolithic walls of text, but NEVER collapse paragraphs into telegram-like 1-sentence snippets.
-     * Bullet points: Use bulleted lists (`<ul><li>...</li></ul>`) ONLY for discrete items, checklists, steps, or feature sets. In actual lists, bold the first 2–5 words (`<li><strong>Key Takeaway:</strong> explanation...</li>`). Ensure every bullet point is at most 60 words (split if longer).
-     * Tables over text for structured data: Format multi-variable comparisons, financial breakdowns, tax tiers, or step criteria as clean HTML tables (`<table>...</table>`).
-     * Authoritative tone: Zero fabricated personal friend anecdotes. Keep the analysis sharp, professional, and directly calibrated for {target_audience}.
+3. **Scannable Details (By the Numbers)**:
+   - `<p><strong>By the numbers:</strong></p>` followed immediately by a clean `<ul>` with EXACTLY 3 to 4 bullet points.
+   - Each bullet must front-load bolding on the first 2 to 4 words (e.g., `<li><strong>Hidden Payroll Drag:</strong> Two dedicated engineers burn $375k in salaries before a custom build works.</li>`).
+   - Maximum 2 lines (under 60 words) per bullet. Prioritize hard figures, financial metrics, and concrete trade-offs.
 
-4. **Frequently Asked Questions (FAQ)**:
-   - Include a dedicated `<h2>Frequently Asked Questions</h2>` section before References.
-   - Provide 3 to 5 realistic reader questions using `<h3>` and direct, concise answers using `<p>` (1 to 3 sentences per answer).
-   - Questions and answers must strictly reflect, clarify, and reinforce topics that are actively developed and explained in the substantive body under 'Go Deeper'. Do NOT introduce questions about concepts that are absent from the body.
+4. **The Bottom Line**:
+   - `<p><strong>The bottom line:</strong> (1 single, conclusive sentence outlining what to do next or the ultimate strategic consequence).</p>`
+   - `<p><strong>Go deeper:</strong> (1 single sentence transition inviting the reader into the comprehensive deep-dive below).</p>`
 
-5. **Demographic Nuance**:
-   - Speak directly to the specific realities of {target_audience} (e.g., for mid-career 35-45 professionals: dual-country net cash flow, trailing spouse visa restrictions, international school tuition, cross-border tax treaties, asset management, and lifestyle ROI).
+5. **Demarcate Transition**:
+   - `<h2>Go Deeper</h2>`
 
-6. **Substance Over Word Count (Zero Fluff)**:
-   - Word count targets are soft guidelines, NOT rigid quotas.
-   - Strictly avoid padding, repetitive restatements, filler sentences, or artificial fluff added solely to lengthen the article.
-   - Maximize information density: deliver insights cleanly, concisely, and with narrative depth.
+CRITICAL ALIGNMENT - COMPLETE CONCEPT DEVELOPMENT UNDER 'GO DEEPER' (NO ORPHAN CONCEPTS OR FAQ TOPICS):
+- Every single topic, theme, concept, statistic, data point, and comparison mentioned in the Executive Smart Brevity Lead / axioms or the Frequently Asked Questions (FAQ) MUST be thoroughly and substantively developed, explained, and substantiated inside the substantive body sections under `<h2>Go Deeper</h2>`.
+- If the summary lead or FAQ mentions a specific subject or metric, you MUST ensure the 'Go Deeper' body contains a dedicated section or substantive paragraphs thoroughly exploring and analyzing that exact subject in depth.
+- NEVER allow an orphan topic or statistic to appear in the 'At a glance' summary or FAQ without full exposition in the body.
 
-7. **Citations & References**:
-   - Keep all existing citation markers (e.g., [1], [2], [^1]) intact and in place within the text.
-   - Do not delete or duplicate the References section.
+SUBSTANTIVE & IN-DEPTH BODY SECTIONS (CRITICAL - DO NOT CONDENSE OR SUMMARIZE INTO TELEGRAPHIC BULLETS):
+- Immediately follow `<h2>Go Deeper</h2>` with ALL detailed topic sections from the original draft using `<h3>` subsections.
+- Fully expand all frameworks, actionable steps, real-world logistics, and technical analysis.
+- Readability & Narrative Flow:
+  * Well-paced paragraphs (typically 2–4 sentences per paragraph, maximum 3 sentences). Avoid monolithic walls of text, but NEVER collapse paragraphs into 1-sentence snippets.
+  * Standard body paragraphs must be written as natural editorial prose. DO NOT turn standard body paragraphs into bold-prefixed pseudo-bullet points.
+  * Bullet points: Use bulleted lists (`<ul><li>...</li></ul>`) ONLY for discrete items, checklists, steps, or feature sets. Bold the first 2–5 words (`<li><strong>Key Takeaway:</strong> explanation...</li>`).
+  * Format multi-variable comparisons, financial breakdowns, or step criteria as clean HTML tables (`<table>...</table>`).
+  * Professional, authoritative tone calibrated specifically for {target_audience}. Zero fake friend anecdotes.
+
+FREQUENTLY ASKED QUESTIONS (FAQ):
+- Include a dedicated `<h2>Frequently Asked Questions</h2>` section before References.
+- Provide 3 to 5 realistic reader questions using `<h3>` and direct, concise answers using `<p>` (1 to 3 sentences per answer).
+- Questions and answers must strictly reflect and reinforce topics that are actively developed in the substantive body under 'Go Deeper'.
+
+CITATIONS & REFERENCES:
+- Keep all in-text citations (e.g., [1], [2], [^1]) intact and in place within the text.
+- Retain the `<h2>References</h2>` section at the end.
 
 Original HTML Content to master and polish:
 {html_content}
 
 Output instructions:
-- Output ONLY the polished and formatted HTML.
-- Do NOT wrap in markdown code blocks (no ```html).
-- Do NOT include any meta-commentary, introductory notes, or sign-offs. Return clean HTML only.
+- Return ONLY the clean, polished HTML.
+- Do NOT wrap in markdown code fences (no ```html).
+- Do NOT include any meta-commentary, introductory notes, or sign-offs.
 """.strip()
 
     try:
         response = client.generate(
             [
-                {"role": "system", "content": "You are an expert editorial formatter. Transform the input into clean Smart Brevity HTML while preserving all substantive body sections, FAQs, and citations. Return only clean HTML without code fences or conversational commentary."},
+                {"role": "system", "content": "You are an expert executive editor. Master the article into clean Smart Brevity HTML while preserving all substantive deep-dive body sections, tables, FAQs, and citations. Return only clean HTML without code fences or conversational commentary."},
                 {"role": "user", "content": prompt},
             ]
         )
@@ -1547,7 +1568,17 @@ Output instructions:
             cleaned,
         )
         cleaned = re.sub(
-            r"(?i)<h[1-3]>\s*(?:At a glance|Short Answer|Introduction|Overview)\s*</h[1-3]>",
+            r"(?i)<h[1-4]>\s*(?:At a glance|Key Takeaways?|Overview|Introduction|Executive Summary|Short Answer|Summary)\s*</h[1-4]>",
+            "",
+            cleaned,
+        )
+        cleaned = re.sub(
+            r"(?i)<p>\s*(?:<strong>|<b>)?\s*(?:At a glance|Key Takeaways?|Executive Summary|Short Answer|Summary):?\s*(?:</strong>|</b>)?\s*</p>",
+            "",
+            cleaned,
+        )
+        cleaned = re.sub(
+            r"(?i)^(?:At a glance|Key Takeaways?|Overview|Introduction|Executive Summary)\s*\n+",
             "",
             cleaned,
         )

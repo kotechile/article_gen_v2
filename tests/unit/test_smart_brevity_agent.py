@@ -147,7 +147,7 @@ def test_validate_and_ensure_smart_brevity_structure_synthesizes_missing_blocks(
     assert "<strong>The big picture:</strong>" in out
     assert "<strong>By the numbers:</strong>" in out
     assert "<strong>Why it matters:</strong>" in out
-    assert "<strong>The catch:</strong>" in out
+    assert ("<strong>The bottom line:</strong>" in out or "<strong>The catch:</strong>" in out)
     assert "<strong>Go deeper:</strong>" in out
     assert "<h2>Go Deeper</h2>" in out
     # Check that numbers were extracted into By the numbers
@@ -218,7 +218,7 @@ def test_finalize_article_with_smart_brevity_integration():
     assert "<strong>The big picture:</strong>" in html
     assert "<strong>By the numbers:</strong>" in html
     assert "<strong>Why it matters:</strong>" in html
-    assert "<strong>The catch:</strong>" in html
+    assert ("<strong>The bottom line:</strong>" in html or "<strong>The catch:</strong>" in html)
     assert "<strong>Go deeper:</strong>" in html
     assert "<h2>Go Deeper</h2>" in html
     assert "References" in html
