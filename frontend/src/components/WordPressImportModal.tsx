@@ -125,9 +125,10 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
             } else {
                 alert('Failed to import post into Content Library');
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error importing post to Titles:', error);
-            alert('Failed to import post into Content Library');
+            const msg = error?.response?.data?.error || error?.message || 'Failed to import post into Content Library';
+            alert(`Failed to import post: ${msg}`);
         } finally {
             setImportingId(null);
         }
@@ -150,9 +151,10 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                 onClose();
                 navigate(`/content-studio?id=${res.title_id}`);
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error importing post to Studio:', error);
-            alert('Failed to import post into Content Studio');
+            const msg = error?.response?.data?.error || error?.message || 'Failed to import post into Content Studio';
+            alert(`Failed to import post: ${msg}`);
         } finally {
             setImportingId(null);
         }

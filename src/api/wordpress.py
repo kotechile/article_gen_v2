@@ -629,41 +629,44 @@ def _build_titles_payload_from_imported_post(user_id: str, site_id: Any, domain:
     wp_status = (extracted.get("status") or "publish").strip().lower()
     app_status = "WP Published" if wp_status == "publish" else f"WP {wp_status.capitalize()}"
 
+    content_html = extracted.get("content_html") or ""
+    plain_text = re.sub(r"<[^>]+>", " ", content_html).strip() if content_html else ""
+
     payload = {
         "id": str(uuid4()),
         "user_id": user_id,
         "Title": extracted.get("title") or "Untitled Article",
         "userDescription": extracted.get("seo_description") or extracted.get("excerpt") or "",
         "deck": extracted.get("seo_description") or extracted.get("excerpt") or "",
-        "htmlArticle": extracted.get("content_html") or "",
+        "htmlArticle": content_html,
+        "articleText": plain_text,
         "Keywords": ", ".join(all_kws),
-        "primary_keyword": focus_kw,
+        "primary_keyword": focus_kw or None,
         "primary_keywords": [focus_kw] if focus_kw else [],
         "secondary_keywords": secondary_kws,
         "secondary_keywords_json": secondary_kws,
         "search_phrase": focus_kw or extracted.get("title"),
-        "seo_optimization_score": extracted.get("seo_optimization_score") or extracted.get("seo_score") or 75.0,
-        "readability_score": extracted.get("readability_score") or 75.0,
-        "featuredImageUrl": extracted.get("featured_image_url") or None,
+        "seo_optimization_score": int(round(float(extracted.get("seo_optimization_score") or extracted.get("seo_score") or 75))),
+        "readability_score": float(extracted.get("readability_score") or 75.0),
         "featuredImageURL": extracted.get("featured_image_url") or None,
-        "featuredImageAuthor": domain,
-        "ImageAuthor": domain,
+        "ImageAuthor": domain or None,
         "mediaAltText": extracted.get("featured_image_alt") or None,
-        "MediaAltText": extracted.get("featured_image_alt") or None,
         "mediaTitle": extracted.get("featured_image_title") or None,
         "mediaCaption": extracted.get("featured_image_caption") or None,
-        "domain": domain,
+        "domain": domain or None,
         "wordpress_category_id": cat_id,
         "category": cat_name,
         "status": app_status,
         "published": wp_status == "publish",
+        "Wordpress_post_Id": str(extracted.get("post_id")) if extracted.get("post_id") is not None else None,
         "last_wp_site_id": str(site_id) if site_id is not None else None,
         "last_wp_post_status": wp_status,
-        "last_wp_post_id": extracted.get("post_id"),
-        "wp_post_id": extracted.get("post_id"),
-        "last_wp_post_url": extracted.get("link"),
-        "wp_post_url": extracted.get("link"),
         "last_wp_category_id": str(cat_id) if cat_id is not None else None,
+        "wp_status": wp_status,
+        "wp_slug": extracted.get("slug") or None,
+        "wp_featured_image_url": extracted.get("featured_image_url") or None,
+        "wp_category_ids": extracted.get("category_ids") or [],
+        "wp_tag_ids": extracted.get("tag_ids") or [],
         "dateCreatedOn": extracted.get("published_at") or now_iso,
         "idea_metadata": idea_meta,
         "selected_keyword_metrics_json": selected_metrics,
@@ -696,16 +699,23 @@ def _insert_with_schema_fallback(supabase, table_name: str, records: list[dict],
             except Exception as insert_err:
                 err_str = str(insert_err)
 
-                # Match common PostgREST and Postgres missing column patterns
-                missing_cols = re.findall(r"Could not find the '([^']+)' column", err_str)
-                if not missing_cols:
-                    m = re.search(r"column \"([^\"]+)\" of relation \"[^\"]+\" does not exist", err_str)
-                    if m:
-                        missing_cols = [m.group(1)]
-                if not missing_cols:
-                    m = re.search(r"column ([a-zA-Z0-9_]+) does not exist", err_str)
-                    if m:
-                        missing_cols = [m.group(1)]
+                # Match common PostgREST and Postgres missing column patterns:
+                # e.g.:
+                # - Could not find the 'col' column of Table in the schema cache
+                # - Could not find the col column of Table in the schema cache
+                # - column Table.col does not exist
+                # - column "col" of relation "Table" does not exist
+                # - column col does not exist
+                missing_cols = []
+                m1 = re.findall(r"Could not find the ['\"]?([a-zA-Z0-9_]+)['\"]? column", err_str, re.IGNORECASE)
+                if m1:
+                    missing_cols.extend(m1)
+                
+                m2 = re.findall(r"column ['\"]?(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)['\"]?(?:\s+of relation [^\s]+)?\s+does not exist", err_str, re.IGNORECASE)
+                if m2:
+                    missing_cols.extend(m2)
+
+                missing_cols = list(dict.fromkeys(missing_cols))
 
                 if missing_cols:
                     for col in missing_cols:
@@ -769,19 +779,24 @@ def get_imported_wordpress_posts():
         existing_titles_map = {}
         try:
             titles_resp = supabase.table("Titles") \
-                .select("id, wp_post_id, last_wp_post_id") \
+                .select("id, Wordpress_post_Id, idea_metadata, last_wp_site_id") \
                 .eq("user_id", user_id) \
                 .execute()
             for t in (titles_resp.data or []):
                 t_id = t.get("id")
-                for pid_key in ["wp_post_id", "last_wp_post_id"]:
-                    wp_pid = t.get(pid_key)
-                    if wp_pid and t_id:
-                        existing_titles_map[str(wp_pid)] = str(t_id)
-                        try:
-                            existing_titles_map[int(wp_pid)] = str(t_id)
-                        except (ValueError, TypeError):
-                            pass
+                if not t_id:
+                    continue
+                # 1. From Wordpress_post_Id column
+                wp_pid = t.get("Wordpress_post_Id")
+                if wp_pid:
+                    existing_titles_map[str(wp_pid)] = str(t_id)
+                # 2. From idea_metadata JSON
+                im = t.get("idea_metadata") or {}
+                if isinstance(im, dict):
+                    for im_key in ["wp_post_id", "last_wp_post_id"]:
+                        im_pid = im.get(im_key)
+                        if im_pid:
+                            existing_titles_map[str(im_pid)] = str(t_id)
         except Exception as t_err:
             logger.warning(f"Could not query Titles for correlation: {t_err}")
 
@@ -957,19 +972,24 @@ def sync_wordpress_posts():
                 existing_titles_map = {}
                 try:
                     titles_resp = supabase.table("Titles") \
-                        .select("id, wp_post_id, last_wp_post_id") \
+                        .select("id, Wordpress_post_Id, idea_metadata, last_wp_site_id") \
                         .eq("user_id", user_id) \
                         .execute()
                     for t in (titles_resp.data or []):
                         t_id = t.get("id")
-                        for pid_key in ["wp_post_id", "last_wp_post_id"]:
-                            wp_pid = t.get(pid_key)
-                            if wp_pid and t_id:
-                                existing_titles_map[str(wp_pid)] = str(t_id)
-                                try:
-                                    existing_titles_map[int(wp_pid)] = str(t_id)
-                                except (ValueError, TypeError):
-                                    pass
+                        if not t_id:
+                            continue
+                        # 1. From Wordpress_post_Id column
+                        wp_pid = t.get("Wordpress_post_Id")
+                        if wp_pid:
+                            existing_titles_map[str(wp_pid)] = str(t_id)
+                        # 2. From idea_metadata JSON
+                        im = t.get("idea_metadata") or {}
+                        if isinstance(im, dict):
+                            for im_key in ["wp_post_id", "last_wp_post_id"]:
+                                im_pid = im.get(im_key)
+                                if im_pid:
+                                    existing_titles_map[str(im_pid)] = str(t_id)
                 except Exception as t_err:
                     logger.warning(f"Could not load existing Titles to correlate with imported posts: {t_err}")
 
@@ -1104,6 +1124,17 @@ def import_post_to_titles():
 
         # Check if already has a titles_record_id
         existing_title_id = post_row.get("titles_record_id")
+        if not existing_title_id:
+            # Also check if Titles table already has a row with this Wordpress_post_Id
+            try:
+                wp_pid = post_row.get("post_id") or post_id
+                if wp_pid:
+                    t_check = supabase.table("Titles").select("id").eq("user_id", user_id).eq("Wordpress_post_Id", str(wp_pid)).limit(1).execute()
+                    if t_check.data:
+                        existing_title_id = t_check.data[0].get("id")
+            except Exception:
+                pass
+
         if existing_title_id:
             # Check if title still exists
             check = supabase.table("Titles").select("id").eq("id", existing_title_id).limit(1).execute()
@@ -1117,9 +1148,27 @@ def import_post_to_titles():
 
         # Extract/prepare rich SEO metadata
         raw_post = post_row.get("raw_post_json")
+        extracted = None
         if isinstance(raw_post, dict) and raw_post:
             extracted = extract_wordpress_seo_metadata(raw_post, domain=domain)
-        else:
+
+        # If raw_post was not saved or content_html is empty, fetch full live post from WordPress
+        if not extracted or not extracted.get("content_html"):
+            if site_id:
+                try:
+                    site_resp = supabase.table("wordPress_details").select("*").eq("id", site_id).limit(1).execute()
+                    if site_resp.data:
+                        site_conf = site_resp.data[0]
+                        domain = site_conf.get("domain") or domain
+                        client = get_wp_client_for_site(site_conf)
+                        wp_pid = int(post_row.get("post_id") or post_id)
+                        live_post = client.get_post(wp_pid, embed=True)
+                        if live_post and isinstance(live_post, dict):
+                            extracted = extract_wordpress_seo_metadata(live_post, domain=domain)
+                except Exception as live_err:
+                    logger.warning(f"Could not fetch live post {post_row.get('post_id')} from WP: {live_err}")
+
+        if not extracted:
             # Reconstruct from stored columns
             extracted = {
                 "title": post_row.get("title") or "Untitled Article",
@@ -1143,7 +1192,7 @@ def import_post_to_titles():
                 "secondary_keywords": post_row.get("secondary_keywords") or [],
                 "canonical_url": post_row.get("canonical_url") or post_row.get("link") or "",
                 "seo_metadata": post_row.get("seo_metadata") or {},
-                "seo_optimization_score": 85.0,
+                "seo_optimization_score": 85,
                 "readability_score": 75.0,
                 "status": post_row.get("status") or "publish",
             }
@@ -1239,7 +1288,7 @@ def import_all_posts_to_titles():
                     "secondary_keywords": post_row.get("secondary_keywords") or [],
                     "canonical_url": post_row.get("canonical_url") or post_row.get("link") or "",
                     "seo_metadata": post_row.get("seo_metadata") or {},
-                    "seo_optimization_score": 85.0,
+                    "seo_optimization_score": 85,
                     "readability_score": 75.0,
                     "status": post_row.get("status") or "publish",
                 }
