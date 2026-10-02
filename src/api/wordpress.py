@@ -800,25 +800,57 @@ def get_imported_wordpress_posts():
         except Exception as t_err:
             logger.warning(f"Could not query Titles for correlation: {t_err}")
 
+        # Look up domains from wordPress_details so source_site is 100% guaranteed
+        site_domains_map = {}
+        try:
+            sites_res = supabase.table("wordPress_details").select("id, domain").execute()
+            for s in (sites_res.data or []):
+                s_id = s.get("id")
+                s_dom = s.get("domain")
+                if s_id and s_dom:
+                    site_domains_map[s_id] = s_dom
+                    site_domains_map[str(s_id)] = s_dom
+        except Exception as s_err:
+            logger.warning(f"Could not load site domains: {s_err}")
+
         # Normalize links for live website display, status, dates, and titles_record_id
         for p in posts:
             link = p.get('link') or ''
             if '://cms.' in link:
                 p['link'] = link.replace('://cms.', '://')
+
+            # Ensure source_site is populated
+            if not p.get('source_site'):
+                w_id = p.get('wordpress_detail_id')
+                p['source_site'] = site_domains_map.get(w_id) or site_domains_map.get(str(w_id)) or ''
+                if not p['source_site'] and p.get('link'):
+                    from urllib.parse import urlparse
+                    try:
+                        p['source_site'] = urlparse(p['link']).netloc.replace('cms.', '')
+                    except Exception:
+                        pass
+
             raw = p.get('raw_post_json') or {}
             raw_status = raw.get('status') if isinstance(raw, dict) else None
             p['status'] = str(p.get('status') or raw_status or 'publish').strip().lower()
 
-            if not p.get('published_at') and isinstance(raw, dict):
-                p['published_at'] = raw.get('date_gmt') or raw.get('date')
-            if not p.get('modified_at') and isinstance(raw, dict):
-                p['modified_at'] = raw.get('modified_gmt') or raw.get('modified')
+            # Ensure published_at and modified_at are populated
+            if not p.get('published_at'):
+                p['published_at'] = (raw.get('date_gmt') or raw.get('date') if isinstance(raw, dict) else None) or p.get('created_at')
+            if not p.get('modified_at'):
+                p['modified_at'] = (raw.get('modified_gmt') or raw.get('modified') if isinstance(raw, dict) else None) or p.get('updated_at')
 
             pid = p.get('post_id')
             if pid and (not p.get('titles_record_id') or p.get('titles_record_id') not in existing_titles_map.values()):
                 matching = existing_titles_map.get(pid) or existing_titles_map.get(str(pid))
                 if matching:
                     p['titles_record_id'] = matching
+
+        # Sort posts by publication or creation date descending
+        posts.sort(
+            key=lambda x: str(x.get("published_at") or x.get("created_at") or x.get("modified_at") or ""),
+            reverse=True
+        )
 
         return jsonify({
             'posts': posts,
@@ -829,6 +861,15 @@ def get_imported_wordpress_posts():
     except Exception as e:
         logger.error(f"Error fetching imported posts: {str(e)}", exc_info=True)
         return jsonify({'error': str(e), 'posts': []}), 500
+
+
+def _get_wp_client_for_site(site: dict) -> WordPressClient:
+    """Helper to instantiate WordPressClient from site dictionary."""
+    domain = site.get('domain') or ""
+    api_domain = (site.get('cms') or site.get('cms_url') or domain or "").strip()
+    username = site.get('wpUserName') or site.get('wpusername') or ""
+    password = site.get('wordpress_key') or ""
+    return WordPressClient(api_domain, username, password)
 
 
 @wordpress_bp.route('/api/wordpress/sync-posts', methods=['POST'])
@@ -1004,6 +1045,7 @@ def sync_wordpress_posts():
                     record = {
                         "user_id": user_id,
                         "wordpress_detail_id": site_id,
+                        "source_site": domain,
                         "post_id": post_id,
                         "titles_record_id": matching_title_id,
                         "title": extracted["title"],
@@ -1014,6 +1056,8 @@ def sync_wordpress_posts():
                         "status": extracted.get("status", "publish"),
                         "published_at": extracted["published_at"],
                         "modified_at": extracted["modified_at"],
+                        "created_at": extracted.get("published_at") or post.get("date_gmt") or post.get("date") or datetime.utcnow().isoformat(),
+                        "updated_at": extracted.get("modified_at") or post.get("modified_gmt") or post.get("modified") or datetime.utcnow().isoformat(),
                         "featured_image_url": extracted["featured_image_url"],
                         "featured_image_alt": extracted["featured_image_alt"],
                         "category_ids": extracted["category_ids"],
@@ -1160,7 +1204,7 @@ def import_post_to_titles():
                     if site_resp.data:
                         site_conf = site_resp.data[0]
                         domain = site_conf.get("domain") or domain
-                        client = get_wp_client_for_site(site_conf)
+                        client = _get_wp_client_for_site(site_conf)
                         wp_pid = int(post_row.get("post_id") or post_id)
                         live_post = client.get_post(wp_pid, embed=True)
                         if live_post and isinstance(live_post, dict):

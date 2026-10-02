@@ -71,7 +71,7 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                     .from('wordpress_imported_posts')
                     .select('*')
                     .eq('user_id', user.id)
-                    .order('published_at', { ascending: false, nullsFirst: false });
+                    .order('created_at', { ascending: false });
 
                 if (!error && data) {
                     setPosts((data as WordPressImportedPost[]) || []);
@@ -235,7 +235,16 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
 
     // Filter available domains
     const uniqueDomains = useMemo(() => {
-        return Array.from(new Set(posts.map(p => p.source_site).filter(Boolean)));
+        const set = new Set<string>();
+        posts.forEach(p => {
+            if (p.source_site) set.add(p.source_site);
+            else if (p.link) {
+                try {
+                    set.add(new URL(p.link).hostname.replace('cms.', ''));
+                } catch {}
+            }
+        });
+        return Array.from(set).filter(Boolean);
     }, [posts]);
 
     // Quick status counts
@@ -253,7 +262,10 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
     // Filter posts
     const filteredPosts = useMemo(() => {
         return posts.filter(post => {
-            if (filterDomain !== 'all' && post.source_site !== filterDomain) return false;
+            if (filterDomain !== 'all') {
+                const postDomain = (post.source_site || (post.link ? new URL(post.link).hostname.replace('cms.', '') : '')).toLowerCase();
+                if (postDomain !== filterDomain.toLowerCase()) return false;
+            }
 
             // WP Status filter
             const postWpStatus = String(post.status || post.raw_post_json?.status || 'publish').toLowerCase().trim();
@@ -270,12 +282,18 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
             if (filterLibraryStatus === 'not_imported' && post.titles_record_id) return false;
 
             if (searchQuery.trim()) {
-                const q = searchQuery.toLowerCase();
-                const titleMatch = post.title?.toLowerCase().includes(q);
-                const kwMatch = post.focus_keyword?.toLowerCase().includes(q) || post.primary_keyword?.toLowerCase().includes(q);
-                const catMatch = post.category_names?.some(c => c.toLowerCase().includes(q));
-                const linkMatch = post.link?.toLowerCase().includes(q);
-                return titleMatch || kwMatch || catMatch || linkMatch;
+                const rawQ = searchQuery.toLowerCase().trim();
+                // Strip protocol and cms. prefix if user pasted a URL
+                const q = rawQ.replace(/^https?:\/\/(?:cms\.)?/, '').replace(/\/$/, '');
+                const titleMatch = post.title?.toLowerCase().includes(q) || post.title?.toLowerCase().includes(rawQ);
+                const slugMatch = post.slug?.toLowerCase().includes(q) || post.slug?.toLowerCase().includes(rawQ);
+                const kwMatch = post.focus_keyword?.toLowerCase().includes(rawQ) || post.primary_keyword?.toLowerCase().includes(rawQ);
+                const catMatch = post.category_names?.some(c => c.toLowerCase().includes(rawQ));
+                const tagMatch = post.tag_names?.some(t => t.toLowerCase().includes(rawQ));
+                const linkMatch = post.link?.toLowerCase().includes(q) || post.link?.toLowerCase().includes(rawQ);
+                const excerptMatch = post.excerpt?.toLowerCase().includes(rawQ);
+                const idMatch = String(post.post_id) === rawQ;
+                return titleMatch || slugMatch || kwMatch || catMatch || tagMatch || linkMatch || excerptMatch || idMatch;
             }
             return true;
         });
@@ -285,8 +303,8 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
     const sortedPosts = useMemo(() => {
         return [...filteredPosts].sort((a, b) => {
             if (sortBy === 'newest') {
-                const dateA = new Date(a.modified_at || a.published_at || a.created_at || 0).getTime();
-                const dateB = new Date(b.modified_at || b.published_at || b.created_at || 0).getTime();
+                const dateA = new Date(a.published_at || a.created_at || a.modified_at || 0).getTime();
+                const dateB = new Date(b.published_at || b.created_at || b.modified_at || 0).getTime();
                 return dateB - dateA;
             }
             if (sortBy === 'oldest') {
@@ -618,6 +636,13 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                                             <h4 className="text-sm font-semibold text-foreground line-clamp-1 group-hover:text-indigo-400 transition-colors">
                                                 {post.title}
                                             </h4>
+
+                                            {/* Slug / URL identifier */}
+                                            {post.link && (
+                                                <div className="text-[11px] font-mono text-muted-foreground/75 truncate" title={post.link}>
+                                                    /{post.slug || post.link.replace(/^https?:\/\/[^/]+\/?/, '').replace(/\/$/, '')}
+                                                </div>
+                                            )}
 
                                             {/* SEO Description / Excerpt */}
                                             {(post.seo_description || post.excerpt) && (
