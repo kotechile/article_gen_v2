@@ -1975,12 +1975,13 @@ export const ArticleEditor: React.FC = () => {
                             </div>
 
                             <button
-                                onClick={() => {
+                                onClick={async () => {
                                     // Update article data with current editor content before opening modal
-                                    if (articleData && editor) {
+                                    const currentHtml = editor ? materializeEditorHtml(editor.getHTML()) : (articleData?.htmlArticle || '');
+                                    if (articleData) {
                                         setArticleData({
                                             ...articleData,
-                                            htmlArticle: materializeEditorHtml(editor.getHTML()),
+                                            htmlArticle: currentHtml,
                                             Title: title,
                                             hook: hook,
                                             thesis: thesis,
@@ -1994,6 +1995,11 @@ export const ArticleEditor: React.FC = () => {
                                             mediaTitle: featuredImage?.title,
                                             mediaCaption: featuredImage?.caption
                                         });
+                                    }
+                                    try {
+                                        await persistArticle({ htmlContent: currentHtml });
+                                    } catch (saveErr) {
+                                        console.warn('Auto-save before export failed:', saveErr);
                                     }
                                     setShowWordPressModal(true);
                                 }}
@@ -2674,7 +2680,14 @@ export const ArticleEditor: React.FC = () => {
                         onClose={() => setShowWordPressModal(false)}
                         onSuccess={(postUrl) => {
                             setShowWordPressModal(false);
-                            alert(`Successfully published to WordPress!\n\nView at: ${postUrl}`);
+                            setArticleData((prev: any) => prev ? ({
+                                ...prev,
+                                status: 'WP Published',
+                                published: true,
+                                last_wp_post_url: postUrl,
+                                wp_post_url: postUrl,
+                            }) : prev);
+                            alert(`Successfully updated on WordPress!\n\nView at: ${postUrl}`);
                         }}
                     />
                 )

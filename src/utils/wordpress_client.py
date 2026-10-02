@@ -67,27 +67,38 @@ class WordPressClient:
                     self.headers = orig_headers
             raise first_err
 
-    def get_posts(self, page: int = 1, per_page: int = 20, embed: bool = True, fields: Optional[str] = None) -> List[Dict]:
+    def get_posts(self, page: int = 1, per_page: int = 20, embed: bool = True, fields: Optional[str] = None, status: Optional[str] = 'any') -> List[Dict]:
         """Fetch posts from WordPress site with full SEO metadata and embedded media/terms."""
-        try:
-            url = f"{self.base_url}/posts"
-            params: Dict = {
-                'page': page,
-                'per_page': per_page,
-                'status': 'publish',
-            }
-            if embed:
-                params['_embed'] = '1'
-            if fields:
-                params['_fields'] = fields
-            
-            response = requests.get(url, headers=self.headers, params=params, timeout=20, verify=False)
-            response.raise_for_status()
-            
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching posts from {self.base_url}: {str(e)}")
-            raise e
+        target_status = status or 'any'
+        for try_status in [target_status, 'publish,draft,future,pending,private', 'publish']:
+            try:
+                url = f"{self.base_url}/posts"
+                params: Dict = {
+                    'page': page,
+                    'per_page': per_page,
+                    'status': try_status,
+                }
+                if embed:
+                    params['_embed'] = '1'
+                if fields:
+                    params['_fields'] = fields
+                
+                response = requests.get(url, headers=self.headers, params=params, timeout=20, verify=False)
+                if response.ok:
+                    return response.json()
+            except Exception:
+                continue
+
+        # Final fallback
+        url = f"{self.base_url}/posts"
+        params = {'page': page, 'per_page': per_page, 'status': 'publish'}
+        if embed:
+            params['_embed'] = '1'
+        if fields:
+            params['_fields'] = fields
+        response = requests.get(url, headers=self.headers, params=params, timeout=20, verify=False)
+        response.raise_for_status()
+        return response.json()
 
     def get_post(self, post_id: int, embed: bool = True) -> Dict:
         """Fetch a single WordPress post by ID with full metadata."""

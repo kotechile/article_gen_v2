@@ -126,11 +126,11 @@ const resolveSocialMetadata = (
     slug: string
 ): ResolvedSocialMetadata => {
     const metaTitle = String(
+        articleData.Title ||
+        articleData.title ||
         seoData.metaTitle ||
         articleData.seo_title_optimized ||
         articleData.metaTitle ||
-        articleData.Title ||
-        articleData.title ||
         ''
     ).trim();
     const metaDescription = String(
@@ -803,8 +803,12 @@ export const publishToWordPress = async (
             postData.featured_media = featuredMediaId;
         }
 
-        // Publish to WordPress
-        const response = await fetch(`${apiBaseUrl}/wp-json/wp/v2/posts`, {
+        // Check if updating an existing WordPress post
+        const existingWpPostId = articleData.last_wp_post_id || articleData.wp_post_id || articleData.idea_metadata?.wp_post_id;
+        let postUrl = existingWpPostId ? `${apiBaseUrl}/wp-json/wp/v2/posts/${existingWpPostId}` : `${apiBaseUrl}/wp-json/wp/v2/posts`;
+
+        // Publish or update on WordPress
+        let response = await fetch(postUrl, {
             method: 'POST',
             headers: {
                 'Authorization': `Basic ${credentials}`,
@@ -812,6 +816,20 @@ export const publishToWordPress = async (
             },
             body: JSON.stringify(postData)
         });
+
+        // If post ID was not found on WordPress (e.g. deleted or different site), fall back to creating a new post
+        if (!response.ok && existingWpPostId && response.status === 404) {
+            console.warn(`WordPress post ${existingWpPostId} returned 404. Creating as new post instead.`);
+            postUrl = `${apiBaseUrl}/wp-json/wp/v2/posts`;
+            response = await fetch(postUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Basic ${credentials}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(postData)
+            });
+        }
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -826,12 +844,11 @@ export const publishToWordPress = async (
         // Update Titles loopback with publish outcome and GEO/SEO canonical fields.
         if (articleData.id) {
             const newStatus = settings.postStatus === 'future' ? 'Scheduled' : 'WP Published';
-            const optimizedTitle = String(
+            const currentTitle = String(articleData.Title || articleData.title || '').trim();
+            const optimizedTitle = currentTitle || String(
                 articleData.seo_title_optimized ||
                 seoData.metaTitle ||
                 articleData.metaTitle ||
-                articleData.Title ||
-                articleData.title ||
                 ''
             ).trim();
             const optimizedDescription = String(
@@ -845,13 +862,15 @@ export const publishToWordPress = async (
             let updatePayload: Record<string, unknown> = {
                 status: newStatus,
                 published: true,
-                Title: optimizedTitle || articleData.Title || articleData.title || '',
+                Title: currentTitle || optimizedTitle,
+                htmlArticle: articleData.htmlArticle || styledContent,
                 userDescription: optimizedDescription || articleData.userDescription || '',
-                seo_title_optimized: optimizedTitle || null,
-                metaTitle: optimizedTitle || null,
+                seo_title_optimized: currentTitle || optimizedTitle || null,
+                metaTitle: currentTitle || optimizedTitle || null,
                 seo_meta_desc_optimized: optimizedDescription || null,
                 metaDescription: optimizedDescription || null,
                 canonical_url: resolvedMetadata.canonicalUrl || null,
+                last_wp_site_id: site.id,
                 last_wp_post_status: result.status || settings.postStatus,
                 published_at: new Date().toISOString(),
                 wp_post_id: result.id,
@@ -866,6 +885,24 @@ export const publishToWordPress = async (
                 .from('Titles')
                 .update(updatePayload)
                 .eq('id', articleData.id);
+
+            // Also keep wordpress_imported_posts cache synchronized if post exists there
+            if (result.id) {
+                try {
+                    await supabase
+                        .from('wordpress_imported_posts')
+                        .update({
+                            title: currentTitle || optimizedTitle,
+                            content_html: styledContent || articleData.htmlArticle,
+                            status: result.status || settings.postStatus,
+                            post_url: result.link,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('post_id', result.id);
+                } catch (cacheErr) {
+                    console.warn('Could not sync to wordpress_imported_posts cache:', cacheErr);
+                }
+            }
 
             // Backward-compatible retries for deployments missing some optional columns.
             while (titlesUpdateError) {

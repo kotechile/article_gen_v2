@@ -51,6 +51,14 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
     // GEO/SEO quality report (computed once from article data)
     const seoReport = useMemo(() => computeSEOQualityScore(articleData), [articleData]);
 
+    const existingWpPostId = useMemo(() => {
+        return articleData?.last_wp_post_id || articleData?.wp_post_id || articleData?.idea_metadata?.wp_post_id || null;
+    }, [articleData]);
+
+    const isImportedFromWP = useMemo(() => {
+        return Boolean(existingWpPostId || articleData?.idea_metadata?.imported_from === 'wordpress');
+    }, [existingWpPostId, articleData]);
+
     // Load WordPress sites on mount
     useEffect(() => {
         const loadSites = async () => {
@@ -61,12 +69,20 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
 
                 // Load saved settings
                 const savedSettings = await loadWordPressSettings(articleId);
+                const initialStatus = (
+                    savedSettings?.postStatus ||
+                    articleData?.last_wp_post_status ||
+                    (articleData?.status === 'WP Published' ? 'publish' : 'draft')
+                );
+                if (initialStatus && ['draft', 'publish', 'future'].includes(initialStatus)) {
+                    setPostStatus(initialStatus as 'draft' | 'publish' | 'future');
+                }
+
                 if (savedSettings && savedSettings.siteId && wpSites.find(s => s.id === savedSettings.siteId)) {
                     setSelectedSiteId(savedSettings.siteId);
-                    if (savedSettings.postStatus) {
-                        setPostStatus(savedSettings.postStatus as 'draft' | 'publish' | 'future');
-                    }
                     // Category will be set after categories load
+                } else if (articleData?.last_wp_site_id && wpSites.find(s => s.id === articleData.last_wp_site_id)) {
+                    setSelectedSiteId(articleData.last_wp_site_id);
                 } else if (wpSites.length > 0) {
                     // Default to first site
                     setSelectedSiteId(wpSites[0].id);
@@ -79,7 +95,7 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
         };
 
         loadSites();
-    }, [userId, articleId]);
+    }, [userId, articleId, articleData]);
 
     // Load categories when site changes
     useEffect(() => {
@@ -229,43 +245,44 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
 
             const loopbackSummary = result.loopback_summary;
             const publishWarnings = result.publish_warnings || [];
+            const actionWord = existingWpPostId ? 'Updated' : 'Published';
             if (publishWarnings.length > 0 && loopbackSummary?.success) {
                 const savedCount = loopbackSummary.savedFields.length;
                 setLoopbackBanner({
                     type: 'warning',
-                    message: `Published and synced ${savedCount} Titles fields. ${publishWarnings.join(' ')}`,
+                    message: `${actionWord} and synced ${savedCount} Titles fields. ${publishWarnings.join(' ')}`,
                 });
             } else if (publishWarnings.length > 0 && loopbackSummary) {
                 const removedCount = loopbackSummary.removedFields.length;
                 setLoopbackBanner({
                     type: 'warning',
                     message: removedCount > 0
-                        ? `Published, but ${removedCount} loopback fields were skipped due to schema mismatch. ${publishWarnings.join(' ')}`
-                        : `Published, but Titles loopback update had issues. ${publishWarnings.join(' ')}`,
+                        ? `${actionWord}, but ${removedCount} loopback fields were skipped due to schema mismatch. ${publishWarnings.join(' ')}`
+                        : `${actionWord}, but Titles loopback update had issues. ${publishWarnings.join(' ')}`,
                 });
             } else if (publishWarnings.length > 0) {
                 setLoopbackBanner({
                     type: 'warning',
-                    message: `Published, but ${publishWarnings.join(' ')}`,
+                    message: `${actionWord}, but ${publishWarnings.join(' ')}`,
                 });
             } else if (loopbackSummary?.success) {
                 const savedCount = loopbackSummary.savedFields.length;
                 setLoopbackBanner({
                     type: 'success',
-                    message: `Published and synced ${savedCount} Titles fields.`,
+                    message: `${actionWord} and synced ${savedCount} Titles fields.`,
                 });
             } else if (loopbackSummary) {
                 const removedCount = loopbackSummary.removedFields.length;
                 setLoopbackBanner({
                     type: 'warning',
                     message: removedCount > 0
-                        ? `Published, but ${removedCount} loopback fields were skipped due to schema mismatch.`
-                        : 'Published, but Titles loopback update had issues.',
+                        ? `${actionWord}, but ${removedCount} loopback fields were skipped due to schema mismatch.`
+                        : `${actionWord}, but Titles loopback update had issues.`,
                 });
             } else {
                 setLoopbackBanner({
                     type: 'success',
-                    message: 'Published successfully.',
+                    message: `${actionWord} successfully.`,
                 });
             }
 
@@ -290,10 +307,17 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
                     <div className="flex-1 pr-4">
-                        <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                            <Globe className="w-6 h-6 text-indigo-600" />
-                            Export to WordPress
-                        </h2>
+                        <div className="flex items-center gap-2">
+                            <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                <Globe className="w-6 h-6 text-indigo-600" />
+                                {existingWpPostId ? 'Update WordPress Post' : 'Export to WordPress'}
+                            </h2>
+                            {existingWpPostId && (
+                                <span className="text-xs bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-semibold px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800">
+                                    Post #{existingWpPostId}
+                                </span>
+                            )}
+                        </div>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 truncate">
                             {articleData.Title || articleData.title || 'Untitled Article'}
                         </p>
@@ -518,9 +542,14 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                                         </li>
                                     ))}
                                 </ul>
-                                {report.score < 40 && (
+                                {report.score < 40 && !isImportedFromWP && (
                                     <p className="mt-3 text-xs text-destructive font-medium">
                                         ⚠ Publication blocked — SEO/GEO score too low ({report.score}/100). Set a primary keyword and ensure it appears in the title.
+                                    </p>
+                                )}
+                                {report.score < 40 && isImportedFromWP && (
+                                    <p className="mt-3 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                                        ℹ Imported WordPress post — SEO/GEO checks are informational. You can update this post directly.
                                     </p>
                                 )}
                                 {report.score >= 40 && report.score < 60 && (
@@ -544,18 +573,18 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                     </button>
                     <button
                         onClick={handlePublish}
-                        disabled={!isFormValid() || publishing || !seoReport.canPublish}
+                        disabled={!isFormValid() || publishing || (!isImportedFromWP && !seoReport.canPublish)}
                         className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium shadow-lg shadow-indigo-500/25 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {publishing ? (
                             <>
                                 <Loader2 className="w-4 h-4 animate-spin" />
-                                <span>Publishing...</span>
+                                <span>{existingWpPostId ? 'Updating...' : 'Publishing...'}</span>
                             </>
                         ) : (
                             <>
                                 <Globe className="w-4 h-4" />
-                                <span>Publish to WordPress</span>
+                                <span>{existingWpPostId ? 'Update on WordPress' : 'Publish to WordPress'}</span>
                             </>
                         )}
                     </button>

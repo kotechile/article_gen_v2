@@ -539,6 +539,7 @@ def extract_wordpress_seo_metadata(post: dict, domain: str = "") -> dict:
         "seo_optimization_score": seo_optimization_score,
         "seo_metadata": structured_seo_metadata,
         "raw_post_json": post,
+        "status": str(post.get("status") or "publish").strip().lower(),
     }
 
 
@@ -608,6 +609,8 @@ def _build_titles_payload_from_imported_post(user_id: str, site_id: Any, domain:
     idea_meta = {
         "imported_from": "editorial_factory_wordpress",
         "wp_post_id": extracted.get("post_id"),
+        "wp_post_url": extracted.get("link"),
+        "wp_post_status": extracted.get("status") or "publish",
         "wp_site_id": site_id,
         "domain": domain,
         "slug": extracted.get("slug"),
@@ -623,6 +626,9 @@ def _build_titles_payload_from_imported_post(user_id: str, site_id: Any, domain:
         }
     }
     
+    wp_status = (extracted.get("status") or "publish").strip().lower()
+    app_status = "WP Published" if wp_status == "publish" else f"WP {wp_status.capitalize()}"
+
     payload = {
         "id": str(uuid4()),
         "user_id": user_id,
@@ -649,10 +655,14 @@ def _build_titles_payload_from_imported_post(user_id: str, site_id: Any, domain:
         "domain": domain,
         "wordpress_category_id": cat_id,
         "category": cat_name,
-        "status": "WP Published",
-        "published": True,
+        "status": app_status,
+        "published": wp_status == "publish",
         "last_wp_site_id": str(site_id) if site_id is not None else None,
-        "last_wp_post_status": "publish",
+        "last_wp_post_status": wp_status,
+        "last_wp_post_id": extracted.get("post_id"),
+        "wp_post_id": extracted.get("post_id"),
+        "last_wp_post_url": extracted.get("link"),
+        "wp_post_url": extracted.get("link"),
         "last_wp_category_id": str(cat_id) if cat_id is not None else None,
         "dateCreatedOn": extracted.get("published_at") or now_iso,
         "idea_metadata": idea_meta,
@@ -755,11 +765,14 @@ def get_imported_wordpress_posts():
 
         posts = resp.data or []
 
-        # Normalize links for live website display
+        # Normalize links for live website display and ensure status is populated
         for p in posts:
             link = p.get('link') or ''
             if '://cms.' in link:
                 p['link'] = link.replace('://cms.', '://')
+            raw = p.get('raw_post_json') or {}
+            raw_status = raw.get('status') if isinstance(raw, dict) else None
+            p['status'] = str(p.get('status') or raw_status or 'publish').strip().lower()
 
         return jsonify({
             'posts': posts,
@@ -902,7 +915,7 @@ def sync_wordpress_posts():
                 try:
                     while True:
                         try:
-                            page_posts = client.get_posts(page=page, per_page=100, embed=True)
+                            page_posts = client.get_posts(page=page, per_page=100, embed=True, status='any')
                             if not page_posts:
                                 break
                             posts.extend(page_posts)
@@ -938,6 +951,7 @@ def sync_wordpress_posts():
                         "excerpt": extracted["excerpt"],
                         "slug": extracted["slug"],
                         "content_html": extracted["content_html"],
+                        "status": extracted.get("status", "publish"),
                         "published_at": extracted["published_at"],
                         "modified_at": extracted["modified_at"],
                         "featured_image_url": extracted["featured_image_url"],
@@ -1091,6 +1105,7 @@ def import_post_to_titles():
                 "seo_metadata": post_row.get("seo_metadata") or {},
                 "seo_optimization_score": 85.0,
                 "readability_score": 75.0,
+                "status": post_row.get("status") or "publish",
             }
 
         title_payload = _build_titles_payload_from_imported_post(user_id, site_id, domain, extracted)
@@ -1186,6 +1201,7 @@ def import_all_posts_to_titles():
                     "seo_metadata": post_row.get("seo_metadata") or {},
                     "seo_optimization_score": 85.0,
                     "readability_score": 75.0,
+                    "status": post_row.get("status") or "publish",
                 }
             payload = _build_titles_payload_from_imported_post(user_id, site_id, domain, extracted)
             titles_payloads.append(payload)

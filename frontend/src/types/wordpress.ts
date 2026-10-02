@@ -77,6 +77,7 @@ export interface WordPressImportedPost {
     excerpt?: string;
     slug?: string;
     content_html?: string;
+    status?: string;
     published_at?: string;
     modified_at?: string;
     featured_image_url?: string;

@@ -8,7 +8,6 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { apiClient } from '../api-client'
 import { KeywordIntelligenceModal } from '../components/KeywordIntelligenceModal'
-import { EditorialImportModal } from '../components/EditorialImportModal'
 import { WordPressImportModal } from '../components/WordPressImportModal'
 import type { ContentIdea } from '../types/idea-burst'
 import { contentIdeasService, mergeKeywordSelectionState } from '../services/content-ideas.service'
@@ -273,8 +272,6 @@ export const MyArticles: React.FC = () => {
     // Keyword Intelligence Modal (replaces legacy Keyword Lab)
     const [kwIntelOpen, setKwIntelOpen] = useState(false)
     const [kwIntelArticle, setKwIntelArticle] = useState<LibraryArticle | null>(null)
-    // Editorial Factory Import Modal
-    const [editorialImportOpen, setEditorialImportOpen] = useState(false)
     // WordPress Import Modal
     const [wpImportOpen, setWpImportOpen] = useState(false)
 
@@ -1099,20 +1096,12 @@ export const MyArticles: React.FC = () => {
                             </button>
                         )}
                         <button
-                            onClick={() => setEditorialImportOpen(true)}
-                            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-purple-500/20 bg-purple-500/10 px-3.5 text-sm text-purple-400 transition hover:bg-purple-500/15"
-                            title="Import articles from Editorial Factory database"
-                        >
-                            <BookOpen className="h-3.5 w-3.5" />
-                            <span>Import Editorial</span>
-                        </button>
-                        <button
                             onClick={() => setWpImportOpen(true)}
                             className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-3.5 text-sm text-indigo-400 transition hover:bg-indigo-500/15"
-                            title="Import published articles and SEO metadata from connected WordPress sites"
+                            title="Browse, filter, and import articles from connected WordPress sites into the editor"
                         >
                             <Globe className="h-3.5 w-3.5" />
-                            <span>Import from WP</span>
+                            <span>Import from WordPress</span>
                         </button>
                         <button
                             onClick={handleOpenKnowledgeGaps}
@@ -1645,22 +1634,14 @@ export const MyArticles: React.FC = () => {
                     )
                 })()}
 
-                <EditorialImportModal
-                    isOpen={editorialImportOpen}
-                    onClose={() => setEditorialImportOpen(false)}
+                <WordPressImportModal
+                    isOpen={wpImportOpen}
+                    onClose={() => setWpImportOpen(false)}
                     onImportSuccess={(newTitleId) => {
                         fetchArticles()
                         if (newTitleId) {
                             navigate(`/article-editor/${newTitleId}`)
                         }
-                    }}
-                />
-
-                <WordPressImportModal
-                    isOpen={wpImportOpen}
-                    onClose={() => setWpImportOpen(false)}
-                    onImportSuccess={() => {
-                        fetchArticles()
                     }}
                 />
 
