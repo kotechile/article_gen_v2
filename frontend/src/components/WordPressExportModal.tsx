@@ -52,11 +52,11 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
     const seoReport = useMemo(() => computeSEOQualityScore(articleData), [articleData]);
 
     const existingWpPostId = useMemo(() => {
-        return articleData?.last_wp_post_id || articleData?.wp_post_id || articleData?.idea_metadata?.wp_post_id || null;
+        return articleData?.Wordpress_post_Id || articleData?.wordpress_post_id || articleData?.last_wp_post_id || articleData?.wp_post_id || articleData?.idea_metadata?.wp_post_id || null;
     }, [articleData]);
 
     const isImportedFromWP = useMemo(() => {
-        return Boolean(existingWpPostId || articleData?.idea_metadata?.imported_from === 'wordpress');
+        return Boolean(existingWpPostId || articleData?.idea_metadata?.imported_from === 'editorial_factory_wordpress' || articleData?.idea_metadata?.imported_from === 'wordpress');
     }, [existingWpPostId, articleData]);
 
     // Load WordPress sites on mount

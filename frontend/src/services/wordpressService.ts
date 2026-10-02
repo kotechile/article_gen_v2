@@ -788,7 +788,7 @@ export const publishToWordPress = async (
             slug: slug,
             content: styledContent,
             status: settings.postStatus,
-            excerpt: articleData.excerpt || articleData.hook || articleData.Hook || '',
+            excerpt: articleData.excerpt || articleData.deck || articleData.hook || articleData.Hook || '',
             categories: settings.categoryIds,
             meta: buildSEOMetadata(site, articleData, seoData, slug, settings.categoryIds[0])
         };
@@ -804,7 +804,7 @@ export const publishToWordPress = async (
         }
 
         // Check if updating an existing WordPress post
-        const existingWpPostId = articleData.last_wp_post_id || articleData.wp_post_id || articleData.idea_metadata?.wp_post_id;
+        const existingWpPostId = articleData.Wordpress_post_Id || articleData.wordpress_post_id || articleData.last_wp_post_id || articleData.wp_post_id || articleData.idea_metadata?.wp_post_id;
         let postUrl = existingWpPostId ? `${apiBaseUrl}/wp-json/wp/v2/posts/${existingWpPostId}` : `${apiBaseUrl}/wp-json/wp/v2/posts`;
 
         // Publish or update on WordPress
@@ -865,6 +865,11 @@ export const publishToWordPress = async (
                 Title: currentTitle || optimizedTitle,
                 htmlArticle: articleData.htmlArticle || styledContent,
                 userDescription: optimizedDescription || articleData.userDescription || '',
+                hook: articleData.hook || undefined,
+                thesis: articleData.thesis || undefined,
+                deck: articleData.deck || undefined,
+                excerpt: articleData.excerpt || undefined,
+                Wordpress_post_Id: String(result.id),
                 seo_title_optimized: currentTitle || optimizedTitle || null,
                 metaTitle: currentTitle || optimizedTitle || null,
                 seo_meta_desc_optimized: optimizedDescription || null,

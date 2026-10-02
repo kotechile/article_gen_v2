@@ -486,6 +486,79 @@ def extract_wordpress_seo_metadata(post: dict, domain: str = "") -> dict:
         elif focus_keyword or (seo_title and seo_description):
             seo_optimization_score = 75.0
 
+    # 10. Hook, Thesis, Deck, Excerpt extraction & content synthesis
+    def _clean_text(s: str) -> str:
+        if not s:
+            return ""
+        c = re.sub(r"\[\^?\d+(?:[-,\s]+\^?\d+)*\]", "", str(s))
+        c = re.sub(r"^[\s.,:;–—\-]+", "", c)
+        c = re.sub(r"\s+([.,;:!?])", r"\1", c)
+        c = re.sub(r"\s{2,}", " ", c)
+        return c.strip()
+
+    raw_hook = (
+        meta.get("hook")
+        or meta.get("_hook")
+        or meta.get("article_hook")
+        or meta.get("seo_hook")
+        or post.get("hook")
+        or ""
+    )
+    raw_thesis = (
+        meta.get("thesis")
+        or meta.get("_thesis")
+        or meta.get("article_thesis")
+        or meta.get("seo_thesis")
+        or post.get("thesis")
+        or ""
+    )
+    raw_deck = (
+        meta.get("deck")
+        or meta.get("_deck")
+        or meta.get("subtitle")
+        or meta.get("_subtitle")
+        or meta.get("kicker")
+        or post.get("deck")
+        or ""
+    )
+
+    plain_content = _clean_text(re.sub(r"<[^>]+>", " ", content_rendered))
+    protected_content = re.sub(
+        r"\b(Sept|Oct|Nov|Dec|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Mr|Mrs|Ms|Dr|Prof|Inc|Ltd|Co|Corp|vs|e\.g|i\.e|U\.S)\.",
+        r"\1{{DOT}}",
+        plain_content
+    )
+    sentences = [
+        _clean_text(s.replace("{{DOT}}", ".").strip())
+        for s in re.split(r"(?<=[.!?])\s+", protected_content)
+        if len(s.strip()) > 15
+    ]
+
+    hook = _clean_text(raw_hook)
+    if not hook and sentences:
+        hook = sentences[0]
+
+    thesis = _clean_text(raw_thesis)
+    if not thesis:
+        for s in sentences[1:]:
+            if re.search(r"(?:Why it matters|Bottom line|Core thesis|The big picture)[:\s]+", s, re.IGNORECASE):
+                thesis = re.sub(r"^(?:Why it matters|Bottom line|Core thesis|The big picture)[:\s]+", "", s, flags=re.IGNORECASE).strip()
+                break
+        if not thesis and len(sentences) > 1:
+            thesis = sentences[1]
+        elif not thesis and sentences:
+            thesis = sentences[0]
+
+    final_excerpt = _clean_text(plain_excerpt or seo_description)
+    if not final_excerpt and sentences:
+        final_excerpt = " ".join(sentences[:2])
+        if len(final_excerpt) > 300:
+            final_excerpt = sentences[0]
+
+    final_deck = _clean_text(raw_deck)
+    if not final_deck:
+        final_deck = final_excerpt or (" ".join(sentences[:2]) if sentences else "")
+
     structured_seo_metadata = {
         "focusKeyword": focus_keyword,
         "primaryKeywords": [focus_keyword] if focus_keyword else [],
@@ -508,13 +581,20 @@ def extract_wordpress_seo_metadata(post: dict, domain: str = "") -> dict:
         "tagNames": tag_names,
         "featuredImageUrl": featured_image_url,
         "featuredImageAlt": featured_image_alt,
+        "hook": hook,
+        "thesis": thesis,
+        "deck": final_deck,
+        "excerpt": final_excerpt,
     }
 
     return {
         "title": plain_title or title_rendered,
         "slug": slug,
         "content_html": content_rendered,
-        "excerpt": plain_excerpt or excerpt_rendered,
+        "excerpt": final_excerpt or plain_excerpt or excerpt_rendered,
+        "hook": hook,
+        "thesis": thesis,
+        "deck": final_deck,
         "link": link,
         "published_at": post.get("date_gmt") or post.get("date"),
         "modified_at": post.get("modified_gmt") or post.get("modified"),
@@ -606,6 +686,11 @@ def _build_titles_payload_from_imported_post(user_id: str, site_id: Any, domain:
 
     sec_cat_name = extracted.get("category_names", [""])[1] if len(extracted.get("category_names", [])) > 1 else ""
 
+    hook = extracted.get("hook") or ""
+    thesis = extracted.get("thesis") or ""
+    excerpt = extracted.get("excerpt") or extracted.get("seo_description") or ""
+    deck = extracted.get("deck") or excerpt or ""
+
     idea_meta = {
         "imported_from": "editorial_factory_wordpress",
         "wp_post_id": extracted.get("post_id"),
@@ -615,6 +700,10 @@ def _build_titles_payload_from_imported_post(user_id: str, site_id: Any, domain:
         "domain": domain,
         "slug": extracted.get("slug"),
         "canonical_url": extracted.get("canonical_url"),
+        "hook": hook,
+        "thesis": thesis,
+        "deck": deck,
+        "excerpt": excerpt,
         "seo_metadata": seo_meta,
         "category_context": {
             "primary": cat_name,
@@ -636,8 +725,11 @@ def _build_titles_payload_from_imported_post(user_id: str, site_id: Any, domain:
         "id": str(uuid4()),
         "user_id": user_id,
         "Title": extracted.get("title") or "Untitled Article",
-        "userDescription": extracted.get("seo_description") or extracted.get("excerpt") or "",
-        "deck": extracted.get("seo_description") or extracted.get("excerpt") or "",
+        "hook": hook,
+        "thesis": thesis,
+        "deck": deck,
+        "excerpt": excerpt,
+        "userDescription": deck or excerpt,
         "htmlArticle": content_html,
         "articleText": plain_text,
         "Keywords": ", ".join(all_kws),
@@ -1166,30 +1258,6 @@ def import_post_to_titles():
             if site_resp.data:
                 domain = site_resp.data[0].get("domain") or ""
 
-        # Check if already has a titles_record_id
-        existing_title_id = post_row.get("titles_record_id")
-        if not existing_title_id:
-            # Also check if Titles table already has a row with this Wordpress_post_Id
-            try:
-                wp_pid = post_row.get("post_id") or post_id
-                if wp_pid:
-                    t_check = supabase.table("Titles").select("id").eq("user_id", user_id).eq("Wordpress_post_Id", str(wp_pid)).limit(1).execute()
-                    if t_check.data:
-                        existing_title_id = t_check.data[0].get("id")
-            except Exception:
-                pass
-
-        if existing_title_id:
-            # Check if title still exists
-            check = supabase.table("Titles").select("id").eq("id", existing_title_id).limit(1).execute()
-            if check.data:
-                return jsonify({
-                    'success': True,
-                    'title_id': existing_title_id,
-                    'already_imported': True,
-                    'message': 'Article already exists in Content Library'
-                }), 200
-
         # Extract/prepare rich SEO metadata
         raw_post = post_row.get("raw_post_json")
         extracted = None
@@ -1211,6 +1279,48 @@ def import_post_to_titles():
                             extracted = extract_wordpress_seo_metadata(live_post, domain=domain)
                 except Exception as live_err:
                     logger.warning(f"Could not fetch live post {post_row.get('post_id')} from WP: {live_err}")
+
+        # Check if already has a titles_record_id or exists in Titles
+        existing_title_id = post_row.get("titles_record_id")
+        if not existing_title_id:
+            try:
+                wp_pid = post_row.get("post_id") or post_id
+                if wp_pid:
+                    t_check = supabase.table("Titles").select("id").eq("user_id", user_id).eq("Wordpress_post_Id", str(wp_pid)).limit(1).execute()
+                    if t_check.data:
+                        existing_title_id = t_check.data[0].get("id")
+            except Exception:
+                pass
+
+        if existing_title_id:
+            # Check if title still exists
+            check = supabase.table("Titles").select("*").eq("id", existing_title_id).limit(1).execute()
+            if check.data:
+                existing_row = check.data[0]
+                missing_fields = {}
+                if not existing_row.get("hook") and extracted and extracted.get("hook"):
+                    missing_fields["hook"] = extracted["hook"]
+                if not existing_row.get("thesis") and extracted and extracted.get("thesis"):
+                    missing_fields["thesis"] = extracted["thesis"]
+                if not existing_row.get("excerpt") and extracted and extracted.get("excerpt"):
+                    missing_fields["excerpt"] = extracted["excerpt"]
+                if not existing_row.get("deck") and extracted and extracted.get("deck"):
+                    missing_fields["deck"] = extracted["deck"]
+                if not existing_row.get("Wordpress_post_Id") and (post_row.get("post_id") or post_id):
+                    missing_fields["Wordpress_post_Id"] = str(post_row.get("post_id") or post_id)
+
+                if missing_fields:
+                    try:
+                        supabase.table("Titles").update(missing_fields).eq("id", existing_title_id).execute()
+                    except Exception as backfill_err:
+                        logger.warning(f"Could not backfill missing fields for {existing_title_id}: {backfill_err}")
+
+                return jsonify({
+                    'success': True,
+                    'title_id': existing_title_id,
+                    'already_imported': True,
+                    'message': 'Article already exists in Content Library'
+                }), 200
 
         if not extracted:
             # Reconstruct from stored columns

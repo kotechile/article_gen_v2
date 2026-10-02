@@ -924,12 +924,53 @@ export const ArticleEditor: React.FC = () => {
 
                 // Normalize state
                 setTitle(d.Title || d.title || '');
-                setHook(d.hook || d.Hook || '');
-                setThesis(d.thesis || d.Thesis || '');
-                // Fetch Excerpt and Deck
-                const rawExcerpt = d.excerpt || d.Excerpt || d.wp_excerpt_auto_generated || d.metadata?.excerpt || '';
+                let loadedHook = d.hook || d.Hook || d.idea_metadata?.hook || '';
+                let loadedThesis = d.thesis || d.Thesis || d.idea_metadata?.thesis || '';
+                let rawExcerpt = d.excerpt || d.Excerpt || d.wp_excerpt_auto_generated || d.metadata?.excerpt || d.idea_metadata?.excerpt || '';
+                let metaDeck = d.deck || d.metadata?.deck || d.wp_custom_fields?.deck || d.idea_metadata?.deck || '';
+
+                // Intelligent fallback: if any are missing, synthesize from content
+                if (!loadedHook || !loadedThesis || !rawExcerpt || !metaDeck) {
+                    const rawText = (d.articleText || d.htmlArticle || '')
+                        .replace(/<[^>]+>/g, ' ')
+                        .replace(/\[\^?\d+(?:[-,\s]+\^?\d+)*\]/g, '')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                    if (rawText) {
+                        const protectedText = rawText.replace(
+                            /\b(Sept|Oct|Nov|Dec|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Mr|Mrs|Ms|Dr|Prof|Inc|Ltd|Co|Corp|vs|e\.g|i\.e|U\.S)\./g,
+                            '$1{{DOT}}'
+                        );
+                        const sentences = protectedText
+                            .split(/(?<=[.!?])\s+/)
+                            .map((s: string) => s.replace(/{{DOT}}/g, '.').trim())
+                            .filter((s: string) => s.length > 15);
+
+                        if (!loadedHook && sentences.length > 0) {
+                            loadedHook = sentences[0];
+                        }
+                        if (!loadedThesis) {
+                            const whyItMatters = sentences.find((s: string) => /(?:Why it matters|Bottom line|Core thesis|The big picture)[:\s]+/i.test(s));
+                            if (whyItMatters) {
+                                loadedThesis = whyItMatters.replace(/^(?:Why it matters|Bottom line|Core thesis|The big picture)[:\s]+/i, '').trim();
+                            } else if (sentences.length > 1) {
+                                loadedThesis = sentences[1];
+                            } else if (sentences.length > 0) {
+                                loadedThesis = sentences[0];
+                            }
+                        }
+                        if (!rawExcerpt) {
+                            rawExcerpt = metaDeck || (sentences.length > 1 ? sentences.slice(0, 2).join(' ') : sentences[0] || '');
+                        }
+                        if (!metaDeck) {
+                            metaDeck = rawExcerpt;
+                        }
+                    }
+                }
+
+                setHook(loadedHook);
+                setThesis(loadedThesis);
                 setExcerpt(rawExcerpt);
-                const metaDeck = d.deck || d.metadata?.deck || d.wp_custom_fields?.deck || '';
                 setDeck(metaDeck);
 
 
