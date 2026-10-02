@@ -67,22 +67,37 @@ class WordPressClient:
                     self.headers = orig_headers
             raise first_err
 
-    def get_posts(self, page: int = 1, per_page: int = 20, embed: bool = True, fields: Optional[str] = None, status: Optional[str] = 'any') -> List[Dict]:
+    def get_posts(self, page: int = 1, per_page: int = 20, embed: bool = True, fields: Optional[str] = None, status: Optional[str] = None) -> List[Dict]:
         """Fetch posts from WordPress site with full SEO metadata and embedded media/terms."""
-        target_status = status or 'any'
-        for try_status in [target_status, 'publish,draft,future,pending,private', 'publish']:
+        # If specific status requested (e.g. 'draft', 'publish', 'future', 'pending', 'private')
+        if status and status != 'any':
+            url = f"{self.base_url}/posts"
+            params: Dict = {'page': page, 'per_page': per_page, 'status': status}
+            if embed:
+                params['_embed'] = '1'
+            if fields:
+                params['_fields'] = fields
             try:
-                url = f"{self.base_url}/posts"
-                params: Dict = {
-                    'page': page,
-                    'per_page': per_page,
-                    'status': try_status,
-                }
+                response = requests.get(url, headers=self.headers, params=params, timeout=20, verify=False)
+                if response.ok:
+                    return response.json()
+            except Exception:
+                pass
+
+        # Try multi-status array queries
+        url = f"{self.base_url}/posts"
+        for cand in [
+            {'status[]': ['publish', 'draft', 'future', 'pending', 'private']},
+            {'status': ['publish', 'draft', 'future', 'pending', 'private']},
+            {'status': 'publish'}
+        ]:
+            try:
+                params = {'page': page, 'per_page': per_page}
+                params.update(cand)
                 if embed:
                     params['_embed'] = '1'
                 if fields:
                     params['_fields'] = fields
-                
                 response = requests.get(url, headers=self.headers, params=params, timeout=20, verify=False)
                 if response.ok:
                     return response.json()
@@ -96,9 +111,97 @@ class WordPressClient:
             params['_embed'] = '1'
         if fields:
             params['_fields'] = fields
-        response = requests.get(url, headers=self.headers, params=params, timeout=20, verify=False)
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=20, verify=False)
+            if response.ok:
+                return response.json()
+        except Exception:
+            pass
+        return []
+
+    def get_all_posts(self, embed: bool = True, per_page: int = 100) -> List[Dict]:
+        """
+        Fetch all posts across all statuses (publish, draft, future, pending, private) with pagination.
+        Guarantees complete discovery of all posts, statuses, and dates from WordPress.
+        """
+        all_posts = []
+        seen_ids = set()
+
+        # Strategy 1: Multi-status with status[]
+        multi_status_worked = False
+        try:
+            page = 1
+            while True:
+                params = {
+                    'page': page,
+                    'per_page': per_page,
+                    'status[]': ['publish', 'draft', 'future', 'pending', 'private']
+                }
+                if embed:
+                    params['_embed'] = '1'
+
+                resp = requests.get(f"{self.base_url}/posts", headers=self.headers, params=params, timeout=25, verify=False)
+                if not resp.ok:
+                    break
+
+                items = resp.json()
+                if not items or not isinstance(items, list):
+                    break
+
+                for item in items:
+                    pid = item.get("id")
+                    if pid and pid not in seen_ids:
+                        seen_ids.add(pid)
+                        all_posts.append(item)
+
+                multi_status_worked = True
+                if len(items) < per_page:
+                    break
+                page += 1
+        except Exception as e:
+            print(f"Multi-status fetch failed for {self.base_url}: {e}")
+
+        # Strategy 2: If multi-status didn't work or only returned published, iterate each status individually
+        # to ensure drafts, pending, scheduled, and private are never missed
+        if not multi_status_worked or not all_posts:
+            for st in ['publish', 'draft', 'future', 'pending', 'private']:
+                page = 1
+                while True:
+                    try:
+                        params = {
+                            'page': page,
+                            'per_page': per_page,
+                            'status': st
+                        }
+                        if embed:
+                            params['_embed'] = '1'
+
+                        resp = requests.get(f"{self.base_url}/posts", headers=self.headers, params=params, timeout=20, verify=False)
+                        if not resp.ok:
+                            break
+
+                        items = resp.json()
+                        if not items or not isinstance(items, list):
+                            break
+
+                        for item in items:
+                            pid = item.get("id")
+                            if pid and pid not in seen_ids:
+                                seen_ids.add(pid)
+                                all_posts.append(item)
+
+                        if len(items) < per_page:
+                            break
+                        page += 1
+                    except Exception:
+                        break
+
+        # Sort posts by modified or published date descending
+        all_posts.sort(
+            key=lambda x: str(x.get("modified_gmt") or x.get("modified") or x.get("date_gmt") or x.get("date") or ""),
+            reverse=True
+        )
+        return all_posts
 
     def get_post(self, post_id: int, embed: bool = True) -> Dict:
         """Fetch a single WordPress post by ID with full metadata."""

@@ -1,5 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { X, Search, RefreshCw, Loader2, Globe, ExternalLink, CheckCircle2, ArrowRight, Sparkles, Tag, Layers, Edit3, Clock, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+    X,
+    Search,
+    RefreshCw,
+    Loader2,
+    Globe,
+    ExternalLink,
+    CheckCircle2,
+    Sparkles,
+    Tag,
+    Layers,
+    Edit3,
+    Clock,
+    Calendar,
+    ArrowUpDown,
+    FileText,
+    Check
+} from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/auth-context';
 import { syncWordPressPosts, importPostToTitles, importAllPostsToTitles, getImportedPosts } from '../services/wordpressService';
@@ -31,10 +48,14 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
     const [filterDomain, setFilterDomain] = useState<string>('all');
     const [filterWpStatus, setFilterWpStatus] = useState<string>('all');
     const [filterLibraryStatus, setFilterLibraryStatus] = useState<'all' | 'imported' | 'not_imported'>('all');
+    const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'status' | 'title'>('newest');
 
     useEffect(() => {
         if (isOpen && user) {
+            // Immediately load cached posts for instant UI display
             fetchPosts();
+            // Automatically sync live with WordPress in background to ensure all articles, statuses, and dates are fresh
+            handleSync(true);
         }
     }, [isOpen, user]);
 
@@ -65,18 +86,21 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
         }
     };
 
-    const handleSync = async () => {
+    const handleSync = async (silent = false) => {
         if (!user) return;
         try {
             setSyncing(true);
-            setSyncResult(null);
+            if (!silent) setSyncResult(null);
             const res = await syncWordPressPosts(user.id, false);
-            const msg = res?.message || `Synced ${res?.total_synced || 0} posts from WordPress`;
+            const count = res?.total_synced ?? 0;
+            const msg = res?.details || `Fetched ${count} articles across all statuses from WordPress`;
             setSyncResult(msg);
             await fetchPosts();
         } catch (error: any) {
-            console.error('Error syncing posts:', error);
-            setSyncResult(`Sync failed: ${error.message || 'Unknown error'}`);
+            console.error('Error syncing posts from WordPress:', error);
+            if (!silent) {
+                setSyncResult(`Sync failed: ${error.message || 'Check WordPress credentials in Settings'}`);
+            }
         } finally {
             setSyncing(false);
         }
@@ -85,7 +109,7 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
     const handleLoadToEditor = async (post: WordPressImportedPost) => {
         if (!user) return;
         try {
-            setImportingId(post.id);
+            setImportingId(String(post.id));
             const res = await importPostToTitles({
                 user_id: user.id,
                 imported_post_id: post.id,
@@ -112,7 +136,7 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
     const handleLoadToStudio = async (post: WordPressImportedPost) => {
         if (!user) return;
         try {
-            setImportingId(post.id);
+            setImportingId(String(post.id));
             const res = await importPostToTitles({
                 user_id: user.id,
                 imported_post_id: post.id,
@@ -178,50 +202,114 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
         const s = String(rawStatus || 'publish').toLowerCase().trim();
         switch (s) {
             case 'publish':
-                return { label: 'Published', className: 'bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 border-emerald-500/20' };
+                return { label: 'Published', className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' };
             case 'draft':
-                return { label: 'Draft', className: 'bg-amber-500/10 text-amber-500 dark:text-amber-400 border-amber-500/20' };
+                return { label: 'Draft', className: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' };
             case 'future':
-                return { label: 'Scheduled', className: 'bg-blue-500/10 text-blue-500 dark:text-blue-400 border-blue-500/20' };
+                return { label: 'Scheduled', className: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' };
             case 'pending':
-                return { label: 'Pending Review', className: 'bg-orange-500/10 text-orange-500 dark:text-orange-400 border-orange-500/20' };
+                return { label: 'Pending Review', className: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20' };
             case 'private':
-                return { label: 'Private', className: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20' };
+                return { label: 'Private', className: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20' };
             default:
                 return { label: s.charAt(0).toUpperCase() + s.slice(1), className: 'bg-muted text-muted-foreground border-border' };
         }
     };
 
-    // Filter available domains
-    const uniqueDomains = Array.from(new Set(posts.map(p => p.source_site).filter(Boolean)));
-
-    const filteredPosts = posts.filter(post => {
-        if (filterDomain !== 'all' && post.source_site !== filterDomain) return false;
-
-        // WP Status filter
-        const postWpStatus = String(post.status || post.raw_post_json?.status || 'publish').toLowerCase().trim();
-        if (filterWpStatus !== 'all' && postWpStatus !== filterWpStatus) return false;
-
-        // Library status filter
-        if (filterLibraryStatus === 'imported' && !post.titles_record_id) return false;
-        if (filterLibraryStatus === 'not_imported' && post.titles_record_id) return false;
-
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            const titleMatch = post.title?.toLowerCase().includes(q);
-            const kwMatch = post.focus_keyword?.toLowerCase().includes(q) || post.primary_keyword?.toLowerCase().includes(q);
-            const catMatch = post.category_names?.some(c => c.toLowerCase().includes(q));
-            const linkMatch = post.link?.toLowerCase().includes(q);
-            return titleMatch || kwMatch || catMatch || linkMatch;
+    const formatDateDisplay = (dateStr?: string) => {
+        if (!dateStr) return null;
+        try {
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return null;
+            return d.toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+        } catch {
+            return null;
         }
-        return true;
-    });
+    };
+
+    // Filter available domains
+    const uniqueDomains = useMemo(() => {
+        return Array.from(new Set(posts.map(p => p.source_site).filter(Boolean)));
+    }, [posts]);
+
+    // Quick status counts
+    const counts = useMemo(() => {
+        const total = posts.length;
+        const published = posts.filter(p => (p.status || 'publish').toLowerCase() === 'publish').length;
+        const drafts = posts.filter(p => (p.status || '').toLowerCase() === 'draft').length;
+        const future = posts.filter(p => (p.status || '').toLowerCase() === 'future').length;
+        const pending = posts.filter(p => ['pending', 'private'].includes((p.status || '').toLowerCase())).length;
+        const inLibrary = posts.filter(p => Boolean(p.titles_record_id)).length;
+        const notInLibrary = total - inLibrary;
+        return { total, published, drafts, future, pending, inLibrary, notInLibrary };
+    }, [posts]);
+
+    // Filter posts
+    const filteredPosts = useMemo(() => {
+        return posts.filter(post => {
+            if (filterDomain !== 'all' && post.source_site !== filterDomain) return false;
+
+            // WP Status filter
+            const postWpStatus = String(post.status || post.raw_post_json?.status || 'publish').toLowerCase().trim();
+            if (filterWpStatus !== 'all') {
+                if (filterWpStatus === 'pending_or_private') {
+                    if (!['pending', 'private'].includes(postWpStatus)) return false;
+                } else if (postWpStatus !== filterWpStatus) {
+                    return false;
+                }
+            }
+
+            // Library status filter
+            if (filterLibraryStatus === 'imported' && !post.titles_record_id) return false;
+            if (filterLibraryStatus === 'not_imported' && post.titles_record_id) return false;
+
+            if (searchQuery.trim()) {
+                const q = searchQuery.toLowerCase();
+                const titleMatch = post.title?.toLowerCase().includes(q);
+                const kwMatch = post.focus_keyword?.toLowerCase().includes(q) || post.primary_keyword?.toLowerCase().includes(q);
+                const catMatch = post.category_names?.some(c => c.toLowerCase().includes(q));
+                const linkMatch = post.link?.toLowerCase().includes(q);
+                return titleMatch || kwMatch || catMatch || linkMatch;
+            }
+            return true;
+        });
+    }, [posts, filterDomain, filterWpStatus, filterLibraryStatus, searchQuery]);
+
+    // Sort posts
+    const sortedPosts = useMemo(() => {
+        return [...filteredPosts].sort((a, b) => {
+            if (sortBy === 'newest') {
+                const dateA = new Date(a.modified_at || a.published_at || a.created_at || 0).getTime();
+                const dateB = new Date(b.modified_at || b.published_at || b.created_at || 0).getTime();
+                return dateB - dateA;
+            }
+            if (sortBy === 'oldest') {
+                const dateA = new Date(a.published_at || a.created_at || 0).getTime();
+                const dateB = new Date(b.published_at || b.created_at || 0).getTime();
+                return dateA - dateB;
+            }
+            if (sortBy === 'title') {
+                return (a.title || '').localeCompare(b.title || '');
+            }
+            if (sortBy === 'status') {
+                const statusOrder: Record<string, number> = { draft: 1, future: 2, pending: 3, private: 4, publish: 5 };
+                const orderA = statusOrder[String(a.status).toLowerCase()] || 99;
+                const orderB = statusOrder[String(b.status).toLowerCase()] || 99;
+                return orderA - orderB;
+            }
+            return 0;
+        });
+    }, [filteredPosts, sortBy]);
 
     if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="flex max-h-[90vh] w-full max-w-5xl flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
+            <div className="flex max-h-[92vh] w-full max-w-5xl flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
                 {/* Modal Header */}
                 <div className="flex items-center justify-between border-b border-border px-6 py-4 bg-muted/30">
                     <div className="flex items-center gap-3">
@@ -229,14 +317,16 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                             <Globe className="h-5 w-5" />
                         </div>
                         <div>
-                            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                                Import from WordPress
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-lg font-semibold text-foreground">
+                                    Import from WordPress
+                                </h2>
                                 <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 text-xs font-medium text-indigo-400">
-                                    <Sparkles className="h-3 w-3" /> Ready for Editor
+                                    <Sparkles className="h-3 w-3" /> Live Reader & Editor
                                 </span>
-                            </h2>
-                            <p className="text-xs text-muted-foreground">
-                                Browse available articles from your WordPress sites, view and filter by status, and pick an article to read and edit.
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                                Select any article from your WordPress site to read, load its media and links, and edit it.
                             </p>
                         </div>
                     </div>
@@ -248,10 +338,97 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                     </button>
                 </div>
 
+                {/* Auto-sync Notification Banner */}
+                {syncing && (
+                    <div className="flex items-center justify-between px-6 py-2 bg-indigo-500/10 border-b border-indigo-500/20 text-xs text-indigo-400 animate-pulse">
+                        <div className="flex items-center gap-2">
+                            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                            <span>Reading all articles, statuses, and dates from your WordPress site...</span>
+                        </div>
+                    </div>
+                )}
+
                 {/* Toolbar */}
                 <div className="border-b border-border bg-card/60 p-4 space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                        {/* Search & Filters */}
+                    {/* Quick Status Filter Tabs */}
+                    <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                        <button
+                            onClick={() => setFilterWpStatus('all')}
+                            className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                                filterWpStatus === 'all'
+                                    ? 'bg-indigo-600 text-white shadow-sm'
+                                    : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                            }`}
+                        >
+                            All ({counts.total})
+                        </button>
+                        <button
+                            onClick={() => setFilterWpStatus('publish')}
+                            className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                                filterWpStatus === 'publish'
+                                    ? 'bg-emerald-600 text-white shadow-sm'
+                                    : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                            }`}
+                        >
+                            Published ({counts.published})
+                        </button>
+                        <button
+                            onClick={() => setFilterWpStatus('draft')}
+                            className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                                filterWpStatus === 'draft'
+                                    ? 'bg-amber-600 text-white shadow-sm'
+                                    : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                            }`}
+                        >
+                            Drafts ({counts.drafts})
+                        </button>
+                        <button
+                            onClick={() => setFilterWpStatus('future')}
+                            className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                                filterWpStatus === 'future'
+                                    ? 'bg-blue-600 text-white shadow-sm'
+                                    : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                            }`}
+                        >
+                            Scheduled ({counts.future})
+                        </button>
+                        {counts.pending > 0 && (
+                            <button
+                                onClick={() => setFilterWpStatus('pending_or_private')}
+                                className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                                    filterWpStatus === 'pending_or_private'
+                                        ? 'bg-orange-600 text-white shadow-sm'
+                                        : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                                }`}
+                            >
+                                Pending/Private ({counts.pending})
+                            </button>
+                        )}
+                        <span className="w-px h-4 bg-border mx-1" />
+                        <button
+                            onClick={() => setFilterLibraryStatus(prev => prev === 'not_imported' ? 'all' : 'not_imported')}
+                            className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                                filterLibraryStatus === 'not_imported'
+                                    ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/40'
+                                    : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                            }`}
+                        >
+                            Available ({counts.notInLibrary})
+                        </button>
+                        <button
+                            onClick={() => setFilterLibraryStatus(prev => prev === 'imported' ? 'all' : 'imported')}
+                            className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                                filterLibraryStatus === 'imported'
+                                    ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/40'
+                                    : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                            }`}
+                        >
+                            In Library ({counts.inLibrary})
+                        </button>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                        {/* Search & Site Filters */}
                         <div className="flex flex-1 items-center gap-2 min-w-[280px] flex-wrap sm:flex-nowrap">
                             <div className="relative flex-1 min-w-[180px]">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -264,7 +441,7 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                                 />
                             </div>
 
-                            {uniqueDomains.length > 0 && (
+                            {uniqueDomains.length > 1 && (
                                 <select
                                     value={filterDomain}
                                     onChange={(e) => setFilterDomain(e.target.value)}
@@ -277,41 +454,32 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                                 </select>
                             )}
 
-                            {/* Filter by WordPress Status */}
-                            <select
-                                value={filterWpStatus}
-                                onChange={(e) => setFilterWpStatus(e.target.value)}
-                                className="h-9 rounded-lg border border-border bg-muted/40 px-2.5 text-xs text-foreground focus:border-ring focus:outline-none font-medium"
-                            >
-                                <option value="all">All Statuses</option>
-                                <option value="publish">Published</option>
-                                <option value="draft">Drafts</option>
-                                <option value="future">Scheduled</option>
-                                <option value="pending">Pending Review</option>
-                                <option value="private">Private</option>
-                            </select>
-
-                            {/* Filter by Library Status */}
-                            <select
-                                value={filterLibraryStatus}
-                                onChange={(e) => setFilterLibraryStatus(e.target.value as any)}
-                                className="h-9 rounded-lg border border-border bg-muted/40 px-2.5 text-xs text-foreground focus:border-ring focus:outline-none"
-                            >
-                                <option value="all">All Library States</option>
-                                <option value="not_imported">Not Yet in Library</option>
-                                <option value="imported">Already in Library</option>
-                            </select>
+                            {/* Sort Dropdown */}
+                            <div className="flex items-center gap-1.5 bg-muted/40 border border-border rounded-lg px-2 py-0.5 h-9">
+                                <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+                                <select
+                                    value={sortBy}
+                                    onChange={(e) => setSortBy(e.target.value as any)}
+                                    className="bg-transparent text-xs text-foreground focus:outline-none pr-1 cursor-pointer font-medium"
+                                >
+                                    <option value="newest">Newest First</option>
+                                    <option value="oldest">Oldest First</option>
+                                    <option value="status">Drafts First</option>
+                                    <option value="title">Title (A-Z)</option>
+                                </select>
+                            </div>
                         </div>
 
-                        {/* Sync Button */}
+                        {/* Force Refresh Button */}
                         <div className="flex items-center gap-2">
                             <button
-                                onClick={handleSync}
+                                onClick={() => handleSync(false)}
                                 disabled={syncing}
                                 className="inline-flex h-9 items-center gap-2 rounded-lg bg-indigo-600 px-3.5 text-xs font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50"
+                                title="Fetch fresh articles, statuses, and dates directly from WordPress"
                             >
                                 <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
-                                <span>{syncing ? 'Syncing…' : 'Sync WordPress'}</span>
+                                <span>{syncing ? 'Syncing...' : 'Sync with WordPress'}</span>
                             </button>
                         </div>
                     </div>
@@ -327,32 +495,44 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                 </div>
 
                 {/* Posts List */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-2.5 min-h-[320px]">
-                    {loading ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">
-                            <Loader2 className="h-7 w-7 animate-spin text-indigo-500" />
-                            <p className="text-sm">Loading articles from WordPress...</p>
+                <div className="flex-1 overflow-y-auto p-4 space-y-2.5 min-h-[340px]">
+                    {loading && posts.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground gap-3">
+                            <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+                            <p className="text-sm font-medium">Connecting to WordPress and loading articles...</p>
                         </div>
-                    ) : filteredPosts.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">
+                    ) : sortedPosts.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground gap-3">
                             <Globe className="h-10 w-10 text-muted-foreground/40" />
                             <div>
                                 <h3 className="text-sm font-semibold text-foreground">No articles found</h3>
-                                <p className="text-xs text-muted-foreground mt-1">
+                                <p className="text-xs text-muted-foreground mt-1 max-w-md">
                                     {posts.length === 0
-                                        ? "Click 'Sync WordPress' above to fetch available articles from your connected WordPress sites."
-                                        : "No articles match the selected filters or search query."}
+                                        ? "No articles found from your WordPress sites. Click 'Sync with WordPress' to load all available articles, or verify your application password credentials in Settings."
+                                        : "No articles match your current status filter or search query."}
                                 </p>
                             </div>
+                            {posts.length === 0 && (
+                                <button
+                                    onClick={() => handleSync(false)}
+                                    disabled={syncing}
+                                    className="mt-2 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
+                                >
+                                    <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                                    <span>Sync All Articles from WordPress</span>
+                                </button>
+                            )}
                         </div>
                     ) : (
-                        filteredPosts.map((post) => {
+                        sortedPosts.map((post) => {
                             const isImported = Boolean(post.titles_record_id);
                             const isSelected = selectedIds.has(post.id);
-                            const isImporting = importingId === post.id;
+                            const isImporting = importingId === String(post.id);
                             const focusKw = post.focus_keyword || post.primary_keyword;
-                            const postStatus = post.status || post.raw_post_json?.status || 'publish';
+                            const postStatus = String(post.status || post.raw_post_json?.status || 'publish').toLowerCase();
                             const statusBadge = getWpStatusBadge(postStatus);
+                            const pubDate = formatDateDisplay(post.published_at);
+                            const modDate = formatDateDisplay(post.modified_at);
 
                             return (
                                 <div
@@ -372,27 +552,50 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                                                 type="checkbox"
                                                 checked={isSelected}
                                                 onChange={() => toggleSelect(post.id)}
-                                                className="mt-1 h-4 w-4 rounded border-border text-indigo-600 focus:ring-indigo-500"
+                                                className="mt-1 h-4 w-4 rounded border-border text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                                             />
                                         )}
                                         {isImported && (
                                             <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-emerald-500" />
                                         )}
 
-                                        <div className="flex-1 min-w-0 space-y-1">
-                                            {/* Status Badge, Site Badge & External Link */}
+                                        <div className="flex-1 min-w-0 space-y-1.5">
+                                            {/* Status Badge, Date Badge, Site Badge & External Link */}
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${statusBadge.className}`}>
                                                     {statusBadge.label}
                                                 </span>
+
+                                                {/* Prominent Date Tag */}
+                                                {postStatus === 'future' ? (
+                                                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-md" title={`Scheduled date: ${post.published_at}`}>
+                                                        <Calendar className="h-3 w-3" />
+                                                        Scheduled: {pubDate || 'Upcoming'}
+                                                    </span>
+                                                ) : postStatus === 'draft' ? (
+                                                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md" title={`Last updated: ${post.modified_at || post.published_at}`}>
+                                                        <Clock className="h-3 w-3" />
+                                                        Saved: {modDate || pubDate || 'Draft'}
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted/50 border border-border/60 px-2 py-0.5 rounded-md" title={`Published: ${post.published_at}${post.modified_at ? ` · Modified: ${post.modified_at}` : ''}`}>
+                                                        <Calendar className="h-3 w-3" />
+                                                        {pubDate ? `Published: ${pubDate}` : 'Published'}
+                                                        {modDate && pubDate && modDate !== pubDate && (
+                                                            <span className="text-muted-foreground/70 ml-1">
+                                                                (Updated {modDate})
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                )}
 
                                                 <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-muted/50 rounded-md text-muted-foreground border border-border/50">
                                                     {post.source_site || 'WordPress'}
                                                 </span>
 
                                                 {isImported && (
-                                                    <span className="inline-flex items-center gap-1 rounded-md bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 text-[11px] font-medium text-blue-400">
-                                                        In Library
+                                                    <span className="inline-flex items-center gap-1 rounded-md bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 text-[11px] font-medium text-indigo-400">
+                                                        <Check className="h-3 w-3" /> In Library
                                                     </span>
                                                 )}
 
@@ -423,32 +626,25 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                                             )}
 
                                             {/* Metadata Badges: Focus KW, Categories, Tags */}
-                                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                                                 {focusKw && (
-                                                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[11px] font-medium text-emerald-400">
+                                                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[11px] font-medium text-emerald-500 dark:text-emerald-400">
                                                         <Sparkles className="h-2.5 w-2.5" />
                                                         KW: {focusKw}
                                                     </span>
                                                 )}
 
                                                 {post.category_names && post.category_names.length > 0 && (
-                                                    <span className="inline-flex items-center gap-1 rounded-md bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 text-[11px] text-blue-400">
+                                                    <span className="inline-flex items-center gap-1 rounded-md bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 text-[11px] text-blue-500 dark:text-blue-400">
                                                         <Layers className="h-2.5 w-2.5" />
                                                         {post.category_names.slice(0, 2).join(', ')}
                                                     </span>
                                                 )}
 
                                                 {post.tag_names && post.tag_names.length > 0 && (
-                                                    <span className="inline-flex items-center gap-1 rounded-md bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 text-[11px] text-purple-400">
+                                                    <span className="inline-flex items-center gap-1 rounded-md bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 text-[11px] text-purple-500 dark:text-purple-400">
                                                         <Tag className="h-2.5 w-2.5" />
                                                         {post.tag_names.slice(0, 2).join(', ')}
-                                                    </span>
-                                                )}
-
-                                                {post.published_at && (
-                                                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/80">
-                                                        <Clock className="h-2.5 w-2.5" />
-                                                        {new Date(post.published_at).toLocaleDateString()}
                                                     </span>
                                                 )}
                                             </div>
@@ -486,7 +682,7 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                                                     onClick={() => handleLoadToEditor(post)}
                                                     disabled={isImporting}
                                                     className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-600 text-white px-3.5 text-xs font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50 shadow-sm"
-                                                    title="Import into Content Library and open in Article Editor"
+                                                    title="Import from WordPress and open in Article Editor"
                                                 >
                                                     {isImporting ? (
                                                         <>
@@ -495,7 +691,7 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                                                         </>
                                                     ) : (
                                                         <>
-                                                            <Edit3 className="h-3 w-3" />
+                                                            <FileText className="h-3.5 w-3.5" />
                                                             <span>Load into Editor</span>
                                                         </>
                                                     )}
@@ -520,7 +716,7 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                 <div className="flex items-center justify-between border-t border-border px-6 py-3.5 bg-muted/20">
                     <div className="flex items-center gap-3">
                         <button
-                            onClick={() => toggleSelectAll(filteredPosts)}
+                            onClick={() => toggleSelectAll(sortedPosts)}
                             className="text-xs text-muted-foreground hover:text-foreground transition-colors underline"
                         >
                             {selectedIds.size > 0 ? 'Deselect All' : 'Select All Available'}

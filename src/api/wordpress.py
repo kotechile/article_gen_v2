@@ -765,7 +765,27 @@ def get_imported_wordpress_posts():
 
         posts = resp.data or []
 
-        # Normalize links for live website display and ensure status is populated
+        # Correlate with Titles table to ensure titles_record_id is always up to date
+        existing_titles_map = {}
+        try:
+            titles_resp = supabase.table("Titles") \
+                .select("id, wp_post_id, last_wp_post_id") \
+                .eq("user_id", user_id) \
+                .execute()
+            for t in (titles_resp.data or []):
+                t_id = t.get("id")
+                for pid_key in ["wp_post_id", "last_wp_post_id"]:
+                    wp_pid = t.get(pid_key)
+                    if wp_pid and t_id:
+                        existing_titles_map[str(wp_pid)] = str(t_id)
+                        try:
+                            existing_titles_map[int(wp_pid)] = str(t_id)
+                        except (ValueError, TypeError):
+                            pass
+        except Exception as t_err:
+            logger.warning(f"Could not query Titles for correlation: {t_err}")
+
+        # Normalize links for live website display, status, dates, and titles_record_id
         for p in posts:
             link = p.get('link') or ''
             if '://cms.' in link:
@@ -773,6 +793,17 @@ def get_imported_wordpress_posts():
             raw = p.get('raw_post_json') or {}
             raw_status = raw.get('status') if isinstance(raw, dict) else None
             p['status'] = str(p.get('status') or raw_status or 'publish').strip().lower()
+
+            if not p.get('published_at') and isinstance(raw, dict):
+                p['published_at'] = raw.get('date_gmt') or raw.get('date')
+            if not p.get('modified_at') and isinstance(raw, dict):
+                p['modified_at'] = raw.get('modified_gmt') or raw.get('modified')
+
+            pid = p.get('post_id')
+            if pid and (not p.get('titles_record_id') or p.get('titles_record_id') not in existing_titles_map.values()):
+                matching = existing_titles_map.get(pid) or existing_titles_map.get(str(pid))
+                if matching:
+                    p['titles_record_id'] = matching
 
         return jsonify({
             'posts': posts,
@@ -908,44 +939,53 @@ def sync_wordpress_posts():
                 except Exception as cat_err:
                      debug_logs.append(f"Error fetching categories: {cat_err}")
                 
-                # Fetch all posts with full SEO metadata (_embed=1)
-                debug_logs.append(f"Fetching posts with full SEO metadata for {domain}...")
+                # Fetch all posts with full SEO metadata across all statuses (publish, draft, future, pending, private)
+                debug_logs.append(f"Fetching all posts across all statuses for {domain}...")
                 posts = []
-                page = 1
                 try:
-                    while True:
-                        try:
-                            page_posts = client.get_posts(page=page, per_page=100, embed=True, status='any')
-                            if not page_posts:
-                                break
-                            posts.extend(page_posts)
-                            if len(page_posts) < 100:
-                                break
-                            page += 1
-                        except Exception as page_err:
-                            if hasattr(page_err, 'response') and page_err.response is not None and page_err.response.status_code == 400:
-                                break
-                            raise page_err
-                    debug_logs.append(f"Fetched {len(posts)} posts for {domain}")
+                    posts = client.get_all_posts(embed=True, per_page=100)
+                    debug_logs.append(f"Fetched {len(posts)} total posts across all statuses for {domain}")
                 except Exception as fetch_err:
                     debug_logs.append(f"Error fetching posts for {domain}: {str(fetch_err)}")
-                    if not posts:
-                        continue
+                    posts = []
                 
                 if not posts:
                     debug_logs.append(f"No posts found for {domain}")
                     continue
                     
+                # Correlate with existing Titles records
+                existing_titles_map = {}
+                try:
+                    titles_resp = supabase.table("Titles") \
+                        .select("id, wp_post_id, last_wp_post_id") \
+                        .eq("user_id", user_id) \
+                        .execute()
+                    for t in (titles_resp.data or []):
+                        t_id = t.get("id")
+                        for pid_key in ["wp_post_id", "last_wp_post_id"]:
+                            wp_pid = t.get(pid_key)
+                            if wp_pid and t_id:
+                                existing_titles_map[str(wp_pid)] = str(t_id)
+                                try:
+                                    existing_titles_map[int(wp_pid)] = str(t_id)
+                                except (ValueError, TypeError):
+                                    pass
+                except Exception as t_err:
+                    logger.warning(f"Could not load existing Titles to correlate with imported posts: {t_err}")
+
                 # 3. Extract SEO metadata and save to Supabase
                 records = []
                 titles_payloads = []
                 for post in posts:
                     extracted = extract_wordpress_seo_metadata(post, domain=domain)
-                    
+                    post_id = extracted["post_id"]
+                    matching_title_id = existing_titles_map.get(post_id) or existing_titles_map.get(str(post_id))
+
                     record = {
                         "user_id": user_id,
                         "wordpress_detail_id": site_id,
-                        "post_id": extracted["post_id"],
+                        "post_id": post_id,
+                        "titles_record_id": matching_title_id,
                         "title": extracted["title"],
                         "link": extracted["link"],
                         "excerpt": extracted["excerpt"],
