@@ -282,13 +282,15 @@ def extract_wordpress_seo_metadata(post: dict, domain: str = "") -> dict:
                 if not isinstance(term, dict):
                     continue
                 taxonomy = term.get("taxonomy")
-                term_name = str(term.get("name") or "").strip()
-                if taxonomy == "category" and term_name and term_name not in category_names:
-                    category_names.append(term_name)
-                elif taxonomy == "post_tag" and term_name and term_name not in tag_names:
-                    tag_names.append(term_name)
+                raw_name = str(term.get("name") or "").strip()
+                clean_name = html.unescape(raw_name).rstrip(":;").strip()
+                if taxonomy == "category" and clean_name and clean_name not in category_names:
+                    category_names.append(clean_name)
+                elif taxonomy == "post_tag" and clean_name and clean_name not in tag_names:
+                    tag_names.append(clean_name)
 
     # 3. Focus / Primary Keyword extraction
+    # Real SEO plugin focus keywords (Yoast, RankMath, SEOPress, custom meta)
     raw_focus = (
         meta.get("_yoast_wpseo_focuskw")
         or meta.get("rank_math_focus_keyword")
@@ -311,14 +313,40 @@ def extract_wordpress_seo_metadata(post: dict, domain: str = "") -> dict:
         focus_keyword = str(raw_focus[0]).strip()
         extra_focus_secondaries = [str(p).strip() for p in raw_focus[1:] if str(p).strip()]
         
+    # If no SEO plugin focus keyword exists, check post tags (which represent specific topics)
     if not focus_keyword and tag_names:
         focus_keyword = tag_names[0]
-    if not focus_keyword and category_names:
-        focus_keyword = category_names[0]
-    if not focus_keyword and plain_title:
-        words = [w for w in re.split(r"\s+", plain_title) if len(w) > 2]
-        if words:
-            focus_keyword = " ".join(words[:3]).lower()
+
+    # If still no keyword, derive an authentic search keyword from Title or Slug (NEVER from Category)
+    if not focus_keyword:
+        stop_words = {
+            'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
+            'has', 'he', 'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the',
+            'to', 'was', 'were', 'will', 'with', 'why', 'how', 'what', 'when',
+            'where', 'who', 'which', 'just', 'still', 'into', 'vs', 'not',
+            'about', 'over', 'after', 'before', 'between', 'under', 'again'
+        }
+        # 1. From Title
+        if plain_title:
+            clean_t = html.unescape(plain_title)
+            clean_t = re.sub(r'&#\d+;', '', clean_t)
+            clean_t = re.sub(r'[^\w\s]', ' ', clean_t)
+            words = [w.lower() for w in clean_t.split() if w and not w.isdigit()]
+            meaningful_title = [w for w in words if w not in stop_words and len(w) > 2]
+            if 2 <= len(meaningful_title) <= 4:
+                focus_keyword = " ".join(meaningful_title)
+            elif len(meaningful_title) > 4:
+                focus_keyword = " ".join(meaningful_title[:3])
+
+        # 2. From Slug
+        if not focus_keyword and slug:
+            slug_clean = re.sub(r'^\d{4}[-/]\d{2}[-/]\d{2}[-/]', '', slug).strip('-')
+            parts = [p.lower() for p in re.split(r'[-_]+', slug_clean) if p and not p.isdigit()]
+            meaningful_slug = [p for p in parts if p not in stop_words and len(p) > 2]
+            if len(meaningful_slug) >= 2:
+                focus_keyword = " ".join(meaningful_slug[:3])
+            elif parts:
+                focus_keyword = " ".join(parts[:3])
 
     # 4. Secondary Keywords
     secondary_keywords = []
@@ -1308,6 +1336,17 @@ def import_post_to_titles():
                     missing_fields["deck"] = extracted["deck"]
                 if not existing_row.get("Wordpress_post_Id") and (post_row.get("post_id") or post_id):
                     missing_fields["Wordpress_post_Id"] = str(post_row.get("post_id") or post_id)
+                # Correct primary_keyword if it was wrongly populated with the category name
+                curr_pk = str(existing_row.get("primary_keyword") or "").strip()
+                curr_cat = str(existing_row.get("category") or "").strip()
+                if (not curr_pk or curr_pk == curr_cat or "&amp;" in curr_pk or curr_pk.endswith(":")) and extracted and extracted.get("primary_keyword"):
+                    new_pk = extracted["primary_keyword"]
+                    if new_pk and new_pk != curr_cat:
+                        missing_fields["primary_keyword"] = new_pk
+                        missing_fields["Keywords"] = new_pk
+                        missing_fields["search_phrase"] = new_pk
+                if curr_cat and ("&amp;" in curr_cat or curr_cat.endswith(":")):
+                    missing_fields["category"] = html.unescape(curr_cat).rstrip(":;").strip()
 
                 if missing_fields:
                     try:
