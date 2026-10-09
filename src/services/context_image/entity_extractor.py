@@ -17,7 +17,7 @@ from supabase_client import resolve_llm_provider
 logger = logging.getLogger(__name__)
 
 # What is appended to image models to strictly forbid in-image typography/rubble
-IMAGE_GUARD = "Do not include: text, lettering, numbers, logos, watermarks, UI."
+IMAGE_GUARD = "Do not include: text, lettering, numbers, wordmarks, watermarks, UI."
 
 CLICHE_BAN = (
     "light bulb", "handshake", "chess", "puzzle piece", "glowing brain", "rocket",
@@ -103,7 +103,7 @@ EDITORIAL_STYLES: Dict[str, Dict[str, Any]] = {
         "label": "Studio product shot",
         "when": "the story is a product, a device, a price or a market for a thing the reader could buy — an appliance, a panel, a router, a robot arm",
         "medium": "studio product photograph of one hero object on a real studio surface, single directional light",
-        "craft": "softbox key light with visible falloff and a long cast contact shadow across a textured surface, three-quarter angle, generic unbranded object, catalogue clarity, no gradient sweep, no text",
+        "craft": "softbox key light with visible falloff and a long cast contact shadow across a textured surface, three-quarter angle, authentic product design and silhouette, catalogue clarity, no gradient sweep, no text",
         "keywords": ("studio", "studio surface", "product shot", "softbox", "three-quarter"),
         "model_family": "photographic"
     },
@@ -154,19 +154,20 @@ The featured image is the front door to the article — it must make the reader 
 1. ANCHOR ON THE CORE TOPIC & GOVERNING CONFLICT:
    - THE HERO SUBJECT MUST DIRECTLY EMBODY THE STORY'S CORE PROTAGONIST, MACHINE, OR SYSTEMIC PHENOMENON:
      * If the headline or text centers on an electric vehicle (EV), car, cargo vessel, intermodal gantry, industrial turbine, or robotic arm: THAT MACHINE MUST BE THE HERO IN THE FRAME! Never hide or omit the vehicle/machine.
-     * Capture the core theme, mood, and tension through dramatic environmental storytelling and conflict (e.g. an unbranded modern EV powering a dark home during a neighborhood blackout outage), NOT boring stock photos.
+     * PRESERVE NAMED BRANDS AND MODELS: If the text or context explicitly mentions a real-world brand, model, automaker, or machine (e.g. Tesla Model Y, Rivian R1T, Porsche Taycan, Apple Watch, Nvidia H100, Boeing 787, Siemens turbine): ALWAYS EXPLICITLY NAME AND PRESERVE THE EXACT BRAND AND MODEL in the hero_subject, main_object, search_query, and generation_prompt! NEVER genericize them into 'an unbranded vehicle', 'a generic car', or 'an unnamed device'. Diffusion models (Flux, Midjourney, Imagen) are trained on authentic automotive and industrial designs and produce vastly superior, realistic results when given the exact make and model.
+     * Capture the core theme, mood, and tension through dramatic environmental storytelling and conflict (e.g. a Tesla Model Y powering a dark home during a neighborhood blackout outage, or an industrial gantry moving cargo containers under floodlights), NOT boring stock photos.
      * BEWARE THE PERIPHERAL ANECDOTE TRAP: Articles frequently use minor examples, supporting anecdotes, or incidental props (e.g. a screw, a delivery van, a specific chip model, a pallet of scrap, a coffee cup, packaging tape). NEVER elevate an incidental anecdote into the hero subject!
      * BEWARE INVERTING THE PROTAGONIST: Do not swap the primary actor for a background utility box (e.g., swapping an EV for an empty meter box).
      * Identify the central dramatic tension or trade-off (e.g. rising capital expenditure vs automation payoff, write-path persistence vs token bandwidth, scale bottlenecks).
 
 2. SELECT AN EVOCATIVE HERO OBJECT OR SCENE (CONCEPTUAL & SYMBOLIC STORYTELLING):
    - Ground the visual conceptually in the article's substantive vertical:
-     * For enterprise AI / software / compute / multi-agent systems: Do NOT default to generic datacenters, blue circuit traces, or server racks as a lazy shortcut. NEVER translate software or AI into literal factory plumbing or pneumatic valves! Use conceptual, symbolic visual storytelling: optical beam-splitter prisms dividing a beam of warm light across dark obsidian stone, monolithic stone slabs in equilibrium, razor-thin blades of golden light, high-precision axonometric technical cutaways of coordinated processing modules.
+     * For enterprise AI / software / compute / multi-agent systems: Do NOT default to generic datacenters, blue circuit traces, or server racks as a lazy shortcut. NEVER translate software or AI into literal factory plumbing or pneumatic valves! Use conceptual, symbolic visual storytelling: optical beam-splitter prisms dividing a beam of warm light across dark obsidian stone, monolithic stone slabs in equilibrium, razor-thin blades of golden light, high-precision axonometric technical cutaways of coordinated processing modules. If specific chips or architectures are named (e.g. Nvidia Blackwell, Nvidia H100, Apple M-series), ground the design in that authentic hardware.
      * For supply chain / logistics / warehousing / freight: An evocative scene capturing balance, capacity, or flow under hard raking sunlight or twilight gantries.
      * For energy / utilities / infrastructure: Transformer substations, utility-scale battery banks, industrial copper busbars, or wind/solar installations under dramatic skies.
      * For heavy industry / manufacturing: Precision CNC machining spindles, induction heating coils, robotic welding arms, or PCB assembly benches.
      * For finance / tax / governance: Forensic audit desks with leather ledgers under focused lamps, embossed legal documents, brass balance scales, vintage vault doors.
-     * For residential / home resilience / V2H: An unbranded modern EV powering a residential home at dusk with warm glowing windows during a blackout.
+     * For residential / home resilience / V2H: The named electric vehicle (e.g. Tesla Model Y, Ford F-150 Lightning, Rivian R1T) or home battery setup powering a residential home at dusk with warm glowing windows during a blackout.
    - EVERY scene must have physical presence, tactile context, material weight, and dramatic lighting.
    - A systemic, software or operational story is never a product shot on an empty sweep; put the hero in an evocative environment or constructed schematic.
 
@@ -185,10 +186,15 @@ DOMAIN GROUNDING & HARD RULES:
 2. NO BARE SHAPES OR ABSTRACT SCRAPS: Cubes, spheres, wedges, slabs, rectangles, and blobs are not subjects. Ground the subject in a tangible mechanism or symbolic object.
 3. MATURE PROFESSIONAL B2B GROUNDING: Never depict children's toys, clip-art silhouettes, or playful cartoon nursery symbols.
 4. UNIVERSAL DOMAIN SEMIOTICS: No obscure micro-metaphors. Never cross-contaminate unrelated domains (e.g. no freight trucks for pure AI algorithms, and never factory plumbing for software pipelines).
-5. BRAND & PRODUCT INTEGRITY: If depicting real vehicles or industrial machinery, reflect authentic design and silhouette, but NEVER prompt for isolated close-up text logos or wordmarks.
+5. BRAND & PRODUCT INTEGRITY (ALWAYS PRESERVE NAMED BRANDS & MODELS):
+   - When the article text, headline, or context names a specific real-world brand, model, automaker, tech device, or machine (e.g., Tesla Model Y, Apple Watch, Rivian R1T, Nvidia H100, Porsche Taycan, Boeing 787):
+     * ALWAYS explicitly name the brand and exact model in the hero_subject, main_object, search_query, and generation_prompt!
+     * NEVER censor or genericize named products into "an unbranded electric car", "a generic vehicle", "an unbranded gadget", or "an unnamed device".
+     * Reflect authentic real-world design, body lines, and industrial proportions. (Do not request zoomed-in macro text decals or typography wordmarks, but preserve the full branded identity and silhouette of the vehicle or machine).
+   - Only use generic descriptions if no specific brand or model is mentioned anywhere in the text or context.
 6. CLICHE BAN: Strictly no light bulbs, handshakes, chess pieces, puzzle pieces, glowing brains, rocket ships, dartboards, scales of justice, gavels, or thumbs up.
 7. STRICTLY NO TEXT, LETTERS, NUMBERS, OR UI: Generated lettering is unreadable rubble. Forbid them in negative_prompt.
-8. ALT TEXT STANDARDS: <=125 characters, starting with the SUBJECT itself (never 'image of', never 'a photo of', never the medium) for screen reader accessibility.
+8. ALT TEXT STANDARDS: <=125 characters, starting with the SUBJECT itself (e.g. "Tesla Model Y in driveway at dusk...") — never 'image of' or the medium.
 
 Respond ONLY with a valid JSON object adhering strictly to this schema:
 {

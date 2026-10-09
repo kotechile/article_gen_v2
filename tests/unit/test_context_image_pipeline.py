@@ -118,6 +118,23 @@ class TestContextImagePipeline(unittest.TestCase):
         sanitized_render = EntityExtractor._sanitize_alt_text("3D render showing modular circuit components on desk")
         self.assertEqual(sanitized_render, "modular circuit components on desk")
 
+    def test_entity_extractor_preserves_named_brands(self):
+        from src.services.context_image.entity_extractor import SYSTEM_PROMPT, EDITORIAL_STYLES, IMAGE_GUARD
+
+        # Ensure system prompt mandates brand preservation
+        self.assertIn("PRESERVE NAMED BRANDS AND MODELS", SYSTEM_PROMPT)
+        self.assertIn("Tesla Model Y", SYSTEM_PROMPT)
+        self.assertIn("NEVER genericize them into 'an unbranded vehicle'", SYSTEM_PROMPT)
+        self.assertIn("ALWAYS PRESERVE NAMED BRANDS & MODELS", SYSTEM_PROMPT)
+
+        # Ensure editorial styles do not enforce generic unbranded objects
+        self.assertNotIn("generic unbranded object", EDITORIAL_STYLES["studio_object"]["craft"])
+        self.assertIn("authentic product design and silhouette", EDITORIAL_STYLES["studio_object"]["craft"])
+
+        # Ensure wordmarks is guarded without forbidding factory badges or car models
+        self.assertIn("wordmarks", IMAGE_GUARD)
+
 
 if __name__ == "__main__":
     unittest.main()
+
