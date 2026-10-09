@@ -2697,6 +2697,15 @@ export const ArticleEditor: React.FC = () => {
                     selectedText={getSelectedText()}
                     userId={user.id}
                     initialTab={imageModalInitialTab}
+                    articleContext={{
+                        title: title || articleData?.title,
+                        thesis: thesis || articleData?.thesis || articleData?.one_big_thing,
+                        hook: hook || articleData?.hook,
+                        deck: deck || articleData?.deck,
+                        excerpt: excerpt || articleData?.excerpt,
+                        vertical: articleData?.vertical,
+                        topic: articleData?.topic || articleData?.research_topic
+                    }}
                 />
             )}
 

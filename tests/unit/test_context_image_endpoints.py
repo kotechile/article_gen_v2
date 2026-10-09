@@ -42,6 +42,9 @@ spec.loader.exec_module(images_mod)
 
 analyze_image_context = images_mod.analyze_image_context
 generate_context_image_endpoint = images_mod.generate_context_image_endpoint
+synthesize_prompt_endpoint = images_mod.synthesize_image_prompt_endpoint
+generate_overlay_copy_endpoint = images_mod.generate_overlay_copy_endpoint
+apply_image_overlay_endpoint = images_mod.apply_image_overlay_endpoint
 
 
 class TestContextImageEndpoints(unittest.TestCase):
@@ -157,6 +160,97 @@ class TestContextImageEndpoints(unittest.TestCase):
             self.assertEqual(res["imageUrl"], "https://storage.supabase.co/heat_pump_scene.jpg")
             mock_prepare.assert_called_once()
             self.assertIn("reference_base64", str(mock_prepare.call_args))
+
+    @patch.object(images_mod, "request")
+    @patch("src.services.context_image.entity_extractor.EntityExtractor.extract")
+    def test_synthesize_prompt_endpoint_with_art_direction(self, mock_extract, mock_request):
+        from src.services.context_image.entity_extractor import EntityExtractionResult
+        mock_request.get_json.return_value = {
+            "text": "Tesla gigafactory battery cell bottleneck causing delays in Model Y ramp.",
+            "style": "Cinematic Still",
+            "style_id": "cinematic_still",
+            "article_title": "The Scaling Ceiling",
+            "article_context": {"thesis": "Battery scaling limits EV velocity", "vertical": "EV / Energy"}
+        }
+
+        mock_extract.return_value = EntityExtractionResult(
+            has_physical_entity=True,
+            main_object="Battery cell packaging line",
+            search_query="cylindrical battery cell assembly line",
+            generation_prompt="A 35mm photograph of cylindrical lithium cells moving down an automated inspection conveyor.",
+            entity_type="industrial_machinery",
+            object_fidelity_weight=0.92,
+            is_metaphorical=False,
+            hero_subject="Automated cylindrical battery cell assembly conveyor",
+            core_thesis="Battery scaling limits EV velocity",
+            core_conflict="Precision manufacturing cadence versus supply-chain latency",
+            composition="Low-angle perspective, leading lines of conveyor receding to upper right",
+            style_id="cinematic_still",
+            style_label="Cinematic Still",
+            alt_text="Battery cell conveyor line with cylindrical cells moving under inspection lights",
+            caption="Cylindrical cells moving through high-speed automated sorting.",
+            title="Battery Line Velocity",
+            negative_prompt="Do not include: text, lettering, numbers, logos, watermarks, UI."
+        )
+
+        with patch.object(images_mod, "jsonify", side_effect=lambda x: x):
+            res, status = synthesize_prompt_endpoint()
+            self.assertEqual(status, 200)
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["hero_subject"], "Automated cylindrical battery cell assembly conveyor")
+            self.assertEqual(res["core_thesis"], "Battery scaling limits EV velocity")
+            self.assertEqual(res["core_conflict"], "Precision manufacturing cadence versus supply-chain latency")
+            self.assertEqual(res["composition"], "Low-angle perspective, leading lines of conveyor receding to upper right")
+            self.assertEqual(res["style_id"], "cinematic_still")
+            self.assertEqual(res["alt_text"], "Battery cell conveyor line with cylindrical cells moving under inspection lights")
+            self.assertIn("A 35mm photograph", res["prompt"])
+
+    @patch.object(images_mod, "request")
+    @patch("src.services.image_typography_overlay.generate_overlay_copy")
+    def test_generate_overlay_copy_endpoint(self, mock_copy, mock_request):
+        from src.services.image_typography_overlay import OverlayCopy
+        mock_request.get_json.return_value = {
+            "text": "NVIDIA Blackwell B200 packaging delays cause hyperscale allocation queue.",
+            "article_title": "AI Accelerator Constraints",
+            "article_context": {"vertical": "AI Hardware", "thesis": "Packaging latency limits throughput"}
+        }
+        mock_copy.return_value = OverlayCopy(
+            kicker="AI HARDWARE // PACKAGING BOTTLENECK",
+            title="ACCELERATOR CONSTRAINTS",
+            hook="Packaging delays constrain hyperscale throughput."
+        )
+
+        with patch.object(images_mod, "jsonify", side_effect=lambda x: x):
+            res, status = generate_overlay_copy_endpoint()
+            self.assertEqual(status, 200)
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["kicker"], "AI HARDWARE // PACKAGING BOTTLENECK")
+            self.assertEqual(res["title"], "ACCELERATOR CONSTRAINTS")
+            self.assertEqual(res["hook"], "Packaging delays constrain hyperscale throughput.")
+
+    @patch.object(images_mod, "request")
+    @patch.object(images_mod, "upload_to_supabase_storage")
+    def test_apply_image_overlay_endpoint_with_base64(self, mock_upload, mock_request):
+        # 100x100 base64 jpeg
+        fake_b64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCABkAGQDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDxuiiitjIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooA//9k="
+        mock_request.get_json.return_value = {
+            "image_base64": fake_b64,
+            "kicker": "ENERGY // STORAGE",
+            "title": "GRID POWER",
+            "hook": "Utility batteries stabilize frequency fluctuations.",
+            "corner": "top-left",
+            "user_id": "test-user"
+        }
+        mock_upload.return_value = "https://storage.supabase.co/overlay_123.jpg"
+
+        with patch.object(images_mod, "jsonify", side_effect=lambda x: x):
+            res, status = apply_image_overlay_endpoint()
+            self.assertEqual(status, 200)
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["imageUrl"], "https://storage.supabase.co/overlay_123.jpg")
+            self.assertIn("overlayDetails", res)
+            self.assertEqual(res["overlayDetails"]["kicker"], "ENERGY // STORAGE")
+            self.assertEqual(res["overlayDetails"]["title"], "GRID POWER")
 
 
 if __name__ == "__main__":

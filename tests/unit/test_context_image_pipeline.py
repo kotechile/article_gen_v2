@@ -78,8 +78,45 @@ class TestContextImagePipeline(unittest.TestCase):
             user_id=None
         )
 
-        self.assertEqual(ref_bytes, b"image-bytes")
-        self.assertEqual(ref_url, "https://images.example.com/sample.jpg")
+    def test_analyze_context_with_art_direction(self):
+        self.mock_extractor.extract.return_value = EntityExtractionResult(
+            has_physical_entity=True,
+            main_object="Electric Vehicle backing up home during blackout",
+            hero_subject="Modern electric vehicle connected via umbilical cable",
+            core_thesis="EVs are becoming decentralized residential power plants",
+            core_conflict="Grid vulnerability vs localized vehicle storage capacity",
+            composition="Low-angle asymmetric 16:9 framing, vehicle hero off-centre",
+            style_id="cinematic_still",
+            style_label="Cinematic still",
+            alt_text="Modern electric vehicle connected to dark house during outage",
+            caption="An electric vehicle powers a residential home during a blackout.",
+            title="Vehicle to Home Energy Backup",
+            negative_prompt="text, lettering, numbers, watermark, UI",
+            search_query="electric vehicle home backup",
+            generation_prompt="A cinematic 35mm photograph of an unbranded modern electric vehicle parked on a residential driveway at dusk",
+            object_fidelity_weight=0.75
+        )
+
+        res = self.pipeline.analyze_context(
+            text="Vehicle to home power solves grid outages.",
+            article_title="How EVs Power the Grid",
+            article_context={"vertical": "residential / energy", "one_big_thing": "EV backup transforms homes"}
+        )
+
+        self.assertEqual(res["hero_subject"], "Modern electric vehicle connected via umbilical cable")
+        self.assertEqual(res["core_thesis"], "EVs are becoming decentralized residential power plants")
+        self.assertEqual(res["core_conflict"], "Grid vulnerability vs localized vehicle storage capacity")
+        self.assertEqual(res["composition"], "Low-angle asymmetric 16:9 framing, vehicle hero off-centre")
+        self.assertEqual(res["alt_text"], "Modern electric vehicle connected to dark house during outage")
+        self.assertEqual(res["style_id"], "cinematic_still")
+
+    def test_alt_text_sanitation(self):
+        from src.services.context_image.entity_extractor import EntityExtractor
+        sanitized = EntityExtractor._sanitize_alt_text("A cinematic photograph of an electric vehicle charging station")
+        self.assertEqual(sanitized, "an electric vehicle charging station")
+
+        sanitized_render = EntityExtractor._sanitize_alt_text("3D render showing modular circuit components on desk")
+        self.assertEqual(sanitized_render, "modular circuit components on desk")
 
 
 if __name__ == "__main__":

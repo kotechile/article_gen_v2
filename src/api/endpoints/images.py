@@ -862,6 +862,38 @@ def generate_ai_image():
             reference_image_urls=reference_image_urls,
         )
         
+        # Optional editorial typography overlay
+        overlay_cfg = data.get('overlay')
+        overlay_details = None
+        base_image_url = None
+        if overlay_cfg and (isinstance(overlay_cfg, dict) and overlay_cfg.get('enabled')):
+            try:
+                from src.services.image_typography_overlay import apply_editorial_overlay
+                kicker = overlay_cfg.get('kicker', '')
+                title = overlay_cfg.get('title', '')
+                hook = overlay_cfg.get('hook', '')
+                corner = overlay_cfg.get('corner', 'auto')
+
+                base_filename = f"ai_base_{int(datetime.utcnow().timestamp())}.jpg"
+                try:
+                    base_image_url = upload_to_supabase_storage(image_data, base_filename, user_id)
+                except Exception as upload_err:
+                    logger.warning(f"Failed to upload base image before overlay: {upload_err}")
+
+                composited_img, meta = apply_editorial_overlay(
+                    image_input=image_data,
+                    kicker=kicker,
+                    title=title,
+                    hook=hook,
+                    corner=corner
+                )
+                buf = io.BytesIO()
+                composited_img.save(buf, format="JPEG", quality=92, optimize=True)
+                image_data = buf.getvalue()
+                overlay_details = meta.to_dict()
+            except Exception as e:
+                logger.warning(f"Error applying typography overlay during AI image generation: {e}")
+
         # Upload to Supabase
         filename = f"ai_{datetime.utcnow().timestamp()}.jpg"
         image_url = upload_to_supabase_storage(image_data, filename, user_id)
@@ -877,6 +909,8 @@ def generate_ai_image():
         
         return jsonify({
             "imageUrl": image_url,
+            "baseImageUrl": base_image_url,
+            "overlayDetails": overlay_details,
             "metadata": metadata,
             "model": model_to_use,
             "provider": provider,
@@ -1799,6 +1833,10 @@ def analyze_image_context():
         data = request.get_json() or {}
         text = data.get('text', '').strip()
         user_instructions = data.get('user_instructions', '').strip()
+        article_title = data.get('article_title', '').strip()
+        article_context = data.get('article_context') or {}
+        style_id = data.get('style_id', '').strip()
+        style = data.get('style', '').strip()
         max_reference_images = int(data.get('max_reference_images', 6))
 
         if not text:
@@ -1814,7 +1852,11 @@ def analyze_image_context():
         analysis = pipeline.analyze_context(
             text=text,
             user_instructions=user_instructions if user_instructions else None,
-            max_reference_images=max_reference_images
+            max_reference_images=max_reference_images,
+            article_title=article_title if article_title else None,
+            article_context=article_context if article_context else None,
+            style_id=style_id if style_id else None,
+            style_name=style if style else None
         )
         return jsonify({"status": "success", "data": analysis}), 200
 
@@ -1833,14 +1875,17 @@ def analyze_image_context():
 def synthesize_image_prompt_endpoint():
     """
     Synthesize a rich visual scene prompt from article text and visual style presets
-    using the LLM entity extractor.
+    using the LLM entity extractor and editorial art-direction standards.
     """
     try:
         data = request.get_json() or {}
         text = data.get('text', '').strip()
         style = data.get('style', '').strip()
+        style_id = data.get('style_id', '').strip()
         style_prompt_modifier = data.get('style_prompt_modifier', '').strip()
         user_instructions = data.get('user_instructions', '').strip()
+        article_title = data.get('article_title', '').strip()
+        article_context = data.get('article_context') or {}
 
         if not text:
             return jsonify(ErrorResponse(
@@ -1864,17 +1909,35 @@ def synthesize_image_prompt_endpoint():
 
         combined_instructions = " | ".join(direction_parts) if direction_parts else None
 
-        result = extractor.extract(text=text, user_instructions=combined_instructions)
+        result = extractor.extract(
+            text=text,
+            user_instructions=combined_instructions,
+            article_title=article_title if article_title else None,
+            article_context=article_context if article_context else None,
+            style_id=style_id if style_id else None,
+            style_name=style if style else None,
+            style_prompt_modifier=style_prompt_modifier if style_prompt_modifier else None
+        )
         prompt = result.generation_prompt.strip()
 
-        # If the style modifier isn't already included in the generated prompt, append it cleanly
-        if style_prompt_modifier and style_prompt_modifier.lower() not in prompt.lower():
+        # If the style modifier isn't already included in the generated prompt and not an editorial style, append it cleanly
+        if style_prompt_modifier and style_prompt_modifier.lower() not in prompt.lower() and not result.style_id:
             prompt = f"{prompt}, {style_prompt_modifier}"
 
         return jsonify({
             "status": "success",
             "prompt": prompt,
             "main_object": result.main_object,
+            "hero_subject": result.hero_subject,
+            "core_thesis": result.core_thesis,
+            "core_conflict": result.core_conflict,
+            "composition": result.composition,
+            "style_id": result.style_id,
+            "style_label": result.style_label,
+            "alt_text": result.alt_text,
+            "caption": result.caption,
+            "title": result.title,
+            "negative_prompt": result.negative_prompt,
             "entity_type": result.entity_type,
             "is_metaphorical": result.is_metaphorical
         }), 200
@@ -1965,6 +2028,11 @@ def generate_context_image_endpoint():
                 status=400
             ).dict()), 400
 
+        # Ensure image guard is attached to prevent in-image text/rubble
+        from src.services.context_image.entity_extractor import IMAGE_GUARD
+        if "text" not in prompt.lower() and "letter" not in prompt.lower():
+            prompt = f"{prompt}\n\n{IMAGE_GUARD}"
+
         # Conditioned generation
         ref_urls = [ref_http_url] if ref_http_url else ([reference_image_url] if reference_image_url else [])
         image_data = generate_image_with_provider(
@@ -1978,20 +2046,58 @@ def generate_context_image_endpoint():
             reference_image_urls=ref_urls if ref_urls else None,
         )
 
+        # Optional editorial typography overlay
+        overlay_cfg = data.get('overlay')
+        overlay_details = None
+        base_image_url = None
+        if overlay_cfg and (isinstance(overlay_cfg, dict) and overlay_cfg.get('enabled')):
+            try:
+                from src.services.image_typography_overlay import apply_editorial_overlay
+                kicker = overlay_cfg.get('kicker', '')
+                title = overlay_cfg.get('title', '')
+                hook = overlay_cfg.get('hook', '')
+                corner = overlay_cfg.get('corner', 'auto')
+
+                base_filename = f"context_ai_base_{int(datetime.utcnow().timestamp())}.jpg"
+                try:
+                    base_image_url = upload_to_supabase_storage(image_data, base_filename, user_id)
+                except Exception as upload_err:
+                    logger.warning(f"Failed to upload base image before overlay: {upload_err}")
+
+                composited_img, meta = apply_editorial_overlay(
+                    image_input=image_data,
+                    kicker=kicker,
+                    title=title,
+                    hook=hook,
+                    corner=corner
+                )
+                buf = io.BytesIO()
+                composited_img.save(buf, format="JPEG", quality=92, optimize=True)
+                image_data = buf.getvalue()
+                overlay_details = meta.to_dict()
+            except Exception as e:
+                logger.warning(f"Error applying typography overlay during context generation: {e}")
+
         # Upload generated image to Supabase Storage
         filename = f"context_ai_{int(datetime.utcnow().timestamp())}.jpg"
         image_url = upload_to_supabase_storage(image_data, filename, user_id)
 
+        req_alt = data.get('alt_text') or data.get('alt') or (analysis.get('alt_text') if analysis else None)
+        req_title = data.get('title') or (analysis.get('title') if analysis else None)
+        req_caption = data.get('caption') or (analysis.get('caption') if analysis else None)
+
         metadata = {
             "ImageUrl": image_url,
             "ImageAuthor": f"AI - {display_name}",
-            "MediaAltText": prompt[:200],
-            "mediaTitle": prompt[:100],
-            "mediaCaption": f"Reference: {reference_image_url[:80]}" if reference_image_url else ""
+            "MediaAltText": (req_alt or prompt[:125]).strip(),
+            "mediaTitle": (req_title or prompt[:80]).strip(),
+            "mediaCaption": (req_caption or (f"Reference: {reference_image_url[:80]}" if reference_image_url else "")).strip()
         }
 
         return jsonify({
             "imageUrl": image_url,
+            "baseImageUrl": base_image_url,
+            "overlayDetails": overlay_details,
             "metadata": metadata,
             "model": model_to_use,
             "provider": provider,
@@ -2004,6 +2110,132 @@ def generate_context_image_endpoint():
 
     except Exception as e:
         logger.error(f"Error generating context-aware AI image: {str(e)}", exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message=str(e),
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@images_bp.route('/generate-overlay-copy', methods=['POST'])
+@limiter.limit("60 per minute")
+def generate_overlay_copy_endpoint():
+    """
+    Generate 3-tier editorial cover typography copy (Kicker, Title, Hook)
+    tailored to the article context and selected text.
+    """
+    try:
+        data = request.get_json() or {}
+        text = data.get('text', '').strip()
+        article_title = data.get('article_title', '').strip()
+        article_context = data.get('article_context') or {}
+        user_instructions = data.get('user_instructions', '').strip()
+
+        from src.services.image_typography_overlay import generate_overlay_copy
+        copy_res = generate_overlay_copy(
+            text=text,
+            article_title=article_title if article_title else None,
+            article_context=article_context if article_context else None,
+            user_instructions=user_instructions if user_instructions else None
+        )
+
+        return jsonify({
+            "status": "success",
+            "kicker": copy_res.kicker,
+            "title": copy_res.title,
+            "hook": copy_res.hook
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error generating overlay copy: {str(e)}", exc_info=True)
+        return jsonify(ErrorResponse(
+            error="internal_error",
+            message=str(e),
+            error_code="INTERNAL_ERROR",
+            status=500
+        ).dict()), 500
+
+
+@images_bp.route('/apply-overlay', methods=['POST'])
+@limiter.limit("30 per minute")
+def apply_image_overlay_endpoint():
+    """
+    Composites high-contrast editorial typography over an existing image
+    using Pillow post-processing with empty-corner detection, WCAG contrast solving,
+    and feathered vignette scrims.
+    """
+    try:
+        data = request.get_json() or {}
+        image_url = data.get('image_url', '').strip()
+        image_base64 = data.get('image_base64', '').strip()
+        kicker = data.get('kicker', '').strip()
+        title = data.get('title', '').strip()
+        hook = data.get('hook', '').strip()
+        corner = data.get('corner', 'auto').strip()
+        user_id = data.get('user_id', 'anonymous').strip()
+
+        if not image_url and not image_base64:
+            return jsonify(ErrorResponse(
+                error="validation_error",
+                message="Either image_url or image_base64 is required",
+                error_code="VALIDATION_ERROR",
+                status=400
+            ).dict()), 400
+
+        img_bytes = None
+        if image_base64:
+            clean_b64 = image_base64.split(",")[1] if "," in image_base64 else image_base64
+            img_bytes = base64.b64decode(clean_b64)
+        elif image_url:
+            import urllib.request
+            req = urllib.request.Request(
+                image_url,
+                headers={"User-Agent": "Mozilla/5.0"}
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                img_bytes = resp.read()
+
+        from src.services.image_typography_overlay import apply_editorial_overlay
+        composited_img, meta = apply_editorial_overlay(
+            image_input=img_bytes,
+            kicker=kicker,
+            title=title,
+            hook=hook,
+            corner=corner
+        )
+
+        buf = io.BytesIO()
+        composited_img.save(buf, format="JPEG", quality=92, optimize=True)
+        composited_bytes = buf.getvalue()
+
+        filename = f"overlay_{int(datetime.utcnow().timestamp())}.jpg"
+        new_image_url = None
+        try:
+            new_image_url = upload_to_supabase_storage(composited_bytes, filename, user_id)
+        except Exception as upload_err:
+            logger.warning(f"Could not upload overlay to supabase storage: {upload_err}")
+
+        out_b64 = f"data:image/jpeg;base64,{base64.b64encode(composited_bytes).decode('utf-8')}"
+        if not new_image_url:
+            new_image_url = out_b64
+
+        return jsonify({
+            "status": "success",
+            "imageUrl": new_image_url,
+            "baseImageUrl": image_url or (f"data:image/jpeg;base64,{clean_b64}" if image_base64 else None),
+            "imageBase64": out_b64,
+            "overlayDetails": meta.to_dict(),
+            "metadata": {
+                "ImageUrl": new_image_url,
+                "MediaAltText": f"{meta.title}. {meta.hook}",
+                "mediaTitle": meta.title,
+                "mediaCaption": f"{meta.kicker} — {meta.title}"
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error applying image typography overlay: {str(e)}", exc_info=True)
         return jsonify(ErrorResponse(
             error="internal_error",
             message=str(e),

@@ -34,15 +34,24 @@ class ContextImagePipeline:
         self,
         text: str,
         user_instructions: Optional[str] = None,
-        max_reference_images: int = 6
+        max_reference_images: int = 6,
+        article_title: Optional[str] = None,
+        article_context: Optional[Dict[str, Any]] = None,
+        style_id: Optional[str] = None,
+        style_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Extract the target entity, generate search queries & prompt, and fetch reference images.
+        Extract the target entity, generate search queries & prompt, and fetch reference images
+        incorporating editorial art-direction standards.
         """
         logger.info("Starting context analysis for article excerpt")
         extraction: EntityExtractionResult = self.entity_extractor.extract(
             text=text,
-            user_instructions=user_instructions
+            user_instructions=user_instructions,
+            article_title=article_title,
+            article_context=article_context,
+            style_id=style_id,
+            style_name=style_name
         )
 
         references: List[ReferenceImageItem] = []
@@ -64,6 +73,16 @@ class ContextImagePipeline:
             "entity_type": extraction.entity_type,
             "is_metaphorical": extraction.is_metaphorical,
             "main_object": extraction.main_object,
+            "hero_subject": extraction.hero_subject,
+            "core_thesis": extraction.core_thesis,
+            "core_conflict": extraction.core_conflict,
+            "composition": extraction.composition,
+            "style_id": extraction.style_id,
+            "style_label": extraction.style_label,
+            "alt_text": extraction.alt_text,
+            "caption": extraction.caption,
+            "title": extraction.title,
+            "negative_prompt": extraction.negative_prompt,
             "search_query": extraction.search_query,
             "generation_prompt": extraction.generation_prompt,
             "object_fidelity_weight": extraction.object_fidelity_weight,

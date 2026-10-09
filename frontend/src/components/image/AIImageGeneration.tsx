@@ -4,35 +4,99 @@ import {
     generateAIImage,
     getImageProviderModels,
     getImageApplicationConfig,
-    synthesizeImagePrompt
+    synthesizeImagePrompt,
+    generateOverlayCopy,
+    applyImageOverlay
 } from '../../services/imageService';
-import type { ImageProviderModel, ImageMetadata } from '../../types/image';
+import type { ImageProviderModel, ImageMetadata, OverlayConfig, OverlayDetails } from '../../types/image';
+import { EditorialOverlayPanel } from './EditorialOverlayPanel';
 
 export interface StylePreset {
     id: string;
     name: string;
     description: string;
     promptModifier: string;
+    isEditorial?: boolean;
 }
 
 export const STYLE_PRESETS: StylePreset[] = [
+    // Curated Editorial Treatments (Executive Publication & Magazine Cover Standard)
     {
-        id: 'cinematic',
-        name: 'Cinematic',
-        description: 'Dramatic lighting, film still composition',
-        promptModifier: 'cinematic lighting, dramatic atmosphere, depth of field, 35mm film still, 8k resolution, photorealistic masterpiece',
+        id: 'cinematic_still',
+        name: 'Cinematic Still',
+        description: '35mm anamorphic establishing shot, atmospheric depth, practical lighting, teal & amber palette',
+        promptModifier: 'cinematic film still, anamorphic 35mm look, wide establishing composition, single strong practical light source, crisp atmospheric depth, restrained teal-and-amber palette, no people facing camera',
+        isEditorial: true,
     },
+    {
+        id: 'editorial_macro',
+        name: 'Editorial Macro',
+        description: '100mm macro photograph, single razor-sharp plane, physical surface texture & shallow DOF',
+        promptModifier: 'extreme close-up macro photograph, 100mm macro lens, one razor-sharp focal plane, shallow depth of field, visible surface texture and dust, soft directional daylight, hero object off-centre on the thirds with background falling away',
+        isEditorial: true,
+    },
+    {
+        id: 'technical_isometric',
+        name: 'Technical Isometric Cutaway',
+        description: 'Axonometric cutaway schematic, clean line weight, physical hardware modules on real surface',
+        promptModifier: 'clean isometric cutaway illustration, technical drawing style, axonometric projection, flat muted palette with one accent colour, thin consistent line weight, laid over a real material surface, recognisable hardware with racks, modules, connectors, one directional light, generous empty margin',
+        isEditorial: true,
+    },
+    {
+        id: 'clay_render',
+        name: 'Matte 3D Render',
+        description: 'Matte clay render of mechanical assembly on weathered concrete or brushed steel',
+        promptModifier: 'matte clay 3D render of a small mechanical assembly resting on a real textured surface in a real space, engineered parts, modular housing, moulding seams and contact shadows on weathered concrete or brushed steel, directional key light raking across, matte muted palette, no text',
+        isEditorial: true,
+    },
+    {
+        id: 'component_assembly',
+        name: 'Modular Component Assembly',
+        description: 'Minimalist studio assembly on real surface, directional cast shadows, generous negative space',
+        promptModifier: 'minimalist studio composition of a modular mechanical assembly on a real surface, one directional light, generous negative space, hard clean edges on weathered concrete or brushed steel, long cast shadow, matte muted palette, no text',
+        isEditorial: true,
+    },
+    {
+        id: 'paper_collage',
+        name: 'Editorial Paper Collage',
+        description: 'Minimalist cut-paper silhouettes, halftone newsprint texture, physical cast shadows',
+        promptModifier: 'minimalist editorial cut-paper collage, crisp cut-out object silhouettes, halftone newsprint texture, hand-torn rag paper with visible fibre, physical cast shadows under each layer, one raking light, muted modern editorial palette, crisp clean edges, generous negative space',
+        isEditorial: true,
+    },
+    {
+        id: 'long_lens_industry',
+        name: 'Compressed Telephoto Industry',
+        description: '200mm telephoto compression of industrial scale & infrastructure, crystal distance clarity',
+        promptModifier: 'telephoto compression, 200mm long-lens view of industrial infrastructure, stacked overlapping layers of structure with crystal-clear distance clarity, flat compressed perspective, sharp directional lighting and deep industrial contrast, no people in foreground',
+        isEditorial: true,
+    },
+    {
+        id: 'document_flatlay',
+        name: 'Document Still Life',
+        description: 'Overhead 90-degree flat-lay of paper documents on desk, even diffused daylight',
+        promptModifier: 'overhead flat-lay photograph of paper documents on a plain desk surface, top-down 90-degree view, even diffused daylight, one object slightly out of alignment to look handled, blank or illegibly cropped paper, muted paper tones',
+        isEditorial: true,
+    },
+    {
+        id: 'studio_object',
+        name: 'Studio Product Shot',
+        description: 'Hero product photography on textured surface, softbox key light & contact shadow',
+        promptModifier: 'studio product photograph of one hero object on a real studio surface, single directional softbox key light with visible falloff and a long cast contact shadow across a textured surface, three-quarter angle, catalogue clarity, no text',
+        isEditorial: true,
+    },
+    {
+        id: 'architectural_night',
+        name: 'Lit Architecture at Dusk',
+        description: 'Blue hour architectural photograph, lit windows as warm light, calm atmosphere',
+        promptModifier: 'architectural photograph of a modern building or plant at blue hour, lit windows as the only warm light, long-exposure calm with no moving figures, deep blue ambient light, clean geometry',
+        isEditorial: true,
+    },
+    // Creative Presets
     {
         id: 'whiteboard',
         name: 'Whiteboard',
         description: 'Clean markers, sketch notes, clear outlines',
         promptModifier: 'clean whiteboard drawing, markers, clear outlines, hand-drawn sketch illustration, whiteboard notes on crisp white background',
-    },
-    {
-        id: 'studio',
-        name: 'Studio Lighting',
-        description: 'High-end commercial photo, softbox, sharp focus',
-        promptModifier: 'professional studio lighting, clean softbox reflections, commercial product photography, razor sharp focus, pristine background, 8k',
     },
     {
         id: 'watercolor',
@@ -53,12 +117,6 @@ export const STYLE_PRESETS: StylePreset[] = [
         promptModifier: 'crisp vector line art, clean black and white outlines, minimalist illustration, modern elegant contour drawing',
     },
     {
-        id: 'macro',
-        name: 'Macro Photography',
-        description: 'Ultra close-up details, smooth bokeh',
-        promptModifier: 'extreme macro photography, ultra close-up fine texture details, shallow depth of field, delicate lighting, smooth bokeh',
-    },
-    {
         id: 'cyberpunk',
         name: 'Cyberpunk',
         description: 'Neon lighting, futuristic high-tech glow',
@@ -69,18 +127,6 @@ export const STYLE_PRESETS: StylePreset[] = [
         name: 'Flat Design',
         description: 'Bold geometric shapes, modern 2D vector',
         promptModifier: 'modern flat design illustration, bold geometric shapes, clean vector graphics, vibrant harmonious color palette, 2D minimalist vector',
-    },
-    {
-        id: '3d_render',
-        name: '3D Render',
-        description: 'Isometric 3D, octane render, smooth materials',
-        promptModifier: '3D isometric render, octane render, smooth stylized 3D materials, soft volumetric lighting, vibrant modern 3D artwork',
-    },
-    {
-        id: 'minimalist',
-        name: 'Minimalist',
-        description: 'Generous negative space, clean elegance',
-        promptModifier: 'minimalist aesthetic, spacious negative space, clean elegant composition, subdued sophisticated colors, sleek design',
     },
     {
         id: 'vintage',
@@ -94,15 +140,25 @@ interface AIImageGenerationProps {
     userId: string;
     selectedText?: string;
     onImageGenerated: (imageUrl: string, metadata: Partial<ImageMetadata>) => void;
+    articleContext?: {
+        title?: string;
+        thesis?: string;
+        hook?: string;
+        deck?: string;
+        excerpt?: string;
+        vertical?: string;
+        topic?: string;
+    };
 }
 
 export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
     userId,
     selectedText = '',
-    onImageGenerated
+    onImageGenerated,
+    articleContext
 }) => {
     const [contextText, setContextText] = useState(selectedText);
-    const [selectedStyleId, setSelectedStyleId] = useState<string>('cinematic');
+    const [selectedStyleId, setSelectedStyleId] = useState<string>('cinematic_still');
     const [prompt, setPrompt] = useState('');
     const [synthesizingPrompt, setSynthesizingPrompt] = useState(false);
 
@@ -116,6 +172,31 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
     const [loadingModels, setLoadingModels] = useState(true);
     const [generatedImage, setGeneratedImage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [artDirection, setArtDirection] = useState<{
+        hero_subject?: string;
+        core_thesis?: string;
+        core_conflict?: string;
+        composition?: string;
+        alt_text?: string;
+        caption?: string;
+        title?: string;
+        style_label?: string;
+    } | null>(null);
+
+    // Editorial Cover Typography Overlay State
+    const [overlayConfig, setOverlayConfig] = useState<OverlayConfig>({
+        enabled: false,
+        kicker: articleContext?.vertical ? `${articleContext.vertical.toUpperCase().slice(0, 30)} // ANALYSIS` : '',
+        title: articleContext?.title ? articleContext.title.toUpperCase().slice(0, 34) : '',
+        hook: articleContext?.thesis ? articleContext.thesis.slice(0, 58) : (articleContext?.deck ? articleContext.deck.slice(0, 58) : ''),
+        corner: 'auto'
+    });
+    const [overlayDetails, setOverlayDetails] = useState<OverlayDetails | null>(null);
+    const [baseImage, setBaseImage] = useState<string | null>(null);
+    const [overlayImage, setOverlayImage] = useState<string | null>(null);
+    const [showWithOverlay, setShowWithOverlay] = useState<boolean>(true);
+    const [draftingCopy, setDraftingCopy] = useState<boolean>(false);
+    const [applyingOverlay, setApplyingOverlay] = useState<boolean>(false);
 
     useEffect(() => {
         loadModels();
@@ -179,11 +260,24 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
             const res = await synthesizeImagePrompt({
                 text,
                 style: style?.name,
+                style_id: style?.id,
                 style_prompt_modifier: style?.promptModifier,
+                article_title: articleContext?.title,
+                article_context: articleContext,
             });
 
             if (res.prompt) {
                 setPrompt(res.prompt);
+                setArtDirection({
+                    hero_subject: res.hero_subject,
+                    core_thesis: res.core_thesis,
+                    core_conflict: res.core_conflict,
+                    composition: res.composition,
+                    alt_text: res.alt_text,
+                    caption: res.caption,
+                    title: res.title,
+                    style_label: res.style_label,
+                });
             } else {
                 // Fallback prompt generation
                 const fallback = style
@@ -227,6 +321,56 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
         }
     };
 
+    const handleDraftOverlayCopy = async () => {
+        setDraftingCopy(true);
+        setError(null);
+        try {
+            const res = await generateOverlayCopy({
+                text: contextText || prompt,
+                article_title: articleContext?.title,
+                article_context: articleContext
+            });
+            setOverlayConfig(prev => ({
+                ...prev,
+                kicker: res.kicker,
+                title: res.title,
+                hook: res.hook
+            }));
+        } catch (err: any) {
+            console.warn('Auto-draft overlay copy failed:', err);
+        } finally {
+            setDraftingCopy(false);
+        }
+    };
+
+    const handleApplyOverlay = async () => {
+        const imageToUse = baseImage || generatedImage;
+        if (!imageToUse) return;
+
+        setApplyingOverlay(true);
+        setError(null);
+        try {
+            const res = await applyImageOverlay({
+                image_url: imageToUse.startsWith('data:') ? undefined : imageToUse,
+                image_base64: imageToUse.startsWith('data:') ? imageToUse : undefined,
+                kicker: overlayConfig.kicker || '',
+                title: overlayConfig.title || '',
+                hook: overlayConfig.hook || '',
+                corner: overlayConfig.corner || 'auto',
+                user_id: userId
+            });
+
+            setOverlayImage(res.imageUrl);
+            setOverlayDetails(res.overlayDetails);
+            setShowWithOverlay(true);
+            setGeneratedImage(res.imageUrl);
+        } catch (err: any) {
+            setError(err.message || 'Failed to apply typography overlay');
+        } finally {
+            setApplyingOverlay(false);
+        }
+    };
+
     const handleGenerate = async () => {
         let activePrompt = prompt.trim();
 
@@ -247,6 +391,8 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
         setLoading(true);
         setError(null);
         setGeneratedImage(null);
+        setBaseImage(null);
+        setOverlayImage(null);
 
         try {
             let referenceImageBase64: string | undefined;
@@ -265,8 +411,21 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
                 aspectRatio,
                 resolution,
                 referenceImage: referenceImageBase64,
-                user_id: userId
+                user_id: userId,
+                overlay: overlayConfig.enabled ? overlayConfig : undefined
             });
+
+            const pristineBase = response.baseImageUrl || response.imageUrl;
+            setBaseImage(pristineBase);
+
+            if (response.overlayDetails) {
+                setOverlayDetails(response.overlayDetails);
+                setOverlayImage(response.imageUrl);
+                setShowWithOverlay(true);
+            } else {
+                setOverlayDetails(null);
+                setOverlayImage(null);
+            }
 
             setGeneratedImage(response.imageUrl);
         } catch (err: any) {
@@ -277,16 +436,31 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
     };
 
     const handleAccept = () => {
-        if (generatedImage) {
+        const imageToInsert = (showWithOverlay && overlayImage)
+            ? overlayImage
+            : (baseImage || generatedImage);
+
+        if (imageToInsert) {
             const modelInfo = models.find(m => m.model_technical_name === selectedModel);
             const styleInfo = STYLE_PRESETS.find(s => s.id === selectedStyleId);
             const styleTag = styleInfo ? ` [Style: ${styleInfo.name}]` : '';
 
-            onImageGenerated(generatedImage, {
-                ImageUrl: generatedImage,
+            // Title & Alt Text
+            const finalTitle = (overlayDetails?.title || artDirection?.title || prompt.substring(0, 80)).trim();
+            const finalAlt = (
+                artDirection?.alt_text ||
+                (overlayDetails ? `${overlayDetails.title}. ${overlayDetails.hook}` : prompt.substring(0, 125))
+            ).trim();
+            const finalCaption = (
+                overlayDetails ? `${overlayDetails.kicker} — ${overlayDetails.title}` : (artDirection?.caption || '')
+            ).trim();
+
+            onImageGenerated(imageToInsert, {
+                ImageUrl: imageToInsert,
                 ImageAuthor: `AI - ${modelInfo?.model_name || selectedModel}${styleTag}`,
-                MediaAltText: prompt.substring(0, 200),
-                mediaTitle: prompt.substring(0, 100)
+                MediaAltText: finalAlt,
+                mediaTitle: finalTitle,
+                mediaCaption: finalCaption
             });
         }
     };
@@ -397,9 +571,16 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
                                     }`}
                             >
                                 <div className="flex items-center justify-between w-full mb-1">
-                                    <span className={`text-xs font-semibold ${isSelected ? 'text-indigo-950 dark:text-indigo-200' : 'text-gray-900 dark:text-white'}`}>
-                                        {style.name}
-                                    </span>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className={`text-xs font-semibold ${isSelected ? 'text-indigo-950 dark:text-indigo-200' : 'text-gray-900 dark:text-white'}`}>
+                                            {style.name}
+                                        </span>
+                                        {style.isEditorial && (
+                                            <span className="text-[9px] px-1.5 py-0.2 bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 rounded font-medium">
+                                                Editorial
+                                            </span>
+                                        )}
+                                    </div>
                                     {isSelected && (
                                         <div className="w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0">
                                             <Check className="w-2.5 h-2.5" />
@@ -414,6 +595,55 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
                     })}
                 </div>
             </div>
+
+            {/* Art Direction Insights (Magazine Cover Standard) */}
+            {artDirection && (artDirection.hero_subject || artDirection.core_thesis) && (
+                <div className="p-3.5 bg-gradient-to-r from-indigo-50/80 to-purple-50/80 dark:from-indigo-950/40 dark:to-purple-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/50 space-y-2">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-950 dark:text-indigo-200">
+                            <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                            Art Direction Insights & Governing Conflict
+                        </div>
+                        {artDirection.style_label && (
+                            <span className="text-[10px] font-medium text-indigo-700 dark:text-indigo-300 bg-white/70 dark:bg-indigo-900/60 px-2 py-0.5 rounded-md border border-indigo-200/50 dark:border-indigo-800/50">
+                                {artDirection.style_label}
+                            </span>
+                        )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                        {artDirection.hero_subject && (
+                            <div>
+                                <span className="font-semibold text-gray-600 dark:text-gray-400">Hero Protagonist:</span>{' '}
+                                <span className="text-gray-900 dark:text-gray-100 font-medium">{artDirection.hero_subject}</span>
+                            </div>
+                        )}
+                        {artDirection.core_thesis && (
+                            <div>
+                                <span className="font-semibold text-gray-600 dark:text-gray-400">Core Thesis:</span>{' '}
+                                <span className="text-gray-800 dark:text-gray-200">{artDirection.core_thesis}</span>
+                            </div>
+                        )}
+                        {artDirection.core_conflict && (
+                            <div>
+                                <span className="font-semibold text-gray-600 dark:text-gray-400">Governing Conflict:</span>{' '}
+                                <span className="text-gray-800 dark:text-gray-200">{artDirection.core_conflict}</span>
+                            </div>
+                        )}
+                        {artDirection.composition && (
+                            <div>
+                                <span className="font-semibold text-gray-600 dark:text-gray-400">Framing Rule:</span>{' '}
+                                <span className="text-gray-800 dark:text-gray-200">{artDirection.composition}</span>
+                            </div>
+                        )}
+                    </div>
+                    {artDirection.alt_text && (
+                        <div className="text-[11px] text-gray-500 dark:text-gray-400 border-t border-indigo-200/60 dark:border-indigo-900/50 pt-1.5 flex items-start gap-1">
+                            <span className="font-semibold text-indigo-800 dark:text-indigo-300 flex-shrink-0">Alt Text:</span>
+                            <span>{artDirection.alt_text}</span>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Step 3: Editable Synthesized Prompt */}
             <div>
@@ -494,7 +724,21 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
                 </div>
             </div>
 
-            {/* Step 5: Optional Reference Image */}
+            {/* Step 5: Editorial Cover Typography Overlay */}
+            <EditorialOverlayPanel
+                config={overlayConfig}
+                onChange={setOverlayConfig}
+                onDraftCopy={handleDraftOverlayCopy}
+                draftingCopy={draftingCopy}
+                overlayDetails={overlayDetails}
+                onApplyOverlay={handleApplyOverlay}
+                applyingOverlay={applyingOverlay}
+                hasGeneratedImage={Boolean(generatedImage || baseImage)}
+                showWithOverlay={showWithOverlay}
+                onToggleOverlayPreview={(show) => setShowWithOverlay(show)}
+            />
+
+            {/* Step 6: Optional Reference Image */}
             <div>
                 <div className="flex items-center justify-between mb-1.5">
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -578,14 +822,26 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
             )}
 
             {/* Generated Image Preview */}
-            {generatedImage && (
+            {(generatedImage || baseImage) && (
                 <div className="space-y-4">
-                    <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm bg-black/5">
+                    <div className="relative rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm bg-black/5">
                         <img
-                            src={generatedImage}
+                            src={(showWithOverlay && overlayImage) ? overlayImage : (baseImage || generatedImage)!}
                             alt="Generated preview"
                             className="w-full h-auto max-h-[480px] object-contain mx-auto"
                         />
+                        {overlayImage && baseImage && (
+                            <div className="absolute bottom-3 right-3 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/20 text-white text-xs">
+                                <span>Preview:</span>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowWithOverlay(!showWithOverlay)}
+                                    className="font-bold underline hover:text-indigo-300 transition-colors"
+                                >
+                                    {showWithOverlay ? 'With Cover Typography' : 'Clean Base Artwork'}
+                                </button>
+                            </div>
+                        )}
                     </div>
                     <div className="flex gap-3">
                         <button
@@ -593,7 +849,7 @@ export const AIImageGeneration: React.FC<AIImageGenerationProps> = ({
                             className="flex items-center gap-2 px-6 py-3 rounded-xl border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
                             <RefreshCw className="w-4 h-4" />
-                            Regenerate
+                            Regenerate Artwork
                         </button>
                         <button
                             onClick={handleAccept}

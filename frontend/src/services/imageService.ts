@@ -17,9 +17,12 @@ import type {
     ContextAnalyzeRequest,
     ContextAnalyzeResponse,
     ContextGenerateRequest,
-    ContextGenerateResponse,
     AIInfographicRequest,
-    AIInfographicResponse
+    AIInfographicResponse,
+    GenerateOverlayCopyRequest,
+    GenerateOverlayCopyResponse,
+    ApplyOverlayRequest,
+    ApplyOverlayResponse
 } from '../types/image';
 
 const getApiBaseUrl = () => {
@@ -521,14 +524,35 @@ export async function analyzeContextImage(
 export interface SynthesizePromptRequest {
     text: string;
     style?: string;
+    style_id?: string;
     style_prompt_modifier?: string;
     user_instructions?: string;
+    article_title?: string;
+    article_context?: {
+        title?: string;
+        thesis?: string;
+        hook?: string;
+        deck?: string;
+        excerpt?: string;
+        vertical?: string;
+        topic?: string;
+    };
 }
 
 export interface SynthesizePromptResponse {
     status: string;
     prompt: string;
     main_object?: string;
+    hero_subject?: string;
+    core_thesis?: string;
+    core_conflict?: string;
+    composition?: string;
+    style_id?: string;
+    style_label?: string;
+    alt_text?: string;
+    caption?: string;
+    title?: string;
+    negative_prompt?: string;
     entity_type?: string;
     is_metaphorical?: boolean;
 }
@@ -636,5 +660,56 @@ export async function getInfographicStyles(): Promise<{
     }
 }
 
+/**
+ * Generate 3-tier editorial cover typography copy (Kicker, Title, Hook)
+ */
+export async function generateOverlayCopy(
+    request: GenerateOverlayCopyRequest
+): Promise<GenerateOverlayCopyResponse> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/images/generate-overlay-copy`, {
+            method: 'POST',
+            headers: getHeaders({
+                'Content-Type': 'application/json'
+            }),
+            body: JSON.stringify(request)
+        });
 
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || 'Failed to generate overlay copy');
+        }
 
+        return response.json();
+    } catch (error) {
+        console.error('Error in generateOverlayCopy:', error);
+        throw error;
+    }
+}
+
+/**
+ * Apply editorial cover typography overlay to an image
+ */
+export async function applyImageOverlay(
+    request: ApplyOverlayRequest
+): Promise<ApplyOverlayResponse> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/images/apply-overlay`, {
+            method: 'POST',
+            headers: getHeaders({
+                'Content-Type': 'application/json'
+            }),
+            body: JSON.stringify(request)
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || 'Failed to apply image overlay');
+        }
+
+        return response.json();
+    } catch (error) {
+        console.error('Error in applyImageOverlay:', error);
+        throw error;
+    }
+}

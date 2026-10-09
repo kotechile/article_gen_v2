@@ -15,6 +15,15 @@ interface AddImageModalProps {
     selectedText?: string;
     userId: string;
     initialTab?: ImageSourceTab;
+    articleContext?: {
+        title?: string;
+        thesis?: string;
+        hook?: string;
+        deck?: string;
+        excerpt?: string;
+        vertical?: string;
+        topic?: string;
+    };
 }
 
 export const AddImageModal: React.FC<AddImageModalProps> = ({
@@ -22,7 +31,8 @@ export const AddImageModal: React.FC<AddImageModalProps> = ({
     onImageSelected,
     selectedText,
     userId,
-    initialTab = selectedText && selectedText.trim() ? 'smart' : 'ai'
+    initialTab = selectedText && selectedText.trim() ? 'smart' : 'ai',
+    articleContext
 }) => {
     const [activeTab, setActiveTab] = useState<ImageSourceTab>(initialTab);
     const [selectedImage, setSelectedImage] = useState<{ url: string; metadata: Partial<ImageMetadata> } | null>(null);
@@ -100,6 +110,7 @@ export const AddImageModal: React.FC<AddImageModalProps> = ({
                                     userId={userId}
                                     selectedText={selectedText}
                                     onImageGenerated={handleImageGenerated}
+                                    articleContext={articleContext}
                                 />
                             )}
                             {activeTab === 'ai' && (
@@ -107,6 +118,7 @@ export const AddImageModal: React.FC<AddImageModalProps> = ({
                                     userId={userId}
                                     selectedText={selectedText}
                                     onImageGenerated={handleImageGenerated}
+                                    articleContext={articleContext}
                                 />
                             )}
                             {activeTab === 'stock' && (

@@ -35,10 +35,13 @@ export interface AIImageRequest {
     referenceImage?: string; // base64 encoded (optional)
     referenceImageUrls?: string[]; // optional
     user_id: string;
+    overlay?: OverlayConfig;
 }
 
 export interface AIImageResponse {
     imageUrl: string;
+    baseImageUrl?: string;
+    overlayDetails?: OverlayDetails;
     metadata: Partial<ImageMetadata>;
     model?: string;
     provider?: string;
@@ -125,11 +128,33 @@ export interface ContextAnalyzeRequest {
     text: string;
     user_instructions?: string;
     max_reference_images?: number;
+    article_title?: string;
+    article_context?: {
+        title?: string;
+        thesis?: string;
+        hook?: string;
+        deck?: string;
+        excerpt?: string;
+        vertical?: string;
+        topic?: string;
+    };
+    style_id?: string;
+    style?: string;
 }
 
 export interface ContextAnalyzeResult {
     has_physical_entity: boolean;
     main_object: string;
+    hero_subject?: string;
+    core_thesis?: string;
+    core_conflict?: string;
+    composition?: string;
+    style_id?: string;
+    style_label?: string;
+    alt_text?: string;
+    caption?: string;
+    title?: string;
+    negative_prompt?: string;
     search_query: string;
     generation_prompt: string;
     object_fidelity_weight: number;
@@ -155,10 +180,13 @@ export interface ContextGenerateRequest {
     user_id?: string;
     application?: string;
     isolate_background?: boolean;
+    overlay?: OverlayConfig;
 }
 
 export interface ContextGenerateResponse {
     imageUrl: string;
+    baseImageUrl?: string;
+    overlayDetails?: OverlayDetails;
     metadata: Partial<ImageMetadata>;
     model?: string;
     provider?: string;
@@ -229,7 +257,63 @@ export interface AIInfographicResponse {
     aspectRatio?: string;
     resolution?: string;
     prompt?: string;
+    baseImageUrl?: string;
+    overlayDetails?: OverlayDetails;
 }
 
+export interface OverlayConfig {
+    enabled: boolean;
+    kicker?: string;
+    title?: string;
+    hook?: string;
+    corner?: 'auto' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+}
 
+export interface OverlayDetails {
+    corner: string;
+    ink_palette: 'dark' | 'light';
+    contrast_ratio: number;
+    scrim_alpha: number;
+    wcag_target: number;
+    clutter: number;
+    kicker: string;
+    title: string;
+    hook: string;
+    base_width?: number;
+    base_height?: number;
+    final_width?: number;
+    final_height?: number;
+}
 
+export interface GenerateOverlayCopyRequest {
+    text: string;
+    article_title?: string;
+    article_context?: Record<string, any>;
+    user_instructions?: string;
+}
+
+export interface GenerateOverlayCopyResponse {
+    status: string;
+    kicker: string;
+    title: string;
+    hook: string;
+}
+
+export interface ApplyOverlayRequest {
+    image_url?: string;
+    image_base64?: string;
+    kicker: string;
+    title: string;
+    hook: string;
+    corner?: string;
+    user_id?: string;
+}
+
+export interface ApplyOverlayResponse {
+    status: string;
+    imageUrl: string;
+    baseImageUrl?: string;
+    imageBase64?: string;
+    overlayDetails: OverlayDetails;
+    metadata?: Partial<ImageMetadata>;
+}

@@ -4,25 +4,39 @@ import {
     analyzeContextImage,
     generateContextImage,
     getImageProviderModels,
-    getImageApplicationConfig
+    getImageApplicationConfig,
+    generateOverlayCopy
 } from '../../services/imageService';
 import type {
     ImageMetadata,
     ImageProviderModel,
     ContextAnalyzeResult,
-    ContextReferenceImage
+    ContextReferenceImage,
+    OverlayConfig,
+    OverlayDetails
 } from '../../types/image';
+import { EditorialOverlayPanel } from './EditorialOverlayPanel';
 
 interface SmartContextImageGenerationProps {
     userId: string;
     selectedText?: string;
     onImageGenerated: (imageUrl: string, metadata: Partial<ImageMetadata>) => void;
+    articleContext?: {
+        title?: string;
+        thesis?: string;
+        hook?: string;
+        deck?: string;
+        excerpt?: string;
+        vertical?: string;
+        topic?: string;
+    };
 }
 
 export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationProps> = ({
     userId,
     selectedText = '',
     onImageGenerated,
+    articleContext
 }) => {
     const [text, setText] = useState(selectedText);
     const [userInstructions, setUserInstructions] = useState('');
@@ -44,6 +58,39 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
     const [selectedRefType, setSelectedRefType] = useState<'online' | 'upload' | 'none'>('none');
     const [editablePrompt, setEditablePrompt] = useState('');
     const [error, setError] = useState<string | null>(null);
+
+    // Editorial Cover Typography Overlay State
+    const [overlayConfig, setOverlayConfig] = useState<OverlayConfig>({
+        enabled: false,
+        kicker: articleContext?.vertical ? `${articleContext.vertical.toUpperCase().slice(0, 30)} // ANALYSIS` : '',
+        title: articleContext?.title ? articleContext.title.toUpperCase().slice(0, 34) : '',
+        hook: articleContext?.thesis ? articleContext.thesis.slice(0, 58) : (articleContext?.deck ? articleContext.deck.slice(0, 58) : ''),
+        corner: 'auto'
+    });
+    const [overlayDetails, setOverlayDetails] = useState<OverlayDetails | null>(null);
+    const [draftingCopy, setDraftingCopy] = useState<boolean>(false);
+
+    const handleDraftOverlayCopy = async () => {
+        setDraftingCopy(true);
+        setError(null);
+        try {
+            const res = await generateOverlayCopy({
+                text: text || editablePrompt,
+                article_title: articleContext?.title,
+                article_context: articleContext
+            });
+            setOverlayConfig(prev => ({
+                ...prev,
+                kicker: res.kicker,
+                title: res.title,
+                hook: res.hook
+            }));
+        } catch (err: any) {
+            console.warn('Auto-draft overlay copy failed:', err);
+        } finally {
+            setDraftingCopy(false);
+        }
+    };
 
     useEffect(() => {
         loadModels();
@@ -113,7 +160,9 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
             const res = await analyzeContextImage({
                 text: text.trim(),
                 user_instructions: userInstructions.trim() || undefined,
-                max_reference_images: 6
+                max_reference_images: 6,
+                article_title: articleContext?.title,
+                article_context: articleContext
             });
 
             setAnalysis(res.data);
@@ -177,10 +226,32 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
                 resolution,
                 user_id: userId,
                 isolate_background: isolateBackground,
-                application: 'article_image'
+                overlay: overlayConfig.enabled ? overlayConfig : undefined
             });
 
-            onImageGenerated(res.imageUrl, res.metadata);
+            if (res.overlayDetails) {
+                setOverlayDetails(res.overlayDetails);
+            }
+
+            const finalTitle = (res.overlayDetails?.title || analysis?.title || res.metadata?.mediaTitle || editablePrompt.substring(0, 80)).trim();
+            const finalAlt = (
+                analysis?.alt_text ||
+                (res.overlayDetails ? `${res.overlayDetails.title}. ${res.overlayDetails.hook}` : '') ||
+                res.metadata?.MediaAltText ||
+                editablePrompt.substring(0, 125)
+            ).trim();
+            const finalCaption = (
+                res.overlayDetails ? `${res.overlayDetails.kicker} — ${res.overlayDetails.title}` : (analysis?.caption || res.metadata?.mediaCaption || '')
+            ).trim();
+
+            const finalMetadata = {
+                ...res.metadata,
+                MediaAltText: finalAlt,
+                mediaTitle: finalTitle,
+                mediaCaption: finalCaption
+            };
+
+            onImageGenerated(res.imageUrl, finalMetadata);
         } catch (err: any) {
             console.error('Context generation error:', err);
             setError(err.message || 'Failed to generate contextualized image.');
@@ -355,39 +426,65 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
             {/* Analysis & Reference Selection Card */}
             {analysis && (
                 <div className="space-y-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-                    {/* Entity & Query Badges */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
-                        <div>
+                    {/* Art Direction & Entity Badges */}
+                    <div className="bg-gradient-to-r from-indigo-50/80 to-purple-50/80 dark:from-indigo-950/40 dark:to-purple-950/40 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/50 space-y-3">
+                        <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
                                     {analysis.has_physical_entity
-                                        ? 'Target Physical Entity'
+                                        ? 'Hero Physical Protagonist'
                                         : 'Metaphorical Subject'}
                                 </span>
                                 {analysis.has_physical_entity ? (
                                     <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 rounded-full border border-emerald-200 dark:border-emerald-800">
-                                        Physical Object
+                                        Physical Object / Trade
                                     </span>
                                 ) : (
                                     <span className="px-2 py-0.5 text-[10px] font-semibold bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 rounded-full border border-purple-200 dark:border-purple-800">
-                                        Direct Diffusion
+                                        Conceptual Storytelling
                                     </span>
                                 )}
                             </div>
-                            <div className="text-sm font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">
-                                {analysis.main_object || 'General Subject'}
-                            </div>
+                            {analysis.style_label && (
+                                <span className="text-[10px] font-medium text-indigo-700 dark:text-indigo-300 bg-white/70 dark:bg-indigo-900/60 px-2 py-0.5 rounded-md border border-indigo-200/50 dark:border-indigo-800/50">
+                                    {analysis.style_label}
+                                </span>
+                            )}
                         </div>
-                        <div>
-                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                {analysis.has_physical_entity ? 'Reference Search Query' : 'Generation Mode'}
-                            </span>
-                            <div className="text-sm text-gray-700 dark:text-gray-300 mt-0.5 truncate" title={analysis.search_query || 'Direct text-to-image prompt'}>
-                                {analysis.has_physical_entity
-                                    ? (analysis.search_query || 'N/A')
-                                    : 'Direct text-to-image (or use uploaded reference photo)'}
-                            </div>
+
+                        <div className="text-base font-bold text-indigo-900 dark:text-indigo-200">
+                            {analysis.hero_subject || analysis.main_object || 'General Subject'}
                         </div>
+
+                        {(analysis.core_thesis || analysis.core_conflict || analysis.composition) && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs pt-1 border-t border-indigo-100/60 dark:border-indigo-900/40">
+                                {analysis.core_thesis && (
+                                    <div>
+                                        <span className="font-semibold text-gray-500 dark:text-gray-400">Core Thesis:</span>{' '}
+                                        <span className="text-gray-800 dark:text-gray-200">{analysis.core_thesis}</span>
+                                    </div>
+                                )}
+                                {analysis.core_conflict && (
+                                    <div>
+                                        <span className="font-semibold text-gray-500 dark:text-gray-400">Governing Conflict:</span>{' '}
+                                        <span className="text-gray-800 dark:text-gray-200">{analysis.core_conflict}</span>
+                                    </div>
+                                )}
+                                {analysis.composition && (
+                                    <div className="md:col-span-2">
+                                        <span className="font-semibold text-gray-500 dark:text-gray-400">Framing Rule:</span>{' '}
+                                        <span className="text-gray-800 dark:text-gray-200">{analysis.composition}</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {analysis.alt_text && (
+                            <div className="text-[11px] text-gray-500 dark:text-gray-400 pt-1 border-t border-indigo-100/60 dark:border-indigo-900/40 flex items-start gap-1">
+                                <span className="font-semibold text-indigo-700 dark:text-indigo-300 flex-shrink-0">Alt Text:</span>
+                                <span>{analysis.alt_text}</span>
+                            </div>
+                        )}
                     </div>
 
                     {/* Reference Selection Section */}
@@ -601,6 +698,15 @@ export const SmartContextImageGeneration: React.FC<SmartContextImageGenerationPr
                             </select>
                         </div>
                     </div>
+
+                    {/* Editorial Cover Typography Overlay */}
+                    <EditorialOverlayPanel
+                        config={overlayConfig}
+                        onChange={setOverlayConfig}
+                        onDraftCopy={handleDraftOverlayCopy}
+                        draftingCopy={draftingCopy}
+                        overlayDetails={overlayDetails}
+                    />
 
                     {/* Background Isolation Toggle */}
                     {hasActiveReference && (
