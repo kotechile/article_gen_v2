@@ -51,6 +51,13 @@ Candidate:
 
 Keyword pack:
 {keyword_pack or {}}
+
+Viral Title Requirements (for article/editorial):
+1. 6-Word Rule: Keep core title under 6 words whenever possible (max 60 chars) for zero mobile truncation.
+2. Front-Load Value: Put strongest noun or benefit in first 3 words.
+3. Omit Fluff: Cut articles (A, An, The), filler adverbs, and passive modifiers.
+4. Psychological Triggers: Use Curiosity Gap, Loss Aversion / Negative Framing, or Counter-Intuitive Authority.
+5. Specificity: Use verifiable numbers/odd integers or explicit target identification.
 """
         response = await llm_service.generate_json(
             prompt,

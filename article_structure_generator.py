@@ -65,6 +65,8 @@ class ArticleStructure:
     keywords: List[str]
     target_audience: str
     call_to_action: Optional[str] = None
+    core_promise: Optional[str] = None
+    viral_metadata: Optional[Dict[str, Any]] = None
 
 class ArticleStructureGenerator:
     """
@@ -128,10 +130,23 @@ class ArticleStructureGenerator:
             # Determine article type based on brief content and research parameters
             article_type = self._determine_article_type(brief, research_data)
             
-            # Generate core elements
+            # Generate core elements with viral title engine and in-generation review
             draft_title = research_data.get('draft_title', '')
-            title = self._generate_title(brief_with_dossier, keywords, article_type, tone, draft_title)
-            hook = self._generate_hook(brief_with_dossier, claims, tone)
+            title_gen_res = self._generate_title(
+                brief_with_dossier,
+                keywords,
+                article_type,
+                tone,
+                draft_title,
+                target_audience=target_audience,
+                return_metadata=True,
+            )
+            if isinstance(title_gen_res, tuple):
+                title, core_promise, viral_metadata = title_gen_res
+            else:
+                title, core_promise, viral_metadata = title_gen_res, f"Key insights into {title_gen_res}", {}
+
+            hook = self._generate_hook(brief_with_dossier, claims, tone, title=title, core_promise=core_promise)
             excerpt = self._generate_excerpt(brief_with_dossier, claims, target_word_count, tone)
             thesis = self._generate_thesis(brief_with_dossier, claims, evidence, tone)
             meta_description = self._generate_meta_description(title, excerpt, keywords)
@@ -164,7 +179,9 @@ class ArticleStructureGenerator:
                 sections=sections,
                 keywords=keywords.split(',') if keywords else [],
                 target_audience=target_audience,
-                call_to_action=call_to_action
+                call_to_action=call_to_action,
+                core_promise=core_promise,
+                viral_metadata=viral_metadata,
             )
             
             self.logger.info(f"Generated article structure with {len(sections)} sections")
@@ -259,105 +276,87 @@ class ArticleStructureGenerator:
         else:
             return ArticleType.ANALYSIS.value  # Default
     
-    def _generate_title(self, brief: str, keywords: str, article_type: str, tone: str, draft_title: str = '') -> str:
-        """Generate compelling article title with strict length enforcement."""
+    def _generate_title(
+        self,
+        brief: str,
+        keywords: str,
+        article_type: str,
+        tone: str,
+        draft_title: str = '',
+        target_audience: str = '',
+        return_metadata: bool = False,
+    ):
+        """
+        Generate compelling, viral article title with strict 6-word rule and in-generation review.
+        """
         try:
-            # First attempt prompt
-            messages = [
-                {
-                    "role": "system",
-                    "content": f"""You are an expert content strategist. Generate a compelling, SEO-optimized title for a {article_type} article.
-                    
-                    CRITICAL REQUIREMENTS:
-                    - MUST be under 60 characters (strict SEO limit)
-                    - Include one primary keyword naturally
-                    - Match the {tone} tone
-                    - Be specific and actionable
-                    - Create curiosity without clickbait
-                    - If a draft title is provided, use it as inspiration but make it shorter
-                    
-                    Return only the title, no quotes or formatting."""
-                },
-                {
-                    "role": "user",
-                    "content": f"Article Brief: {brief}\nKeywords: {keywords}\nArticle Type: {article_type}\nTone: {tone}" + (f"\nDraft Title: {draft_title}" if draft_title else "")
-                }
-            ]
-            
-            response = self.llm_client.generate(messages)
-            title = response.content.strip().strip('"').strip("'")
-            
-            # Regeneration loop for length enforcement
-            max_attempts = 3
-            current_attempt = 1
-            
-            while len(title) > 60 and current_attempt < max_attempts:
-                self.logger.info(f"Generated title '{title}' is {len(title)} chars (limit: 60). Regenerating (attempt {current_attempt}/{max_attempts})...")
-                
-                regeneration_messages = [
-                    {
-                        "role": "system",
-                        "content": f"""You are an SEO expert. The previous title was too long.
-                        
-                        Rewrite this title to be strictly UNDER 60 CHARACTERS.
-                        
-                        Previous Title: "{title}"
-                        
-                        REQUIREMENTS:
-                        - MAX 60 characters
-                        - Must include one of these keywords: {keywords}
-                        - Keep the core meaning but concise
-                        - Match {tone} tone
-                        
-                        Return only the shortened title."""
-                    },
-                    {
-                        "role": "user",
-                        "content": "Shorten the title to under 60 characters while keeping a keyword."
-                    }
-                ]
-                
-                response = self.llm_client.generate(regeneration_messages)
-                new_title = response.content.strip().strip('"').strip("'")
-                
-                if new_title and len(new_title) > 0:
-                    title = new_title
-                current_attempt += 1
-            
-            # Final verification
-            if not title or len(title) < 5 or title.lower() == 'none':
-                raise ValueError("Invalid title generated")
-            
-            if len(title) > 60:
-                self.logger.warning(f"Title still over 60 chars ({len(title)}) after regeneration. Accepting longer title to avoid truncation as requested.")
-            
-            self.logger.info(f"Final generated title: '{title}' ({len(title)} chars)")
+            from src.services.viral_title_engine import ViralTitleEngine
+            engine = ViralTitleEngine(llm_client=self.llm_client)
+            result = engine.generate_and_review_title(
+                brief=brief,
+                keywords=keywords,
+                article_type=article_type,
+                tone=tone,
+                draft_title=draft_title,
+                target_audience=target_audience,
+            )
+            title = result.get("title") or draft_title
+            core_promise = result.get("core_promise", f"Key insights into {title}")
+            viral_metadata = result
+
+            self.logger.info(
+                f"Generated and reviewed viral title: '{title}' "
+                f"(Words: {ViralTitleEngine.count_words(title)}, Trigger: {result.get('trigger_type')})"
+            )
+            if return_metadata:
+                return title, core_promise, viral_metadata
             return title
-            
+
         except Exception as e:
-            self.logger.error(f"Error generating title: {str(e)}")
+            self.logger.error(f"Error in viral title generation and review: {str(e)}")
             # Fallback
             brief_words = brief.split()[:5]
             short_brief = " ".join(brief_words)
-            return f"{short_brief}..." if len(short_brief) < 55 else f"{short_brief[:55]}..."
+            fallback_title = f"{short_brief}..." if len(short_brief) < 55 else f"{short_brief[:55]}..."
+            if return_metadata:
+                return fallback_title, f"Insights on {short_brief}", {"error": str(e)}
+            return fallback_title
     
-    def _generate_hook(self, brief: str, claims: List[Dict], tone: str) -> str:
-        """Generate compelling opening hook."""
+    def _generate_hook(
+        self,
+        brief: str,
+        claims: List[Dict],
+        tone: str,
+        title: str = '',
+        core_promise: str = '',
+    ) -> str:
+        """Generate compelling opening hook fulfilling title promise (Zero Bait-and-Switch)."""
         try:
             # Extract key claims for context
             claim_text = "\n".join([claim.get('claim', '') for claim in claims[:3]])
             
+            title_constraint = ""
+            if title:
+                title_constraint = f"""
+                CRITICAL - ZERO CLICKBAIT BAIT-AND-SWITCH:
+                - The article headline is: "{title}"
+                - The core promise to satisfy: "{core_promise or title}"
+                - The hook MUST immediately anchor the reader by addressing and beginning to resolve this specific headline promise.
+                - Never bait the reader with a catchy headline only to write a generic opening that delays or ignores it.
+                """
+
             messages = [
                 {
                     "role": "system",
-                    "content": f"""You are a master storyteller. Write a compelling opening hook for an article.
+                    "content": f"""You are a master storyteller and viral editorial hook writer. Write a compelling opening hook for an article.
                     
                     Requirements:
                     - 1-2 sentences maximum
-                    - Create immediate engagement and curiosity
+                    - Create immediate engagement and resolve curiosity
                     - Match the {tone} tone
+                    {title_constraint}
                     - Use a surprising fact, statistic, question, or bold statement
-                    - Set up the article's value proposition
+                    - Set up the article's value proposition without fluff
                     - Be specific and concrete
                     - DO NOT repeat or quote the article brief directly
                     - DO NOT use ellipsis (...) unless for dramatic effect
@@ -374,7 +373,7 @@ class ArticleStructureGenerator:
                 },
                 {
                     "role": "user",
-                    "content": f"Article Topic: {brief}\nKey Claims: {claim_text}\nTone: {tone}\n\nWrite a compelling hook that engages readers without repeating the topic description."
+                    "content": f"Article Headline: {title or 'N/A'}\nArticle Topic: {brief}\nKey Claims: {claim_text}\nTone: {tone}\n\nWrite a compelling hook that immediately delivers on the headline promise."
                 }
             ]
             
@@ -382,7 +381,6 @@ class ArticleStructureGenerator:
             hook = response.content.strip().strip('"').strip("'")
             
             # Clean up any unwanted ellipsis that might have been added
-            # Remove trailing ellipsis unless it's part of a question
             if hook.endswith('...') and not hook.endswith('...?'):
                 hook = hook[:-3].rstrip()
             
@@ -395,8 +393,6 @@ class ArticleStructureGenerator:
             
         except Exception as e:
             self.logger.error(f"Error generating hook: {str(e)}")
-            # Improved fallback without ellipsis
-            # Extract key topic from brief (first few words)
             topic_words = brief.split()[:5]
             topic = ' '.join(topic_words)
             return f"Discover the essential strategies for {topic} that top professionals use to advance their careers."

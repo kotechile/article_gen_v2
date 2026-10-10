@@ -4640,10 +4640,16 @@ def _generate_structure(result: Dict[str, Any], task_instance: Any = None) -> Di
                 'content_type': section.content_type,
                 'order': section.order,
                 'importance': section.importance
-            } for section in structure.sections]
+            } for section in structure.sections],
+            'core_promise': getattr(structure, 'core_promise', None),
+            'viral_metadata': getattr(structure, 'viral_metadata', None),
         }
         
-        logger.info(f"Generated structure with {len(structure.sections)} sections")
+        research_data['title'] = structure.title
+        if getattr(structure, 'core_promise', None):
+            research_data['core_promise'] = structure.core_promise
+
+        logger.info(f"Generated structure with {len(structure.sections)} sections (Title: '{structure.title}')")
         
         return {
             'structure': structure_dict,

@@ -837,15 +837,17 @@ You are a GEO + SEO editorial optimizer.
 Rewrite title + description to improve AI-search discoverability while preserving original intent and the article's editorial brief.
 
 Rules:
-- Keep the title <= 60 characters.
-- Keep the description <= 320 characters.
-- Prioritize information density and keyword relevance.
+- Length & 6-Word Rule: Keep title under 6 words whenever possible (strict max 60 characters). Zero mobile truncation.
+- Front-Load Value: Place the strongest noun or compelling benefit in the first three words.
+- Omit Fluff: Eliminate articles (A, An, The), filler transitions, and passive modifiers.
+- Psychological Triggers: Deliver 3 distinct angles (Curiosity Gap, Negative Framing/Loss Aversion, Counter-Intuitive Authority).
+- Specificity: Use numbers/odd integers or explicit target identification where appropriate.
+- Keep the description <= 320 characters with high information density.
 - Include primary keyword naturally when provided.
-- Keep tone authoritative and data-driven.
+- Keep tone authoritative and engaging.
 - Generate exactly 3 distinct options.
 - Treat the original description plus additional article context as the source brief.
 - Preserve the core audience, decision frame, and promised outcome unless the keyword requires tighter phrasing.
-- Use the angle question, supporting entities, and priority questions to keep the new metadata directionally aligned with the original article.
 - Return STRICT JSON only with this schema:
 {{
   "options": [

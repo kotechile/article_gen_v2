@@ -216,6 +216,26 @@ def _entity_clarity_signals(title: str, plain_text: str) -> Dict[str, Any]:
     }
 
 
+def _title_virality_signals(title: str, text: str) -> Dict[str, Any]:
+    from src.services.viral_title_engine import ViralTitleEngine
+    heuristics = ViralTitleEngine.evaluate_title_heuristics(title)
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text or "") if p.strip()]
+    first_para = paragraphs[0] if paragraphs else ""
+    alignment = ViralTitleEngine().verify_first_paragraph_alignment(title, title, first_para)
+    return {
+        "title_viral_score": heuristics.get("score", 0),
+        "word_count": heuristics.get("word_count", 0),
+        "under_6_words": heuristics.get("under_6_words", False),
+        "front_loaded": heuristics.get("front_loaded", False),
+        "fluff_count": heuristics.get("fluff_count", 0),
+        "triggers": heuristics.get("triggers", []),
+        "has_metrics": heuristics.get("has_metrics", False),
+        "first_paragraph_aligned": alignment.get("aligned", True),
+        "alignment_warning": alignment.get("warning"),
+        "feedback": heuristics.get("feedback", []),
+    }
+
+
 def build_article_quality_report(
     title: str,
     html_content: str,
@@ -283,6 +303,8 @@ def build_article_quality_report(
 
     overall_score = round((humanization_score * 0.35) + (grounding_score * 0.4) + (geo_score * 0.25), 1)
 
+    title_virality = _title_virality_signals(title, text)
+
     warnings: List[str] = []
     if citations_count == 0:
         warnings.append("No citations found; factual grounding is weak.")
@@ -300,6 +322,12 @@ def build_article_quality_report(
         warnings.append("Entity clarity is low; add explicit definitions/disambiguation.")
     if low_substance["placeholder_phrase_hits"] >= 2:
         warnings.append("Template-like placeholder phrasing detected; revise for specificity.")
+    if not title_virality["under_6_words"]:
+        warnings.append(f"Title has {title_virality['word_count']} words; keep under 6 words to prevent mobile truncation.")
+    if not title_virality["first_paragraph_aligned"] and title_virality.get("alignment_warning"):
+        warnings.append(title_virality["alignment_warning"])
+    if not title_virality["triggers"]:
+        warnings.append("Title lacks strong psychological trigger (Curiosity Gap, Loss Aversion, or Counter-Intuitive Authority).")
 
     return {
         "version": "phase0_v1",
@@ -307,6 +335,7 @@ def build_article_quality_report(
         "humanization_score": humanization_score,
         "grounding_score": grounding_score,
         "geo_score": geo_score,
+        "title_viral_score": title_virality.get("title_viral_score", 0),
         "diagnostics": {
             "word_count": word_count,
             "paragraph_count": paragraph_count,
@@ -323,6 +352,7 @@ def build_article_quality_report(
             "geo_signals": geo,
             "passage_quality": passage_quality,
             "entity_clarity": entity_clarity,
+            "title_virality": title_virality,
         },
         "warnings": warnings,
     }

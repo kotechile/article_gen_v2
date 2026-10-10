@@ -700,6 +700,8 @@ TARGET AUDIENCE: {audience}
             "competitive_edge": competitive_edge,
             "is_first_section": not previous_sections,
             "selected_controversies": research_data.get('selected_controversies', []),
+            "article_title": research_data.get('title') or research_data.get('draft_title', ''),
+            "core_promise": research_data.get('core_promise', ''),
         }
     
     def _build_user_message(self, context: Dict[str, Any]) -> str:
@@ -752,13 +754,28 @@ TARGET AUDIENCE: {audience}
                 alt_takes = [t.get('text') for t in takes if t.get('text') != c.get('selected_take_text')]
                 controversies_part += f"- Alternative viewpoints to mention and leave open: {alt_takes}\n\n"
 
+        # Zero Clickbait Bait-and-Switch enforcement on the opening section
+        bait_and_switch_part = ""
+        article_title = context.get('article_title') or context.get('draft_title')
+        core_promise = context.get('core_promise')
+        if context.get("is_first_section") and article_title:
+            bait_and_switch_part = f"""========================================
+ZERO CLICKBAIT BAIT-AND-SWITCH (FIRST PARAGRAPH REQUIREMENT)
+========================================
+Article Headline: "{article_title}"
+{f'Core Promise to Fulfill: "{core_promise}"' if core_promise else ''}
+CRITICAL RULE: The very first paragraph of this section MUST directly address, unpack, and satisfy the promise made in the headline.
+Do NOT start with generic fluff, throat-clearing, or passive introductions.
+Immediately anchor the reader with the bold premise, metric, or problem stated in the headline so the reader resolves their curiosity and gets immediate substance.
+"""
+
         return f"""Section: {context['title']}
 {subtitle_line}========================================
 TONE REMINDER - CRITICAL
 ========================================
 {tone_reminder}
 {writer_notes_part}
-========================================
+{bait_and_switch_part}========================================
 CONTENT REQUIREMENTS
 ========================================
 Key Points to Cover:
