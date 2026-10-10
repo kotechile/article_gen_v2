@@ -485,16 +485,21 @@ Output only the shortened title, no quotes."""
                 "warning": "First paragraph is missing; unable to verify promise satisfaction.",
             }
 
-        # Check key terms from title in first paragraph
+        # Check key terms from title in first paragraph using word boundaries
         title_words = [w.lower() for w in re.sub(r"[^\w\s]", " ", title).split() if len(w) > 3 and w.lower() not in FLUFF_TOKENS]
         para_lower = clean_para.lower()
 
-        matched_terms = [w for w in title_words if w in para_lower]
+        matched_terms = [w for w in title_words if re.search(rf"\b{re.escape(w)}\b", para_lower)]
         match_ratio = (len(matched_terms) / max(1, len(title_words)))
 
-        # Promise check
-        aligned = match_ratio >= 0.4 or any(w in para_lower for w in title_words)
-        score = round(min(100.0, match_ratio * 100.0), 1)
+        # Also check core promise terms
+        promise_words = [w.lower() for w in re.sub(r"[^\w\s]", " ", core_promise or "").split() if len(w) > 3 and w.lower() not in FLUFF_TOKENS]
+        matched_promise = [w for w in promise_words if re.search(rf"\b{re.escape(w)}\b", para_lower)]
+        promise_ratio = (len(matched_promise) / max(1, len(promise_words))) if promise_words else 0.0
+
+        # Aligned requires solid coverage of title or promise (at least 40% of title or 2+ distinct terms, or 35%+ of promise)
+        aligned = (match_ratio >= 0.4) or (len(matched_terms) >= 2) or (promise_ratio >= 0.35)
+        score = round(min(100.0, max(match_ratio, promise_ratio) * 100.0), 1)
 
         warning = None
         if not aligned:

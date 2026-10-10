@@ -530,26 +530,54 @@ TARGET AUDIENCE: {audience}
 
         return f"""
                     ========================================
-                    DEMOGRAPHIC CALIBRATION & SMART BREVITY DIRECTIVES:
+                    DEMOGRAPHIC CALIBRATION & EDITORIAL ARCHITECTURE DIRECTIVES:
                     ========================================
                     {demographic_guidelines}
 
-                    SMART BREVITY FORMATTING RULES:
-                    1. Executive Lead Structure (Top of Article):
-                       When generating or structuring the article lead, use bolded axiom cues to summarize core takeaways:
-                       - **The big picture:** (1-2 sentences summarizing the core premise).
-                       - **Why it matters:** (1-2 sentences explaining the high-stakes impact).
-                       - **By the numbers:** (Must lead immediately into a Markdown/HTML table or bulleted list).
-                       - **The reality check:** (A grounded fact or counter-intuitive truth).
-                       - **Go deeper:** (1 single sentence transition leading into the detailed body sections below).
-                       - Bullet Points / Takeaways: Maximum limit of 60 words per bullet point. If a concept does not fit within 60 words, split it into a new bullet point.
-                    2. In-Depth Narrative Body Sections ("Go Deeper"):
-                       - Fully develop all topic sections and subsections with comprehensive analysis, actionable frameworks, storytelling, and concrete data.
-                       - CRITICAL - COMPLETE CONCEPT COVERAGE: Every subject, topic, statistic, comparison, and concept mentioned in the executive lead ("At a glance", "The big picture", "Why it matters", "By the numbers", "The reality check") or in FAQs MUST be fully explored, contextualized, and substantiated in depth within the body sections under "Go Deeper". Never leave a concept or metric mentioned in the lead without dedicated discussion in the body.
-                       - Write natural, flowing paragraphs with substance, context, and narrative depth. Do NOT summarize body sections into telegraphic bullet points or bolded pseudo-bullet snippets.
-                       - Reserve bulleted lists for actual discrete items, steps, or checklists.
-                    3. Zero Preamble: Start directly with the hook, facts, or analysis without introductory fluff, meta-talk, or throat-clearing.
-                    4. Substance Over Word Count (CRITICAL): Word count targets are soft guidelines, NOT mandatory quotas. Never generate fluff, repetitive restatements, or filler sentences simply to meet a word count. Maximize insight density with concise, high-value writing."""
+                    MANDATORY EDITORIAL ARTICLE ARCHITECTURE:
+                    Every generated article must strictly conform to this editorial format:
+
+                    1. Bold Headline (H1 / Title):
+                       - Max 6 words, front-load value, zero fluff, with compelling psychological trigger.
+
+                    2. The Big Picture (Top of Article):
+                       - **The Big Picture:** One bold axiom or contrarian statement in 1-2 sentences. What is the fundamental tension, market shift, or architectural trap?
+                       - Cut all throat-clearing (never "In this article..." or "When considering...").
+                       - Followed immediately by a horizontal divider (--- / <hr>).
+
+                    3. Substantive Sections (Action-Oriented or Metric-Driven):
+                       - Section Header: Use an action-oriented or metric-driven H3 (e.g., ### Slashing Cache Miss Penalties by 40%).
+                       - Context: Exactly 1 short paragraph (2-3 sentences). State the core problem, tool version, or financial stake immediately.
+                       - Bullet Breakdown: Exactly 3 bolded key metric or term bullets:
+                         * **[Key Metric or Term]:** 1-2 sentences explaining why it matters. Cut all introductory throat-clearing.
+                         * **[Key Metric or Term]:** Focus on empirical mechanics, code constraints, or hard numbers.
+                         * **[Key Metric or Term]:** Highlight the trade-off, cost, or hidden failure mode.
+                       - Tables: Include comparative data tables or matrices where multi-variable comparisons or numbers warrant them.
+                       - Followed by a horizontal divider (--- / <hr>).
+
+                    4. What I'd Watch:
+                       ### What I'd Watch:
+                       * **[Indicator 1]:** Specific test, benchmark, or transition to monitor.
+                       * **[Indicator 2]:** Real-world operational friction point.
+                       * **[Indicator 3]:** Where standard assumptions break down.
+                       Followed by a horizontal divider (--- / <hr>).
+
+                    5. The Catch:
+                       ### The Catch
+                       1 paragraph acknowledging the limitations, sample size constraints, or counterarguments. Own your bias before the reader finds it.
+                       Followed by a horizontal divider (--- / <hr>).
+
+                    6. At a Glance:
+                       ### At a Glance
+                       * **The Big Shift:** One-sentence summary of the core trend.
+                       * **Why It Matters:** The operational or financial consequence.
+                       * **The Bottom Line:** The final definitive takeaway.
+
+                    7. Complete Concept Coverage & Zero Fluff:
+                       - Every theme, statistic, or concept mentioned in the lead or overview MUST be fully developed and substantiated in the substantive body sections.
+                       - Maximum 60 words per bullet point. If a concept exceeds 60 words, split it into a distinct bullet.
+                       - Zero preamble: start directly with the problem and facts.
+                       - Substance over word count: do not pad with filler to hit arbitrary targets."""
 
     def _get_content_avoidance_instructions(self) -> str:
         """
@@ -1674,7 +1702,9 @@ Previous Context:
     def _extract_citations_from_content(self, content: str, evidence: List[Dict]) -> List[Dict[str, Any]]:
         """Extract citations from generated content using proper citation format."""
         import re
+        from citation_generator import is_serious_citation, clean_citation_url
         citations = []
+        seen_keys = set()
         
         # Extract citation references like [1] or [^1]
         citation_pattern = r'\[\^?(\d+)\]'
@@ -1687,31 +1717,52 @@ Previous Context:
                 if 0 <= evidence_index < len(evidence):
                     ev = evidence[evidence_index]
                     
-                    # Determine source type and create proper citation
+                    # Determine source type and clean URL
                     source_type = ev.get('source_type', 'unknown')
-                    source_url = ev.get('source', ev.get('url', ''))
+                    raw_url = ev.get('source') or ev.get('url') or ev.get('metadata', {}).get('url', '')
+                    source_url = clean_citation_url(raw_url)
+                    metadata = ev.get('metadata', {})
                     
-                    # Create meaningful citation based on source type
-                    if source_type == 'rag':
-                        citation_title = f"Knowledge Base Source {citation_num}"
-                        citation_source = "Internal Knowledge Base"
-                    elif source_type == 'web':
-                        citation_title = ev.get('title', ev.get('source_title', 'Web Source'))
-                        citation_source = source_url if source_url else "Web Source"
-                    else:
-                        citation_title = ev.get('title', ev.get('source_title', 'Unknown Source'))
-                        citation_source = source_url if source_url else "Unknown Source"
+                    # Derive genuine title without placeholders
+                    candidate_title = ev.get('title') or ev.get('source_title') or metadata.get('title', '')
+                    candidate_title = str(candidate_title).strip() if candidate_title else ""
+                    
+                    if not candidate_title or candidate_title.lower() in {'unknown source', 'web source', 'untitled', 'home', 'page not found'} or candidate_title.lower().startswith('knowledge base source'):
+                        # Try to extract from content
+                        ev_content = ev.get('content', '').strip()
+                        if ev_content and len(ev_content) > 20:
+                            first_sentence = ev_content.split('.')[0].strip()
+                            if len(first_sentence) > 10:
+                                candidate_title = first_sentence[:100] + ('...' if len(first_sentence) > 100 else '')
+                            else:
+                                candidate_title = metadata.get('source', '') or metadata.get('document_name', '')
+                        else:
+                            candidate_title = metadata.get('source', '') or metadata.get('document_name', '')
+                    
+                    citation_title = candidate_title
+                    citation_source = source_url if source_url else (metadata.get('source') or 'Reference Source')
                     
                     citation = {
                         "citation_id": citation_num,
                         "source": citation_source,
                         "title": citation_title,
+                        "url": source_url,
+                        "author": ev.get('author') or metadata.get('author', ''),
+                        "publication_date": ev.get('publication_date') or metadata.get('publication_date', ''),
                         "content": ev.get('content', '')[:200] + "...",
                         "source_type": source_type,
-                        "relevance_score": ev.get('relevance_score', 0.0),
-                        "credibility_score": ev.get('credibility_score', 0.0),
-                        "metadata": ev.get('metadata', {})
+                        "relevance_score": float(ev.get('relevance_score') or 0.0),
+                        "credibility_score": float(ev.get('credibility_score') or 0.0),
+                        "metadata": metadata
                     }
+                    
+                    if not is_serious_citation(citation):
+                        continue
+                    
+                    dedup_key = (source_url.lower().rstrip('/') if source_url else "") or citation_title.lower()
+                    if dedup_key in seen_keys:
+                        continue
+                    seen_keys.add(dedup_key)
                     citations.append(citation)
                     
             except (ValueError, IndexError):

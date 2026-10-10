@@ -485,17 +485,16 @@ class ArticleStructureGenerator:
             messages = [
                 {
                     "role": "system",
-                    "content": f"""You are an expert academic writer. Write a clear, compelling thesis statement.
+                    "content": f"""You are an expert executive editor and strategist. Write a bold axiom or contrarian statement for "The Big Picture" of this article.
                     
                     Requirements:
-                    - 1-2 sentences maximum
+                    - Exactly 1-2 sentences maximum
                     - Match the {tone} tone
-                    - State the main argument or position clearly
-                    - Be specific and debatable
-                    - Set up the article's structure
-                    - Include the main benefit or outcome
+                    - Highlight the fundamental tension, market shift, or architectural trap immediately
+                    - Be bold, specific, and debatable (state the hard truth or counter-intuitive reality)
+                    - Cut all introductory throat-clearing (never start with "This article explores...", "In today's...", or passive filler)
                     
-                    Return only the thesis statement, no quotes or formatting."""
+                    Return only the statement, no quotes or formatting."""
                 },
                 {
                     "role": "user",
@@ -513,7 +512,7 @@ class ArticleStructureGenerator:
             
         except Exception as e:
             self.logger.error(f"Error generating thesis: {str(e)}")
-            return f"This article demonstrates that {brief[:100]}... through evidence-based analysis and practical insights."
+            return f"The fundamental tension in {brief[:80]} lies between short-term execution speed and uncalculated architectural debt."
     
     def _generate_meta_description(self, title: str, excerpt: str, keywords: str) -> str:
         """Generate SEO-optimized meta description."""
@@ -653,13 +652,16 @@ class ArticleStructureGenerator:
                     - COMPLETE TOPIC & CONCEPT COVERAGE: Ensure the outline plans sections and key points that cover and fully develop all core themes, claims, statistics, and strategic comparisons (e.g., build vs. buy, cost/ROI disconnects, execution roadmaps, governance) present in the brief and claims, so that every concept highlighted in summaries and takeaways is thoroughly developed in the body sections.
                     - Integrate Competitor Insights: Incorporate all "Competitor Must-Haves" across the sections, and dedicate specific focus or sub-points to highlight our "Competitive Edge".{controversies_prompt_text}
                     
-                    ⚠️ CRITICAL: AVOID GENERIC SECTION TITLES ⚠️
-                    - DO NOT use generic titles like: "Getting Started", "Step-by-Step Process", "Key Concepts", "Practical Applications", "Understanding the Fundamentals", "Real-World Implementation"
-                    - DO NOT use the same structure for every article
-                    - CREATE UNIQUE, TOPIC-SPECIFIC section titles that directly relate to the article brief and claims
-                    - Each section title should be specific to THIS article's topic, not a generic template
-                    - Analyze the brief and claims to create sections that make sense for THIS specific topic
-                    - Example: For an article about "skills for 2026", create sections like "Top In-Demand Technical Skills", "Essential Soft Skills for Hybrid Work", "How to Develop These Skills", NOT "Getting Started" or "Step-by-Step Process"
+                    ⚠️ CRITICAL: ACTION-ORIENTED OR METRIC-DRIVEN SECTION HEADERS ⚠️
+                    - Every substantive section title MUST be action-oriented or metric-driven (e.g., "Slashing Database Latency by 40%", "Auditing Distributed Lock Contention", "The $250k Build-vs-Buy Pitfall").
+                    - DO NOT use generic titles like: "Getting Started", "Step-by-Step Process", "Key Concepts", "Practical Applications", "Understanding the Fundamentals", "Real-World Implementation", "Conclusion", "Summary".
+                    - For each substantive section, plan key points to cover:
+                      1. Context: Core problem, tool version, or financial stake stated immediately.
+                      2. Key Metrics/Terms: Why it matters, empirical mechanics/constraints, and cost trade-offs or hidden failure modes.
+                    - Ensure the outline also accounts for the closing modules:
+                      * "What I'd Watch" (planning 3 indicators: benchmark to monitor, operational friction point, breakdown point).
+                      * "The Catch" (acknowledging limitations, constraints, and counterarguments).
+                      * "At a Glance" (The Big Shift, Why It Matters, The Bottom Line).
                     
                     EVIDENCE DISTRIBUTION ANALYSIS:
                     {evidence_types}

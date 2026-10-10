@@ -133,6 +133,15 @@ def _geo_signals(html_content: str, plain_text: str) -> Dict[str, Any]:
         re.search(r"\b[A-Z][A-Za-z0-9 ]{2,30}\s+is\s+a[n]?\s+", plain_text or "")
     )
 
+    # Core editorial architecture signals
+    has_big_picture = bool(re.search(r"<strong>\s*the\s+big\s+picture\s*:?</strong>", lower_html))
+    has_what_id_watch = bool(re.search(r"<h[2-4]>\s*what\s+i['’]?d\s+watch:?\s*</h[2-4]>", lower_html))
+    has_the_catch = bool(re.search(r"<h[2-4]>\s*the\s+catch\s*</h[2-4]>|<strong>\s*the\s+catch\s*:?</strong>", lower_html))
+    has_at_a_glance = bool(re.search(r"<h[2-4]>\s*at\s+a\s+glance\s*</h[2-4]>", lower_html))
+    has_big_shift = bool(re.search(r"<strong>\s*the\s+big\s+shift\s*:?</strong>", lower_html))
+    has_why_matters = bool(re.search(r"<strong>\s*why\s+it\s+matters\s*:?</strong>", lower_html))
+    has_bottom_line = bool(re.search(r"<strong>\s*the\s+bottom\s+line\s*:?</strong>", lower_html))
+
     signal_count = sum(
         [
             has_faq,
@@ -140,6 +149,10 @@ def _geo_signals(html_content: str, plain_text: str) -> Dict[str, Any]:
             has_takeaways,
             has_answer_style_intro,
             has_definition_pattern,
+            has_big_picture,
+            has_what_id_watch,
+            has_the_catch,
+            has_at_a_glance,
         ]
     )
 
@@ -149,6 +162,13 @@ def _geo_signals(html_content: str, plain_text: str) -> Dict[str, Any]:
         "has_key_takeaways": has_takeaways,
         "has_answer_style_intro": has_answer_style_intro,
         "has_definition_pattern": has_definition_pattern,
+        "has_big_picture": has_big_picture,
+        "has_what_id_watch": has_what_id_watch,
+        "has_the_catch": has_the_catch,
+        "has_at_a_glance": has_at_a_glance,
+        "has_big_shift": has_big_shift,
+        "has_why_matters": has_why_matters,
+        "has_bottom_line": has_bottom_line,
         "geo_signal_count": signal_count,
     }
 
@@ -239,9 +259,9 @@ def _title_virality_signals(title: str, text: str) -> Dict[str, Any]:
 def build_article_quality_report(
     title: str,
     html_content: str,
-    plain_text: str,
-    citations: List[Dict[str, Any]] | None,
-    sections: List[Dict[str, Any]] | None,
+    plain_text: str = "",
+    citations: List[Dict[str, Any]] | None = None,
+    sections: List[Dict[str, Any]] | None = None,
     evidence_count: int = 0,
 ) -> Dict[str, Any]:
     """
@@ -328,6 +348,14 @@ def build_article_quality_report(
         warnings.append(title_virality["alignment_warning"])
     if not title_virality["triggers"]:
         warnings.append("Title lacks strong psychological trigger (Curiosity Gap, Loss Aversion, or Counter-Intuitive Authority).")
+    if not geo.get("has_big_picture"):
+        warnings.append("Missing 'The Big Picture' axiom at the top of the article.")
+    if not geo.get("has_what_id_watch"):
+        warnings.append("Missing 'What I'd Watch' indicator module.")
+    if not geo.get("has_the_catch"):
+        warnings.append("Missing 'The Catch' limitations and bias disclosure.")
+    if not geo.get("has_at_a_glance"):
+        warnings.append("Missing 'At a Glance' closing synthesis module.")
 
     return {
         "version": "phase0_v1",

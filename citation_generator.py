@@ -35,6 +35,175 @@ class SourceType(Enum):
     VIDEO = "video"
     PODCAST = "podcast"
 
+# Known spam, content farm, scraper, and low-credibility domains to exclude from references
+DISALLOWED_SPAM_DOMAINS = {
+    # Social networks & user-generated forums (unvetted for professional editorial references)
+    "pinterest.com",
+    "quora.com",
+    "reddit.com",
+    "facebook.com",
+    "instagram.com",
+    "tiktok.com",
+    "twitter.com",
+    "x.com",
+    # Content farms, low-quality aggregators, scraper spam
+    "ezinearticles.com",
+    "ehow.com",
+    "hubpages.com",
+    "buzzfeed.com",
+    "answers.com",
+    "ask.com",
+    "about.com",
+    "softonic.com",
+    "examiner.com",
+    "slideshare.net",
+    "scribd.com",
+    "blogspot.com",
+    "wordpress.com",
+    "tumblr.com",
+    "wixsite.com",
+    # Search engine redirect or internal URLs
+    "google.com",
+    "bing.com",
+    "yahoo.com",
+    "duckduckgo.com",
+    # URL shorteners / trackers
+    "bit.ly",
+    "tinyurl.com",
+    "t.co",
+    "goo.gl",
+    "ow.ly",
+    "doubleclick.net",
+}
+
+# Path patterns indicative of dead, non-content, or broken pages
+BROKEN_OR_JUNK_PATH_PATTERNS = [
+    r"/(?:404|403|500|error|not-found|page-not-found)\b",
+    r"/(?:login|signin|signup|register|auth|account)\b",
+    r"/(?:cart|checkout|basket|order|pricing|subscribe)\b",
+    r"/(?:privacy|privacy-policy|terms|terms-of-service|cookie-policy|disclaimer)\b",
+    r"/(?:wp-admin|wp-content|wp-includes|admin)\b",
+    r"/(?:search|query|tag|category|author)/?$",
+]
+
+def clean_citation_url(url: Optional[str]) -> str:
+    """
+    Strip marketing tracking parameters (utm, fbclid, etc.) and fragments from citation URLs.
+    """
+    if not url or not isinstance(url, str):
+        return ""
+    cleaned = url.strip()
+    if cleaned in {"#", "unknown", "about:blank", "none"} or cleaned.startswith("javascript:"):
+        return ""
+    try:
+        from urllib.parse import parse_qsl, urlencode, urlunparse
+        parsed = urlparse(cleaned if "://" in cleaned else f"https://{cleaned}")
+        if parsed.scheme.lower() not in {"http", "https"}:
+            return ""
+        if not parsed.netloc:
+            return ""
+        cleaned_query = [
+            (k, v) for k, v in parse_qsl(parsed.query)
+            if not k.lower().startswith(("utm_", "fbclid", "gclid", "ref_", "mc_", "trk", "source", "session"))
+        ]
+        new_query = urlencode(cleaned_query)
+        result = urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path, parsed.params, new_query, ""))
+        return result.rstrip("?")
+    except Exception:
+        return cleaned
+
+def is_valid_citation_url(url: Optional[str]) -> bool:
+    """
+    Validate that a URL is a legitimate, non-spam, non-broken web reference.
+    """
+    if not url or not isinstance(url, str):
+        return False
+    cleaned = url.strip()
+    if cleaned in {"#", "", "unknown", "about:blank", "none"} or cleaned.startswith("javascript:"):
+        return False
+    try:
+        parsed = urlparse(cleaned if "://" in cleaned else f"https://{cleaned}")
+        if parsed.scheme.lower() not in {"http", "https"}:
+            return False
+        host = (parsed.hostname or "").lower()
+        if not host or "." not in host or host.endswith(".local") or host == "localhost":
+            return False
+        # Block known spam domains
+        for spam_domain in DISALLOWED_SPAM_DOMAINS:
+            if host == spam_domain or host.endswith(f".{spam_domain}"):
+                return False
+        # Block broken/junk paths
+        path = (parsed.path or "").lower()
+        for pattern in BROKEN_OR_JUNK_PATH_PATTERNS:
+            if re.search(pattern, path):
+                return False
+        return True
+    except Exception:
+        return False
+
+def is_serious_citation(citation: Any) -> bool:
+    """
+    Evaluate whether a citation represents a serious, credible, and informative reference.
+    Filters out spam, placeholder titles, and dead links.
+    """
+    if not citation:
+        return False
+
+    if isinstance(citation, dict):
+        title = (citation.get("title") or citation.get("source_title") or "").strip()
+        url = citation.get("url") or citation.get("source") or ""
+        source_type = (citation.get("source_type") or "").lower()
+        content = (citation.get("content") or citation.get("content_excerpt") or "").strip()
+    elif hasattr(citation, "title"):
+        title = (getattr(citation, "title", "") or "").strip()
+        url = getattr(citation, "url", "") or ""
+        source_type = (getattr(citation, "source_type", "") or "").lower()
+        content = (getattr(citation, "content_excerpt", "") or "").strip()
+    else:
+        return False
+
+    # Filter out generic placeholder titles
+    generic_titles = {
+        "unknown source", "web source", "knowledge base source", "untitled",
+        "home", "page not found", "sign in", "login", "register", "error",
+        "document reference", "source", "404", "index",
+    }
+    if not title or title.lower() in generic_titles or title.lower().startswith("knowledge base source"):
+        return False
+
+    # Web sources must have a valid, non-spam URL
+    if source_type in {"web", "linkup", "search"}:
+        if not is_valid_citation_url(url):
+            return False
+    elif source_type in {"rag", "journal", "book", "report"}:
+        if url and not is_valid_citation_url(url) and url not in {"#", ""}:
+            return False
+        if not content and not title:
+            return False
+
+    return True
+
+def filter_and_curate_citations(citations: List[Any], max_citations: int = 8) -> List[Any]:
+    """
+    Filter citations to only serious, credible, non-spam sources, ranked and capped to max_citations.
+    """
+    if not citations:
+        return []
+    
+    serious = [c for c in citations if is_serious_citation(c)]
+    
+    def _score(c):
+        if isinstance(c, dict):
+            auth = float(c.get("authority_score") or c.get("credibility_score") or 0.0)
+            rel = float(c.get("relevance_score") or 0.0)
+        else:
+            auth = float(getattr(c, "authority_score", 0.0) or getattr(c, "credibility_score", 0.0))
+            rel = float(getattr(c, "relevance_score", 0.0))
+        return auth + (rel * 0.5)
+
+    serious.sort(key=_score, reverse=True)
+    return serious[:max_citations]
+
 @dataclass
 class Citation:
     """A single citation."""
@@ -145,52 +314,64 @@ class CitationGenerator:
             }
     
     def _extract_citations_from_evidence(self, evidence: List[Dict]) -> List[Citation]:
-        """Extract citations from evidence sources. Only creates citations from evidence with actual content."""
+        """
+        Extract citations from evidence sources.
+        Strictly filters out empty content, spam domains, broken URLs, and duplicate sources.
+        """
         citations = []
+        seen_urls = set()
+        seen_titles = set()
         
         for ev in evidence:
             try:
-                # CRITICAL: Only create citations from evidence with actual content
-                # Skip evidence without content to avoid creating mock citations
+                # 1. Skip evidence without substantive content
                 content = ev.get('content', '')
                 if not content or not content.strip():
-                    self.logger.warning(f"Skipping evidence item - no content available. Title: {ev.get('title', 'N/A')[:50]}")
                     continue
+                
+                # 2. Determine source type and metadata
+                source_type = self._determine_source_type(ev)
+                metadata = ev.get('metadata', {})
+                
+                # 3. Clean and validate URL
+                raw_url = ev.get('source') or ev.get('url', '') or metadata.get('url', '')
+                url = clean_citation_url(raw_url)
+                
+                # If web source and URL is invalid or spam, skip entirely
+                if source_type == SourceType.WEB:
+                    if not is_valid_citation_url(url):
+                        continue
+                
+                # 4. Extract clean, non-generic title
+                title = ev.get('title') or ev.get('source_title', '') or metadata.get('title', '')
+                title = str(title).strip()
+                if not title or title.lower() in {'unknown source', 'web source', 'untitled', 'home', 'page not found'} or title.lower().startswith('knowledge base source'):
+                    if content and len(content) > 20:
+                        first_sentence = content.split('.')[0].strip()
+                        if len(first_sentence) > 10:
+                            title = first_sentence[:100] + ('...' if len(first_sentence) > 100 else '')
+                        else:
+                            continue
+                    else:
+                        continue
+                
+                # 5. Deduplicate by URL and title
+                norm_url = url.lower().rstrip('/') if url else ''
+                norm_title = re.sub(r'[^a-z0-9]', '', title.lower()[:50])
+                if norm_url and norm_url in seen_urls:
+                    continue
+                if norm_title and norm_title in seen_titles:
+                    continue
+                if norm_url:
+                    seen_urls.add(norm_url)
+                if norm_title:
+                    seen_titles.add(norm_title)
                 
                 # Generate unique citation ID
                 self.citation_counter += 1
                 citation_id = f"cite_{self.citation_counter:03d}"
                 
-                # Determine source type
-                source_type = self._determine_source_type(ev)
-                
-                # Extract metadata
-                metadata = ev.get('metadata', {})
-                
-                # Extract title - prefer actual title, fall back to content snippet, but don't use generic placeholders
-                title = ev.get('title') or ev.get('source_title', '')
-                if not title or title == 'Unknown Source' or title.startswith('Knowledge Base Source') or title.startswith('Web Source'):
-                    # Only extract from content if we have real content
-                    if content and len(content) > 20:
-                        # Use first sentence or meaningful phrase from content
-                        first_sentence = content.split('.')[0].strip()
-                        if len(first_sentence) > 10:
-                            title = first_sentence[:100] + ('...' if len(first_sentence) > 100 else '')
-                        else:
-                            # Content too short, skip this citation to avoid generic titles
-                            self.logger.warning(f"Skipping evidence item - content too short for meaningful title")
-                            continue
-                    else:
-                        # No meaningful content, skip to avoid creating mock citation
-                        self.logger.warning(f"Skipping evidence item - cannot create meaningful title from content")
-                        continue
-                
-                # Extract URL - prefer actual URL
-                url = ev.get('source') or ev.get('url', '')
-                if not url or url == '#' or url == 'Unknown URL':
-                    url = ''  # Leave empty rather than using placeholder
-                
-                # Create citation only if we have valid data
+                # Create citation
                 citation = Citation(
                     id=citation_id,
                     source_type=source_type.value,
@@ -206,21 +387,28 @@ class CitationGenerator:
                     doi=metadata.get('doi', ''),
                     isbn=metadata.get('isbn', ''),
                     accessed_date=datetime.now().strftime('%Y-%m-%d'),
-                    credibility_score=ev.get('credibility_score', 0.0),
-                    relevance_score=ev.get('relevance_score', 0.0),
+                    credibility_score=float(ev.get('credibility_score') or 0.0),
+                    relevance_score=float(ev.get('relevance_score') or 0.0),
                     content_excerpt=content[:200] + '...' if len(content) > 200 else content,
                     metadata=metadata
                 )
                 
-                citations.append(citation)
+                if is_serious_citation(citation):
+                    citations.append(citation)
                 
             except Exception as e:
                 self.logger.error(f"Error extracting citation from evidence: {str(e)}")
                 continue
         
         self._apply_domain_authority_ranking(citations)
-        self.logger.info(f"Extracted {len(citations)} citations from {len(evidence)} evidence items (skipped {len(evidence) - len(citations)} items without valid content)")
+        self.logger.info(f"Extracted {len(citations)} serious citations from {len(evidence)} evidence items (filtered out {len(evidence) - len(citations)} spam/empty/broken items)")
         return citations
+
+    def filter_and_curate_citations(self, citations: List[Any], max_citations: int = 8) -> List[Any]:
+        """
+        Filter citations to only serious, credible, non-spam sources, ranked and capped to max_citations.
+        """
+        return filter_and_curate_citations(citations, max_citations=max_citations)
     
 
     def _extract_root_domain(self, url: str) -> str:

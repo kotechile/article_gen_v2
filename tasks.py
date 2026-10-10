@@ -14,7 +14,7 @@ import time
 import concurrent.futures
 import asyncio
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from celery import current_task
 from celery_config import celery
 from supabase_client import (
@@ -31,7 +31,14 @@ from rag_client import create_rag_client, RAGQuery
 from linkup_client import create_linkup_client, SearchQuery
 from article_structure_generator import create_article_structure_generator
 from content_generator import create_content_generator, get_tone_specific_instructions
-from citation_generator import create_citation_generator, CitationStyle
+from citation_generator import (
+    create_citation_generator,
+    CitationStyle,
+    is_serious_citation,
+    clean_citation_url,
+    is_valid_citation_url,
+    filter_and_curate_citations,
+)
 from src.utils.config import get_config
 
 # Setup logger
@@ -496,7 +503,7 @@ def _make_claim_id(text: str, idx: int) -> str:
 
 def _create_citation_links(content: str, citations: List[Dict[str, Any]]) -> str:
     """
-    Convert in-text markers like [1] into clickable anchors to the References section.
+    Convert in-text markers like [1] or [^1] into clickable anchors to the References section.
     Keeps original marker text if index is out of range.
     """
     if not content:
@@ -514,7 +521,191 @@ def _create_citation_links(content: str, citations: List[Dict[str, Any]]) -> str
             return raw
         return f'<a href="#ref-{idx}" class="citation-link">[{idx}]</a>'
 
-    return re.sub(r"\[(\d+)\]", _replace, content)
+    return re.sub(r"\[\^?(\d+)\]", _replace, content)
+
+
+def _normalize_citation_entry(item: Any, index: int = 1) -> Optional[Dict[str, Any]]:
+    """Normalize a citation object or evidence dict into a standardized reference dict."""
+    if not item:
+        return None
+    if isinstance(item, dict):
+        raw_url = item.get("url") or item.get("source") or item.get("link") or item.get("metadata", {}).get("url", "")
+        title = item.get("title") or item.get("source_title") or item.get("name") or item.get("metadata", {}).get("title", "")
+        author = item.get("author") or item.get("metadata", {}).get("author", "")
+        pub_date = item.get("publication_date") or item.get("metadata", {}).get("publication_date", "")
+        source_type = (item.get("source_type") or "web").lower()
+        content = item.get("content") or item.get("content_excerpt") or item.get("snippet") or ""
+        auth_score = float(item.get("authority_score") or item.get("credibility_score") or 0.0)
+        rel_score = float(item.get("relevance_score") or 0.0)
+        meta = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    elif hasattr(item, "__dict__"):
+        raw_url = getattr(item, "url", "") or ""
+        title = getattr(item, "title", "") or ""
+        author = getattr(item, "author", "") or ""
+        pub_date = getattr(item, "publication_date", "") or ""
+        source_type = (getattr(item, "source_type", "web") or "web").lower()
+        content = getattr(item, "content_excerpt", "") or ""
+        auth_score = float(getattr(item, "authority_score", 0.0) or getattr(item, "credibility_score", 0.0) or 0.0)
+        rel_score = float(getattr(item, "relevance_score", 0.0) or 0.0)
+        meta = getattr(item, "metadata", {}) or {}
+    else:
+        return None
+
+    cleaned_url = clean_citation_url(raw_url)
+    clean_title = str(title).strip()
+
+    generic_placeholders = {
+        "unknown source", "web source", "knowledge base source", "untitled",
+        "home", "page not found", "sign in", "login", "register", "error",
+        "document reference", "source", "404", "index",
+    }
+    if not clean_title or clean_title.lower() in generic_placeholders or clean_title.lower().startswith("knowledge base source"):
+        if content and len(str(content).strip()) > 20:
+            first_sentence = str(content).strip().split(".")[0].strip()
+            if len(first_sentence) > 10:
+                clean_title = first_sentence[:100] + ("..." if len(first_sentence) > 100 else "")
+            else:
+                clean_title = meta.get("source") or meta.get("document_name") or ""
+        else:
+            clean_title = meta.get("source") or meta.get("document_name") or ""
+
+    candidate = {
+        "id": f"cite_{index:03d}",
+        "title": clean_title,
+        "url": cleaned_url,
+        "author": author if author and author != "Unknown Author" else "",
+        "publication_date": pub_date,
+        "source_type": source_type,
+        "content": str(content)[:250] if content else "",
+        "authority_score": auth_score,
+        "relevance_score": rel_score,
+        "metadata": meta,
+    }
+
+    if not is_serious_citation(candidate):
+        return None
+
+    return candidate
+
+
+def _reconcile_and_curate_citations(
+    full_content: str,
+    citations: List[Any],
+    evidence: List[Any],
+    include_in_text_citations: bool = True,
+    max_fallback_citations: int = 5,
+) -> Tuple[str, List[Dict[str, Any]]]:
+    """
+    Reconcile in-text citations with reference list.
+    1. If in-text markers ([1], [^1]) exist:
+       - Extract cited indices in order of appearance
+       - Map to candidate citations/evidence
+       - Filter out spam, broken, or junk sources
+       - Renumber markers sequentially 1..N in the text
+       - Prune invalid/spam markers from the text
+       - Return updated content and curated citations
+    2. If no in-text markers exist or citations disabled:
+       - Filter candidate pool for serious, authoritative, non-spam sources
+       - Return top curated citations capped at max_fallback_citations (3-5)
+    """
+    if not full_content:
+        return full_content, []
+
+    # Build pool of normalized candidate citations
+    raw_candidates = list(citations or []) + list(evidence or [])
+    norm_candidates = []
+    seen_urls = set()
+    seen_titles = set()
+
+    for idx, item in enumerate(raw_candidates, 1):
+        norm = _normalize_citation_entry(item, idx)
+        if not norm:
+            continue
+        u_key = norm["url"].lower().rstrip("/") if norm["url"] else ""
+        t_key = re.sub(r"[^a-z0-9]", "", norm["title"].lower()[:50])
+        if u_key and u_key in seen_urls:
+            continue
+        if t_key and t_key in seen_titles:
+            continue
+        if u_key:
+            seen_urls.add(u_key)
+        if t_key:
+            seen_titles.add(t_key)
+        norm_candidates.append(norm)
+
+    # Check for in-text markers in full_content
+    marker_pattern = r"\[\^?(\d+)\]"
+    raw_markers = re.findall(marker_pattern, full_content)
+
+    if raw_markers and include_in_text_citations:
+        used_citations: List[Dict[str, Any]] = []
+        old_to_new_index: Dict[int, Optional[int]] = {}
+
+        for raw_num in raw_markers:
+            try:
+                orig_idx = int(raw_num)
+            except ValueError:
+                continue
+
+            if orig_idx in old_to_new_index:
+                continue
+
+            matched_candidate = None
+            if citations and 1 <= orig_idx <= len(citations):
+                matched_candidate = _normalize_citation_entry(citations[orig_idx - 1], orig_idx)
+            elif evidence and 1 <= orig_idx <= len(evidence):
+                matched_candidate = _normalize_citation_entry(evidence[orig_idx - 1], orig_idx)
+            elif 1 <= orig_idx <= len(norm_candidates):
+                matched_candidate = norm_candidates[orig_idx - 1]
+
+            if matched_candidate and is_serious_citation(matched_candidate):
+                u_key = matched_candidate["url"].lower().rstrip("/") if matched_candidate["url"] else ""
+                t_key = re.sub(r"[^a-z0-9]", "", matched_candidate["title"].lower()[:50])
+
+                existing_new_idx = None
+                for idx_existing, c in enumerate(used_citations, 1):
+                    cu_key = c["url"].lower().rstrip("/") if c["url"] else ""
+                    ct_key = re.sub(r"[^a-z0-9]", "", c["title"].lower()[:50])
+                    if (u_key and cu_key == u_key) or (t_key and ct_key == t_key):
+                        existing_new_idx = idx_existing
+                        break
+
+                if existing_new_idx is not None:
+                    old_to_new_index[orig_idx] = existing_new_idx
+                else:
+                    new_idx = len(used_citations) + 1
+                    matched_candidate["id"] = f"cite_{new_idx:03d}"
+                    used_citations.append(matched_candidate)
+                    old_to_new_index[orig_idx] = new_idx
+            else:
+                old_to_new_index[orig_idx] = None
+
+        if used_citations:
+            def _replace_marker(match: re.Match) -> str:
+                try:
+                    num = int(match.group(1))
+                    new_num = old_to_new_index.get(num)
+                    if new_num is not None:
+                        return f"[{new_num}]"
+                    return ""
+                except Exception:
+                    return match.group(0)
+
+            updated_content = re.sub(marker_pattern, _replace_marker, full_content)
+            updated_content = re.sub(r"\s+([.,;:!?])", r"\1", updated_content)
+            updated_content = re.sub(r"[ \t]{2,}", " ", updated_content)
+            return updated_content, used_citations
+
+    # Fallback when no valid in-text markers are used or in-text citations disabled:
+    curated = filter_and_curate_citations(norm_candidates, max_citations=max_fallback_citations)
+
+    if not include_in_text_citations:
+        cleaned_content = re.sub(marker_pattern, "", full_content)
+        cleaned_content = re.sub(r"\s+([.,;:!?])", r"\1", cleaned_content)
+        cleaned_content = re.sub(r"[ \t]{2,}", " ", cleaned_content)
+        return cleaned_content, curated
+
+    return full_content, curated
 
 
 def _extract_focus_keyword(keywords: str) -> str:
@@ -1289,19 +1480,19 @@ def _validate_and_ensure_smart_brevity_structure(
 
     content = html_content.strip()
 
-    # 1. Strip any legacy "At a glance", "Overview", "Introduction" headers or standalone label paragraphs
+    # 1. Strip any legacy headers or standalone label paragraphs (do NOT strip 'At a glance' as it is a required closing module)
     content = re.sub(
-        r'(?i)<h[1-4]>\s*(?:At a glance|Key Takeaways?|Overview|Introduction|Executive Summary|Short Answer|Summary)\s*</h[1-4]>\s*',
+        r'(?i)<h[1-4]>\s*(?:Key Takeaways?|Overview|Introduction|Executive Summary|Short Answer|Summary)\s*</h[1-4]>\s*',
         '',
         content
     )
     content = re.sub(
-        r'(?i)<p>\s*(?:<strong>|<b>)?\s*(?:At a glance|Key Takeaways?|Executive Summary|Short Answer|Summary):?\s*(?:</strong>|</b>)?\s*</p>\s*',
+        r'(?i)<p>\s*(?:<strong>|<b>)?\s*(?:Key Takeaways?|Executive Summary|Short Answer|Summary):?\s*(?:</strong>|</b>)?\s*</p>\s*',
         '',
         content
     )
     content = re.sub(
-        r'(?i)^(?:At a glance|Key Takeaways?|Overview|Introduction|Executive Summary)\s*\n+',
+        r'(?i)^(?:Key Takeaways?|Overview|Introduction|Executive Summary)\s*\n+',
         '',
         content
     )
@@ -1309,6 +1500,7 @@ def _validate_and_ensure_smart_brevity_structure(
     # 2. Normalize markdown bold to HTML strong tags for Smart Brevity axioms
     axiom_names = [
         r'The\s+big\s+picture',
+        r'The\s+big\s+shift',
         r'By\s+the\s+numbers',
         r'Why\s+it\s+matters',
         r'The\s+catch',
@@ -1316,6 +1508,7 @@ def _validate_and_ensure_smart_brevity_structure(
         r'Between\s+the\s+lines',
         r'The\s+bottom\s+line',
         r'What\s+to\s+watch',
+        r'What\s+i[\'’]?d\s+watch',
         r'Go\s+deeper',
     ]
     for axiom in axiom_names:
@@ -1356,11 +1549,13 @@ def _validate_and_ensure_smart_brevity_structure(
     has_go_deeper_prompt = bool(re.search(r'<strong>\s*go\s+deeper\s*:?</strong>', content, re.IGNORECASE))
     has_go_deeper_h2 = bool(re.search(r'<h2>\s*go\s+deeper\s*</h2>', content, re.IGNORECASE))
 
-    # If all Smart Brevity components already exist cleanly
-    if (has_big_picture and has_why_matters and has_by_numbers and has_bottom_line_or_catch and has_go_deeper_prompt and has_go_deeper_h2):
-        return content
+    # Check presence of closing editorial modules
+    has_what_id_watch = bool(re.search(r'<h[2-4]>\s*what\s+i[\'’]?d\s+watch:?\s*</h[2-4]>', content, re.IGNORECASE))
+    has_the_catch = bool(re.search(r'<h[2-4]>\s*the\s+catch\s*</h[2-4]>|<strong>\s*the\s+catch\s*:?</strong>', content, re.IGNORECASE))
+    has_at_a_glance = bool(re.search(r'<h[2-4]>\s*at\s+a\s+glance\s*</h[2-4]>', content, re.IGNORECASE))
+    has_big_shift = bool(re.search(r'<strong>\s*the\s+big\s+shift\s*:?</strong>', content, re.IGNORECASE))
 
-    # Build missing elements
+    # Build missing lead elements
     thesis = str(structure.get('thesis') or structure.get('excerpt') or research_data.get('brief') or '').strip()
     hook = str(structure.get('hook') or structure.get('title') or '').strip()
     topic = str(structure.get('focus_keyword') or research_data.get('primary_keyword') or structure.get('title') or 'this strategy').strip()
@@ -1368,10 +1563,10 @@ def _validate_and_ensure_smart_brevity_structure(
     missing_blocks: List[str] = []
 
     if not has_big_picture:
-        bp_text = thesis if thesis else f"Understanding the key dynamics of {topic} is critical for making informed, high-ROI decisions."
-        missing_blocks.append(f"<p><strong>The big picture:</strong> {bp_text}</p>")
+        bp_text = thesis if thesis else f"Understanding the fundamental tension of {topic} is critical for making informed, high-ROI architectural decisions."
+        missing_blocks.append(f"<p><strong>The big picture:</strong> {bp_text}</p>\n<hr>")
 
-    if not has_why_matters:
+    if not has_why_matters and not (has_at_a_glance and has_big_shift):
         why_text = hook if (hook and hook != thesis) else f"Mastering the fundamentals of {topic} directly impacts operational efficiency, cost management, and long-term positioning."
         missing_blocks.append(f"<p><strong>Why it matters:</strong> {why_text}</p>")
 
@@ -1383,14 +1578,14 @@ def _validate_and_ensure_smart_brevity_structure(
         num_html += "</ul>"
         missing_blocks.append(num_html)
 
-    if not has_bottom_line_or_catch:
+    if not has_bottom_line_or_catch and not (has_at_a_glance and has_big_shift):
         catch_text = f"Evaluate the full lifecycle costs and operational trade-offs before committing resources to {topic}."
         missing_blocks.append(f"<p><strong>The bottom line:</strong> {catch_text}</p>")
 
     if not has_go_deeper_prompt:
         missing_blocks.append(f"<p><strong>Go deeper:</strong> Review the detailed breakdown, comparative analysis, and step-by-step guidance below.</p>")
 
-    # If missing blocks exist, integrate them cleanly
+    # If missing lead blocks exist, integrate them cleanly
     if missing_blocks:
         sb_intro = "\n\n".join(missing_blocks)
         if has_go_deeper_h2:
@@ -1418,11 +1613,52 @@ def _validate_and_ensure_smart_brevity_structure(
 
     # Clean up redundant duplicate headings like <h2>Introduction</h2> right after <h2>Go Deeper</h2>
     content = re.sub(
-        r'<h2>\s*go\s+deeper\s*</h2>\s*<h2>\s*(?:introduction|overview|background|at a glance)\s*</h2>',
+        r'<h2>\s*go\s+deeper\s*</h2>\s*<h2>\s*(?:introduction|overview|background)\s*</h2>',
         '<h2>Go Deeper</h2>',
         content,
         flags=re.IGNORECASE
     )
+
+    # Ensure closing editorial modules: What I'd Watch, The Catch, At a Glance
+    closing_blocks: List[str] = []
+
+    if not has_what_id_watch:
+        closing_blocks.append(
+            "<h3>What I'd Watch:</h3>\n"
+            "<ul>\n"
+            "  <li><strong>Operational Bottlenecks:</strong> Monitor latency, concurrency spikes, and system resource saturation under peak traffic.</li>\n"
+            "  <li><strong>Integration Friction:</strong> Track compatibility drifts, breaking changes, and configuration overhead across dependencies.</li>\n"
+            "  <li><strong>Assumption Breakdown:</strong> Identify edge cases where conventional architectures fail to scale cost-effectively.</li>\n"
+            "</ul>\n<hr>"
+        )
+
+    if not has_the_catch:
+        closing_blocks.append(
+            "<h3>The Catch</h3>\n"
+            f"<p>Every tactical gain introduces architectural trade-offs; early efficiency improvements in {topic} must be weighed against operational complexity and organizational constraints. Acknowledge real-world edge cases before assuming universal applicability.</p>\n<hr>"
+        )
+
+    if not has_at_a_glance or not has_big_shift:
+        shift_text = thesis if thesis else f"The market is accelerating the transition toward streamlined, high-efficiency execution in {topic}."
+        why_text = hook if (hook and hook != thesis) else f"Failing to adapt directly inflates operational costs and degrades strategic positioning."
+        bottom_text = f"Execute disciplined, measurable implementations while actively managing technical and financial downside in {topic}."
+        closing_blocks.append(
+            "<h3>At a Glance</h3>\n"
+            "<ul>\n"
+            f"  <li><strong>The Big Shift:</strong> {shift_text}</li>\n"
+            f"  <li><strong>Why It Matters:</strong> {why_text}</li>\n"
+            f"  <li><strong>The Bottom Line:</strong> {bottom_text}</li>\n"
+            "</ul>"
+        )
+
+    if closing_blocks:
+        closing_html = "\n\n" + "\n\n".join(closing_blocks) + "\n\n"
+        faq_or_ref_match = re.search(r'(<h2[^>]*>\s*(?:Frequently Asked Questions|FAQ|References)\s*</h2>)', content, re.IGNORECASE)
+        if faq_or_ref_match:
+            insert_pos = faq_or_ref_match.start()
+            content = content[:insert_pos].rstrip() + closing_html + content[insert_pos:]
+        else:
+            content = content.rstrip() + closing_html
 
     return content
 
@@ -1471,36 +1707,52 @@ def _polish_and_format_article(
     )
 
     prompt = f"""
-You are an expert executive editor trained strictly in Axios-style Smart Brevity and demographic precision.
-Your objective is to polish and restructure the provided article HTML so it strictly matches the Smart Brevity format for the executive lead while PRESERVING and FULLY EXPANDING all substantive body content, deep-dive sections, comparative tables, and FAQs under "Go Deeper".
+You are an expert executive editor trained strictly in high-impact editorial journalism, Axios-style Smart Brevity, and demographic precision.
+Your objective is to polish, master, and structure the article HTML so it strictly matches the following editorial architecture from top to bottom, while PRESERVING and FULLY EXPANDING all substantive facts, data points, comparative tables, FAQs, and citations.
 
 TARGET AUDIENCE DEMOGRAPHIC: {target_audience}
 PRIMARY KEYWORD: {primary_keyword}
 WRITER NOTES: {writer_notes if writer_notes else "None provided"}
 
-STRICT SMART BREVITY EXECUTIVE LEAD REQUIREMENTS (TOP OF ARTICLE):
-At the very top of the article, create a razor-sharp executive lead matching this EXACT sequence:
+MANDATORY EDITORIAL ARTICLE ARCHITECTURE:
 
-1. **The Tease (The Lede Hook)**:
-   - Exactly 1 to 2 punchy sentences that state the most critical takeaway or core truth immediately.
-   - State the conclusion first.
-   - NEVER use "At a glance", "Introduction", or conversational throat-clearing (e.g., "In this article...", "When considering...", "Ever wondered...").
+1. THE BIG PICTURE (Top of Article):
+   <p><strong>The Big Picture:</strong> Exactly 1 to 2 sentences stating one bold axiom or contrarian statement. Identify the fundamental tension, market shift, or architectural trap immediately.</p>
+   <hr>
 
-2. **The Axiom Pivot**:
-   - `<p><strong>The big picture:</strong> (1-2 crisp sentences on why this shift is happening).</p>`
-   - `<p><strong>Why it matters:</strong> (1-2 sentences explaining high-stakes impact and consequences for {target_audience}).</p>`
+2. SUBSTANTIVE BODY SECTIONS (Action-Oriented or Metric-Driven):
+   Transition Demarcation: <h2>Go Deeper</h2>
+   Every substantive topic section must follow this exact formula:
+   - <h3>[Action-Oriented or Metric-Driven Header]</h3>
+   - Exactly 1 short paragraph of context (2-3 sentences). State the core problem, tool version, or financial stake immediately without throat-clearing.
+   - Exactly 3 bolded key metric or term bullets:
+     * <li><strong>[Key Metric or Term]:</strong> 1-2 sentences explaining why it matters. Cut all introductory throat-clearing.</li>
+     * <li><strong>[Key Metric or Term]:</strong> Focus on empirical mechanics, code constraints, or hard numbers.</li>
+     * <li><strong>[Key Metric or Term]:</strong> Highlight the trade-off, cost, or hidden failure mode.</li>
+   - Tables: If the section contains comparative data, options, or matrices, format as clean HTML tables (<table>...</table>).
+   - Delimit sections cleanly with <hr>.
 
-3. **Scannable Details (By the Numbers)**:
-   - `<p><strong>By the numbers:</strong></p>` followed immediately by a clean `<ul>` with EXACTLY 3 to 4 bullet points.
-   - Each bullet must front-load bolding on the first 2 to 4 words (e.g., `<li><strong>Hidden Payroll Drag:</strong> Two dedicated engineers burn $375k in salaries before a custom build works.</li>`).
-   - Maximum 2 lines (under 60 words) per bullet. Prioritize hard figures, financial metrics, and concrete trade-offs.
+3. WHAT I'D WATCH:
+   <h3>What I'd Watch:</h3>
+   <ul>
+     <li><strong>[Indicator 1]:</strong> Specific test, benchmark, or transition to monitor.</li>
+     <li><strong>[Indicator 2]:</strong> Real-world operational friction point.</li>
+     <li><strong>[Indicator 3]:</strong> Where standard assumptions break down.</li>
+   </ul>
+   <hr>
 
-4. **The Bottom Line**:
-   - `<p><strong>The bottom line:</strong> (1 single, conclusive sentence outlining what to do next or the ultimate strategic consequence).</p>`
-   - `<p><strong>Go deeper:</strong> (1 single sentence transition inviting the reader into the comprehensive deep-dive below).</p>`
+4. THE CATCH:
+   <h3>The Catch</h3>
+   <p>Exactly 1 paragraph acknowledging the limitations, sample size constraints, or counterarguments. Own your bias before the reader finds it.</p>
+   <hr>
 
-5. **Demarcate Transition**:
-   - `<h2>Go Deeper</h2>`
+5. AT A GLANCE (Executive Synthesis):
+   <h3>At a Glance</h3>
+   <ul>
+     <li><strong>The Big Shift:</strong> One-sentence summary of the core trend.</li>
+     <li><strong>Why It Matters:</strong> The operational or financial consequence.</li>
+     <li><strong>The Bottom Line:</strong> The final definitive takeaway.</li>
+   </ul>
 
 CRITICAL ALIGNMENT - COMPLETE CONCEPT DEVELOPMENT UNDER 'GO DEEPER' (NO ORPHAN CONCEPTS OR FAQ TOPICS):
 - Every single topic, theme, concept, statistic, data point, and comparison mentioned in the Executive Smart Brevity Lead / axioms or the Frequently Asked Questions (FAQ) MUST be thoroughly and substantively developed, explained, and substantiated inside the substantive body sections under `<h2>Go Deeper</h2>`.
@@ -1508,7 +1760,6 @@ CRITICAL ALIGNMENT - COMPLETE CONCEPT DEVELOPMENT UNDER 'GO DEEPER' (NO ORPHAN C
 - NEVER allow an orphan topic or statistic to appear in the 'At a glance' summary or FAQ without full exposition in the body.
 
 SUBSTANTIVE & IN-DEPTH BODY SECTIONS (CRITICAL - DO NOT CONDENSE OR SUMMARIZE INTO TELEGRAPHIC BULLETS):
-- Immediately follow `<h2>Go Deeper</h2>` with ALL detailed topic sections from the original draft using `<h3>` subsections.
 - Fully expand all frameworks, actionable steps, real-world logistics, and technical analysis.
 - Readability & Narrative Flow:
   * Well-paced paragraphs (typically 2–4 sentences per paragraph, maximum 3 sentences). Avoid monolithic walls of text, but NEVER collapse paragraphs into 1-sentence snippets.
@@ -1568,17 +1819,17 @@ Output instructions:
             cleaned,
         )
         cleaned = re.sub(
-            r"(?i)<h[1-4]>\s*(?:At a glance|Key Takeaways?|Overview|Introduction|Executive Summary|Short Answer|Summary)\s*</h[1-4]>",
+            r"(?i)<h[1-4]>\s*(?:Key Takeaways?|Overview|Introduction|Executive Summary|Short Answer|Summary)\s*</h[1-4]>",
             "",
             cleaned,
         )
         cleaned = re.sub(
-            r"(?i)<p>\s*(?:<strong>|<b>)?\s*(?:At a glance|Key Takeaways?|Executive Summary|Short Answer|Summary):?\s*(?:</strong>|</b>)?\s*</p>",
+            r"(?i)<p>\s*(?:<strong>|<b>)?\s*(?:Key Takeaways?|Executive Summary|Short Answer|Summary):?\s*(?:</strong>|</b>)?\s*</p>",
             "",
             cleaned,
         )
         cleaned = re.sub(
-            r"(?i)^(?:At a glance|Key Takeaways?|Overview|Introduction|Executive Summary)\s*\n+",
+            r"(?i)^(?:Key Takeaways?|Overview|Introduction|Executive Summary)\s*\n+",
             "",
             cleaned,
         )
@@ -6015,9 +6266,8 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             """Remove citation references like [1], [2] from text."""
             if not text or include_in_text_citations:
                 return text
-            import re
-            # Remove citation references like [1], [2], [3], etc.
-            citation_pattern = r'\[\d+\]'
+            # Remove citation references like [1], [2], [^1], etc.
+            citation_pattern = r'\[\^?\d+\]'
             text = re.sub(citation_pattern, '', text)
             # Clean up any extra spaces left behind
             text = re.sub(r'\s+', ' ', text)
@@ -6135,34 +6385,40 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         full_content = _normalize_markdown_artifacts_to_html(full_content)
         full_content = _enforce_at_a_glance_bullet_word_limit(full_content, max_words=60)
         
+        # Reconcile in-text citations with reference list and filter out spam/broken/unused links
+        evidence_for_references = result.get('ranked_evidence', []) or result.get('evidence', [])
+        full_content, curated_citations = _reconcile_and_curate_citations(
+            full_content=full_content,
+            citations=citations,
+            evidence=evidence_for_references,
+            include_in_text_citations=include_in_text_citations,
+            max_fallback_citations=5,
+        )
+        citations = curated_citations
+        result['citations'] = curated_citations
+
         # Create clickable citation links only if in-text citations are enabled
         if include_in_text_citations:
             html_content_with_citations = _create_citation_links(full_content, citations)
         else:
             # If in-text citations are disabled, use the content as-is without citation links
             html_content_with_citations = full_content
-        
-        # Add References section - always generate references from evidence, even if in-text citations are disabled
-        # Get evidence from the result to generate references
-        evidence_for_references = result.get('ranked_evidence', []) or result.get('evidence', [])
+
+        # Add References section
         references_section = ""
-        logger.info(f"Finalization debug - Citations count: {len(citations) if citations else 0}")
-        logger.info(f"Finalization debug - Evidence count for references: {len(evidence_for_references)}")
-        
-        # Use citations if available, otherwise generate references from evidence
+        logger.info(f"Finalization debug - Curated citations count: {len(citations)}")
+
         if citations and len(citations) > 0:
             references_section = "\n\n<hr>\n\n<h2>References</h2>\n\n"
             for i, citation in enumerate(citations, 1):
-                # Extract citation details
                 title = citation.get('title', citation.get('source_title', 'Unknown Source'))
                 url = citation.get('url', '#')
                 author = citation.get('author', '')
                 source_type = citation.get('source_type', 'unknown')
                 publication_date = citation.get('publication_date', '')
-                
-                # Format the reference with proper style
+
                 references_section += f'<p id="ref-{i}"><strong>[{i}]</strong> '
-                
+
                 if author and author != "Unknown Author":
                     references_section += f"{author}"
                     if publication_date:
@@ -6174,61 +6430,18 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                         references_section += f" ({publication_date})"
                     references_section += ". "
                 else:
-                    # Fallback for any other case
                     if publication_date:
                         references_section += f"({publication_date}) "
-                
+
                 if url and url != '#' and url != '':
                     references_section += f'<a href="{url}" target="_blank" rel="noopener noreferrer">{title}</a>'
                 else:
                     references_section += f"<em>{title}</em>"
-                
+
                 references_section += ".</p>\n"
-        elif evidence_for_references and len(evidence_for_references) > 0:
-            # No citations but we have evidence - generate references from evidence
-            references_section = "\n\n<hr>\n\n<h2>References</h2>\n\n"
-            for i, ev in enumerate(evidence_for_references, 1):
-                # Only include evidence with actual content
-                if not ev.get('content') or not ev.get('content').strip():
-                    continue
-                    
-                title = ev.get('title') or ev.get('source_title', 'Unknown Source')
-                url = ev.get('source') or ev.get('url', '#')
-                author = ev.get('author', '')
-                source_type = ev.get('source_type', 'unknown')
-                publication_date = ev.get('publication_date', '')
-                
-                # Format the reference
-                references_section += f'<p id="ref-{i}"><strong>[{i}]</strong> '
-                
-                if author and author != "Unknown Author":
-                    references_section += f"{author}"
-                    if publication_date:
-                        references_section += f" ({publication_date})"
-                    references_section += ". "
-                elif source_type == 'rag':
-                    references_section += "Unknown Author"
-                    if publication_date:
-                        references_section += f" ({publication_date})"
-                    references_section += ". "
-                else:
-                    if publication_date:
-                        references_section += f"({publication_date}) "
-                
-                if url and url != '#' and url != '':
-                    references_section += f'<a href="{url}" target="_blank" rel="noopener noreferrer">{title}</a>'
-                else:
-                    references_section += f"<em>{title}</em>"
-                
-                references_section += ".</p>\n"
-            
-            if not references_section.endswith("</p>\n"):
-                # No valid evidence with content was found
-                references_section = "\n\n<hr>\n\n<h2>References</h2>\n\n<p><em>This article is based on general knowledge and industry best practices. No specific sources were cited as no evidence sources were available during generation.</em></p>\n"
         else:
-            # No citations and no evidence available - add a note instead
             references_section = "\n\n<hr>\n\n<h2>References</h2>\n\n<p><em>This article is based on general knowledge and industry best practices. No specific sources were cited as no evidence sources were available during generation.</em></p>\n"
-        
+
         # Add references to both content versions
         if references_section:
             logger.info(f"Finalization debug - Adding References section ({len(references_section)} chars)")
@@ -6277,7 +6490,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         # (focus_keyword already extracted above for SEO title truncation)
         breadcrumb_title = _generate_breadcrumb_title(title)
         articleText = _extract_plain_text(full_content)
-        htmlArticle = full_content
+        htmlArticle = html_content_with_citations if include_in_text_citations else full_content
         external_links_suggested = _extract_external_links(citations)
         
         # Calculate scores
@@ -6402,6 +6615,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             'html_content': full_content,  # For compatibility with Noodl
             'html_content_in_text_citations': html_content_with_citations,  # With clickable citations
             'citations': citations,
+            'citations_count': citations_count,
             'sections': content.get('sections', []),
             'target_audience': structure.get('target_audience') or research_data.get('target_audience', ''),
             # SEO fields for Titles table

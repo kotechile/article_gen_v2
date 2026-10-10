@@ -40,10 +40,6 @@ def _install_task_import_stubs():
             get_tone_specific_instructions=lambda tone: str(tone or ""),
         ),
     )
-    sys.modules.setdefault(
-        "citation_generator",
-        SimpleNamespace(create_citation_generator=lambda *args, **kwargs: None, CitationStyle=types.SimpleNamespace()),
-    )
     sys.modules.setdefault("src.utils.config", SimpleNamespace(get_config=lambda: {}))
 
 
