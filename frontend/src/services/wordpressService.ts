@@ -1154,11 +1154,29 @@ export const getImportedPosts = async (userId: string, limit: number = 500): Pro
 };
 
 /**
- * Sync posts from all configured WordPress sites with full SEO metadata.
+ * Sync available articles from frontend sitemaps (giniloh.com, wellroost.com, aichieve.net)
+ * and any configured WordPress sites with full SEO metadata.
  */
-export const syncWordPressPosts = async (userId: string, importToTitles: boolean = false): Promise<any> => {
+export const syncWordPressPosts = async (userId: string, importToTitles: boolean = false, domains?: string[]): Promise<any> => {
     return apiClient.post('/wordpress/sync-posts', {
         user_id: userId,
+        import_to_titles: importToTitles,
+        domains: domains
+    });
+};
+
+/**
+ * Dedicated endpoint to sync available articles directly from frontend sitemaps
+ * for giniloh.com, wellroost.com, aichieve.net, and any custom domains.
+ */
+export const syncSitemapArticles = async (
+    userId: string,
+    domains?: string[],
+    importToTitles: boolean = false
+): Promise<any> => {
+    return apiClient.post('/sitemaps/sync-articles', {
+        user_id: userId,
+        domains: domains,
         import_to_titles: importToTitles
     });
 };

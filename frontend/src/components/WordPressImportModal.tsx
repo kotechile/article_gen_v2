@@ -339,14 +339,14 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                         <div>
                             <div className="flex items-center gap-2">
                                 <h2 className="text-lg font-semibold text-foreground">
-                                    Import from WordPress
+                                    Available Articles
                                 </h2>
                                 <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 text-xs font-medium text-indigo-400">
-                                    <Sparkles className="h-3 w-3" /> Live Reader & Editor
+                                    <Sparkles className="h-3 w-3" /> Live Sitemaps & Sources
                                 </span>
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                                Select any article from your WordPress site to read, load its media and links, and edit it.
+                                Select any article synced from frontend sitemaps (giniloh.com, wellroost.com, aichieve.net) to load, edit, or reference.
                             </p>
                         </div>
                     </div>
@@ -363,7 +363,7 @@ export const WordPressImportModal: React.FC<WordPressImportModalProps> = ({
                     <div className="flex items-center justify-between px-6 py-2 bg-indigo-500/10 border-b border-indigo-500/20 text-xs text-indigo-400 animate-pulse">
                         <div className="flex items-center gap-2">
                             <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                            <span>Reading all articles, statuses, and dates from your WordPress site...</span>
+                            <span>Reading available articles from frontend sitemaps (giniloh.com, wellroost.com, aichieve.net)...</span>
                         </div>
                     </div>
                 )}

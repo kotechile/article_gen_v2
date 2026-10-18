@@ -206,8 +206,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             const result = await response.json();
             setSyncResult({ count: result.total_synced, message: result.details });
 
-            // Clear success message after 5 seconds
-            setTimeout(() => setSyncResult(null), 5000);
+            // Refresh imported posts list immediately
+            fetchImportedPosts();
+
+            // Clear success message after 6 seconds
+            setTimeout(() => setSyncResult(null), 6000);
         } catch (error) {
             console.error('Error syncing posts:', error);
             setSyncResult({ count: 0, message: 'Sync failed. Check console for details.' });
@@ -232,7 +235,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                     : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                                     }`}
                             >
-                                WordPress Sites
+                                Sites & Sitemaps
                             </button>
                             <button
                                 onClick={() => setActiveTab('posts')}
@@ -241,30 +244,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                     : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                                     }`}
                             >
-                                Imported Posts
+                                Available Articles
                             </button>
                         </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                        {activeTab === 'settings' && (
-                            <>
-                                {syncResult && (
-                                    <span className={`text-sm font-medium ${syncResult.message.includes('failed') ? 'text-red-500' : 'text-green-500'}`}>
-                                        {syncResult.message} {syncResult.count > 0 && `(${syncResult.count} posts)`}
-                                    </span>
-                                )}
-                                <button
-                                    onClick={handleSync}
-                                    disabled={isSyncing || sites.length === 0}
-                                    className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 rounded-lg transition-colors disabled:opacity-50"
-                                    title="Sync posts from all sites"
-                                >
-                                    <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                                    {isSyncing ? 'Syncing...' : 'Sync Posts'}
-                                </button>
-                            </>
+                        {syncResult && (
+                            <span className={`text-xs font-medium max-w-xs truncate ${syncResult.message.includes('failed') ? 'text-red-500' : 'text-green-500'}`} title={syncResult.message}>
+                                {syncResult.message}
+                            </span>
                         )}
+                        <button
+                            onClick={handleSync}
+                            disabled={isSyncing}
+                            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 rounded-lg transition-colors disabled:opacity-50"
+                            title="Sync available articles from sitemaps (giniloh.com, wellroost.com, aichieve.net)"
+                        >
+                            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                            {isSyncing ? 'Syncing...' : 'Sync Articles'}
+                        </button>
                         <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
                             <X className="w-5 h-5 text-gray-500" />
                         </button>
@@ -274,6 +273,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <div className="flex-1 overflow-y-auto p-6">
                     {activeTab === 'settings' ? (
                         <>
+                            {/* Frontend Sitemaps Auto-Sync Card */}
+                            <div className="mb-6 p-4 rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/50 dark:bg-indigo-950/20">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                                            Frontend Sitemap Sources
+                                        </h3>
+                                    </div>
+                                    <span className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-100/60 dark:bg-indigo-900/40 px-2 py-0.5 rounded-full">
+                                        Active Auto-Sync
+                                    </span>
+                                </div>
+                                <p className="text-xs text-gray-600 dark:text-gray-300 mb-3">
+                                    Articles are automatically read and synced from each site&apos;s frontend sitemap for internal linking, research fit, and editing.
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                    {['giniloh.com', 'wellroost.com', 'aichieve.net'].map(d => (
+                                        <div key={d} className="flex items-center gap-2 p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                                            <Globe className="w-4 h-4 text-indigo-500 shrink-0" />
+                                            <div className="min-w-0">
+                                                <div className="text-xs font-medium text-gray-900 dark:text-white truncate">{d}</div>
+                                                <div className="text-[10px] text-gray-400 truncate">sitemap source</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                             {loading ? (
                                 <div className="flex justify-center p-8">
                                     <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />

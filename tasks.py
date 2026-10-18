@@ -2871,6 +2871,15 @@ def process_research_task(self, research_data: Dict[str, Any]) -> Dict[str, Any]
                         research_data['content_outline'] = content_outline
                     else:
                         logger.info(f"No content_outline found in DB for article {article_id}")
+
+                    # Automatically ensure available articles are synced from frontend sitemaps in background
+                    target_user_id = title_row.get('user_id') or research_data.get('user_id')
+                    if target_user_id:
+                        try:
+                            from src.services.sitemap_article_sync_service import ensure_sitemap_articles_synced
+                            ensure_sitemap_articles_synced(user_id=str(target_user_id), background=True)
+                        except Exception as sitemap_sync_err:
+                            logger.debug("Could not trigger background sitemap sync during article generation: %s", sitemap_sync_err)
                     writer_notes = title_row.get('writer_notes')
                     if writer_notes:
                         research_data['writer_notes'] = writer_notes

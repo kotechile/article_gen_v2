@@ -81,6 +81,19 @@ class ResearchInternalLinkFitService(ResearchRebuildBaseService):
             order_by={"created_at": "desc"},
             limit=1000,
         )
+        if not rows:
+            try:
+                from src.services.sitemap_article_sync_service import sync_sitemap_articles
+                sync_sitemap_articles(user_id=str(user_id))
+                rows = await self.supabase_service.get_by_filters(
+                    "wordpress_imported_posts",
+                    filters={},
+                    user_id=UUID(str(user_id)),
+                    order_by={"created_at": "desc"},
+                    limit=1000,
+                )
+            except Exception as sync_err:
+                logger.debug("Failed auto-sync in research_internal_link_fit_service: %s", sync_err)
         keyword_seed = " ".join(
             [
                 str(candidate.get("candidate_text") or ""),

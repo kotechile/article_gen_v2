@@ -717,7 +717,7 @@ def _build_titles_payload_from_imported_post(user_id: str, site_id: Any, domain:
     hook = extracted.get("hook") or ""
     thesis = extracted.get("thesis") or ""
     excerpt = extracted.get("excerpt") or extracted.get("seo_description") or ""
-    deck = extracted.get("deck") or excerpt or ""
+    deck = extracted.get("deck") or extracted.get("seo_description") or excerpt or ""
 
     idea_meta = {
         "imported_from": "editorial_factory_wordpress",
@@ -769,6 +769,7 @@ def _build_titles_payload_from_imported_post(user_id: str, site_id: Any, domain:
         "seo_optimization_score": int(round(float(extracted.get("seo_optimization_score") or extracted.get("seo_score") or 75))),
         "readability_score": float(extracted.get("readability_score") or 75.0),
         "featuredImageURL": extracted.get("featured_image_url") or None,
+        "featuredImageUrl": extracted.get("featured_image_url") or None,
         "ImageAuthor": domain or None,
         "mediaAltText": extracted.get("featured_image_alt") or None,
         "mediaTitle": extracted.get("featured_image_title") or None,
@@ -894,6 +895,28 @@ def get_imported_wordpress_posts():
                 .execute()
 
         posts = resp.data or []
+
+        # If no imported posts exist, automatically sync from frontend sitemaps
+        if not posts:
+            try:
+                from src.services.sitemap_article_sync_service import sync_sitemap_articles
+                sync_sitemap_articles(user_id=user_id, supabase=supabase)
+                try:
+                    resp = supabase.table("wordpress_imported_posts") \
+                        .select("*") \
+                        .eq("user_id", user_id) \
+                        .order("created_at", desc=True) \
+                        .limit(limit) \
+                        .execute()
+                except Exception:
+                    resp = supabase.table("wordpress_imported_posts") \
+                        .select("*") \
+                        .eq("user_id", user_id) \
+                        .limit(limit) \
+                        .execute()
+                posts = resp.data or []
+            except Exception as auto_sync_err:
+                logger.warning(f"Could not auto-sync sitemap posts in get_imported_wordpress_posts: {auto_sync_err}")
 
         # Correlate with Titles table to ensure titles_record_id is always up to date
         existing_titles_map = {}
@@ -1067,29 +1090,35 @@ def sync_wordpress_posts():
             site_map[d] = merged
 
         sites = [s for s in site_map.values() if s.get("wordpress_key") and s.get("wpUserName")]
-        
-        if not sites:
-            return jsonify({
-                'total_synced': 0,
-                'details': "No WordPress sites with complete credentials found (requires Domain, WP Username, and WordPress Application Password in Projects settings).",
-                'logs': ["No sites with credentials found"]
-            }), 200
 
         debug_logs = []
-        debug_logs.append(f"Found {len(sites)} sites to sync")
-        
-        # Clear all existing imported posts for this user to avoid stale/orphaned posts
-        try:
-            supabase.table("wordpress_imported_posts").delete().eq("user_id", user_id).execute()
-            debug_logs.append("Cleared old imported posts for user to ensure clean sync")
-        except Exception as clear_err:
-            logger.warning(f"Failed to clear old posts: {clear_err}")
-            debug_logs.append(f"Warning: Could not clear old posts: {str(clear_err)}")
 
-        total_posts_saved = 0
-        titles_created_count = 0
-        
-        # 2. Iterate each site
+        # 1. First, automatically sync available articles from frontend sitemaps (giniloh.com, wellroost.com, aichieve.net)
+        from src.services.sitemap_article_sync_service import sync_sitemap_articles, DEFAULT_SITEMAP_DOMAINS
+        custom_domains = data.get('domains') or request.args.getlist('domains') or None
+        sitemap_res = sync_sitemap_articles(
+            user_id=user_id,
+            domains=custom_domains,
+            import_to_titles=import_to_titles,
+            supabase=supabase,
+        )
+        total_posts_saved = sitemap_res.get("total_synced", 0)
+        titles_created_count = sitemap_res.get("titles_created", 0)
+        debug_logs.extend(sitemap_res.get("logs") or [])
+
+        if not sites:
+            synced_sites_str = ", ".join(sitemap_res.get("by_site", {}).keys()) or ", ".join(DEFAULT_SITEMAP_DOMAINS)
+            return jsonify({
+                'total_synced': total_posts_saved,
+                'titles_created': titles_created_count,
+                'by_site': sitemap_res.get('by_site', {}),
+                'details': f"Sync completed. Saved {total_posts_saved} articles from frontend sitemaps ({synced_sites_str}).",
+                'logs': debug_logs
+            }), 200
+
+        debug_logs.append(f"Found {len(sites)} WordPress sites with credentials to also sync")
+
+        # 2. Iterate each WordPress site if credentials exist
         for i, site in enumerate(sites):
             domain = site.get('domain')
             api_domain = (site.get('cms') or site.get('cms_url') or domain or "").strip()
@@ -1233,6 +1262,56 @@ def sync_wordpress_posts():
 
     except Exception as e:
         logger.error(f"Sync error: {str(e)}")
+        return jsonify({'error': str(e), 'logs': [str(e)]}), 500
+
+
+@wordpress_bp.route('/api/sitemaps/sources', methods=['GET'])
+def get_sitemap_sources():
+    """Return default and configured sitemap sources for available articles."""
+    from src.services.sitemap_article_sync_service import DEFAULT_SITEMAP_DOMAINS
+    return jsonify({
+        'default_sources': DEFAULT_SITEMAP_DOMAINS,
+        'sources': DEFAULT_SITEMAP_DOMAINS,
+    }), 200
+
+
+@wordpress_bp.route('/api/sitemaps/sync-articles', methods=['POST'])
+def sync_sitemap_articles_endpoint():
+    """
+    Dedicated endpoint to automatically sync available articles from frontend sitemaps
+    (giniloh.com, welroost.com/wellroost.com, aichieve.net, and project domains).
+    """
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        user_id = request.args.get('user_id')
+        import_to_titles = request.args.get('import_to_titles', '').lower() in ('true', '1')
+
+        data = request.get_json(silent=True) or {}
+        if not user_id:
+            user_id = data.get('user_id')
+        if 'import_to_titles' in data:
+            import_to_titles = bool(data.get('import_to_titles'))
+
+        if not user_id:
+            return jsonify({'error': 'Missing user_id'}), 400
+
+        custom_domains = data.get('domains') or request.args.getlist('domains') or None
+
+        from src.services.sitemap_article_sync_service import sync_sitemap_articles
+        result = sync_sitemap_articles(
+            user_id=user_id,
+            domains=custom_domains,
+            import_to_titles=import_to_titles,
+            supabase=supabase,
+        )
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"Sitemap sync endpoint error: {str(e)}")
         return jsonify({'error': str(e), 'logs': [str(e)]}), 500
 
 

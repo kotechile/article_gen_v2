@@ -33,6 +33,16 @@ def suggest_internal_links():
         supabase = get_supabase_client()
         response = supabase.table("wordpress_imported_posts").select("id, title, link").eq("user_id", user_id).execute()
         posts = response.data
+
+        # If no articles found, automatically sync available articles from frontend sitemaps
+        if not posts:
+            try:
+                from src.services.sitemap_article_sync_service import sync_sitemap_articles
+                sync_sitemap_articles(user_id=user_id, supabase=supabase)
+                response = supabase.table("wordpress_imported_posts").select("id, title, link").eq("user_id", user_id).execute()
+                posts = response.data
+            except Exception as auto_sync_err:
+                logger.warning("Automatic sitemap sync failed during internal-links suggest: %s", auto_sync_err)
         
         if not posts:
              return jsonify({'matches': []}), 200
