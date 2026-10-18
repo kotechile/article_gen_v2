@@ -84,6 +84,30 @@ def list_articles():
         }), 500
 
 
+@editorial_factory_bp.route("/verticals", methods=["GET"])
+def list_verticals():
+    """
+    List verticals from Editorial Factory Verticals table.
+    Query parameters:
+    - domain: optional domain filter to sort matching site verticals first
+    """
+    try:
+        domain = request.args.get("domain", "").strip() or None
+        verticals = editorial_factory_service.get_verticals(domain=domain)
+        return jsonify({
+            "success": True,
+            "verticals": verticals,
+            "count": len(verticals)
+        }), 200
+    except Exception as err:
+        logger.error(f"[EditorialFactory] Error listing verticals: {err}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(err),
+            "verticals": []
+        }), 500
+
+
 @editorial_factory_bp.route("/import", methods=["POST"])
 def import_article():
     """

@@ -31,11 +31,21 @@ export interface WordPressCategory {
     parent?: number;
 }
 
+export interface WordPressVertical {
+    id: string;
+    name: string;
+    slug: string;
+    site_domain?: string;
+    wp_category_id?: number;
+    active?: boolean;
+}
+
 export interface WordPressPublishSettings {
     siteId: number;
     postStatus: 'draft' | 'publish' | 'future';
     scheduledDate?: Date;
     categoryIds: number[];
+    verticalTag?: string;
 }
 
 export interface SEOMetadata {

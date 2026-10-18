@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Loader2, CheckCircle2, AlertCircle, Globe, Calendar, FolderTree, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { X, Loader2, CheckCircle2, AlertCircle, Globe, Calendar, FolderTree, ShieldCheck, AlertTriangle, Tag } from 'lucide-react';
 import {
     fetchWordPressSites,
     fetchWordPressCategories,
+    fetchWordPressVerticals,
     publishToWordPress,
     saveWordPressSettings,
     loadWordPressSettings,
     resolveLinkedWordPressCategoryIds
 } from '../services/wordpressService';
-import type { WordPressSite, WordPressCategory } from '../types/wordpress';
+import type { WordPressSite, WordPressCategory, WordPressVertical } from '../types/wordpress';
 import { computeSEOQualityScore } from '../utils/seoUtils';
 
 interface WordPressExportModalProps {
@@ -29,7 +30,9 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
     // State management
     const [sites, setSites] = useState<WordPressSite[]>([]);
     const [categories, setCategories] = useState<WordPressCategory[]>([]);
+    const [verticals, setVerticals] = useState<WordPressVertical[]>([]);
     const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
+    const [selectedVerticalTag, setSelectedVerticalTag] = useState<string>('');
     const [postStatus, setPostStatus] = useState<'draft' | 'publish' | 'future'>('draft');
     const [scheduledDate, setScheduledDate] = useState<string>('');
     const [scheduledTime, setScheduledTime] = useState<string>('12:00');
@@ -38,11 +41,13 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
     // Loading states
     const [loadingSites, setLoadingSites] = useState(true);
     const [loadingCategories, setLoadingCategories] = useState(false);
+    const [loadingVerticals, setLoadingVerticals] = useState(false);
     const [publishing, setPublishing] = useState(false);
 
     // Error state
     const [error, setError] = useState<string | null>(null);
     const [autoCategoryHint, setAutoCategoryHint] = useState<string | null>(null);
+    const [autoVerticalHint, setAutoVerticalHint] = useState<string | null>(null);
     const [loopbackBanner, setLoopbackBanner] = useState<{
         type: 'success' | 'warning';
         message: string;
@@ -58,6 +63,80 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
     const isImportedFromWP = useMemo(() => {
         return Boolean(existingWpPostId || articleData?.idea_metadata?.imported_from === 'editorial_factory_wordpress' || articleData?.idea_metadata?.imported_from === 'wordpress');
     }, [existingWpPostId, articleData]);
+
+    const selectedSite = useMemo(() => sites.find(s => s.id === selectedSiteId), [sites, selectedSiteId]);
+
+    const groupedVerticals = useMemo(() => {
+        if (!selectedSite?.domain) {
+            return { siteMatches: [], otherVerticals: verticals };
+        }
+        const cleanSiteDomain = selectedSite.domain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+        const siteMatches = verticals.filter(v => v.site_domain && cleanSiteDomain.includes(v.site_domain.toLowerCase()));
+        const otherVerticals = verticals.filter(v => !siteMatches.some(sm => sm.id === v.id));
+        return { siteMatches, otherVerticals };
+    }, [verticals, selectedSite]);
+
+    // Load verticals when site changes or on mount
+    useEffect(() => {
+        let isMounted = true;
+        const loadVerticals = async () => {
+            try {
+                setLoadingVerticals(true);
+                const fetchedVerticals = await fetchWordPressVerticals(selectedSite?.domain);
+                if (!isMounted) return;
+                setVerticals(fetchedVerticals);
+
+                const savedSettings = await loadWordPressSettings(articleId);
+                const articleVertical = (
+                    articleData?.vertical ||
+                    articleData?.vertical_id ||
+                    articleData?.idea_metadata?.vertical ||
+                    articleData?.idea_metadata?.vertical_id ||
+                    articleData?.tags?.[0]
+                );
+
+                setSelectedVerticalTag(current => {
+                    if (current && fetchedVerticals.some(v => v.id === current)) {
+                        if (selectedSite?.domain) {
+                            const cleanSiteDomain = selectedSite.domain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+                            const currentV = fetchedVerticals.find(v => v.id === current);
+                            if (currentV?.site_domain && cleanSiteDomain.includes(currentV.site_domain.toLowerCase())) {
+                                return current;
+                            }
+                        } else {
+                            return current;
+                        }
+                    }
+                    if (savedSettings?.verticalTag && fetchedVerticals.some(v => v.id === savedSettings.verticalTag)) {
+                        setAutoVerticalHint('Using previously saved vertical tag.');
+                        return savedSettings.verticalTag;
+                    }
+                    if (articleVertical && fetchedVerticals.some(v => v.id === articleVertical)) {
+                        setAutoVerticalHint(`Auto-detected from article metadata: ${articleVertical}`);
+                        return articleVertical;
+                    }
+                    if (selectedSite?.domain) {
+                        const cleanSiteDomain = selectedSite.domain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+                        const siteMatch = fetchedVerticals.find(v => v.site_domain && cleanSiteDomain.includes(v.site_domain.toLowerCase()));
+                        if (siteMatch) {
+                            setAutoVerticalHint(`Auto-selected vertical for ${selectedSite.domain}: ${siteMatch.name}`);
+                            return siteMatch.id;
+                        }
+                    }
+                    return current || '';
+                });
+            } catch (err) {
+                console.error('Failed to load verticals:', err);
+            } finally {
+                if (isMounted) setLoadingVerticals(false);
+            }
+        };
+
+        loadVerticals();
+        return () => {
+            isMounted = false;
+        };
+    }, [selectedSite?.domain, articleId, articleData]);
 
     // Load WordPress sites on mount
     useEffect(() => {
@@ -175,9 +254,24 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
         });
     };
 
+    // Handle vertical tag selection
+    const handleVerticalChange = (verticalId: string) => {
+        setSelectedVerticalTag(verticalId);
+        setAutoVerticalHint(null);
+        if (verticalId) {
+            const v = verticals.find(item => item.id === verticalId);
+            if (v?.wp_category_id && categories.some(c => c.id === v.wp_category_id)) {
+                if (!selectedCategoryIds.includes(v.wp_category_id)) {
+                    setSelectedCategoryIds(prev => Array.from(new Set([v.wp_category_id!, ...prev])));
+                }
+            }
+        }
+    };
+
     // Check if form is valid
     const isFormValid = () => {
         if (!selectedSiteId) return false;
+        if (!selectedVerticalTag) return false;
         if (selectedCategoryIds.length === 0) return false;
         if (postStatus === 'future' && !scheduledDate) return false;
         return true;
@@ -210,6 +304,7 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                     postStatus,
                     scheduledDate: scheduledDateTime,
                     categoryIds: selectedCategoryIds,
+                    verticalTag: selectedVerticalTag,
                     featuredImageUrl:
                         articleData.featuredImageUrl ||
                         articleData.featuredImageURL ||
@@ -240,7 +335,8 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
             await saveWordPressSettings(articleId, {
                 siteId: selectedSiteId!, // Non-null assertion safe here since form validation checks this
                 postStatus,
-                categoryId: selectedCategoryIds[0]
+                categoryId: selectedCategoryIds[0],
+                verticalTag: selectedVerticalTag
             });
 
             const loopbackSummary = result.loopback_summary;
@@ -441,6 +537,54 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                             </div>
                         </div>
                     )}
+
+                    {/* Vertical Tag Selection */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                            <Tag className="w-4 h-4 text-indigo-500" />
+                            Vertical Tag * (required)
+                        </label>
+                        {autoVerticalHint && (
+                            <p className="text-xs text-indigo-600 dark:text-indigo-300 mb-2">
+                                {autoVerticalHint}
+                            </p>
+                        )}
+                        {loadingVerticals ? (
+                            <div className="flex items-center justify-center py-4">
+                                <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                                <span className="ml-2 text-sm text-gray-500">Loading verticals...</span>
+                            </div>
+                        ) : (
+                            <select
+                                value={selectedVerticalTag}
+                                onChange={(e) => handleVerticalChange(e.target.value)}
+                                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            >
+                                <option value="">Select a vertical tag...</option>
+                                {groupedVerticals.siteMatches.length > 0 && (
+                                    <optgroup label={`Recommended for ${selectedSite?.domain || 'this site'}`}>
+                                        {groupedVerticals.siteMatches.map(v => (
+                                            <option key={v.id} value={v.id}>
+                                                {v.name} ({v.id})
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                                {groupedVerticals.otherVerticals.length > 0 && (
+                                    <optgroup label={groupedVerticals.siteMatches.length > 0 ? "Other Verticals" : "All Verticals"}>
+                                        {groupedVerticals.otherVerticals.map(v => (
+                                            <option key={v.id} value={v.id}>
+                                                {v.name} ({v.id}){v.site_domain ? ` — ${v.site_domain}` : ''}
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                            </select>
+                        )}
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            This tag organizes content by industry vertical and synchronizes with WordPress tags and editorial tracking.
+                        </p>
+                    </div>
 
                     {/* Category Selection */}
                     <div>

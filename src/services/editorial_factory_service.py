@@ -206,6 +206,41 @@ def clean_smart_brevity_takeaway(text: str) -> Optional[str]:
     return None
 
 
+CURATED_VERTICALS: List[Dict[str, Any]] = [
+    {"vertical_id": "career_velocity_equity_engineering", "label": "Career Velocity Equity Engineering", "site_domain": "giniloh.com", "wp_category_id": 8, "active": True},
+    {"vertical_id": "expat_cross_border_relocation", "label": "Expat Cross Border Relocation", "site_domain": "giniloh.com", "wp_category_id": 4, "active": True},
+    {"vertical_id": "personal_microeconomics_tinkering_tax", "label": "Personal Microeconomics Tinkering Tax", "site_domain": "giniloh.com", "wp_category_id": 4, "active": True},
+    {"vertical_id": "home_equity_tco", "label": "Home Equity TCO", "site_domain": "wellroost.com", "wp_category_id": 4, "active": True},
+    {"vertical_id": "home_infrastructure_lifecycle_tco", "label": "Home Infrastructure Lifecycle TCO", "site_domain": "wellroost.com", "wp_category_id": 4, "active": True},
+    {"vertical_id": "resilient_home_assets", "label": "Resilient Home Assets", "site_domain": "wellroost.com", "wp_category_id": 4, "active": True},
+    {"vertical_id": "smart_home_telemetry", "label": "Smart Home Telemetry", "site_domain": "wellroost.com", "wp_category_id": 5, "active": True},
+    {"vertical_id": "home_ops_execution", "label": "Home Ops Execution", "site_domain": "wellroost.com", "wp_category_id": 3, "active": True},
+    {"vertical_id": "agentic_ai", "label": "Agentic AI", "site_domain": "aichieve.net", "wp_category_id": 9, "active": True},
+    {"vertical_id": "agentic_resilience_failure", "label": "Agentic Resilience Failure", "site_domain": "aichieve.net", "wp_category_id": 9, "active": True},
+    {"vertical_id": "multi_agent_enterprise_fabric", "label": "Multi Agent Enterprise Fabric", "site_domain": "aichieve.net", "wp_category_id": 9, "active": True},
+    {"vertical_id": "enterprise_ai_finops", "label": "Enterprise AI Finops", "site_domain": "aichieve.net", "wp_category_id": 7, "active": True},
+    {"vertical_id": "enterprise_build_vs_buy", "label": "Enterprise Build vs Buy", "site_domain": "aichieve.net", "wp_category_id": 7, "active": True},
+    {"vertical_id": "ai_observability_qa", "label": "AI Observability QA", "site_domain": "aichieve.net", "wp_category_id": 7, "active": True},
+    {"vertical_id": "nhil_infrastructure_ops", "label": "NHIL Infrastructure Ops", "site_domain": "aichieve.net", "wp_category_id": 7, "active": True},
+    {"vertical_id": "gpu_hardware", "label": "GPU Hardware", "site_domain": "aichieve.net", "wp_category_id": 2, "active": True},
+    {"vertical_id": "workstation_compute_economics", "label": "Workstation Compute Economics", "site_domain": "aichieve.net", "wp_category_id": 2, "active": True},
+    {"vertical_id": "enterprise_ai_governance", "label": "Enterprise AI Governance", "site_domain": "aichieve.net", "wp_category_id": 3, "active": True},
+    {"vertical_id": "enterprise_tech_leadership", "label": "Enterprise Tech Leadership", "site_domain": "aichieve.net", "wp_category_id": 3, "active": True},
+    {"vertical_id": "control_tower_exception_orchestration", "label": "Control Tower Exception Orchestration", "site_domain": "aichieve.net", "wp_category_id": 10, "active": True},
+    {"vertical_id": "demand_sensing_advanced_sop", "label": "Demand Sensing Advanced SOP", "site_domain": "aichieve.net", "wp_category_id": 10, "active": True},
+    {"vertical_id": "last_mile_routing_fleet_carbon", "label": "Last Mile Routing Fleet Carbon", "site_domain": "aichieve.net", "wp_category_id": 10, "active": True},
+    {"vertical_id": "meio_working_capital_tco", "label": "MEIO Working Capital TCO", "site_domain": "aichieve.net", "wp_category_id": 10, "active": True},
+    {"vertical_id": "supplier_risk_reshoring_decision", "label": "Supplier Risk Reshoring Decision", "site_domain": "aichieve.net", "wp_category_id": 10, "active": True},
+    {"vertical_id": "supply_chain", "label": "Supply Chain", "site_domain": "aichieve.net", "wp_category_id": 10, "active": True},
+    {"vertical_id": "warehouse_automation_robotics_capex", "label": "Warehouse Automation Robotics CAPEX", "site_domain": "aichieve.net", "wp_category_id": 10, "active": True},
+    {"vertical_id": "giniloh_product_guides", "label": "Giniloh Product Guides", "site_domain": "giniloh.com", "wp_category_id": 4, "active": True},
+    {"vertical_id": "consumer_cost_per_use", "label": "Consumer Cost Per Use", "site_domain": "giniloh.com", "wp_category_id": 2, "active": True},
+    {"vertical_id": "personal_investing", "label": "Personal Investing", "site_domain": "giniloh.com", "wp_category_id": 4, "active": True},
+    {"vertical_id": "personal_compute_hardware", "label": "Personal Compute Hardware", "site_domain": "giniloh.com", "wp_category_id": 2, "active": True},
+    {"vertical_id": "pro_app_notes", "label": "Pro App Notes", "site_domain": "aichieve.net", "wp_category_id": 11, "active": True},
+]
+
+
 class EditorialFactoryService:
     """Service to interact with the Editorial Factory Supabase database."""
 
@@ -376,6 +411,82 @@ class EditorialFactoryService:
                 normalized.append(norm)
 
         return normalized
+
+    def get_verticals(self, domain: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Fetch the list of verticals from Supabase (Verticals / vertical_sites / editorial_verticals).
+        Falls back to curated verticals if database query fails or tables are empty.
+        """
+        client = self.get_client()
+        raw_verticals: List[Dict[str, Any]] = []
+
+        # Attempt to query tables in order of preference
+        for table_name in ["Verticals", "verticals", "vertical_sites", "editorial_verticals"]:
+            if client:
+                try:
+                    res = client.table(table_name).select("*").execute()
+                    if res.data and len(res.data) > 0:
+                        raw_verticals = res.data
+                        logger.info(f"[EditorialFactoryService] Fetched {len(raw_verticals)} verticals from {table_name}")
+                        break
+                except Exception as err:
+                    logger.debug(f"[EditorialFactoryService] Query on {table_name} failed: {err}")
+
+            # Direct REST fallback
+            if not raw_verticals and self.supabase_url and self.supabase_key:
+                try:
+                    endpoint = f"{self.supabase_url}/rest/v1/{table_name}"
+                    headers = {
+                        "apikey": self.supabase_key,
+                        "Authorization": f"Bearer {self.supabase_key}",
+                        "Content-Type": "application/json",
+                    }
+                    resp = requests.get(endpoint, headers=headers, params={"select": "*"}, timeout=10)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if isinstance(data, list) and len(data) > 0:
+                            raw_verticals = data
+                            logger.info(f"[EditorialFactoryService] Fetched {len(raw_verticals)} verticals via REST from {table_name}")
+                            break
+                except Exception as req_err:
+                    logger.debug(f"[EditorialFactoryService] Direct REST on {table_name} failed: {req_err}")
+
+        if not raw_verticals:
+            logger.info("[EditorialFactoryService] Using curated verticals list")
+            raw_verticals = CURATED_VERTICALS
+
+        results: List[Dict[str, Any]] = []
+        seen_ids = set()
+
+        for item in raw_verticals:
+            v_id = str(item.get("vertical_id") or item.get("id") or item.get("slug") or "").strip()
+            if not v_id or v_id in seen_ids:
+                continue
+            seen_ids.add(v_id)
+
+            label = str(item.get("label") or item.get("name") or v_id.replace("_", " ").title()).strip()
+            site_domain = item.get("site_domain") or item.get("domain") or None
+            wp_cat_id = item.get("wp_category_id")
+
+            results.append({
+                "id": v_id,
+                "name": label,
+                "slug": v_id,
+                "site_domain": site_domain,
+                "wp_category_id": int(wp_cat_id) if wp_cat_id is not None else None,
+                "active": item.get("active", item.get("is_active", True)),
+            })
+
+        if domain:
+            norm_domain = domain.lower().replace("https://", "").replace("http://", "").split("/")[0].strip()
+            results.sort(
+                key=lambda v: (
+                    0 if (v.get("site_domain") or "").lower() == norm_domain else 1,
+                    v.get("name", "")
+                )
+            )
+
+        return results
 
     def get_article(self, article_id: str) -> Optional[Dict[str, Any]]:
         """Fetch a single article by ID from Editorial Factory."""

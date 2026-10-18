@@ -860,6 +860,31 @@ def _insert_with_schema_fallback(supabase, table_name: str, records: list[dict],
     return success_all
 
 
+@wordpress_bp.route('/api/wordpress/verticals', methods=['GET'])
+def get_wordpress_verticals():
+    """
+    Fetch the list of WordPress verticals from Supabase Verticals / vertical_sites.
+    Query params:
+      domain (optional): target domain to prioritize (e.g. aichieve.net, giniloh.com)
+    """
+    try:
+        from src.services.editorial_factory_service import editorial_factory_service
+        domain = request.args.get('domain', '').strip() or None
+        verticals = editorial_factory_service.get_verticals(domain=domain)
+        return jsonify({
+            'success': True,
+            'verticals': verticals,
+            'count': len(verticals)
+        }), 200
+    except Exception as e:
+        logger.error(f"Error fetching WordPress verticals: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'verticals': []
+        }), 500
+
+
 @wordpress_bp.route('/api/wordpress/imported-posts', methods=['GET'])
 def get_imported_wordpress_posts():
     """

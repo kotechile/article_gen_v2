@@ -4,6 +4,7 @@ import { materializeInfographicHtml, beautifyTablesHtml } from '../lib/infograph
 import type {
     WordPressSite,
     WordPressCategory,
+    WordPressVertical,
     WordPressPostData,
     WordPressApiResponse,
     WordPressMediaResponse,
@@ -221,6 +222,160 @@ export const fetchWordPressCategories = async (
     } catch (error) {
         console.error('Error fetching WordPress categories:', error);
         throw new Error('Failed to load categories from WordPress');
+    }
+};
+
+/**
+ * Curated list of verified verticals from Supabase Verticals/vertical_sites table
+ */
+export const CURATED_VERTICALS: WordPressVertical[] = [
+    { id: "career_velocity_equity_engineering", name: "Career Velocity Equity Engineering", slug: "career_velocity_equity_engineering", site_domain: "giniloh.com", wp_category_id: 8, active: true },
+    { id: "expat_cross_border_relocation", name: "Expat Cross Border Relocation", slug: "expat_cross_border_relocation", site_domain: "giniloh.com", wp_category_id: 4, active: true },
+    { id: "personal_microeconomics_tinkering_tax", name: "Personal Microeconomics Tinkering Tax", slug: "personal_microeconomics_tinkering_tax", site_domain: "giniloh.com", wp_category_id: 4, active: true },
+    { id: "home_equity_tco", name: "Home Equity TCO", slug: "home_equity_tco", site_domain: "wellroost.com", wp_category_id: 4, active: true },
+    { id: "home_infrastructure_lifecycle_tco", name: "Home Infrastructure Lifecycle TCO", slug: "home_infrastructure_lifecycle_tco", site_domain: "wellroost.com", wp_category_id: 4, active: true },
+    { id: "resilient_home_assets", name: "Resilient Home Assets", slug: "resilient_home_assets", site_domain: "wellroost.com", wp_category_id: 4, active: true },
+    { id: "smart_home_telemetry", name: "Smart Home Telemetry", slug: "smart_home_telemetry", site_domain: "wellroost.com", wp_category_id: 5, active: true },
+    { id: "home_ops_execution", name: "Home Ops Execution", slug: "home_ops_execution", site_domain: "wellroost.com", wp_category_id: 3, active: true },
+    { id: "agentic_ai", name: "Agentic AI", slug: "agentic_ai", site_domain: "aichieve.net", wp_category_id: 9, active: true },
+    { id: "agentic_resilience_failure", name: "Agentic Resilience Failure", slug: "agentic_resilience_failure", site_domain: "aichieve.net", wp_category_id: 9, active: true },
+    { id: "multi_agent_enterprise_fabric", name: "Multi Agent Enterprise Fabric", slug: "multi_agent_enterprise_fabric", site_domain: "aichieve.net", wp_category_id: 9, active: true },
+    { id: "enterprise_ai_finops", name: "Enterprise AI Finops", slug: "enterprise_ai_finops", site_domain: "aichieve.net", wp_category_id: 7, active: true },
+    { id: "enterprise_build_vs_buy", name: "Enterprise Build vs Buy", slug: "enterprise_build_vs_buy", site_domain: "aichieve.net", wp_category_id: 7, active: true },
+    { id: "ai_observability_qa", name: "AI Observability QA", slug: "ai_observability_qa", site_domain: "aichieve.net", wp_category_id: 7, active: true },
+    { id: "nhil_infrastructure_ops", name: "NHIL Infrastructure Ops", slug: "nhil_infrastructure_ops", site_domain: "aichieve.net", wp_category_id: 7, active: true },
+    { id: "gpu_hardware", name: "GPU Hardware", slug: "gpu_hardware", site_domain: "aichieve.net", wp_category_id: 2, active: true },
+    { id: "workstation_compute_economics", name: "Workstation Compute Economics", slug: "workstation_compute_economics", site_domain: "aichieve.net", wp_category_id: 2, active: true },
+    { id: "enterprise_ai_governance", name: "Enterprise AI Governance", slug: "enterprise_ai_governance", site_domain: "aichieve.net", wp_category_id: 3, active: true },
+    { id: "enterprise_tech_leadership", name: "Enterprise Tech Leadership", slug: "enterprise_tech_leadership", site_domain: "aichieve.net", wp_category_id: 3, active: true },
+    { id: "control_tower_exception_orchestration", name: "Control Tower Exception Orchestration", slug: "control_tower_exception_orchestration", site_domain: "aichieve.net", wp_category_id: 10, active: true },
+    { id: "demand_sensing_advanced_sop", name: "Demand Sensing Advanced SOP", slug: "demand_sensing_advanced_sop", site_domain: "aichieve.net", wp_category_id: 10, active: true },
+    { id: "last_mile_routing_fleet_carbon", name: "Last Mile Routing Fleet Carbon", slug: "last_mile_routing_fleet_carbon", site_domain: "aichieve.net", wp_category_id: 10, active: true },
+    { id: "meio_working_capital_tco", name: "MEIO Working Capital TCO", slug: "meio_working_capital_tco", site_domain: "meio_working_capital_tco", wp_category_id: 10, active: true },
+    { id: "supplier_risk_reshoring_decision", name: "Supplier Risk Reshoring Decision", slug: "supplier_risk_reshoring_decision", site_domain: "aichieve.net", wp_category_id: 10, active: true },
+    { id: "supply_chain", name: "Supply Chain", slug: "supply_chain", site_domain: "aichieve.net", wp_category_id: 10, active: true },
+    { id: "warehouse_automation_robotics_capex", name: "Warehouse Automation Robotics CAPEX", slug: "warehouse_automation_robotics_capex", site_domain: "aichieve.net", wp_category_id: 10, active: true },
+    { id: "giniloh_product_guides", name: "Giniloh Product Guides", slug: "giniloh_product_guides", site_domain: "giniloh.com", wp_category_id: 4, active: true },
+    { id: "consumer_cost_per_use", name: "Consumer Cost Per Use", slug: "consumer_cost_per_use", site_domain: "giniloh.com", wp_category_id: 2, active: true },
+    { id: "personal_investing", name: "Personal Investing", slug: "personal_investing", site_domain: "giniloh.com", wp_category_id: 4, active: true },
+    { id: "personal_compute_hardware", name: "Personal Compute Hardware", slug: "personal_compute_hardware", site_domain: "giniloh.com", wp_category_id: 2, active: true },
+    { id: "pro_app_notes", name: "Pro App Notes", slug: "pro_app_notes", site_domain: "aichieve.net", wp_category_id: 11, active: true },
+];
+
+/**
+ * Fetch the list of WordPress verticals from backend API (Supabase Verticals table),
+ * falling back to curated list if network or database is unavailable.
+ */
+export const fetchWordPressVerticals = async (domain?: string): Promise<WordPressVertical[]> => {
+    try {
+        const query = domain ? `?domain=${encodeURIComponent(domain)}` : '';
+        const res = await apiClient.get<{ success: boolean; verticals: WordPressVertical[] }>(`/wordpress/verticals${query}`);
+        if (res && res.success && Array.isArray(res.verticals) && res.verticals.length > 0) {
+            return res.verticals;
+        }
+    } catch (err) {
+        console.warn('[WordPressService] Could not load verticals from API, using curated fallback:', err);
+    }
+
+    const list = [...CURATED_VERTICALS];
+    if (domain) {
+        const norm = domain.toLowerCase().replace(/^https?:\/\//, '').split('/')[0].trim();
+        list.sort((a, b) => {
+            const aMatch = (a.site_domain || '').toLowerCase() === norm ? 0 : 1;
+            const bMatch = (b.site_domain || '').toLowerCase() === norm ? 0 : 1;
+            if (aMatch !== bMatch) return aMatch - bMatch;
+            return a.name.localeCompare(b.name);
+        });
+    }
+    return list;
+};
+
+/**
+ * Ensures a tag exists on the target WordPress site.
+ * Searches for existing tag by slug or name, and creates it if missing.
+ * Returns the numeric tag ID, or null if creation failed.
+ */
+export const ensureWordPressTag = async (
+    site: WordPressSite,
+    tagNameOrSlug: string
+): Promise<number | null> => {
+    const rawTag = String(tagNameOrSlug || '').trim();
+    if (!rawTag) return null;
+
+    const apiBaseUrl = getWordPressApiBaseUrl(site);
+    const credentials = btoa(`${site.wpUserName}:${site.wordpress_key}`);
+    const normalizedSlug = rawTag.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+
+    try {
+        // 1. Search for existing tag by slug
+        const searchSlugUrl = `${apiBaseUrl}/wp-json/wp/v2/tags?slug=${encodeURIComponent(normalizedSlug)}`;
+        const slugRes = await fetch(searchSlugUrl, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Basic ${credentials}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (slugRes.ok) {
+            const matches = await slugRes.json();
+            if (Array.isArray(matches) && matches.length > 0) {
+                return matches[0].id;
+            }
+        }
+
+        // 2. Search by name
+        const searchNameUrl = `${apiBaseUrl}/wp-json/wp/v2/tags?search=${encodeURIComponent(rawTag)}`;
+        const nameRes = await fetch(searchNameUrl, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Basic ${credentials}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (nameRes.ok) {
+            const matches = await nameRes.json();
+            if (Array.isArray(matches) && matches.length > 0) {
+                const exactMatch = matches.find(
+                    (m: any) =>
+                        String(m.name || '').toLowerCase() === rawTag.toLowerCase() ||
+                        String(m.slug || '').toLowerCase() === normalizedSlug.toLowerCase()
+                );
+                if (exactMatch) return exactMatch.id;
+            }
+        }
+
+        // 3. Create tag if not found
+        const createUrl = `${apiBaseUrl}/wp-json/wp/v2/tags`;
+        const createRes = await fetch(createUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Basic ${credentials}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: rawTag,
+                slug: normalizedSlug
+            })
+        });
+
+        if (createRes.ok) {
+            const created = await createRes.json();
+            return created.id;
+        }
+
+        // Handle WordPress term_exists response
+        const errData = await createRes.json().catch(() => null);
+        if (errData?.data?.term_id) {
+            return Number(errData.data.term_id);
+        }
+
+        console.warn(`[WordPressService] Could not create tag "${rawTag}":`, errData);
+        return null;
+    } catch (err) {
+        console.warn(`[WordPressService] Error resolving WordPress tag "${rawTag}":`, err);
+        return null;
     }
 };
 
@@ -731,6 +886,7 @@ export const publishToWordPress = async (
         postStatus: 'draft' | 'publish' | 'future';
         scheduledDate?: Date;
         categoryIds: number[];
+        verticalTag?: string;
         featuredImageUrl?: string;
         featuredImageMetadata?: { alt?: string; title?: string; caption?: string };
     },
@@ -783,6 +939,36 @@ export const publishToWordPress = async (
         console.log(`Generated slug: '${slug}' (max len: ${maxSlugLength}) for domain: ${site.domain}`);
         const resolvedMetadata = resolveSocialMetadata(site, articleData, seoData, slug);
 
+        // Resolve vertical tag
+        const tagIds: number[] = [];
+        const verticalTagToAttach = (
+            settings.verticalTag ||
+            articleData.vertical ||
+            articleData.idea_metadata?.vertical ||
+            articleData.idea_metadata?.vertical_id ||
+            ''
+        ).trim();
+
+        if (verticalTagToAttach) {
+            const verticalTagId = await ensureWordPressTag(site, verticalTagToAttach);
+            if (verticalTagId) {
+                tagIds.push(verticalTagId);
+            } else {
+                publishWarnings.push(
+                    `Vertical tag "${verticalTagToAttach}" could not be created or resolved on WordPress.`
+                );
+            }
+        }
+
+        // Include any existing numeric tag IDs from articleData
+        if (Array.isArray(articleData.tags)) {
+            for (const t of articleData.tags) {
+                if (typeof t === 'number' && !tagIds.includes(t)) {
+                    tagIds.push(t);
+                }
+            }
+        }
+
         const postData: WordPressPostData = {
             title: articleData.Title || articleData.title || '',
             slug: slug,
@@ -790,6 +976,7 @@ export const publishToWordPress = async (
             status: settings.postStatus,
             excerpt: articleData.excerpt || articleData.deck || articleData.hook || articleData.Hook || '',
             categories: settings.categoryIds,
+            ...(tagIds.length > 0 ? { tags: tagIds } : {}),
             meta: buildSEOMetadata(site, articleData, seoData, slug, settings.categoryIds[0])
         };
 
@@ -869,6 +1056,8 @@ export const publishToWordPress = async (
                 thesis: articleData.thesis || undefined,
                 deck: articleData.deck || undefined,
                 excerpt: articleData.excerpt || undefined,
+                vertical: verticalTagToAttach || undefined,
+                last_wp_vertical_tag: verticalTagToAttach || undefined,
                 Wordpress_post_Id: String(result.id),
                 seo_title_optimized: currentTitle || optimizedTitle || null,
                 metaTitle: currentTitle || optimizedTitle || null,
@@ -964,19 +1153,29 @@ export const saveWordPressSettings = async (
         siteId: number;
         postStatus: string;
         categoryId?: number;
+        verticalTag?: string;
     }
 ): Promise<void> => {
     try {
-        const { error } = await supabase
+        const payload: Record<string, any> = {
+            last_wp_site_id: settings.siteId,
+            last_wp_post_status: settings.postStatus,
+            last_wp_category_id: settings.categoryId || null
+        };
+        if (settings.verticalTag) {
+            payload.last_wp_vertical_tag = settings.verticalTag;
+            payload.vertical = settings.verticalTag;
+        }
+
+        let { error } = await supabase
             .from('Titles')
-            .update({
-                last_wp_site_id: settings.siteId,
-                last_wp_post_status: settings.postStatus,
-                last_wp_category_id: settings.categoryId || null
-            })
+            .update(payload)
             .eq('id', titleId);
 
-        if (error) throw error;
+        if (error && String(error.message || '').includes('last_wp_vertical_tag')) {
+            delete payload.last_wp_vertical_tag;
+            await supabase.from('Titles').update(payload).eq('id', titleId);
+        }
     } catch (error) {
         console.error('Error saving WordPress settings:', error);
         // Non-critical error, don't throw
@@ -988,11 +1187,11 @@ export const saveWordPressSettings = async (
  */
 export const loadWordPressSettings = async (
     titleId: string
-): Promise<{ siteId?: number; postStatus?: string; categoryId?: number } | null> => {
+): Promise<{ siteId?: number; postStatus?: string; categoryId?: number; verticalTag?: string } | null> => {
     try {
         const { data, error } = await supabase
             .from('Titles')
-            .select('last_wp_site_id, last_wp_post_status, last_wp_category_id')
+            .select('last_wp_site_id, last_wp_post_status, last_wp_category_id, vertical')
             .eq('id', titleId)
             .single();
 
@@ -1001,7 +1200,8 @@ export const loadWordPressSettings = async (
         return {
             siteId: data?.last_wp_site_id,
             postStatus: data?.last_wp_post_status,
-            categoryId: data?.last_wp_category_id
+            categoryId: data?.last_wp_category_id,
+            verticalTag: (data as any)?.last_wp_vertical_tag || data?.vertical
         };
     } catch (error) {
         console.error('Error loading WordPress settings:', error);

@@ -360,3 +360,46 @@ def test_import_article_generates_and_stores_excerpt(service):
         assert call_args["excerpt"] == meta_synth["excerpt"]
         assert call_args["wp_excerpt_auto_generated"] == meta_synth["excerpt"]
         assert call_args["idea_metadata"]["excerpt"] == meta_synth["excerpt"]
+
+
+def test_get_verticals_returns_from_supabase(service):
+    mock_client = MagicMock()
+    mock_query = MagicMock()
+    mock_query.execute.return_value = MagicMock(data=[
+        {
+            "vertical_id": "test_vertical",
+            "site_domain": "aichieve.net",
+            "wp_category_id": 5,
+            "created_at": "2026-01-01T00:00:00Z"
+        }
+    ])
+    mock_client.table.return_value.select.return_value = mock_query
+
+    with patch.object(service, "get_client", return_value=mock_client):
+        verticals = service.get_verticals()
+        assert len(verticals) >= 1
+        test_v = next((v for v in verticals if v["id"] == "test_vertical"), None)
+        assert test_v is not None
+        assert test_v["name"] == "Test Vertical"
+        assert test_v["site_domain"] == "aichieve.net"
+        assert test_v["wp_category_id"] == 5
+
+
+def test_get_verticals_fallback_on_failure(service):
+    from src.services.editorial_factory_service import CURATED_VERTICALS
+    with patch.object(service, "get_client", return_value=None):
+        verticals = service.get_verticals()
+        assert len(verticals) == len(CURATED_VERTICALS)
+        assert any(v["id"] == "agentic_ai" for v in verticals)
+
+
+def test_get_verticals_domain_sorting(service):
+    with patch.object(service, "get_client", return_value=None):
+        verticals = service.get_verticals(domain="giniloh.com")
+        assert len(verticals) > 0
+        # Verticals matching giniloh.com should appear first
+        matching = [v for v in verticals if v["site_domain"] == "giniloh.com"]
+        non_matching = [v for v in verticals if v["site_domain"] != "giniloh.com"]
+        assert len(matching) > 0
+        assert verticals[:len(matching)] == matching
+

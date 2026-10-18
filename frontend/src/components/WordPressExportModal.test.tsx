@@ -16,6 +16,7 @@ import { computeSEOQualityScore } from '../utils/seoUtils';
 vi.mock('../services/wordpressService', () => ({
     fetchWordPressSites: vi.fn(),
     fetchWordPressCategories: vi.fn(),
+    fetchWordPressVerticals: vi.fn(),
     publishToWordPress: vi.fn(),
     saveWordPressSettings: vi.fn(),
     loadWordPressSettings: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('../services/wordpressService', () => ({
 import {
     fetchWordPressSites,
     fetchWordPressCategories,
+    fetchWordPressVerticals,
     publishToWordPress,
     saveWordPressSettings,
     loadWordPressSettings,
@@ -33,6 +35,7 @@ import {
 
 const fetchWordPressSitesMock = vi.mocked(fetchWordPressSites);
 const fetchWordPressCategoriesMock = vi.mocked(fetchWordPressCategories);
+const fetchWordPressVerticalsMock = vi.mocked(fetchWordPressVerticals);
 const publishToWordPressMock = vi.mocked(publishToWordPress);
 const saveWordPressSettingsMock = vi.mocked(saveWordPressSettings);
 const loadWordPressSettingsMock = vi.mocked(loadWordPressSettings);
@@ -75,10 +78,15 @@ describe('WordPressExportModal loopback banner', () => {
         fetchWordPressCategoriesMock.mockResolvedValue([
             { id: 10, name: 'Category A', slug: 'category-a' } as any,
         ]);
+        fetchWordPressVerticalsMock.mockResolvedValue([
+            { id: 'agentic_ai', name: 'Agentic AI', site_domain: 'example.com', wp_category_id: 10 },
+            { id: 'gpu_hardware', name: 'GPU Hardware', site_domain: 'other.com', wp_category_id: 20 },
+        ]);
         loadWordPressSettingsMock.mockResolvedValue({
             siteId: 1,
             categoryId: 10,
             postStatus: 'publish',
+            verticalTag: 'agentic_ai',
         } as any);
         resolveLinkedWordPressCategoryIdsMock.mockResolvedValue([]);
         saveWordPressSettingsMock.mockResolvedValue(undefined);
@@ -264,6 +272,59 @@ describe('WordPressExportModal loopback banner', () => {
                 }),
                 expect.anything()
             )
+        );
+    });
+
+    it('requires a vertical tag to enable publishing', async () => {
+        loadWordPressSettingsMock.mockResolvedValue({
+            siteId: 1,
+            categoryId: 10,
+            postStatus: 'publish',
+        } as any);
+        fetchWordPressVerticalsMock.mockResolvedValue([]);
+
+        mountModal();
+
+        await waitFor(() =>
+            expect(screen.getByRole('button', { name: /publish to wordpress/i })).toBeDisabled()
+        );
+    });
+
+    it('passes selected vertical tag to publishToWordPress and saveWordPressSettings', async () => {
+        publishToWordPressMock.mockResolvedValue({
+            link: 'https://example.com/post',
+            loopback_summary: {
+                success: true,
+                attemptedFields: ['status'],
+                savedFields: ['status'],
+                removedFields: [],
+            },
+        } as any);
+
+        mountModal();
+
+        await waitFor(() =>
+            expect(screen.getByRole('button', { name: /publish to wordpress/i })).toBeEnabled()
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: /publish to wordpress/i }));
+
+        await waitFor(() =>
+            expect(publishToWordPressMock).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.anything(),
+                expect.objectContaining({
+                    verticalTag: 'agentic_ai',
+                }),
+                expect.anything()
+            )
+        );
+
+        expect(saveWordPressSettingsMock).toHaveBeenCalledWith(
+            'article-123',
+            expect.objectContaining({
+                verticalTag: 'agentic_ai',
+            })
         );
     });
 });
