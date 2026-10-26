@@ -10,6 +10,8 @@ from typing import Optional, List
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
+from .broker import normalize_broker_url
+
 # Load environment variables
 load_dotenv()
 
@@ -78,8 +80,19 @@ class Config:
     SOURCE_STRATEGY_REFACTOR_ENABLED: bool = os.environ.get('SOURCE_STRATEGY_REFACTOR_ENABLED', 'false').lower() == 'true'
     
     # Celery configuration
-    CELERY_BROKER_URL: str = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
-    CELERY_RESULT_BACKEND: str = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
+    # REDIS_URL is the deploy-side variable (docker-compose/Coolify); honour it here too,
+    # and fold a standalone REDIS_PASSWORD into the URL. Omitting the password is what
+    # turns a healthy broker into "HELLO must be called with the client already authenticated".
+    CELERY_BROKER_URL: str = normalize_broker_url(
+        os.environ.get('CELERY_BROKER_URL') or os.environ.get('REDIS_URL'),
+        os.environ.get('REDIS_PASSWORD'),
+    )
+    CELERY_RESULT_BACKEND: str = normalize_broker_url(
+        os.environ.get('CELERY_RESULT_BACKEND')
+        or os.environ.get('CELERY_BROKER_URL')
+        or os.environ.get('REDIS_URL'),
+        os.environ.get('REDIS_PASSWORD'),
+    )
     CELERY_TASK_TIME_LIMIT: int = int(os.environ.get('CELERY_TASK_TIME_LIMIT', '3600'))  # 1 hour
     CELERY_TASK_SOFT_TIME_LIMIT: int = int(os.environ.get('CELERY_TASK_SOFT_TIME_LIMIT', '3300'))  # 55 minutes
     CELERY_WORKER_PREFETCH_MULTIPLIER: int = int(os.environ.get('CELERY_WORKER_PREFETCH_MULTIPLIER', '1'))

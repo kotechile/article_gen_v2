@@ -18,9 +18,9 @@ services:
       - SUPABASE_ANON_KEY
 
       # Redis / Celery
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://broker:6379/0
+      - CELERY_BROKER_URL=redis://broker:6379/0
+      - CELERY_RESULT_BACKEND=redis://broker:6379/0
 
       # External APIs
       # API Keys are now loaded from Supabase
@@ -38,7 +38,7 @@ services:
     # ports:
     #   - "5001:5001"
     depends_on:
-      - redis
+      - broker
     volumes:
       - uploads_data:/app/_remotion/public/uploads
 
@@ -61,9 +61,9 @@ services:
       - SUPABASE_ANON_KEY
 
       # Redis
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://broker:6379/0
+      - CELERY_BROKER_URL=redis://broker:6379/0
+      - CELERY_RESULT_BACKEND=redis://broker:6379/0
 
       # External APIs
       - RAG_API_URL
@@ -74,7 +74,7 @@ services:
 
     depends_on:
       - backend
-      - redis
+      - broker
 
   frontend:
     build:
@@ -96,13 +96,27 @@ services:
     depends_on:
       - backend
 
-  redis:
-    image: redis:alpine
+  # The service name is deliberately NOT "redis".
+  # Coolify attaches every compose service to its own shared `coolify` network, and
+  # Coolify's own cache container already answers to the hostname `redis` there.
+  # With two containers behind that name, DNS returns both addresses and whichever
+  # answers first wins: connections that land on Coolify's password-protected cache
+  # fail with "HELLO must be called with the client already authenticated" (the
+  # Celery worker then retries forever and never consumes a task). A hostname nobody
+  # else uses makes the broker unambiguous.
+  broker:
+    image: redis:7-alpine
     restart: always
     # ports:
     #   - "6379:6379"
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   render_service:
     build: ./screen_capture_html_css

@@ -14,6 +14,7 @@ import redis
 from celery import Celery
 
 from ..utils.config import get_config
+from .broker import check_broker, mask_credentials
 
 
 logger = logging.getLogger(__name__)
@@ -28,59 +29,84 @@ class HealthChecker:
         self._celery_app = None
     
     def check_redis(self) -> Dict[str, Any]:
-        """Check Redis connectivity."""
+        """Check Redis connectivity, address by address.
+
+        A hostname can legitimately resolve to more than one container (e.g. a
+        compose service named ``redis`` beside Coolify's own cache), in which case
+        some connections work and others are rejected. Reporting per-address makes
+        that visible from the outside instead of surfacing as a random 500.
+        """
         try:
-            if not self._redis_client:
-                self._redis_client = redis.Redis.from_url(self.config.CELERY_BROKER_URL)
-            
-            # Test connection
-            self._redis_client.ping()
-            
-            # Get Redis info
-            info = self._redis_client.info()
-            
+            report = check_broker(self.config.CELERY_BROKER_URL, timeout=1.5)
+        except Exception as e:  # noqa: BLE001 - health checks never raise
+            logger.error(f"Redis health check failed: {str(e)}")
+            return {"status": "unhealthy", "error": str(e)}
+
+        if report.get("status") == "healthy" and not report.get("suspect_alias_collision"):
+            healthy = [a for a in report.get("addresses", []) if a.get("status") == "healthy"]
             return {
                 "status": "healthy",
-                "host": info.get("redis_version", "unknown"),
-                "uptime": info.get("uptime_in_seconds", 0),
-                "memory_used": info.get("used_memory_human", "unknown"),
-                "connected_clients": info.get("connected_clients", 0)
+                "broker": report.get("url"),
+                "host": report.get("host"),
+                "version": healthy[0].get("version") if healthy else None,
+                "addresses": report.get("addresses", []),
             }
-            
-        except Exception as e:
-            logger.error(f"Redis health check failed: {str(e)}")
-            return {
-                "status": "unhealthy",
-                "error": str(e)
-            }
-    
+
+        logger.error(
+            "Redis health check failed for %s: %s",
+            report.get("url"),
+            report.get("hint") or report.get("error"),
+        )
+        return {
+            "status": "unhealthy",
+            "broker": report.get("url"),
+            "host": report.get("host"),
+            "error": report.get("error") or (report.get("hint") or "broker unreachable"),
+            "hint": report.get("hint"),
+            "addresses": report.get("addresses", []),
+            "suspect_alias_collision": report.get("suspect_alias_collision", False),
+        }
+
     def check_celery(self) -> Dict[str, Any]:
-        """Check Celery worker status."""
+        """Check Celery worker status.
+
+        ``Control`` has no ``stats()`` (that lives on ``Inspect``), so ask for an
+        inspector first and use it for both the ping and the stats.
+        """
         try:
             if not self._celery_app:
                 from ..tasks.celery_app import celery_app
                 self._celery_app = celery_app
-            
-            # Get worker stats
-            stats = self._celery_app.control.stats()
-            
-            if not stats:
+
+            broker = mask_credentials(getattr(self._celery_app.conf, "broker_url", None))
+            inspector = self._celery_app.control.inspect(timeout=1.0)
+            pings = (inspector.ping() if inspector else None) or {}
+
+            if not pings:
                 return {
                     "status": "unhealthy",
-                    "error": "No Celery workers found"
+                    "broker": broker,
+                    "error": "No Celery workers responded on the broker (worker down, "
+                             "or the worker cannot reach the broker - check its logs for "
+                             "'Cannot connect to redis://...')",
                 }
-            
-            # Calculate total stats
-            total_workers = len(stats)
-            total_tasks = sum(worker.get('total', 0) for worker in stats.values())
-            
+
+            stats = (inspector.stats() if inspector else None) or {}
+            active_tasks = 0
+            reserved_tasks = 0
+            for worker_stats in stats.values():
+                active_tasks += len(worker_stats.get("active") or [])
+                reserved_tasks += len(worker_stats.get("reserved") or [])
+
             return {
                 "status": "healthy",
-                "workers": total_workers,
-                "total_tasks": total_tasks,
-                "active_tasks": sum(worker.get('active', 0) for worker in stats.values())
+                "broker": broker,
+                "workers": len(pings),
+                "worker_names": list(pings.keys()),
+                "active_tasks": active_tasks,
+                "reserved_tasks": reserved_tasks,
             }
-            
+
         except Exception as e:
             logger.error(f"Celery health check failed: {str(e)}")
             return {

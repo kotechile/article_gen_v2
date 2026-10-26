@@ -5,13 +5,31 @@ This module configures Celery for asynchronous task processing.
 """
 
 import os
+import logging
 from celery import Celery
 from kombu import Queue
 
-# Get configuration from environment
+from src.utils.broker import generic_host_warning, mask_credentials, normalize_broker_url
+
+logger = logging.getLogger(__name__)
+
+# Get configuration from environment.
+# REDIS_PASSWORD is folded into the URL: a password configured separately but never
+# applied surfaces as "HELLO must be called with the client already authenticated".
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
-CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', REDIS_URL)
-CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', REDIS_URL)
+CELERY_BROKER_URL = normalize_broker_url(
+    os.environ.get('CELERY_BROKER_URL') or REDIS_URL,
+    os.environ.get('REDIS_PASSWORD'),
+)
+CELERY_RESULT_BACKEND = normalize_broker_url(
+    os.environ.get('CELERY_RESULT_BACKEND') or os.environ.get('CELERY_BROKER_URL') or REDIS_URL,
+    os.environ.get('REDIS_PASSWORD'),
+)
+
+logger.info("Celery broker: %s", mask_credentials(CELERY_BROKER_URL))
+_broker_warning = generic_host_warning(CELERY_BROKER_URL)
+if _broker_warning:
+    logger.warning("Celery broker configuration: %s", _broker_warning)
 
 # Create Celery app
 celery = Celery('content_generator_v2')
@@ -21,6 +39,10 @@ celery.conf.update(
     # Broker and backend
     broker_url=CELERY_BROKER_URL,
     result_backend=CELERY_RESULT_BACKEND,
+    # Keep trying to reach the broker on boot instead of dying in a crash loop when
+    # the broker container starts a few seconds after us.
+    broker_connection_retry_on_startup=True,
+    broker_connection_max_retries=10,
     
     # Serialization
     task_serializer='json',

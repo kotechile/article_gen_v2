@@ -27,6 +27,11 @@ from ...core.models.errors import (
 )
 from ...api.middleware.auth import require_api_key
 from ...api.schemas.research import ResearchRequestSchema, ResearchResponseSchema
+from ...utils.broker import (
+    broker_failure_hint,
+    classify_broker_error,
+    mask_credentials,
+)
 from llm_client import create_llm_client
 from supabase_client import (
     LLM_ROLE_ARTICLE_GENERATION,
@@ -647,7 +652,29 @@ def create_research_task():
         model = task_data.get('model')
 
         # Create research task
-        task = process_research_task.delay(task_data)
+        try:
+            task = process_research_task.delay(task_data)
+        except Exception as broker_exc:  # noqa: BLE001 - re-raised unless it is a broker fault
+            broker_kind = classify_broker_error(broker_exc)
+            if broker_kind not in ("authentication", "connection"):
+                raise
+            broker_url = getattr(celery.conf, "broker_url", None)
+            hint = broker_failure_hint(broker_exc, broker_url)
+            logger.error(
+                "Cannot enqueue research task: broker %s unreachable (%s). %s",
+                mask_credentials(broker_url),
+                type(broker_exc).__name__,
+                hint,
+            )
+            return jsonify(ErrorResponse(
+                error="task_queue_unavailable",
+                message=(
+                    "The research queue is unavailable, so the task could not be created. "
+                    f"{hint}"
+                ),
+                error_code="TASK_QUEUE_UNAVAILABLE",
+                status=503
+            ).dict()), 503
         
         # Calculate estimated completion time
         depth_multipliers = {
