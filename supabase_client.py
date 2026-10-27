@@ -258,7 +258,14 @@ def _fetch_llm_provider_rows(client: Client) -> list[dict]:
             if rows:
                 return rows
         except Exception as exc:
-            logger.warning("LLM provider query attempt failed: %s (%s)", label, exc)
+            # These are schema probes, not failures: an older deployment without
+            # llm_providers.used_for is expected to fail the first attempt. Logging
+            # it as a warning on every LLM call buried real configuration errors.
+            logger.debug("LLM provider query attempt failed: %s (%s)", label, exc)
+    logger.warning(
+        "LLM provider lookup fell back to raw SQL: none of the PostgREST shapes matched "
+        "(the schema may have drifted)."
+    )
     rows = _fetch_rows_via_postgres(
         """
         SELECT
@@ -455,6 +462,7 @@ def resolve_llm_provider(
     selected: Optional[dict] = None
     selected_source = "default"
     resolved_key: Optional[str] = None
+    skipped_without_key: list[str] = []
     for row, source in ordered_candidates:
         key_value = _fetch_api_key_value_by_id(client, row.get('api_keys_id'))
         if key_value:
@@ -462,6 +470,31 @@ def resolve_llm_provider(
             selected_source = source
             resolved_key = key_value
             break
+        skipped_without_key.append(
+            f"{row.get('provider')}/{row.get('model_name')} (role_source={source}, "
+            f"is_active={row.get('is_active')}, api_keys_id={row.get('api_keys_id')})"
+        )
+
+    # A role whose configured model has no API key used to degrade silently to
+    # whatever came next - in production that meant the final-review pass ran on
+    # an inactive flash model reserved for research topic generation, and the
+    # only trace was source="default". Say it out loud instead.
+    resolution_warning: Optional[str] = None
+    if skipped_without_key and selected_source != "explicit":
+        resolution_warning = (
+            "Configured model(s) skipped because their api_keys row has no key_value: "
+            + "; ".join(skipped_without_key)
+            + f". Falling back to {selected.get('provider') if selected else None}/"
+            f"{selected.get('model_name') if selected else None} (source={selected_source})."
+        )
+        if selected_source == "default" and effective_role:
+            logger.error(
+                "LLM role '%s' resolved to a fallback model. %s",
+                effective_role,
+                resolution_warning,
+            )
+        else:
+            logger.warning("LLM resolution: %s", resolution_warning)
 
     if not selected:
         selected = ordered_candidates[0][0] if ordered_candidates else None
@@ -488,6 +521,7 @@ def resolve_llm_provider(
         "used_for": selected.get('used_for', []),
         "is_default": bool(selected.get('is_default')),
         "source": selected_source,
+        "resolution_warning": resolution_warning,
     }
 
 
