@@ -292,6 +292,7 @@ class ArticleStructureGenerator:
         try:
             from src.services.viral_title_engine import ViralTitleEngine
             engine = ViralTitleEngine(llm_client=self.llm_client)
+            focus_keyword = str(keywords or "").split(",")[0].strip()
             result = engine.generate_and_review_title(
                 brief=brief,
                 keywords=keywords,
@@ -299,15 +300,25 @@ class ArticleStructureGenerator:
                 tone=tone,
                 draft_title=draft_title,
                 target_audience=target_audience,
+                focus_keyword=focus_keyword,
             )
             title = result.get("title") or draft_title
             core_promise = result.get("core_promise", f"Key insights into {title}")
             viral_metadata = result
 
+            evaluation = result.get("evaluation") or {}
             self.logger.info(
                 f"Generated and reviewed viral title: '{title}' "
-                f"(Words: {ViralTitleEngine.count_words(title)}, Trigger: {result.get('trigger_type')})"
+                f"(Words: {ViralTitleEngine.count_words(title)}, Trigger: {result.get('trigger_type')}, "
+                f"Keyword: {evaluation.get('keyword_status')} for '{focus_keyword}')"
             )
+            if evaluation.get("keyword_status") == "missing":
+                self.logger.warning(
+                    "Title could not carry the focus keyword '%s' within %s chars: '%s'",
+                    focus_keyword,
+                    len(title),
+                    title,
+                )
             if return_metadata:
                 return title, core_promise, viral_metadata
             return title

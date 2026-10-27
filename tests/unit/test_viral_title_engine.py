@@ -79,10 +79,18 @@ class TestViralTitleEngine(unittest.TestCase):
             target_audience="Founders",
         )
 
-        self.assertEqual(result["title"], "Why Fast Growth Kills Startups")
+        # The focus keyword is now mandatory: "startup growth" is absent from the
+        # selected title, so it is prepended and the hook is kept.
+        self.assertIn("startup growth", result["title"].lower())
+        self.assertIn("Why Fast Growth Kills Startups", result["title"])
+        self.assertTrue(result["keyword_insertion"]["changed"])
+        self.assertEqual(result["evaluation"]["keyword_status"], "exact")
         self.assertEqual(result["trigger_type"], "curiosity_gap")
         self.assertEqual(result["core_promise"], "Unpack the cash-flow crunch behind rapid scaling")
-        self.assertTrue(result["evaluation"]["under_6_words"])
+        # A keyword-carrying title is allowed to run past 6 words; SERP length is
+        # the hard limit now, not the word count.
+        self.assertLessEqual(len(result["title"]), 60)
+        self.assertLessEqual(result["evaluation"]["word_count"], 9)
         self.assertGreaterEqual(result["evaluation"]["score"], 60)
 
     def test_first_paragraph_alignment_zero_bait_and_switch(self):

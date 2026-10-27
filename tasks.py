@@ -723,16 +723,40 @@ def _extract_focus_keyword(keywords: str) -> str:
 
 
 def _truncate_seo_title(title: str, max_length: int = 60, focus_keyword: str = "") -> str:
-    title = (title or "").strip()
+    """Fit the SEO title to SERP length, with the focus keyword in front.
+
+    The keyword is the reason the page exists in search, so it survives
+    truncation and leads the tag. A short title that simply lacks the keyword is
+    not left alone either - that used to pass straight through because the
+    length check came first.
+    """
+    title = re.sub(r"\s+", " ", (title or "").strip())
+    keyword = re.sub(r"\s+", " ", (focus_keyword or "").strip())
+
+    if keyword:
+        try:
+            from src.services.viral_title_engine import ViralTitleEngine
+
+            has_keyword = ViralTitleEngine.keyword_status(title, keyword)["status"] in ("exact", "partial")
+        except Exception:  # never let the SEO nicety break a build
+            has_keyword = keyword.lower() in title.lower()
+
+        if not has_keyword:
+            display = keyword[:1].upper() + keyword[1:]
+            prefix = f"{display}: "
+            if len(prefix) + len(title) <= max_length:
+                return f"{prefix}{title}"
+            # Keep the keyword, trim the rest to fit.
+            remaining = max_length - len(prefix) - 1
+            if remaining > 8:
+                trimmed = title[:remaining].rsplit(" ", 1)[0].rstrip(" -:;,.")
+                if trimmed:
+                    return f"{prefix}{trimmed}…"
+            return display[: max_length - 1].rstrip(" -:;,.") + "…"
+
     if len(title) <= max_length:
         return title
-    keyword = (focus_keyword or "").strip()
-    if keyword and len(keyword) < max_length - 6:
-        prefix = f"{keyword}: "
-        remaining = max_length - len(prefix) - 1
-        if remaining > 8:
-            return prefix + title[:remaining].rstrip(" -:;,.") + "…"
-    return title[: max_length - 1].rstrip(" -:;,.") + "…"
+    return title[: max_length - 1].rsplit(" ", 1)[0].rstrip(" -:;,.") + "…"
 
 
 def _ensure_meta_description_length(meta_description: str, max_length: int = 160) -> str:

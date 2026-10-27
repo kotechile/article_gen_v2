@@ -7,8 +7,16 @@ resolver skipped it without a word, fell through to the `is_default` row
 long-form polishing pass ran on a model nobody had chosen for it.
 """
 
+import sys
 import unittest
 from unittest.mock import patch
+
+# Other unit tests stub sys.modules["supabase_client"] with a SimpleNamespace to
+# import tasks.py in isolation. Drop such a stub so this suite always binds the
+# real module, whatever order pytest collects in.
+_stub = sys.modules.get("supabase_client")
+if _stub is not None and not hasattr(_stub, "_fetch_llm_provider_rows"):
+    del sys.modules["supabase_client"]
 
 import supabase_client as sc
 

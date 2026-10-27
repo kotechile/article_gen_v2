@@ -80,6 +80,121 @@ class ViralTitleEngine:
         self.llm_client = llm_client
         self.logger = logging.getLogger(self.__class__.__name__)
 
+    # ------------------------------------------------------------------ #
+    # focus keyword handling
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _normalize_phrase(text: str) -> str:
+        return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+    @classmethod
+    def keyword_status(cls, title: str, keyword: str) -> Dict[str, Any]:
+        """How well a title carries the focus keyword.
+
+        Three levels, because exact-match and "the words are there" are
+        different SEO outcomes:
+
+        * ``exact``   - the phrase appears verbatim ("agentic RAG failures")
+        * ``partial`` - every keyword token appears, but not as a phrase
+        * ``missing`` - at least one keyword token is absent
+        """
+        phrase = cls._normalize_phrase(keyword)
+        title_norm = cls._normalize_phrase(title)
+        if not phrase:
+            return {"status": "not_evaluated", "exact": False, "partial": False, "front_loaded": False}
+
+        if phrase in title_norm:
+            position = title_norm.index(phrase)
+            first_words = " ".join(title_norm.split()[: max(3, len(phrase.split()))])
+            return {
+                "status": "exact",
+                "exact": True,
+                "partial": True,
+                "front_loaded": phrase in first_words,
+                "position": position,
+            }
+
+        phrase_tokens = [t for t in re.findall(r"[a-z0-9]+", phrase) if t]
+        title_tokens = set(re.findall(r"[a-z0-9]+", title_norm))
+        if phrase_tokens and all(token in title_tokens for token in phrase_tokens):
+            return {"status": "partial", "exact": False, "partial": True, "front_loaded": False}
+        return {"status": "missing", "exact": False, "partial": False, "front_loaded": False}
+
+    @classmethod
+    def ensure_keyword_in_title(
+        cls,
+        title: str,
+        keyword: str,
+        *,
+        max_chars: int = 60,
+        max_words: int = 9,
+        target_audience: str = "",
+    ) -> Dict[str, Any]:
+        """Return the title with the focus keyword in it, if it can carry it.
+
+        The keyword earns the title's front position because that is where both
+        readers and search engines weight it. Nothing is invented: the result is
+        the keyword plus as much of the original headline as still fits, with
+        filler words dropped first. When even that cannot fit, the keyword wins
+        and the title is rebuilt around it - a title without the keyword ranks
+        for nothing.
+
+        Returns ``{"title", "changed", "keyword_status", "original", "reason"}``.
+        """
+        original = (title or "").strip()
+        phrase = cls._normalize_phrase(keyword)
+        status = cls.keyword_status(original, phrase)
+        if not phrase:
+            return {"title": original, "changed": False, "keyword_status": "not_evaluated",
+                    "original": original, "reason": "no_keyword"}
+        if status["status"] != "missing":
+            return {"title": original, "changed": False, "keyword_status": status["status"],
+                    "original": original, "reason": "keyword_already_present"}
+
+        display_keyword = re.sub(r"\s+", " ", (keyword or "").strip())
+        display_keyword = display_keyword[:1].upper() + display_keyword[1:] if display_keyword else ""
+
+        # Keep the hook, drop filler, then trim to the remaining budget.
+        tail_words = [
+            w for w in re.findall(r"[A-Za-z0-9][A-Za-z0-9'’\-%/&]*", original)
+            if w.lower() not in {"the", "a", "an", "and", "of", "in", "on", "for", "to", "with", "your"}
+        ]
+        candidates: List[str] = []
+        separators = [": ", " - ", " — "]
+        for separator in separators:
+            budget_chars = max_chars - len(display_keyword) - len(separator)
+            budget_words = max_words - len(display_keyword.split())
+            kept: List[str] = []
+            for word in tail_words:
+                if budget_words <= len(kept):
+                    break
+                if len(" ".join(kept + [word])) > budget_chars:
+                    break
+                kept.append(word)
+            if len(kept) >= 2:
+                candidates.append(f"{display_keyword}{separator}{' '.join(kept)}")
+
+        # The first separator that keeps at least part of the hook wins: a colon
+        # reads as a label, which is what the keyword now is.
+        if candidates:
+            best = candidates[0]
+            return {
+                "title": best,
+                "changed": best != original,
+                "keyword_status": "exact",
+                "original": original,
+                "reason": "keyword_added",
+            }
+
+        best = display_keyword[:max_chars]
+        return {
+            "title": best,
+            "changed": best != original,
+            "keyword_status": "exact",
+            "original": original,
+            "reason": "keyword_only",
+        }
+
     @staticmethod
     def count_words(title: str) -> int:
         """Count clean words in title."""
@@ -95,10 +210,19 @@ class ViralTitleEngine:
         return re.findall(r"\b\d+(?:[\.,]\d+)?%?|\b(?:one|two|three|five|seven)\b", title, re.IGNORECASE)
 
     @classmethod
-    def evaluate_title_heuristics(cls, title: str, target_audience: str = "") -> Dict[str, Any]:
+    def evaluate_title_heuristics(
+        cls,
+        title: str,
+        target_audience: str = "",
+        focus_keyword: str = "",
+    ) -> Dict[str, Any]:
         """
         Evaluate viral headline heuristics.
-        
+
+        ``focus_keyword`` adds the SEO dimension that the clickability score was
+        blind to: a title can be punchy and rank for nothing. Passing it is
+        optional, so existing callers see unchanged scores.
+
         Returns:
             Dictionary containing score (0-100), word count, trigger types, and detailed feedback.
         """
@@ -198,6 +322,19 @@ class ViralTitleEngine:
         if not has_metrics:
             feedback.append("Consider adding a specific number, odd integer, or verifiable metric.")
 
+        # 4. Focus keyword (SEO) - additive, capped with the rest of the score.
+        keyword_info = cls.keyword_status(raw_title, focus_keyword)
+        keyword_pts = 0
+        if keyword_info["status"] == "exact":
+            keyword_pts = 15 if keyword_info.get("front_loaded") else 10
+        elif keyword_info["status"] == "partial":
+            keyword_pts = 5
+        elif keyword_info["status"] == "missing":
+            feedback.append(
+                f'Focus keyword "{focus_keyword}" is missing; the title will not rank for it.'
+            )
+        score = min(100, score + keyword_pts)
+
         return {
             "title": raw_title,
             "score": score,
@@ -208,6 +345,11 @@ class ViralTitleEngine:
             "triggers": triggers,
             "has_metrics": has_metrics,
             "has_audience": has_audience,
+            "focus_keyword": focus_keyword or "",
+            "keyword_status": keyword_info["status"],
+            "keyword_exact": keyword_info.get("exact", False),
+            "keyword_front_loaded": keyword_info.get("front_loaded", False),
+            "keyword_points": keyword_pts,
             "char_count": len(raw_title),
             "feedback": feedback,
         }
@@ -220,22 +362,42 @@ class ViralTitleEngine:
         tone: str = "authoritative",
         draft_title: str = "",
         target_audience: str = "",
+        focus_keyword: str = "",
     ) -> Dict[str, Any]:
         """
         Full Title Generation and In-Generation Review Pipeline:
         1. Generates 4 diverse viral title candidates across psychological angles.
         2. Reviews each candidate against strict 6-word, scannability, fluff, and psychological triggers.
         3. Selects and optimizes the best title, returning the title + core promise for first-paragraph fulfillment.
+
+        The focus keyword is a requirement, not a suggestion: at least one
+        candidate must carry the exact phrase, and the selected title is checked
+        afterwards - if the keyword is absent it is added to the front, because a
+        clickable title that ranks for nothing still earns nothing.
         """
+        effective_keyword = (focus_keyword or "").strip()
+        if not effective_keyword and keywords:
+            effective_keyword = str(keywords).split(",")[0].strip()
+
         if not self.llm_client:
             # Fallback heuristic mode
             candidate = draft_title or brief.split(".")[0][:50]
             candidate_cleaned = self._clean_title_text(candidate)
-            eval_result = self.evaluate_title_heuristics(candidate_cleaned, target_audience)
+            if isinstance(candidate_cleaned, list):
+                candidate_cleaned = " ".join(candidate_cleaned)
+            keyword_result = self.ensure_keyword_in_title(
+                candidate_cleaned, effective_keyword, target_audience=target_audience
+            )
+            candidate_cleaned = keyword_result["title"]
+            eval_result = self.evaluate_title_heuristics(
+                candidate_cleaned, target_audience, focus_keyword=effective_keyword
+            )
             return {
                 "title": candidate_cleaned,
                 "core_promise": f"Actionable breakdown of {candidate_cleaned}",
                 "evaluation": eval_result,
+                "focus_keyword": effective_keyword,
+                "keyword_insertion": keyword_result,
                 "trigger_type": eval_result.get("triggers", ["authority"])[0] if eval_result.get("triggers") else "curiosity_gap",
             }
 
@@ -248,6 +410,7 @@ class ViralTitleEngine:
                 tone=tone,
                 draft_title=draft_title,
                 target_audience=target_audience,
+                focus_keyword=effective_keyword,
             )
 
             # Step 2: In-Generation Review & Selection
@@ -257,25 +420,51 @@ class ViralTitleEngine:
                 keywords=keywords,
                 target_audience=target_audience,
                 tone=tone,
+                focus_keyword=effective_keyword,
             )
 
             final_title = reviewed_result.get("selected_title") or (candidates[0].get("title") if candidates else draft_title)
-            final_title = self._clean_title_text(final_title)
+            final_title = self._clean_title_text(str(final_title or ""))
+            if isinstance(final_title, list):
+                final_title = " ".join(final_title)
             core_promise = reviewed_result.get("core_promise") or f"Direct answer and solution for {final_title}"
 
             # Step 3: Heuristic verification & refinement loop
-            eval_res = self.evaluate_title_heuristics(final_title, target_audience)
-            
+            eval_res = self.evaluate_title_heuristics(
+                final_title, target_audience, focus_keyword=effective_keyword
+            )
+
             # If still over 6 words or over 60 chars, run tight compression pass
             if eval_res["word_count"] > 6 or len(final_title) > 60:
                 compressed = self._compress_to_six_words(final_title, keywords)
                 if compressed and len(compressed) >= 10:
                     final_title = self._clean_title_text(compressed)
-                    eval_res = self.evaluate_title_heuristics(final_title, target_audience)
+                    if isinstance(final_title, list):
+                        final_title = " ".join(final_title)
+                    eval_res = self.evaluate_title_heuristics(
+                        final_title, target_audience, focus_keyword=effective_keyword
+                    )
+
+            # Step 4: Guarantee the keyword is in the published title.
+            keyword_result = self.ensure_keyword_in_title(
+                final_title, effective_keyword, target_audience=target_audience
+            )
+            if keyword_result["changed"]:
+                self.logger.warning(
+                    "Title did not contain the focus keyword '%s'; rebuilt as '%s' (was '%s')",
+                    effective_keyword,
+                    keyword_result["title"],
+                    final_title,
+                )
+                final_title = keyword_result["title"]
+                eval_res = self.evaluate_title_heuristics(
+                    final_title, target_audience, focus_keyword=effective_keyword
+                )
 
             self.logger.info(
                 f"Reviewed viral title: '{final_title}' (Words: {eval_res['word_count']}, "
-                f"Score: {eval_res['score']}, Triggers: {eval_res['triggers']})"
+                f"Score: {eval_res['score']}, Triggers: {eval_res['triggers']}, "
+                f"Keyword: {eval_res.get('keyword_status')})"
             )
 
             return {
@@ -283,6 +472,8 @@ class ViralTitleEngine:
                 "core_promise": core_promise,
                 "trigger_type": reviewed_result.get("trigger_type", "curiosity_gap"),
                 "evaluation": eval_res,
+                "focus_keyword": effective_keyword,
+                "keyword_insertion": keyword_result,
                 "candidates_reviewed": candidates,
             }
 
@@ -291,11 +482,19 @@ class ViralTitleEngine:
             fallback = self._clean_title_text(draft_title or brief.split()[:5])
             if isinstance(fallback, list):
                 fallback = " ".join(fallback)
-            eval_res = self.evaluate_title_heuristics(fallback, target_audience)
+            keyword_result = self.ensure_keyword_in_title(
+                fallback, effective_keyword, target_audience=target_audience
+            )
+            fallback = keyword_result["title"]
+            eval_res = self.evaluate_title_heuristics(
+                fallback, target_audience, focus_keyword=effective_keyword
+            )
             return {
                 "title": fallback,
                 "core_promise": f"Key insights into {fallback}",
                 "evaluation": eval_res,
+                "focus_keyword": effective_keyword,
+                "keyword_insertion": keyword_result,
                 "trigger_type": "loss_aversion",
             }
 
@@ -307,14 +506,22 @@ class ViralTitleEngine:
         tone: str,
         draft_title: str,
         target_audience: str,
+        focus_keyword: str = "",
     ) -> List[Dict[str, str]]:
         """Generate candidate titles tailored to specific viral psychological angles."""
+        keyword_rule = ""
+        if focus_keyword:
+            keyword_rule = (
+                f'6. FOCUS KEYWORD (non-negotiable): the exact phrase "{focus_keyword}" MUST appear '
+                f"verbatim in at least TWO candidates, and one of those must open with it as the "
+                f"first words. Keep it as written - no synonym substitution, no reordering.\n"
+            )
         prompt = f"""You are a master viral headline strategist.
 Generate 4 DISTINCT, high-converting article title candidates for this piece.
 
 CORE VIRAL HEADLINE RULES:
-1. THE 6-WORD RULE: Aim for 4 to 6 words. MUST be under 60 characters total. Zero truncation on mobile.
-2. FRONT-LOAD VALUE: Put the strongest noun or compelling benefit in the FIRST 3 WORDS.
+1. LENGTH: Aim for 4 to 8 words. MUST be under 60 characters total. Zero truncation on mobile.
+2. FRONT-LOAD VALUE: Put the strongest noun, the focus keyword, or the compelling benefit in the FIRST 3 WORDS.
 3. OMIT FLUFF: Eliminate articles ("The", "A"), filler transitions, and passive words. Every word carries emotional or structural weight.
 4. PSYCHOLOGICAL TRIGGERS: Each candidate MUST embody one specific psychological angle:
    - Candidate 1 (Curiosity Gap): Wide delta between what reader knows and what is promised (e.g., "Why Most X Fails", "Hidden Cost Behind X").
@@ -322,10 +529,11 @@ CORE VIRAL HEADLINE RULES:
    - Candidate 3 (Counter-Intuitive Authority): Challenge conventional wisdom or invert established norms (e.g., "Skip X: Do This Instead", "Why Experts Avoid X").
    - Candidate 4 (Metric & Target Specificity): Concrete odd integer, percentage, or explicit target audience callout (e.g., "3 Remote Traps Costing Thousands", "5 Freelancer Traps To Avoid").
 5. ZERO CLICKBAIT BAIT-AND-SWITCH: Each headline must make a bold, verifiable promise that the article will satisfy in paragraph 1.
-
+{keyword_rule}
 Article Context:
 - Brief: {brief[:500]}
 - Primary Keywords: {keywords}
+- Focus Keyword (must appear verbatim): {focus_keyword or keywords}
 - Tone: {tone}
 - Target Audience: {target_audience or 'General audience'}
 {f'- Draft Title: {draft_title}' if draft_title else ''}
@@ -334,24 +542,28 @@ Return STRICT JSON format:
 {{
   "candidates": [
     {{
-      "title": "4-6 word title",
+      "title": "4-8 word title",
       "angle": "curiosity_gap",
-      "promise": "What specific promise this headline makes to the reader"
+      "promise": "What specific promise this headline makes to the reader",
+      "includes_focus_keyword": true
     }},
     {{
-      "title": "4-6 word title",
+      "title": "4-8 word title",
       "angle": "loss_aversion",
-      "promise": "What specific promise this headline makes to the reader"
+      "promise": "What specific promise this headline makes to the reader",
+      "includes_focus_keyword": true
     }},
     {{
-      "title": "4-6 word title",
+      "title": "4-8 word title",
       "angle": "counter_intuitive",
-      "promise": "What specific promise this headline makes to the reader"
+      "promise": "What specific promise this headline makes to the reader",
+      "includes_focus_keyword": false
     }},
     {{
-      "title": "4-6 word title",
+      "title": "4-8 word title",
       "angle": "metric_specificity",
-      "promise": "What specific promise this headline makes to the reader"
+      "promise": "What specific promise this headline makes to the reader",
+      "includes_focus_keyword": false
     }}
   ]
 }}
@@ -385,6 +597,7 @@ Return STRICT JSON format:
         keywords: str,
         target_audience: str,
         tone: str,
+        focus_keyword: str = "",
     ) -> Dict[str, Any]:
         """
         Review step during generation:
@@ -392,29 +605,36 @@ Return STRICT JSON format:
         Selects and polishes the winning headline.
         """
         candidates_json = json.dumps(candidates, indent=2)
+        keyword_criterion = ""
+        if focus_keyword:
+            keyword_criterion = (
+                f'7. Focus Keyword: the phrase "{focus_keyword}" must appear verbatim, ideally as the '
+                f"first words. A candidate without it loses to an equally strong one that has it.\n"
+            )
 
         prompt = f"""You are the Chief Editor and Viral Headline Reviewer.
 Your task is to REVIEW the candidate titles during generation and select the single most compelling, viral, and scannable title.
 
 Review Criteria:
-1. 6-Word Rule: Highest preference for titles with 4 to 6 words. Maximum 60 characters. Zero mobile truncation.
+1. Length: Highest preference for titles with 4 to 8 words. Maximum 60 characters. Zero mobile truncation.
 2. Front-Loaded Value: Strongest noun or benefit in the first 3 words.
 3. Fluff Elimination: Strip articles ("The", "A"), filler modifiers, and passive words.
 4. Psychological Power: High curiosity gap, loss aversion, or counter-intuitive authority.
 5. Specificity: Odd numbers or clear target callouts where fitting.
 6. Zero Clickbait Bait-and-Switch: Must make a concrete promise that the article's opening paragraph can deliver immediately.
-
+{keyword_criterion}
 Article Brief: {brief[:400]}
 Keywords: {keywords}
+Focus Keyword: {focus_keyword or '(none)'}
 Target Audience: {target_audience or 'General'}
 
 Candidates to Review:
 {candidates_json}
 
-Select the best candidate or refine it into an even punchier version (strictly <= 6 words).
+Select the best candidate or refine it into an even punchier version (4 to 8 words, <= 60 chars).
 Return STRICT JSON:
 {{
-  "selected_title": "The reviewed, punchy <=6 word title",
+  "selected_title": "The reviewed, punchy title (keep the focus keyword verbatim if given)",
   "trigger_type": "curiosity_gap|loss_aversion|counter_intuitive|metric_specificity",
   "core_promise": "The exact bold promise the first paragraph of the article must satisfy",
   "review_critique": "Brief explanation of why this title won and how fluff was eliminated"
