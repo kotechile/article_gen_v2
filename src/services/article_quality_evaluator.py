@@ -256,6 +256,88 @@ def _title_virality_signals(title: str, text: str) -> Dict[str, Any]:
     }
 
 
+def _numeric_repetition_signals(text: str) -> Dict[str, Any]:
+    """Find the same statistic restated across the article.
+
+    Repeating "15 to 30 percentage points" in four sections is padding: the
+    reader learns nothing new the second time. This signal counts distinct
+    numeric expressions and how often each is restated.
+    """
+    if not text:
+        return {"distinct_numbers": 0, "restated": [], "restated_count": 0}
+
+    matches = re.findall(
+        r"\$?\d[\d,]*(?:\.\d+)?(?:\s*(?:to|-|–)\s*\$?\d[\d,]*(?:\.\d+)?)?\s*"
+        r"(?:%|percentage points?|x|seconds?|secs?|ms|million|billion|k\b)?",
+        text,
+        re.IGNORECASE,
+    )
+    counts: Dict[str, int] = {}
+    for raw in matches:
+        key = re.sub(r"\s+", " ", raw.lower()).strip()
+        if not key or not any(ch.isdigit() for ch in key):
+            continue
+        counts[key] = counts.get(key, 0) + 1
+
+    restated = [
+        {"number": key, "count": count}
+        for key, count in sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        if count >= 2
+    ]
+    return {
+        "distinct_numbers": len(counts),
+        "restated": restated[:8],
+        "restated_count": sum(1 for entry in restated if entry["count"] >= 3),
+    }
+
+
+_CONCRETE_ANCHORS = re.compile(
+    r"(\$\d|\d{1,3}(?:\.\d+)?\s*(?:%|percentage points?|ms|seconds?|x\b)|\b(?:api|sdk|sql|json|jwt|oauth|http|"
+    r"grpc|cli|yaml|docker|kubernetes|postgres|redis|langchain|langgraph|autogen|ragas|trulens|vector\s+database|"
+    r"embedding|token|prompt|index|schema|config|latency|p95|p99)\b)",
+    re.IGNORECASE,
+)
+
+
+def _section_specificity_signals(html_content: str) -> Dict[str, Any]:
+    """Check that each body section anchors in something checkable.
+
+    A section made only of abstractions ("enterprises must implement
+    identity-following retrieval") reads as filler. A section that names a tool,
+    a config value, a measurement or a figure gives the reader something to act
+    on or verify, which is the difference between analysis and paraphrase.
+    """
+    if not html_content:
+        return {"sections": [], "thin_sections": 0, "thin_section_ratio": 0.0}
+
+    parts = re.split(r"<h2[^>]*>(.*?)</h2>", html_content, flags=re.IGNORECASE | re.DOTALL)
+    sections: List[Dict[str, Any]] = []
+    # parts alternates: [preamble, heading, body, heading, body, ...]
+    for index in range(1, len(parts) - 1, 2):
+        heading = _strip_html(parts[index])
+        body = _strip_html(parts[index + 1])
+        if not heading or heading.lower().strip(" :") in {
+            "references", "frequently asked questions", "faq",
+        }:
+            continue
+        anchors = _CONCRETE_ANCHORS.findall(body)
+        sections.append(
+            {
+                "heading": heading[:90],
+                "words": len(_words(body)),
+                "concrete_anchors": len(anchors),
+            }
+        )
+
+    thin = [section for section in sections if section["concrete_anchors"] == 0]
+    return {
+        "sections": sections,
+        "thin_sections": len(thin),
+        "thin_section_headings": [section["heading"] for section in thin][:8],
+        "thin_section_ratio": round(len(thin) / max(1, len(sections)), 2),
+    }
+
+
 def build_article_quality_report(
     title: str,
     html_content: str,
@@ -324,6 +406,8 @@ def build_article_quality_report(
     overall_score = round((humanization_score * 0.35) + (grounding_score * 0.4) + (geo_score * 0.25), 1)
 
     title_virality = _title_virality_signals(title, text)
+    numeric_repetition = _numeric_repetition_signals(text)
+    section_specificity = _section_specificity_signals(html_content)
 
     warnings: List[str] = []
     if citations_count == 0:
@@ -356,6 +440,16 @@ def build_article_quality_report(
         warnings.append("Missing 'The Catch' limitations and bias disclosure.")
     if not geo.get("has_at_a_glance"):
         warnings.append("Missing 'At a Glance' closing synthesis module.")
+    if numeric_repetition["restated_count"] > 0:
+        warnings.append(
+            "The same statistic is restated three or more times: "
+            + ", ".join(f"{entry['number']} x{entry['count']}" for entry in numeric_repetition["restated"][:3])
+        )
+    if section_specificity["thin_sections"] > 0:
+        warnings.append(
+            "Sections with no concrete anchor (named tool, config, figure or measurement): "
+            + "; ".join(section_specificity["thin_section_headings"])
+        )
 
     return {
         "version": "phase0_v1",
@@ -381,6 +475,8 @@ def build_article_quality_report(
             "passage_quality": passage_quality,
             "entity_clarity": entity_clarity,
             "title_virality": title_virality,
+            "numeric_repetition": numeric_repetition,
+            "section_specificity": section_specificity,
         },
         "warnings": warnings,
     }

@@ -31,6 +31,7 @@ from rag_client import create_rag_client, RAGQuery
 from linkup_client import create_linkup_client, SearchQuery
 from article_structure_generator import create_article_structure_generator
 from content_generator import create_content_generator, get_tone_specific_instructions
+from src.services.citation_integrity import enforce_citation_integrity
 from citation_generator import (
     create_citation_generator,
     CitationStyle,
@@ -1402,58 +1403,49 @@ def _extract_numbers_for_smart_brevity(
     research_data: Dict[str, Any],
     structure: Dict[str, Any],
 ) -> List[str]:
-    """
-    Extracts 3-5 specific data points/metrics/numbers with bold values for the Smart Brevity 'By the numbers' block.
-    """
-    items: List[str] = []
-    plain_text = re.sub(r'<[^>]+>', ' ', html_text or '')
-    
-    # Pattern for numeric expressions like: $14,289, 10% to 20%, 49%, 3x, etc.
-    stat_pattern = re.compile(
-        r'(\$?\d+(?:,\d+)*(?:\.\d+)?%?(?:\s*(?:to|-)\s*\$?\d+(?:,\d+)*(?:\.\d+)?%?)?|\d+x|\d+\+)\s*[:\-–—]?\s*([^.!?\n]{15,120}[.!?])',
-        re.IGNORECASE
-    )
-    
-    seen_metrics = set()
-    for match in stat_pattern.finditer(plain_text):
-        metric = match.group(1).strip()
-        desc = match.group(2).strip()
-        # Filter out trivial numbers like year 2026 alone or tiny single digits
-        if metric in seen_metrics or metric in ('2024', '2025', '2026', '1', '2', '3', '4', '5'):
-            continue
-        if len(desc) < 15 or 'http' in desc:
-            continue
-        seen_metrics.add(metric)
-        items.append(f"<strong>{metric}:</strong> {desc}")
-        if len(items) >= 5:
-            break
-            
-    # Fallback to claims / key points if not enough numbers extracted
-    if len(items) < 3:
-        claims = research_data.get('claims') or []
-        for claim in claims:
-            if isinstance(claim, dict):
-                text = claim.get('claim') or claim.get('text') or ''
-            else:
-                text = str(claim)
-            text = text.strip()
-            if text and len(text) > 20:
-                words = text.split()
-                lead = " ".join(words[:3])
-                rest = " ".join(words[3:])
-                if rest:
-                    items.append(f"<strong>{lead}:</strong> {rest}")
-            if len(items) >= 4:
-                break
+    """Build the Smart Brevity 'By the numbers' bullets from *grounded* claims only.
 
-    # If still fewer than 3, extract from structure keywords/points
-    if len(items) < 3:
-        kw = str(structure.get('focus_keyword') or research_data.get('primary_keyword') or 'Key Insight').strip()
-        items.append(f"<strong>Primary Focus:</strong> Strategic optimization around {kw}.")
-        items.append("<strong>Execution Impact:</strong> Systematic implementation reduces friction and improves measurable outcomes.")
-        items.append("<strong>Long-term Value:</strong> Consistent application builds sustainable competitive advantages over time.")
+    Every bullet must trace back to a retained evidence item, and must keep the
+    subject the number belongs to. A number we cannot source is dropped: an empty
+    block is the honest output when the research did not support three verifiable
+    numbers, and it is strictly better than inventing a plausible one.
+    """
+    from src.services.fact_grounding import build_evidence_corpus, render_numbers_block
 
-    return items[:5]
+    corpus = build_evidence_corpus(research_data)
+    html, report = render_numbers_block(html_text, corpus)
+
+    _log_number_grounding(report, context="by_the_numbers")
+    if not html:
+        return []
+
+    # Return the <li> contents; the caller wraps them in the block markup.
+    items = re.findall(r"<li>(.*?)</li>", html, re.DOTALL)
+    return [item.strip() for item in items]
+
+
+def _log_number_grounding(report: Dict[str, Any], context: str) -> None:
+    """Log the outcome of a grounding pass so thin research is visible in logs."""
+    try:
+        logger.info(
+            "Number grounding [%s]: %s claims, %s grounded, %s published, %s evidence items%s",
+            context,
+            report.get("claims_checked", 0),
+            report.get("grounded", 0),
+            report.get("items_rendered", 0),
+            report.get("evidence_items", 0),
+            f" - skipped: {report.get('reason')}" if report.get("skipped") else "",
+        )
+        for rejected in report.get("rejected", []):
+            logger.info(
+                "Number grounding [%s]: dropped %r (subject=%r, reason=%s)",
+                context,
+                rejected.get("claim"),
+                rejected.get("subject"),
+                rejected.get("reason"),
+            )
+    except Exception as log_err:  # never let logging break generation
+        logger.debug("Number grounding log failed: %s", log_err)
 
 
 def _validate_and_ensure_smart_brevity_structure(
@@ -1541,6 +1533,15 @@ def _validate_and_ensure_smart_brevity_structure(
     has_big_picture = bool(re.search(r'<strong>\s*the\s+big\s+picture\s*:?</strong>', content, re.IGNORECASE))
     has_why_matters = bool(re.search(r'<strong>\s*why\s+it\s+matters\s*:?</strong>', content, re.IGNORECASE))
     has_by_numbers = bool(re.search(r'<strong>\s*by\s+the\s+numbers\s*:?</strong>', content, re.IGNORECASE))
+
+    # The published block is rebuilt from grounded claims regardless of who wrote
+    # it. A model-written block strips numbers of their subject and attaches
+    # whichever source happens to be nearby ("0.85: before proceeding [2]"), so
+    # it is replaced by one derived from evidence, not trusted as-is.
+    if has_by_numbers:
+        from src.services.fact_grounding import strip_numbers_block
+        content = strip_numbers_block(content)
+        has_by_numbers = False
     has_bottom_line_or_catch = bool(re.search(
         r'<strong>\s*(?:the\s+bottom\s+line|the\s+reality\s+check|the\s+catch|between\s+the\s+lines|what\s+to\s+watch)\s*:?</strong>',
         content,
@@ -1572,11 +1573,17 @@ def _validate_and_ensure_smart_brevity_structure(
 
     if not has_by_numbers:
         num_items = _extract_numbers_for_smart_brevity(content, research_data, structure)
-        num_html = "<p><strong>By the numbers:</strong></p>\n<ul>\n"
-        for item in num_items:
-            num_html += f"  <li>{item}</li>\n"
-        num_html += "</ul>"
-        missing_blocks.append(num_html)
+        if num_items:
+            num_html = "<p><strong>By the numbers:</strong></p>\n<ul>\n"
+            for item in num_items:
+                num_html += f"  <li>{item}</li>\n"
+            num_html += "</ul>"
+            missing_blocks.append(num_html)
+        else:
+            logger.warning(
+                "Skipping the 'By the numbers' block: no verifiable numbers could be "
+                "grounded in the retained evidence (see number grounding log above)."
+            )
 
     if not has_bottom_line_or_catch and not (has_at_a_glance and has_big_shift):
         catch_text = f"Evaluate the full lifecycle costs and operational trade-offs before committing resources to {topic}."
@@ -1709,6 +1716,16 @@ def _polish_and_format_article(
     prompt = f"""
 You are an expert executive editor trained strictly in high-impact editorial journalism, Axios-style Smart Brevity, and demographic precision.
 Your objective is to polish, master, and structure the article HTML so it strictly matches the following editorial architecture from top to bottom, while PRESERVING and FULLY EXPANDING all substantive facts, data points, comparative tables, FAQs, and citations.
+
+FACT DISCIPLINE (non-negotiable, enforced after you finish):
+- Never introduce a number, percentage, price, latency, cost or date that does not appear in the research/evidence provided to you. If a figure is not in the evidence, write the sentence without it - do not estimate, do not round into existence, and never invent a plausible range.
+- Every number keeps its subject and its unit in the same sentence: "retrieval accuracy improves by 15 to 30 percentage points", never "15 to 30: percentage points" and never "0.85: before proceeding". A number with no subject is deleted downstream.
+- Never attach a citation to a claim unless that specific source contains that specific figure. A citation you cannot point at is worse than none.
+- Do not restate the same statistic in more than one section. If a number already appeared, either add different evidence or say something else.
+- Every H2 section must contain at least one concrete, checkable detail: a named tool, API, standard or configuration value, a measurement, or a sourced figure. Sections made only of abstractions are rejected.
+
+LEAD REQUIREMENT:
+- Open with one concrete case, measurement or decision - not with a category-level abstraction. "Agentic RAG costs 3x-10x more tokens, and the bill arrives as tail latency" beats "Enterprise implementations of agentic loops fail when engineering teams treat dynamic control loops as drop-in upgrades".
 
 TARGET AUDIENCE DEMOGRAPHIC: {target_audience}
 PRIMARY KEYWORD: {primary_keyword}
@@ -6403,6 +6420,48 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             include_in_text_citations=include_in_text_citations,
             max_fallback_citations=5,
         )
+
+        # Gate: a reference a reader cannot open is not a citation. URL-less entries
+        # are dropped together with the markers that pointed at them, so the list
+        # can never contain an unverifiable source.
+        require_citation_urls = os.getenv("ARTICLE_REQUIRE_CITATION_URLS", "true").strip().lower() != "false"
+        full_content, curated_citations, citation_gate_report = enforce_citation_integrity(
+            full_content, curated_citations, require_urls=require_citation_urls
+        )
+        if citation_gate_report.get("dropped_without_url") or citation_gate_report.get("markers_repaired"):
+            logger.warning(
+                "Citation gate: kept %s, dropped %s without a resolvable URL %s, repaired %s markers",
+                citation_gate_report.get("kept"),
+                len(citation_gate_report.get("dropped_without_url") or []),
+                citation_gate_report.get("dropped_without_url"),
+                citation_gate_report.get("markers_repaired"),
+            )
+        result['citation_gate'] = citation_gate_report
+
+        # Audit: report every numeric claim in the finished draft that is not backed
+        # by retained evidence. Reported, not silently deleted - removing a sentence
+        # changes the article in ways the author should see first.
+        try:
+            from src.services.fact_grounding import audit_numbers, build_evidence_corpus
+
+            number_audit = audit_numbers(
+                full_content,
+                build_evidence_corpus({
+                    **(research_data or {}),
+                    "evidence": evidence_for_references,
+                }),
+            )
+            result['number_audit'] = number_audit
+            if number_audit.get("ungrounded"):
+                logger.warning(
+                    "Number audit: %s of %s numeric claims are not backed by retained evidence: %s",
+                    number_audit["ungrounded"],
+                    number_audit["claims_checked"],
+                    [sample.get("claim") for sample in number_audit.get("ungrounded_samples", [])],
+                )
+        except Exception as audit_err:  # never block publication on the audit itself
+            logger.warning("Number audit failed: %s", audit_err)
+
         citations = curated_citations
         result['citations'] = curated_citations
 

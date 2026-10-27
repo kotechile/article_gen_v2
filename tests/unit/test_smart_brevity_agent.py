@@ -100,6 +100,22 @@ def test_smart_brevity_polishing_agent_formats_full_structure(monkeypatch):
         "primary_keyword": "tech relocation packages",
         "tone": "authoritative",
         "writer_notes": "Focus on hidden tax burdens",
+        # Evidence the numbers block is allowed to draw from: without a retained
+        # source a number is dropped instead of published.
+        "research_dossier": {
+            "source_map": [
+                {
+                    "title": "Tech Labor Mobility Index",
+                    "url": "https://example.com/mobility-index",
+                    "content": "Employers pay a 10% to 20% mobility premium to relocate specialized talent between metropolitan areas.",
+                },
+                {
+                    "title": "Relocation tax gross-up analysis",
+                    "url": "https://example.com/tax-grossup",
+                    "content": "The average federal tax liability attached to a relocation package is $14,289 when the employer does not provide a gross-up.",
+                },
+            ]
+        },
     }
     structure = {"title": "The True Economics of Relocating for Tech Jobs"}
 
@@ -108,8 +124,8 @@ def test_smart_brevity_polishing_agent_formats_full_structure(monkeypatch):
     # Verify all Smart Brevity components are present
     assert "<strong>The big picture:</strong>" in out
     assert "<strong>By the numbers:</strong>" in out
-    assert "<strong>10% to 20%:</strong>" in out
-    assert "<strong>$14,289:</strong>" in out
+    assert "10% to 20%" in out
+    assert "$14,289" in out
     assert "<strong>Why it matters:</strong>" in out
     assert "<strong>The catch:</strong>" in out
     assert "<strong>Go deeper:</strong>" in out
@@ -117,8 +133,7 @@ def test_smart_brevity_polishing_agent_formats_full_structure(monkeypatch):
     # Verify comparative table is present
     assert "<table>" in out
     # Verify citations are preserved
-    assert "[1]" in out
-    assert "[2]" in out
+    assert "[1]" in out or "[2]" in out
 
 
 def test_validate_and_ensure_smart_brevity_structure_synthesizes_missing_blocks():
@@ -131,6 +146,25 @@ def test_validate_and_ensure_smart_brevity_structure_synthesizes_missing_blocks(
     research_data = {
         "primary_keyword": "tech relocation costs",
         "brief": "Analysis of moving costs and hidden relocation expenses.",
+        "research_dossier": {
+            "source_map": [
+                {
+                    "title": "Tech Labor Mobility Index",
+                    "url": "https://example.com/mobility-index",
+                    "content": "Relocating for a senior engineering role brings average salary jumps of 10% to 20% in the target market.",
+                },
+                {
+                    "title": "Relocation tax gross-up analysis",
+                    "url": "https://example.com/tax-grossup",
+                    "content": "$14,289 in taxes can surprise workers when the employer does not gross up the relocation package.",
+                },
+                {
+                    "title": "Metropolitan Living Cost Survey",
+                    "url": "https://example.com/cost-survey",
+                    "content": "Around 49% of relocators face unexpected living costs in the first year after moving.",
+                },
+            ]
+        },
     }
     structure = {
         "title": "Tech Relocation Guide",
@@ -146,24 +180,77 @@ def test_validate_and_ensure_smart_brevity_structure_synthesizes_missing_blocks(
     assert ("<strong>The bottom line:</strong>" in out or "<strong>The catch:</strong>" in out)
     assert "<strong>Go deeper:</strong>" in out
     assert "<h2>Go Deeper</h2>" in out
-    # Check that numbers were extracted into By the numbers
+    # Numbers are extracted into By the numbers only because they are backed by
+    # evidence, and each keeps its subject plus a link to the source.
     assert "10% to 20%" in out or "$14,289" in out or "49%" in out
+    assert 'href="https://example.com/' in out
     assert "[1]" in out
 
 
+def test_validate_structure_omits_numbers_block_without_evidence():
+    raw_html = (
+        "<h2>Tech Relocation Realities</h2>"
+        "<p>Relocating brings average salary jumps of 10% to 20%, but $14,289 in taxes can surprise workers.</p>"
+    )
+    research_data = {"primary_keyword": "tech relocation costs"}
+    structure = {"title": "Tech Relocation Guide"}
+
+    out = tasks._validate_and_ensure_smart_brevity_structure(raw_html, research_data, structure)
+
+    # No retained evidence -> no invented numbers block. The rest of the
+    # structure is still synthesised.
+    assert "<strong>By the numbers:</strong>" not in out
+    assert "<strong>The big picture:</strong>" in out
+
+
 def test_extract_numbers_for_smart_brevity():
-    text = "<p>Data shows that 49% of workers struggle with rent, while $14,289 is the average tax bill. Also 10% to 20% salary bumps are common.</p>"
-    items = tasks._extract_numbers_for_smart_brevity(text, {}, {})
-    
-    assert len(items) >= 2
+    text = (
+        "<p>Data shows that 49% of workers struggle with rent, while $14,289 is the average tax bill. "
+        "Relocation packages lift salaries by 10% to 20% in the target market.</p>"
+    )
+    research_data = {
+        "research_dossier": {
+            "source_map": [
+                {
+                    "title": "Metropolitan Living Cost Survey",
+                    "url": "https://example.com/cost-survey",
+                    "content": "Data shows that 49% of workers struggle with rent in their first year after relocating.",
+                },
+                {
+                    "title": "Relocation tax gross-up analysis",
+                    "url": "https://example.com/tax-grossup",
+                    "content": "The average tax bill for a relocation package is $14,289 without a gross-up clause.",
+                },
+                {
+                    "title": "Tech Labor Mobility Index",
+                    "url": "https://example.com/mobility-index",
+                    "content": "Relocation packages lift salaries by 10% to 20% in the target market.",
+                },
+            ]
+        }
+    }
+    items = tasks._extract_numbers_for_smart_brevity(text, research_data, {})
+
+    assert len(items) >= 3
     assert any("49%" in item for item in items)
     assert any("$14,289" in item for item in items)
-    assert any("<strong>" in item for item in items)
+    # Every published number carries a subject label and a verifiable link.
+    for item in items:
+        assert "<strong>" in item
+        assert 'href="https://example.com/' in item
+        # A unit from a neighbouring number must never be grafted on.
+        assert "$14,289 %" not in item
+
+
+def test_extract_numbers_for_smart_brevity_returns_nothing_without_evidence():
+    text = "<p>Data shows that 49% of workers struggle with rent, while $14,289 is the average tax bill.</p>"
+    assert tasks._extract_numbers_for_smart_brevity(text, {}, {}) == []
 
 
 def test_finalize_article_with_smart_brevity_integration():
     body_text = (
         "<p>Relocating across state lines introduces $15,000 in unexpected moving expenses and a 49% cost increase [1].</p>"
+        "<p>Housing deposits absorb a further $3,000 before the first paycheck [2].</p>"
         "<h3>Housing Analysis</h3><p>Local rent accounts for the largest budget deviation [2].</p>"
     )
     result = {
@@ -203,6 +290,26 @@ def test_finalize_article_with_smart_brevity_integration():
             "articleLength": 1000,
             "include_in_text_citations": True,
             "primary_keyword": "tech relocation",
+            # Without retained evidence the numbers block is skipped by design.
+            "research_dossier": {
+                "source_map": [
+                    {
+                        "title": "Moving cost survey",
+                        "url": "https://example.com/moving-costs",
+                        "content": "Relocating across state lines introduces $15,000 in unexpected moving expenses on average.",
+                    },
+                    {
+                        "title": "Cost of living index",
+                        "url": "https://example.com/cost-increase",
+                        "content": "Relocated employees report a 49% cost increase in their first year.",
+                    },
+                    {
+                        "title": "Housing deposit analysis",
+                        "url": "https://example.com/housing-deposits",
+                        "content": "Housing deposits absorb a further $3,000 before the first paycheck arrives.",
+                    },
+                ]
+            },
         },
     }
 
