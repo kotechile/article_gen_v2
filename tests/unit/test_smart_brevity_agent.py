@@ -287,7 +287,10 @@ def test_finalize_article_with_smart_brevity_integration():
         ],
         "claim_bundles": [],
         "research_data": {
-            "articleLength": 1000,
+            # Matches the fixture's own 600-word body: the publish gate compares the
+            # finished HTML to the requested length, so the request has to be the
+            # size this synthetic article actually claims.
+            "articleLength": 600,
             "include_in_text_citations": True,
             "primary_keyword": "tech relocation",
             # Without retained evidence the numbers block is skipped by design.

@@ -857,7 +857,8 @@ Previous Context:
                     ========================================
                     CONTENT REQUIREMENTS
                     ========================================
-                    - Word count guideline: ~{word_count_target} words (soft guideline). Prioritize substance, clarity, and conciseness; NEVER add fluff or filler to reach a word count.
+                    - LENGTH (HARD LIMIT): write between {max(80, int(word_count_target * 0.85))} and {word_count_target} words. This is a ceiling, not a floor - when you reach it, finish the current sentence and stop. A section that overshoots is cut downstream and the reader loses your ending.
+                    - Prioritize substance over volume: no filler, no padding, no restated claims to reach a word count.
                     - Target a Flesch Reading Ease score of 65-75 (Standard English, easily readable for 8th graders)
                     - MANDATORY: Use simple, direct language. Avoid complex vocabulary and long, convoluted sentences.
                     - Use varied sentence lengths: mix shorter, punchy sentences with slightly longer, explanatory ones

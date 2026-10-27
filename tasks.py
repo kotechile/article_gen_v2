@@ -758,6 +758,104 @@ def _apply_refinement_guard(
     return previous_html
 
 
+def _resolve_requested_word_count(research_data: Dict[str, Any]) -> int:
+    """The length the user actually asked for, in words (0 when unset)."""
+    for key in ("target_word_count", "articleLength", "article_length", "target_words"):
+        raw = (research_data or {}).get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            value = int(str(raw).strip())
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return 0
+
+
+def _block_word_count(block: Any) -> int:
+    if isinstance(block, dict):
+        return len(str(block.get("content") or "").split())
+    return len(str(block or "").split())
+
+
+def _section_word_count(section: Dict[str, Any]) -> int:
+    blocks = section.get("content_blocks") or []
+    if isinstance(blocks, list) and blocks:
+        return sum(_block_word_count(block) for block in blocks)
+    return len(str(section.get("content") or "").split())
+
+
+def _trim_sections_to_budget(
+    sections: List[Dict[str, Any]],
+    requested_words: int,
+    *,
+    tolerance: float = 1.2,
+) -> Dict[str, Any]:
+    """Bring the article down to the requested length by dropping whole blocks.
+
+    The generator routinely writes several times the requested length (a 2,500-word
+    request produced 10,606 words), so the excess has to go somewhere. The previous
+    implementation cut a *word prefix* of each section and discarded the remaining
+    blocks - sections ended mid-argument, and the survivor text was written into
+    ``content`` while ``content_blocks`` still held the untrimmed body, so the two
+    disagreed and nobody could tell which one shipped.
+
+    This keeps each section's blocks in order until its proportional allowance is
+    spent (always keeping the first), then rebuilds ``content`` from what survived.
+    Whole paragraphs, coherent sections, honest counts.
+    """
+    report: Dict[str, Any] = {
+        "requested_words": requested_words,
+        "budget": 0,
+        "total_words": 0,
+        "trimmed_sections": 0,
+        "kept_blocks": 0,
+        "total_blocks": 0,
+        "changed": False,
+    }
+    if not sections or requested_words <= 0:
+        return report
+
+    section_words = [_section_word_count(section) for section in sections]
+    total_words = sum(section_words)
+    total_blocks = sum(len(section.get("content_blocks") or []) for section in sections)
+    budget = max(1, int(requested_words * tolerance))
+    report.update(total_words=total_words, budget=budget, total_blocks=total_blocks, kept_blocks=total_blocks)
+
+    if total_words <= budget or total_blocks == 0:
+        return report
+
+    scale = budget / total_words
+    for section, words in zip(sections, section_words):
+        blocks = section.get("content_blocks") or []
+        if not isinstance(blocks, list) or not blocks:
+            continue
+        allowance = int(words * scale)
+        if allowance <= 0:
+            continue
+        kept: List[Dict[str, Any]] = []
+        running = 0
+        for block in blocks:
+            block_words = _block_word_count(block)
+            if kept and running + block_words > allowance:
+                break
+            kept.append(block)
+            running += block_words
+        if len(kept) == len(blocks):
+            continue
+        section["content_blocks"] = kept
+        section["content"] = "\n\n".join(str(block.get("content") or "") for block in kept)
+        if "total_word_count" in section:
+            section["total_word_count"] = running
+        report["trimmed_sections"] += 1
+        report["changed"] = True
+
+    report["kept_blocks"] = sum(len(section.get("content_blocks") or []) for section in sections)
+    report["final_words"] = sum(_section_word_count(section) for section in sections)
+    return report
+
+
 def _truncate_seo_title(title: str, max_length: int = 60, focus_keyword: str = "") -> str:
     """Fit the SEO title to SERP length, with the focus keyword in front.
 
@@ -6311,53 +6409,25 @@ Rules:
         # Update the result with refined content
         result['content'] = content
 
-        # ── Post-refinement word count guard ────────────────────────────────────
-        # If content still exceeds 120% of target after refinement, do a final
-        # proportional trim. This is a last-resort safety net — the refinement
-        # LLM should have already compressed the content per the HARD CONSTRAINT.
+        # ── Post-refinement length guard ────────────────────────────────────────
+        # Keep whole blocks, never a word prefix: a section that loses its last
+        # paragraphs still reads as an argument; a section cut mid-sentence does not.
         try:
-            raw_twc = (
-                research_data.get('target_word_count')
-                or research_data.get('articleLength')
-                or research_data.get('article_length')
-                or 0
-            )
-            target_wc = int(str(raw_twc).strip() or 0)
-            if target_wc > 0:
-                # Sum word counts across all sections (more accurate than content.word_count)
-                total_wc = sum(
-                    len(
-                        (section.get('content') or '').split()
-                        + ' '.join(
-                            cb.get('content', '') for cb in (section.get('content_blocks') or [])
-                        ).split()
-                    )
-                    for section in sections
-                )
-                upper = int(target_wc * 1.2)
-                if total_wc > upper:
+            requested_wc = _resolve_requested_word_count(research_data)
+            if requested_wc > 0:
+                trim_report = _trim_sections_to_budget(sections, requested_wc)
+                if trim_report["changed"]:
                     logger.warning(
-                        f"Post-refinement word count still over 120%% target "
-                        f"({total_wc} > {upper}). Applying final proportional trim."
+                        "Article ran to %s words against a %s-word request (limit %s); "
+                        "kept %s of %s blocks across %s section(s), now %s words.",
+                        trim_report["total_words"],
+                        requested_wc,
+                        trim_report["budget"],
+                        trim_report["kept_blocks"],
+                        trim_report["total_blocks"],
+                        trim_report["trimmed_sections"],
+                        trim_report.get("final_words", 0),
                     )
-                    scale = upper / total_wc
-                    for section in sections:
-                        combined = (
-                            (section.get('content') or '') + ' ' +
-                            ' '.join(cb.get('content', '') for cb in (section.get('content_blocks') or []))
-                        ).strip()
-                        if combined:
-                            words = combined.split()
-                            keep = max(50, int(len(words) * scale))
-                            trimmed = ' '.join(words[:keep])
-                            # Snap to sentence boundary
-                            last_p = max(trimmed.rfind('.'), trimmed.rfind('!'), trimmed.rfind('?'))
-                            if last_p > len(trimmed) * 0.5:
-                                trimmed = trimmed[:last_p + 1]
-                            section['content'] = trimmed
-                            if section.get('content_blocks'):
-                                section['content_blocks'][0]['content'] = trimmed
-                                section['content_blocks'][0]['word_count'] = len(trimmed.split())
         except Exception as e:
             logger.warning(f"Post-refinement word count guard failed: {e}")
 
@@ -6801,7 +6871,9 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         # characters. Fail loudly instead of shipping a stub - the metadata below
         # is also recomputed from the real HTML, not from the draft.
         published_word_count = len(re.findall(r"[A-Za-z0-9']+", re.sub(r"<[^>]+>", " ", full_content or "")))
-        requested_words = int(content.get('word_count') or research_data.get('target_word_count') or 0)
+        # Compare with the length the user asked for; content['word_count'] is the
+        # *generated* total, which the length guard may legitimately have cut.
+        requested_words = _resolve_requested_word_count(research_data) or int(content.get('word_count') or 0)
         if requested_words >= 400 and published_word_count < requested_words * 0.4:
             raise RuntimeError(
                 "article_body_truncated: the final HTML holds "
