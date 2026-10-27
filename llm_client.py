@@ -244,6 +244,17 @@ class LLMClient:
             "timeout": self.config.timeout or 60,
             "request_timeout": self.config.timeout or 60,
         }
+
+        # Gemini 3+ rejects a fixed sampling temperature in practice: Google's own
+        # warning is that temperature < 1.0 causes infinite loops, degraded
+        # reasoning and failures on complex tasks. Long-form editing is exactly
+        # that case (a 20k-char draft came back as 1k chars of leaked reasoning),
+        # so let the model use its default of 1.0.
+        model_lower = str(model or "").lower()
+        if self.config.provider == LLMProvider.GEMINI.value and (
+            "gemini-3" in model_lower or "gemini-4" in model_lower or "gemini-5" in model_lower
+        ):
+            params.pop("temperature", None)
         
         # Pass API key and api_base directly to ensure they are used
         if self.config.provider == LLMProvider.GEMINI.value:

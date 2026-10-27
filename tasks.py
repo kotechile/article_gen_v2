@@ -32,6 +32,7 @@ from linkup_client import create_linkup_client, SearchQuery
 from article_structure_generator import create_article_structure_generator
 from content_generator import create_content_generator, get_tone_specific_instructions
 from src.services.citation_integrity import enforce_citation_integrity
+from src.services.model_output_cleanup import polish_preserved_body, strip_model_scaffolding
 from citation_generator import (
     create_citation_generator,
     CitationStyle,
@@ -1775,6 +1776,7 @@ CRITICAL ALIGNMENT - COMPLETE CONCEPT DEVELOPMENT UNDER 'GO DEEPER' (NO ORPHAN C
 - Every single topic, theme, concept, statistic, data point, and comparison mentioned in the Executive Smart Brevity Lead / axioms or the Frequently Asked Questions (FAQ) MUST be thoroughly and substantively developed, explained, and substantiated inside the substantive body sections under `<h2>Go Deeper</h2>`.
 - If the summary lead or FAQ mentions a specific subject or metric, you MUST ensure the 'Go Deeper' body contains a dedicated section or substantive paragraphs thoroughly exploring and analyzing that exact subject in depth.
 - NEVER allow an orphan topic or statistic to appear in the 'At a glance' summary or FAQ without full exposition in the body.
+- COMPATIBILITY WITH THE NO-REPETITION RULE: these two rules do not conflict and there is nothing to work out. A figure appears ONCE in the prose body, in the section that develops it; the FAQ then refers to that same mechanism, threshold or outcome qualitatively, without restating the number; 'By the numbers' is the single place a figure may be repeated, because it is an explicit summary block. Never spend output on this decision and never write about these rules in the article.
 
 SUBSTANTIVE & IN-DEPTH BODY SECTIONS (CRITICAL - DO NOT CONDENSE OR SUMMARIZE INTO TELEGRAPHIC BULLETS):
 - Fully expand all frameworks, actionable steps, real-world logistics, and technical analysis.
@@ -1852,6 +1854,47 @@ Output instructions:
         )
 
         cleaned = _enforce_at_a_glance_bullet_word_limit(cleaned, max_words=60)
+
+        # Guard: an editing pass may rewrite every sentence, but it may not delete
+        # the article. A 20k-char draft that came back as 1k chars was published
+        # once because nothing compared input to output.
+        cleaned, scaffold_report = strip_model_scaffolding(cleaned)
+        if scaffold_report["removed_blocks"]:
+            logger.warning(
+                "Stripped %s leaked reasoning block(s) (%s chars) from the polishing output: %s",
+                scaffold_report["removed_blocks"],
+                scaffold_report["removed_chars"],
+                scaffold_report["samples"],
+            )
+
+        ok, reason = polish_preserved_body(html_content, cleaned)
+        if not ok:
+            logger.error(
+                "Polishing pass discarded (%s). Retrying once with the same draft...", reason
+            )
+            retry = client.generate(
+                [
+                    {"role": "system", "content": "You are an expert executive editor. Return the complete article HTML. Never shorten, summarise or drop sections: every body section, table, FAQ and citation from the input must appear in the output."},
+                    {"role": "user", "content": prompt},
+                ]
+            )
+            retry_cleaned, retry_scaffold = strip_model_scaffolding(retry.content or "")
+            if retry_scaffold["removed_blocks"]:
+                logger.warning(
+                    "Stripped %s leaked reasoning block(s) from the polishing retry.",
+                    retry_scaffold["removed_blocks"],
+                )
+            retry_cleaned = _enforce_at_a_glance_bullet_word_limit(retry_cleaned, max_words=60)
+            ok, reason = polish_preserved_body(html_content, retry_cleaned)
+            if not ok:
+                logger.error(
+                    "Polishing pass failed twice (%s). Keeping the pre-polish draft so the "
+                    "article ships complete; the master pass is skipped for this run.",
+                    reason,
+                )
+                return html_content
+            cleaned = retry_cleaned
+
         logger.info(f"Smart Brevity polishing pass complete. Original chars: {len(html_content)}, Polished chars: {len(cleaned)}")
         return cleaned
 
@@ -6672,6 +6715,22 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             keyword_source=research_data.get('keyword_research_source') or 'unknown',
             candidate_keywords=keyword_candidates,
         )
+        # Publish gate: the finished HTML must actually contain the article. A
+        # polishing pass once returned 5% of the draft and this dict was written
+        # anyway, so the record claimed 10,727 words while the page held 1,085
+        # characters. Fail loudly instead of shipping a stub - the metadata below
+        # is also recomputed from the real HTML, not from the draft.
+        published_word_count = len(re.findall(r"[A-Za-z0-9']+", re.sub(r"<[^>]+>", " ", full_content or "")))
+        requested_words = int(content.get('word_count') or research_data.get('target_word_count') or 0)
+        if requested_words >= 400 and published_word_count < requested_words * 0.4:
+            raise RuntimeError(
+                "article_body_truncated: the final HTML holds "
+                f"{published_word_count} words against a {requested_words}-word target. "
+                "Refusing to publish a truncated article; check the polishing pass logs "
+                "for a discarded edit."
+            )
+        word_count = published_word_count
+
         final_article = {
             'title': title,
             'hook': hook,
