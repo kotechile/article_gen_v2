@@ -728,7 +728,7 @@ def _apply_refinement_guard(
     previous_html: str,
     candidate_html: str,
     *,
-    min_ratio: float = 0.75,
+    min_ratio: float = 0.6,
 ) -> str:
     """Keep a refinement pass only if it did not delete the section's substance.
 
@@ -5955,18 +5955,28 @@ def _build_refinement_user_message(
         tone_guidance = "\n\nFOR PROFESSIONAL TONE: Write clearly and professionally, using accessible language while maintaining authority."
     
     length_guidance = ""
-    if target_word_count and target_word_count > 0:
-        current_wc_text = (
-            f" Current draft word count is approximately {int(current_word_count)}."
-            if current_word_count and current_word_count > 0
-            else ""
-        )
+    if current_word_count and current_word_count > 0:
+        # Length is context, not an objective. Asking the reviewer to "compress or
+        # expand to hit a number" made it trade substance for arithmetic; the
+        # section already sits inside its planned band.
         length_guidance = (
-            f"\n\nLENGTH TARGET: HARD CONSTRAINT — final output must be between {int(target_word_count * 0.85)} and {int(target_word_count * 1.15)} words."
-            f" You MUST compress or expand the content to meet this constraint. Preserve all key facts, data points, and conclusions."
-            f" Do not drop citations, tables, or structured data."
-            f"{current_wc_text}"
+            f"\n\nLENGTH CONTEXT: this section is approximately {int(current_word_count)} words. "
+            "Do not pad and do not compress to land on a number - a tighter, clearer section is worth "
+            "more than a longer one, and a section that loses an argument to save words is a failure. "
+            "Stay within about 20% of the current length. If the draft is already good, return it unchanged."
         )
+
+    quality_guidance = (
+        "\n\nWHAT TO IMPROVE, IN PRIORITY ORDER:"
+        "\n1. HUMANIZATION - make it read like a person wrote it: vary sentence length, use concrete "
+        "subjects and verbs, cut hedging ('it is important to note', 'in today's landscape'), cut "
+        "banned/generic phrasing, and never add anecdotes that did not exist."
+        "\n2. READABILITY - plain words over jargon, one idea per paragraph, short paragraphs "
+        "(2-4 sentences), no walls of text, no sentences that need re-reading."
+        "\n3. SUBSTANCE - keep every claim, figure, citation, table and list intact; replace vague "
+        "generalities with the specific detail that was already there rather than adding new claims."
+        "\nNever invent facts, never delete evidence to save space, and never restate the same claim twice."
+    )
 
     section_guidance = ""
     lowered_title = (section_title or "").strip().lower()
@@ -5985,7 +5995,7 @@ AT A GLANCE / SUMMARY SECTION RULES:
 
     return f"""IMPORTANT: The tone for this article is {tone_upper}.
 
-Refine this section to match the {tone} tone perfectly. {tone_guidance}{length_guidance}{section_guidance}
+Refine this section to match the {tone} tone perfectly. {tone_guidance}{length_guidance}{quality_guidance}{section_guidance}
 
 Return ONLY the refined HTML content - no explanations, no meta-commentary, no "Here's the refined content" text. Start directly with the HTML.
 
@@ -6189,6 +6199,8 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
             if section_title and 'reference' in section_title.lower():
                 logger.info(f"Skipping refinement for references section: '{section_title}'")
                 continue
+
+            baseline_diagnostics = None
             
             # Extract content from section - handle both content_blocks and direct content field
             section_content_blocks = section.get('content_blocks', [])
@@ -6272,11 +6284,12 @@ Rules:
             factual_result = _run_refinement_pass("factual_integrity", factual_prompt, refined_content)
             if factual_result:
                 refined_content = _apply_refinement_guard(
-                    section_title, "factual_integrity", refined_content, factual_result, min_ratio=0.75
+                    section_title, "factual_integrity", refined_content, factual_result, min_ratio=0.6
                 )
                 factual_pass_applied += 1
 
             diagnostics = analyze_humanization(refined_content)
+            baseline_diagnostics = diagnostics
             weak_reasons = diagnostics.get("weak_reasons", [])
             if diagnostics.get("needs_humanization_rewrite"):
                 weak_sections_detected += 1
@@ -6296,7 +6309,7 @@ Rules:
                 humanized = _run_refinement_pass("humanization", humanization_prompt, refined_content)
                 if humanized:
                     refined_content = _apply_refinement_guard(
-                        section_title, "humanization", refined_content, humanized, min_ratio=0.75
+                        section_title, "humanization", refined_content, humanized, min_ratio=0.6
                     )
                     humanization_pass_applied += 1
 
@@ -6348,7 +6361,7 @@ Rules:
                 "cleanup",
                 refined_content,
                 cleanup_result,
-                min_ratio=0.5 if takeaways_section else 0.75,
+                min_ratio=0.5 if takeaways_section else 0.6,
             )
             if guarded_cleanup == refined_content and cleanup_result != refined_content:
                 logger.warning(
@@ -6403,6 +6416,28 @@ Rules:
                 ],
                 'humanization': diagnostics,
             })
+
+            # Quality is the objective, so report it: the reviewer can rewrite every
+            # sentence as long as the section gets more natural and easier to read.
+            final_diagnostics = analyze_humanization(refined_content)
+            if baseline_diagnostics is not None:
+                logger.info(
+                    "Refined '%s': %sw -> %sw | filler %.2f -> %.2f | hedging %.2f -> %.2f | "
+                    "abstraction %.2f -> %.2f | sentence-length std %.1f -> %.1f | weak reasons %s -> %s",
+                    section_title,
+                    int(baseline_diagnostics.get("word_count", 0)),
+                    int(final_diagnostics.get("word_count", 0)),
+                    baseline_diagnostics.get("filler_density_per_1000", 0.0),
+                    final_diagnostics.get("filler_density_per_1000", 0.0),
+                    baseline_diagnostics.get("hedging_density_per_1000", 0.0),
+                    final_diagnostics.get("hedging_density_per_1000", 0.0),
+                    baseline_diagnostics.get("abstraction_density_per_1000", 0.0),
+                    final_diagnostics.get("abstraction_density_per_1000", 0.0),
+                    baseline_diagnostics.get("sentence_length_std_dev", 0.0),
+                    final_diagnostics.get("sentence_length_std_dev", 0.0),
+                    len(baseline_diagnostics.get("weak_reasons", []) or []),
+                    len(final_diagnostics.get("weak_reasons", []) or []),
+                )
         
         logger.info(f"Applied {len(refinements)} refinements using {llm_client.config.model}")
         

@@ -45,6 +45,11 @@ def _install_task_import_stubs():
 
 _install_task_import_stubs()
 
+# Another test file may have imported the real `tasks` first. Its module-level
+# stubs only take effect on a fresh import, so force one; tests already holding
+# the real module keep their own reference.
+sys.modules.pop("tasks", None)
+
 import tasks  # noqa: E402
 
 
