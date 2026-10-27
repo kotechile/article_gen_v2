@@ -113,5 +113,49 @@ class TrimTests(unittest.TestCase):
         self.assertFalse(report["changed"])
 
 
+class GentlenessTests(unittest.TestCase):
+    """Trimming should take from the sections that ran long, not from everyone."""
+
+    def _tolerance(self):
+        return _tasks()._length_tolerance()
+
+    def test_a_twenty_eight_percent_overshoot_is_left_alone(self):
+        # 3,200 words against a 2,500-word request: inside the 1.35 tolerance.
+        sections = [make_section(f"S{i}", 4) for i in range(1, 9)]  # 3,200 words
+        report = _trim_sections_to_budget(sections, 2500)
+        self.assertFalse(report["changed"])
+        self.assertEqual(report["untouched_sections"], len(sections))
+        self.assertLessEqual(sum(_section_word_count(s) for s in sections), 3200)
+
+    def test_only_the_bloated_section_is_cut(self):
+        # Four sections on plan, one runaway. The four keep every paragraph.
+        sections = [make_section("Intro", 5), make_section("Runaway", 50),
+                    make_section("Body", 5), make_section("Close", 5)]
+        report = _trim_sections_to_budget(sections, 2500)
+        self.assertTrue(report["changed"])
+        self.assertEqual(report["trimmed_sections"], 1)
+        self.assertEqual(report["untouched_sections"], 3)
+        self.assertEqual(len(sections[0]["content_blocks"]), 5)
+        self.assertEqual(len(sections[2]["content_blocks"]), 5)
+        self.assertEqual(len(sections[3]["content_blocks"]), 5)
+        self.assertLess(len(sections[1]["content_blocks"]), 50)
+
+    def test_trim_does_not_go_lower_than_needed(self):
+        sections = [make_section(f"S{i}", 6) for i in range(1, 7)]  # 3,600 words
+        report = _trim_sections_to_budget(sections, 2500)
+        final = report["final_words"]
+        # keeps as much as the water level allows instead of cutting to the bone
+        self.assertGreaterEqual(final, 2000)
+        self.assertLessEqual(final, report["budget"])
+
+    def test_tolerance_is_configurable(self):
+        sections = [make_section(f"S{i}", 4) for i in range(1, 9)]  # 3,200 words
+        strict = _tasks()._trim_sections_to_budget(sections, 2500, tolerance=1.1)
+        self.assertTrue(strict["changed"])
+
+    def test_default_tolerance_is_135(self):
+        self.assertEqual(round(self._tolerance(), 2), 1.35)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -786,30 +786,48 @@ def _section_word_count(section: Dict[str, Any]) -> int:
     return len(str(section.get("content") or "").split())
 
 
+def _length_tolerance() -> float:
+    """How far over the request an article may run before it is trimmed at all."""
+    raw = os.environ.get("ARTICLE_LENGTH_TOLERANCE", "1.35")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 1.35
+    return value if value >= 1.0 else 1.35
+
+
 def _trim_sections_to_budget(
     sections: List[Dict[str, Any]],
     requested_words: int,
     *,
-    tolerance: float = 1.2,
+    tolerance: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Bring the article down to the requested length by dropping whole blocks.
 
-    The generator routinely writes several times the requested length (a 2,500-word
-    request produced 10,606 words), so the excess has to go somewhere. The previous
-    implementation cut a *word prefix* of each section and discarded the remaining
-    blocks - sections ended mid-argument, and the survivor text was written into
-    ``content`` while ``content_blocks`` still held the untrimmed body, so the two
-    disagreed and nobody could tell which one shipped.
+    The generator used to write several times the requested length (a 2,500-word
+    request produced 10,606 words) and the trim is what made that visible. Two
+    earlier behaviours were worse than the problem:
 
-    This keeps each section's blocks in order until its proportional allowance is
-    spent (always keeping the first), then rebuilds ``content`` from what survived.
-    Whole paragraphs, coherent sections, honest counts.
+    * a *word prefix* cut - sections ended mid-argument and ``content`` disagreed
+      with ``content_blocks``;
+    * proportional scaling - every section was cut by the same factor, so a
+      section that was exactly on plan lost a quarter of its text because a
+      different section had run long.
+
+    This trims by *water level*: find the largest per-section cap that fits the
+    budget, then cut only the sections above that cap, dropping whole blocks from
+    the end and always keeping the first. Sections within budget are untouched, and
+    a section is never reduced below the cap - so the article stays balanced instead
+    of uniformly shaved.
     """
     report: Dict[str, Any] = {
         "requested_words": requested_words,
         "budget": 0,
+        "cap": 0,
         "total_words": 0,
+        "over_by": 0,
         "trimmed_sections": 0,
+        "untouched_sections": 0,
         "kept_blocks": 0,
         "total_blocks": 0,
         "changed": False,
@@ -817,32 +835,53 @@ def _trim_sections_to_budget(
     if not sections or requested_words <= 0:
         return report
 
+    limit = tolerance if tolerance is not None else _length_tolerance()
     section_words = [_section_word_count(section) for section in sections]
     total_words = sum(section_words)
     total_blocks = sum(len(section.get("content_blocks") or []) for section in sections)
-    budget = max(1, int(requested_words * tolerance))
-    report.update(total_words=total_words, budget=budget, total_blocks=total_blocks, kept_blocks=total_blocks)
+    budget = max(1, int(round(requested_words * limit)))
+    report.update(
+        total_words=total_words,
+        budget=budget,
+        total_blocks=total_blocks,
+        kept_blocks=total_blocks,
+        over_by=max(0, total_words - budget),
+    )
 
     if total_words <= budget or total_blocks == 0:
+        report["untouched_sections"] = len(sections)
         return report
 
-    scale = budget / total_words
+    # Water level: the largest cap where every section keeps at most `cap` words
+    # and the total still fits. Sections below the cap are not touched at all.
+    ordered = sorted(section_words)
+    remaining_budget = budget
+    cap = 0
+    for index, words in enumerate(ordered):
+        left = len(ordered) - index
+        candidate = remaining_budget // left
+        if words <= candidate:
+            remaining_budget -= words
+            cap = max(cap, words)
+            continue
+        cap = max(cap, candidate)
+        break
+
     for section, words in zip(sections, section_words):
         blocks = section.get("content_blocks") or []
-        if not isinstance(blocks, list) or not blocks:
-            continue
-        allowance = int(words * scale)
-        if allowance <= 0:
+        if not isinstance(blocks, list) or not blocks or words <= cap:
+            report["untouched_sections"] += 1
             continue
         kept: List[Dict[str, Any]] = []
         running = 0
         for block in blocks:
             block_words = _block_word_count(block)
-            if kept and running + block_words > allowance:
+            if kept and running + block_words > cap:
                 break
             kept.append(block)
             running += block_words
         if len(kept) == len(blocks):
+            report["untouched_sections"] += 1
             continue
         section["content_blocks"] = kept
         section["content"] = "\n\n".join(str(block.get("content") or "") for block in kept)
@@ -851,6 +890,7 @@ def _trim_sections_to_budget(
         report["trimmed_sections"] += 1
         report["changed"] = True
 
+    report["cap"] = cap
     report["kept_blocks"] = sum(len(section.get("content_blocks") or []) for section in sections)
     report["final_words"] = sum(_section_word_count(section) for section in sections)
     return report
@@ -6453,14 +6493,15 @@ Rules:
                 trim_report = _trim_sections_to_budget(sections, requested_wc)
                 if trim_report["changed"]:
                     logger.warning(
-                        "Article ran to %s words against a %s-word request (limit %s); "
-                        "kept %s of %s blocks across %s section(s), now %s words.",
+                        "Length guard: %s words against a %s-word request (over by %s). "
+                        "Trimmed %s of %s sections down to a %s-word cap, left %s untouched; now %s words.",
                         trim_report["total_words"],
                         requested_wc,
-                        trim_report["budget"],
-                        trim_report["kept_blocks"],
-                        trim_report["total_blocks"],
+                        trim_report["over_by"],
                         trim_report["trimmed_sections"],
+                        trim_report["trimmed_sections"] + trim_report["untouched_sections"],
+                        trim_report["cap"],
+                        trim_report["untouched_sections"],
                         trim_report.get("final_words", 0),
                     )
         except Exception as e:
