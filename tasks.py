@@ -722,6 +722,42 @@ def _extract_focus_keyword(keywords: str) -> str:
     return parts[0]
 
 
+def _apply_refinement_guard(
+    section_title: str,
+    pass_name: str,
+    previous_html: str,
+    candidate_html: str,
+    *,
+    min_ratio: float = 0.75,
+) -> str:
+    """Keep a refinement pass only if it did not delete the section's substance.
+
+    Three LLM passes run per section (factual, humanization, cleanup), each one
+    replacing the text. Each pass compresses a little, and a model that decides to
+    "tighten" can return a fraction of the input - a run that generated 8,496
+    words reached finalization with ~3,000 because nothing compared before/after.
+    A pass may rewrite every sentence; it may not lose the argument.
+    """
+    if not candidate_html or not candidate_html.strip():
+        logger.warning("Refinement pass '%s' returned nothing for '%s'; keeping the previous text.", pass_name, section_title)
+        return previous_html
+    preserved, reason = polish_preserved_body(
+        previous_html,
+        candidate_html,
+        min_length_ratio=min_ratio,
+        min_section_ratio=0.5,
+    )
+    if preserved:
+        return candidate_html
+    logger.warning(
+        "Refinement pass '%s' discarded for section '%s': %s. Keeping the previous text.",
+        pass_name,
+        section_title,
+        reason,
+    )
+    return previous_html
+
+
 def _truncate_seo_title(title: str, max_length: int = 60, focus_keyword: str = "") -> str:
     """Fit the SEO title to SERP length, with the focus keyword in front.
 
@@ -5941,8 +5977,8 @@ def _refine_article(result: Dict[str, Any], task_instance=None) -> Dict[str, Any
             int(research_data.get('refinement_stage_timeout_seconds') or REFINEMENT_STAGE_TIMEOUT_SECONDS),
         )
 
-        def _is_key_takeaways_section(title: str) -> bool:
-            lowered = (title or "").strip().lower()
+        def _is_key_takeaways_section(section_title: str) -> bool:
+            lowered = (section_title or "").strip().lower()
             return "at a glance" in lowered or "key takeaway" in lowered or lowered == "takeaways" or "tl;dr" in lowered
 
         def _run_refinement_pass(pass_name: str, system_content: str, input_html: str) -> Optional[str]:
@@ -6137,7 +6173,9 @@ Rules:
 - Return only cleaned HTML."""
             factual_result = _run_refinement_pass("factual_integrity", factual_prompt, refined_content)
             if factual_result:
-                refined_content = factual_result
+                refined_content = _apply_refinement_guard(
+                    section_title, "factual_integrity", refined_content, factual_result, min_ratio=0.75
+                )
                 factual_pass_applied += 1
 
             diagnostics = analyze_humanization(refined_content)
@@ -6159,7 +6197,9 @@ Rules:
 - Return only revised HTML."""
                 humanized = _run_refinement_pass("humanization", humanization_prompt, refined_content)
                 if humanized:
-                    refined_content = humanized
+                    refined_content = _apply_refinement_guard(
+                        section_title, "humanization", refined_content, humanized, min_ratio=0.75
+                    )
                     humanization_pass_applied += 1
 
             cleanup_prompt = f"""You are an expert editor. Review and refine the content to ensure it matches the {tone} tone perfectly, while improving clarity, flow, and engagement.
@@ -6204,7 +6244,21 @@ Rules:
                 logger.error(f"Failed to refine section '{section_title}' in final cleanup")
                 failed_sections += 1
                 continue
-            refined_content = cleanup_result
+            # Takeaways are asked to shrink deliberately; everything else may not.
+            guarded_cleanup = _apply_refinement_guard(
+                section_title,
+                "cleanup",
+                refined_content,
+                cleanup_result,
+                min_ratio=0.5 if takeaways_section else 0.75,
+            )
+            if guarded_cleanup == refined_content and cleanup_result != refined_content:
+                logger.warning(
+                    "Section '%s' keeps its pre-cleanup text (%s chars); the cleanup pass was discarded.",
+                    section_title,
+                    len(refined_content),
+                )
+            refined_content = guarded_cleanup
             cleanup_pass_applied += 1
             
             # For friendly tone, do an additional check and fix if needed
@@ -6752,8 +6806,9 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             raise RuntimeError(
                 "article_body_truncated: the final HTML holds "
                 f"{published_word_count} words against a {requested_words}-word target. "
-                "Refusing to publish a truncated article; check the polishing pass logs "
-                "for a discarded edit."
+                "Refusing to publish a truncated article. Check the REFINEMENT and "
+                "polishing logs for a discarded edit (look for "
+                "'Refinement pass ... discarded' and 'Polished chars')."
             )
         word_count = published_word_count
 
