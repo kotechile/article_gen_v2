@@ -129,6 +129,30 @@ class ViralTitleEngine:
         return None
 
     @classmethod
+    def _strip_adjacent_keyword_run(cls, title: str, keyword: str) -> str:
+        """Remove a run of keyword tokens that already sits in the title.
+
+        Prepending the keyword to "Agentic RAG: Why Pilots Stall" would otherwise
+        read "RAG agentic AI: Agentic RAG Why Pilots Stall". The run is dropped so
+        the remaining hook can follow the keyword cleanly.
+        """
+        tokens = [t for t in re.findall(r"[A-Za-z0-9]+", keyword.lower()) if t]
+        if not tokens:
+            return title
+        # Longest adjacent run first: "Agentic RAG" is worth stripping even when the
+        # keyword also carries "ai", which the title lacks.
+        for run_length in range(min(3, len(tokens)), 1, -1):
+            for subset in itertools.permutations(tokens, run_length):
+                pattern = r"\b" + r"\b[^A-Za-z0-9]{0,2}\b".join(re.escape(t) for t in subset) + r"\b"
+                match = re.search(pattern, title, re.IGNORECASE)
+                if match:
+                    remainder = f"{title[:match.start()]}{title[match.end():]}"
+                    remainder = re.sub(r"\s{2,}", " ", remainder).strip(" -:;,.")
+                    if remainder:
+                        return remainder
+        return title
+
+    @classmethod
     def display_keyword(cls, keyword: str) -> str:
         """Public form of the headline casing used for a keyword."""
         return cls._display_keyword(keyword)
@@ -211,9 +235,11 @@ class ViralTitleEngine:
 
         display_keyword = cls._display_keyword(keyword)
 
-        # Keep the hook, drop filler, then trim to the remaining budget.
+        # Keep the hook, drop filler and any duplicate keyword run, then trim to
+        # the remaining budget.
+        hook_source = cls._strip_adjacent_keyword_run(original, keyword)
         tail_words = [
-            w for w in re.findall(r"[A-Za-z0-9][A-Za-z0-9'’\-%/&]*", original)
+            w for w in re.findall(r"[A-Za-z0-9][A-Za-z0-9'’\-%/&]*", hook_source)
             if w.lower() not in {"the", "a", "an", "and", "of", "in", "on", "for", "to", "with", "your"}
         ]
         candidates: List[str] = []
