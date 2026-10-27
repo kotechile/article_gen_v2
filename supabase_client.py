@@ -290,7 +290,10 @@ def _fetch_llm_provider_rows(client: Client) -> list[dict]:
 
 
 def _fetch_llm_role_assignments(client: Client) -> dict[str, str]:
-    tables_to_try = ['llm_used_for', 'used_for']
+    # `used_for` is the canonical assignment table (one row per role, pointing at a
+    # provider or an image model). `llm_used_for` is kept second for older
+    # deployments; both are probed, so a rename is not a breaking change.
+    tables_to_try = ['used_for', 'llm_used_for']
     attempts = [
         ("role-map", "llm_provider_id,used_for"),
         ("role-map-legacy", "llm_provider_id,used_for"),
