@@ -9,6 +9,7 @@ Enforces core viral headline architecture:
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import re
@@ -83,6 +84,55 @@ class ViralTitleEngine:
     # ------------------------------------------------------------------ #
     # focus keyword handling
     # ------------------------------------------------------------------ #
+    _ACRONYMS = {"ai", "rag", "llm", "slm", "api", "sql", "seo", "geo", "nlp", "gpt", "sdk", "ui", "ux", "etl", "crud", "erp", "saas"}
+
+    @classmethod
+    def _display_keyword(cls, keyword: str) -> str:
+        """Render a keyword the way a headline would: "rag agentic ai" -> "RAG agentic AI"."""
+        tokens = re.sub(r"\s+", " ", (keyword or "").strip()).split()
+        if not tokens:
+            return ""
+        rendered: List[str] = []
+        for index, token in enumerate(tokens):
+            core = re.sub(r"[^A-Za-z0-9]", "", token)
+            if token.isupper() and len(core) > 1:
+                rendered.append(token)  # the author already chose RAG / AI / API
+            elif core.lower() in cls._ACRONYMS:
+                rendered.append(token.upper())
+            elif index == 0 and core:
+                rendered.append(core[0].upper() + token[1:])
+            else:
+                rendered.append(token)
+        return " ".join(rendered)
+
+    @classmethod
+    def _replace_partial_phrase(cls, title: str, keyword: str) -> Optional[str]:
+        """Swap scattered keyword tokens for the exact phrase, in place.
+
+        "Agentic RAG: Why Pilots Stall" + "rag agentic ai" becomes
+        "RAG agentic AI: Why Pilots Stall" - the headline keeps its shape and
+        gains the exact phrase instead of growing a redundant prefix.
+        """
+        tokens = [t for t in re.findall(r"[A-Za-z0-9]+", keyword.lower()) if t]
+        if not tokens or len(tokens) > 3:
+            return None
+        display = cls._display_keyword(keyword)
+        for order in itertools.permutations(tokens):
+            pattern = r"\b" + r"\b[^A-Za-z0-9]{0,2}\b".join(re.escape(t) for t in order) + r"\b"
+            match = re.search(pattern, title, re.IGNORECASE)
+            if not match:
+                continue
+            replaced = f"{title[:match.start()]}{display}{title[match.end():]}"
+            replaced = re.sub(r"\s{2,}", " ", replaced).strip(" -:;,.")
+            if cls.keyword_status(replaced, keyword)["status"] == "exact":
+                return replaced
+        return None
+
+    @classmethod
+    def display_keyword(cls, keyword: str) -> str:
+        """Public form of the headline casing used for a keyword."""
+        return cls._display_keyword(keyword)
+
     @staticmethod
     def _normalize_phrase(text: str) -> str:
         return re.sub(r"\s+", " ", (text or "").strip().lower())
@@ -147,12 +197,19 @@ class ViralTitleEngine:
         if not phrase:
             return {"title": original, "changed": False, "keyword_status": "not_evaluated",
                     "original": original, "reason": "no_keyword"}
-        if status["status"] != "missing":
-            return {"title": original, "changed": False, "keyword_status": status["status"],
+        if status["status"] == "exact":
+            return {"title": original, "changed": False, "keyword_status": "exact",
                     "original": original, "reason": "keyword_already_present"}
+        if status["status"] == "partial":
+            # The words are all there but not as the phrase; rewrite them in
+            # place so the headline keeps its shape.
+            upgraded = cls._replace_partial_phrase(original, keyword)
+            if upgraded and len(upgraded) <= max_chars:
+                return {"title": upgraded, "changed": upgraded != original,
+                        "keyword_status": "exact", "original": original,
+                        "reason": "keyword_phrase_completed"}
 
-        display_keyword = re.sub(r"\s+", " ", (keyword or "").strip())
-        display_keyword = display_keyword[:1].upper() + display_keyword[1:] if display_keyword else ""
+        display_keyword = cls._display_keyword(keyword)
 
         # Keep the hook, drop filler, then trim to the remaining budget.
         tail_words = [

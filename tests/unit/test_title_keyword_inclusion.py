@@ -94,10 +94,28 @@ class EnsureKeywordTests(unittest.TestCase):
         self.assertIn("agentic rag", result["title"].lower())
         self.assertIn("pilot", result["title"].lower())
 
-    def test_partial_match_is_accepted_as_present(self):
-        result = ViralTitleEngine.ensure_keyword_in_title("Agentic Pipelines Break RAG Agents", KEYWORD)
+    def test_identical_phrase_in_another_case_is_left_alone(self):
+        # "Agentic RAG" already is the phrase; only the casing differs.
+        result = ViralTitleEngine.ensure_keyword_in_title("Agentic RAG: Why Pilots Stall", KEYWORD)
         self.assertFalse(result["changed"])
-        self.assertEqual(result["keyword_status"], "partial")
+        self.assertEqual(result["keyword_status"], "exact")
+
+    def test_adjacent_partial_match_is_upgraded_in_place(self):
+        # Same words, wrong order: the phrase is rebuilt where it stands.
+        result = ViralTitleEngine.ensure_keyword_in_title("Agentic RAG: Why Pilots Stall", "rag agentic")
+        self.assertTrue(result["changed"])
+        self.assertEqual(result["keyword_status"], "exact")
+        self.assertTrue(result["title"].startswith("RAG agentic"))
+        self.assertIn("Why Pilots Stall", result["title"])
+
+    def test_scattered_partial_match_gets_the_phrase_prefixed(self):
+        result = ViralTitleEngine.ensure_keyword_in_title("Agentic Pipelines Break RAG Agents", KEYWORD)
+        self.assertTrue(result["title"].lower().startswith("agentic rag"))
+        self.assertEqual(result["keyword_status"], "exact")
+
+    def test_keyword_keeps_headline_casing(self):
+        result = ViralTitleEngine.ensure_keyword_in_title("Why Pilots Stall", "rag agentic ai")
+        self.assertTrue(result["title"].startswith("RAG agentic AI"))
 
 
 class SeoTitleTests(unittest.TestCase):

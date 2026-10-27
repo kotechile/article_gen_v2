@@ -733,16 +733,18 @@ def _truncate_seo_title(title: str, max_length: int = 60, focus_keyword: str = "
     title = re.sub(r"\s+", " ", (title or "").strip())
     keyword = re.sub(r"\s+", " ", (focus_keyword or "").strip())
 
+    engine = None
     if keyword:
         try:
             from src.services.viral_title_engine import ViralTitleEngine
 
-            has_keyword = ViralTitleEngine.keyword_status(title, keyword)["status"] in ("exact", "partial")
+            engine = ViralTitleEngine
+            has_keyword = engine.keyword_status(title, keyword)["status"] in ("exact", "partial")
         except Exception:  # never let the SEO nicety break a build
             has_keyword = keyword.lower() in title.lower()
 
         if not has_keyword:
-            display = keyword[:1].upper() + keyword[1:]
+            display = engine.display_keyword(keyword) if engine else keyword[:1].upper() + keyword[1:]
             prefix = f"{display}: "
             if len(prefix) + len(title) <= max_length:
                 return f"{prefix}{title}"
