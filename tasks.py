@@ -6679,6 +6679,32 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         # Normalize any markdown artifacts that leaked from generation/refinement.
         full_content = _normalize_markdown_artifacts_to_html(full_content)
         full_content = _enforce_at_a_glance_bullet_word_limit(full_content, max_words=60)
+
+        # One title, one lead, one deep-dive marker, one copy of each closing module.
+        # Every section used to write its own lead and closing blocks, so the finished
+        # document arrived with the "Go deeper" line-in at the very top (before the
+        # title), five h1s, and "At a Glance"/"The Catch" repeating per section.
+        try:
+            from src.services.article_structure_normalizer import normalize_document_structure
+
+            structure_title = str(structure.get('title') or research_data.get('title') or '').strip()
+            full_content, structure_report = normalize_document_structure(full_content, structure_title)
+            result['structure_normalization'] = structure_report
+            if structure_report.get('changed'):
+                logger.info(
+                    "Document structure normalised (%s): h1 %s -> 1, lead paragraphs %s, "
+                    "go-deeper lines %s -> 1, duplicate closing modules dropped %s, words %s -> %s",
+                    structure_report.get('title_source'),
+                    structure_report.get('h1_before'),
+                    structure_report.get('lead_paragraphs'),
+                    structure_report.get('go_deeper_paragraphs_before'),
+                    structure_report.get('duplicate_modules_removed'),
+                    structure_report.get('words_before'),
+                    structure_report.get('words_after'),
+                )
+            word_count = len(_extract_plain_text(full_content).split())
+        except Exception as struct_err:  # never block publication on a structure tidy-up
+            logger.warning("Document structure normalisation failed: %s", struct_err)
         
         # Reconcile in-text citations with reference list and filter out spam/broken/unused links
         evidence_for_references = result.get('ranked_evidence', []) or result.get('evidence', [])

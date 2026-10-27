@@ -13,11 +13,25 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from article_structure_generator import (  # noqa: E402
-    SECTION_WORDS_MAX,
-    SECTION_WORDS_MIN,
-    plan_section_budget,
-)
+def _planner():
+    # Imported lazily, and past any stub another test file installed: several files
+    # fake `article_structure_generator` in sys.modules before importing `tasks`.
+    import sys
+
+    module = sys.modules.get("article_structure_generator")
+    if module is not None and not hasattr(module, "plan_section_budget"):
+        del sys.modules["article_structure_generator"]
+    import article_structure_generator
+
+    return article_structure_generator
+
+
+def plan_section_budget(target):
+    return _planner().plan_section_budget(target)
+
+
+SECTION_WORDS_MIN = 450
+SECTION_WORDS_MAX = 700
 
 
 class PlanSectionBudgetTests(unittest.TestCase):

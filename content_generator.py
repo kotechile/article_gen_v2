@@ -534,44 +534,31 @@ TARGET AUDIENCE: {audience}
                     ========================================
                     {demographic_guidelines}
 
-                    MANDATORY EDITORIAL ARTICLE ARCHITECTURE:
-                    Every generated article must strictly conform to this editorial format:
+                    MANDATORY EDITORIAL ARTICLE ARCHITECTURE (the whole article):
+                    Every article follows this structure. It is assembled from several calls:
+                    one lead call, one call per section, one closing call. You are writing ONE
+                    piece of it - see SECTION SCOPE below for what that piece contains.
 
-                    1. Bold Headline (H1 / Title):
-                       - Max 6 words, front-load value, zero fluff, with compelling psychological trigger.
+                    1. Bold Headline (H1 / Title) - built once for the article, not by you.
+                    2. The Big Picture - one bold axiom at the top of the article, built once.
+                    3. Substantive Sections - the deep-dive body. This is your job.
+                    4. What I'd Watch - closing module, built once.
+                    5. The Catch - closing module, built once.
+                    6. At a Glance - closing module, built once.
 
-                    2. The Big Picture (Top of Article):
-                       - **The Big Picture:** One bold axiom or contrarian statement in 1-2 sentences. What is the fundamental tension, market shift, or architectural trap?
-                       - Cut all throat-clearing (never "In this article..." or "When considering...").
-                       - Followed immediately by a horizontal divider (--- / <hr>).
-
-                    3. Substantive Sections (Action-Oriented or Metric-Driven):
-                       - Section Header: Use an action-oriented or metric-driven H3 (e.g., ### Slashing Cache Miss Penalties by 40%).
-                       - Context: Exactly 1 short paragraph (2-3 sentences). State the core problem, tool version, or financial stake immediately.
-                       - Bullet Breakdown: Exactly 3 bolded key metric or term bullets:
-                         * **[Key Metric or Term]:** 1-2 sentences explaining why it matters. Cut all introductory throat-clearing.
-                         * **[Key Metric or Term]:** Focus on empirical mechanics, code constraints, or hard numbers.
-                         * **[Key Metric or Term]:** Highlight the trade-off, cost, or hidden failure mode.
-                       - Tables: Include comparative data tables or matrices where multi-variable comparisons or numbers warrant them.
-                       - Followed by a horizontal divider (--- / <hr>).
-
-                    4. What I'd Watch:
-                       ### What I'd Watch:
-                       * **[Indicator 1]:** Specific test, benchmark, or transition to monitor.
-                       * **[Indicator 2]:** Real-world operational friction point.
-                       * **[Indicator 3]:** Where standard assumptions break down.
-                       Followed by a horizontal divider (--- / <hr>).
-
-                    5. The Catch:
-                       ### The Catch
-                       1 paragraph acknowledging the limitations, sample size constraints, or counterarguments. Own your bias before the reader finds it.
-                       Followed by a horizontal divider (--- / <hr>).
-
-                    6. At a Glance:
-                       ### At a Glance
-                       * **The Big Shift:** One-sentence summary of the core trend.
-                       * **Why It Matters:** The operational or financial consequence.
-                       * **The Bottom Line:** The final definitive takeaway.
+                    SECTION SCOPE - READ THIS BEFORE WRITING:
+                    - You are writing ONE section of a longer article, not a standalone piece.
+                    - Do NOT write an H1, a headline, or a second title. The article title is
+                      set once, elsewhere. Start directly with your section's subheadings.
+                    - Do NOT write "The Big Picture", "Why it matters", "By the numbers",
+                      "The Bottom Line", "Go deeper", "At a Glance", "The Catch",
+                      "What I'd Watch", "FAQ" or "References". Those are produced once for the
+                      whole article; echoing them inside a section duplicates the document.
+                    - Structure inside the section: 2-4 H3 subheadings, each with one short
+                      context paragraph (2-3 sentences) followed by exactly 3 bolded metric or
+                      term bullets, or a comparative table where numbers warrant it.
+                    - End on the last piece of evidence. No summary, no closing flourish, no
+                      "in conclusion" - the next section follows immediately.
 
                     7. Complete Concept Coverage & Zero Fluff:
                        - Every theme, statistic, or concept mentioned in the lead or overview MUST be fully developed and substantiated in the substantive body sections.

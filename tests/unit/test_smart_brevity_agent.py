@@ -583,8 +583,14 @@ def test_finalize_article_reconciles_and_caps_hundreds_of_citations():
     # Out of 50 candidates, only the 2 actually cited ([10] and [25]) should be retained!
     assert article["citations_count"] == 2
     assert len(article["citations"]) == 2
-    assert article["citations"][0]["title"] == "Scientific Benchmark Study #10"
-    assert article["citations"][1]["title"] == "Scientific Benchmark Study #25"
+    # Both cited sources survive and nothing else does. The order follows the
+    # document, and the document opens with the lead paragraph (which carries the
+    # [25] marker), so #25 is numbered first.
+    assert {c["title"] for c in article["citations"]} == {
+        "Scientific Benchmark Study #10",
+        "Scientific Benchmark Study #25",
+    }
+    assert article["citations"][0]["title"] == "Scientific Benchmark Study #25"
 
     html = article["htmlArticle"]
     assert '<a href="#ref-1" class="citation-link">[1]</a>' in html
