@@ -68,6 +68,44 @@ class ArticleStructure:
     core_promise: Optional[str] = None
     viral_metadata: Optional[Dict[str, Any]] = None
 
+SECTION_WORDS_MIN = 450
+SECTION_WORDS_TARGET = 550
+SECTION_WORDS_MAX = 700
+
+
+def plan_section_budget(target_words: int, *, min_sections: int = 2, max_sections: int = 12) -> Dict[str, int]:
+    """Decide how many sections a requested article length should have.
+
+    Section count has to follow the length, not the other way round: a 2,500-word
+    article split ten ways gives 250-word sections, which read as a list of
+    summaries no matter how good the writing is. The planner aims at a 450-700
+    word section (roughly one argument with evidence), and only goes past
+    ``max_sections`` for genuinely long pieces.
+
+    Returns ``section_count``, ``words_per_section`` and the per-section band.
+
+    A very short piece (under ~900 words) cannot reach the band at two sections;
+    the band is a target, the section count is the contract.
+    """
+    target = max(300, int(target_words or 0))
+    count = max(min_sections, min(max_sections, round(target / SECTION_WORDS_TARGET)))
+    words_per_section = max(200, round(target / count))
+    # Too thin per section: add sections while there is room to.
+    while words_per_section > SECTION_WORDS_MAX and count < max_sections:
+        count += 1
+        words_per_section = round(target / count)
+    # Too fat per section for a short piece: merge sections.
+    while words_per_section < SECTION_WORDS_MIN and count > min_sections:
+        count -= 1
+        words_per_section = round(target / count)
+    return {
+        "section_count": count,
+        "words_per_section": words_per_section,
+        "min_words": max(150, int(words_per_section * 0.8)),
+        "max_words": int(words_per_section * 1.2),
+    }
+
+
 class ArticleStructureGenerator:
     """
     Generates comprehensive article structures using LLM.
@@ -601,28 +639,22 @@ class ArticleStructureGenerator:
         """Generate detailed section outlines with balanced word distribution."""
         try:
             research_data = research_data or {}
-            # Calculate dynamic section count range based on target word count and format
-            if target_word_count <= 600:
-                min_sections = 2
-                max_sections = 3
-                section_count = 2 if target_word_count <= 400 else 3
-            elif target_word_count <= 1200:
-                min_sections = 3
-                max_sections = 5
-                section_count = max(3, min(4, target_word_count // 300))
-            elif target_word_count <= 2200:
-                min_sections = 4
-                max_sections = 7
-                section_count = max(4, min(6, target_word_count // 350))
-            else:
-                min_sections = 5
-                max_sections = 9
-                section_count = max(5, min(8, target_word_count // 350))
-            
-            # Calculate balanced word count per section
-            words_per_section = max(150, target_word_count // max(1, section_count))
-            min_words = max(100, int(words_per_section * 0.7))  # 70% of target
-            max_words = int(words_per_section * 1.3)  # 130% of target
+            # Section count follows the requested length (see plan_section_budget):
+            # a 2,500-word request is four to five sections that can carry an
+            # argument each, not ten that can only carry a summary.
+            budget = plan_section_budget(target_word_count)
+            section_count = budget["section_count"]
+            min_sections = section_count
+            max_sections = section_count
+            words_per_section = budget["words_per_section"]
+            min_words = budget["min_words"]
+            max_words = budget["max_words"]
+            self.logger.info(
+                "Section plan: %s sections x ~%s words for a %s-word request",
+                section_count,
+                words_per_section,
+                target_word_count,
+            )
                        # Prepare context
             claims_text = "\n".join([f"- {claim.get('claim', '')}" for claim in claims[:5]])
             evidence_text = f"Evidence from {len(evidence)} sources" if evidence else "Research-based insights"
@@ -652,7 +684,7 @@ class ArticleStructureGenerator:
                     "content": f"""You are an expert content strategist. Create a detailed, balanced outline for a {article_type} article.
                     
                     CRITICAL REQUIREMENTS:
-                    - Create between {min_sections} and {max_sections} logical main sections (recommended: ~{section_count} sections) based on the depth of the topic and target length.
+                    - Create EXACTLY {section_count} logical main sections for a {target_word_count}-word article (the introduction and the conclusion are two of them). Do not add extra sections: each one must be substantial enough to carry an argument with evidence, not a summary.
                     - Each section should be {min_words}-{max_words} words (target: ~{words_per_section} words)
                     - Ensure BALANCED content distribution - no single section should dominate
                     - Match the {tone} tone
@@ -731,7 +763,7 @@ Target Word Count: {target_word_count}
 Tone: {tone}
 {controversies_prompt_text}
 
-Create {min_sections} to {max_sections} topic-specific sections that directly relate to this article's content and target length ({target_word_count} words). Each section title should be unique to this topic, not a generic template. Analyze the brief and claims to determine what sections make sense for THIS specific article."""
+Create EXACTLY {section_count} topic-specific sections for this article's target length ({target_word_count} words, ~{words_per_section} words each, introduction and conclusion included). Each section title should be unique to this topic, not a generic template. Do not split the subject into more sections than this: depth per section beats a longer table of contents."""
                 }
             ]
             
@@ -779,6 +811,23 @@ Create {min_sections} to {max_sections} topic-specific sections that directly re
                     sections.append(section)
                 
                 self.logger.info(f"Successfully parsed {len(sections)} sections from LLM response")
+                if len(sections) > section_count:
+                    # The planner's count is the contract; extra sections are what
+                    # turns a 2,500-word article into ten summaries.
+                    self.logger.warning(
+                        "Planner asked for %s sections, the model returned %s; keeping the first %s and dropping %s.",
+                        section_count,
+                        len(sections),
+                        section_count,
+                        len(sections) - section_count,
+                    )
+                    sections = sections[:section_count]
+                elif len(sections) < section_count:
+                    self.logger.warning(
+                        "Planner asked for %s sections, the model returned %s; keeping the shorter outline.",
+                        section_count,
+                        len(sections),
+                    )
                 return sections
                 
             except (json.JSONDecodeError, ValueError) as e:
@@ -939,15 +988,10 @@ Create {min_sections} to {max_sections} topic-specific sections that directly re
     
     def _create_fallback_sections(self, brief: str, target_word_count: int, claims: List[Dict] = None) -> List[SectionOutline]:
         """Create fallback section outlines with topic-specific structure based on brief and claims."""
-        # Calculate dynamic section count range based on target word count
-        if target_word_count <= 600:
-            target_count = 2 if target_word_count <= 400 else 3
-        elif target_word_count <= 1200:
-            target_count = max(3, min(4, target_word_count // 300))
-        elif target_word_count <= 2200:
-            target_count = max(4, min(6, target_word_count // 350))
-        else:
-            target_count = max(5, min(8, target_word_count // 350))
+        # Same planner as the main path: the fallback must not produce a different
+        # shape of article than the outline path.
+        budget = plan_section_budget(target_word_count)
+        target_count = budget["section_count"]
 
         # Analyze brief to create more relevant sections
         brief_lower = brief.lower()
@@ -963,14 +1007,14 @@ Create {min_sections} to {max_sections} topic-specific sections that directly re
                 if words:
                     claim_themes.append(' '.join(words[:3]))
 
-        words_per_section = max(150, target_word_count // max(1, target_count))
+        words_per_section = budget["words_per_section"]
 
         # Build dynamic section list matching target_count
         sections: List[SectionOutline] = [
             SectionOutline(
                 title="Introduction",
                 key_points=["Overview of the topic", "Why this matters", "Key takeaways preview"],
-                word_count_target=min(250, max(120, words_per_section)),
+                word_count_target=words_per_section,
                 order=1,
                 importance="high"
             )
@@ -1016,7 +1060,7 @@ Create {min_sections} to {max_sections} topic-specific sections that directly re
             SectionOutline(
                 title="Conclusion",
                 key_points=["Summary of strategic takeaways", "Next action steps", "Final perspective"],
-                word_count_target=min(250, max(120, words_per_section)),
+                word_count_target=words_per_section,
                 order=len(sections) + 1,
                 importance="medium"
             )
