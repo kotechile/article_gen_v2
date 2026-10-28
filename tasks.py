@@ -6615,6 +6615,155 @@ Rules:
         logger.error(f"Error in article refinement: {str(e)}")
         return {'refinements': [], 'stage_data': {'refinements_applied': 0, 'error': str(e)}}
 
+DOCUMENT_EDITOR_SYSTEM = """You are the final editor of a single article, not a section writer.
+
+The sections were written in separate passes. Your job is to make the article read
+as one piece written by one person, without changing what it says.
+
+HARD RULES:
+- Keep every number, statistic, citation marker ([n]), heading, and table intact.
+- Do not add facts, examples, or claims that are not already there.
+- Keep the heading sequence exactly as it is: same headings, same order, same levels.
+- Keep HTML tags valid; output HTML only, no commentary, no code fences.
+"""
+
+DOCUMENT_EDITOR_PROMPT = """Article title: {title}
+
+Rewrite this article so it flows as one continuous piece, then return the complete HTML.
+
+What to fix:
+1. TRANSITIONS - each section currently starts cold. Rewrite the opening sentence of
+   each section (after the first) so it picks up the thread from the section before
+   it. Vary the connective; do not open three sections the same way.
+2. BULLET SCAFFOLDING - any bullet whose body is one bolded label plus one sentence
+   is prose wearing a list. Merge those into flowing paragraphs, unless the list is
+   genuinely scanned (ordered steps, head-to-head options). Fix no more than what
+   the article needs: a list that earns its place stays.
+3. REPETITION - the same framing, definition, or caveat appearing in two sections
+   should appear once, where it fits best. Replace the later instance with something
+   that carries the argument forward.
+4. VOICE - consistent terminology throughout ("agentic RAG" in one place and
+   "RAG agentic AI" in another is one concept with two names: pick one). Keep the
+   author's tone; do not add flourish or marketing language.
+
+Return the full revised article HTML.
+
+Article:
+{article}
+"""
+
+
+def _document_numbers(html_text: str) -> set:
+    # Citation markers are checked separately; counting "[2]" here would report a
+    # dropped citation as a dropped number.
+    text = re.sub(r"\[\d{1,3}\]", " ", _extract_plain_text(html_text or ""))
+    return set(re.findall(r"\d[\d,\.]*", text))
+
+
+def _document_citation_markers(html_text: str) -> set:
+    return set(re.findall(r"\[(\d{1,3})\]", _extract_plain_text(html_text or "")))
+
+
+def _document_headings(html_text: str) -> List[str]:
+    return [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", m.group(2))).strip().lower()
+            for m in re.finditer(r"<h([1-6])\b[^>]*>(.*?)</h\1>", html_text or "", re.I | re.S)]
+
+
+def _unify_document_voice(
+    full_content: str,
+    research_data: Optional[Dict[str, Any]] = None,
+    structure: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    """One pass over the whole article so it reads as a single piece.
+
+    Per-section refinement cannot see the joins, which is why separately good
+    sections still read like isolated queries. This pass is given the whole
+    document and may only fix transitions, bullet scaffolding, repetition and
+    terminology - with hard checks on what must survive: every number, every
+    citation marker, every heading in order.
+    """
+    research_data = research_data or {}
+    structure = structure or {}
+    report: Dict[str, Any] = {"applied": False, "reason": ""}
+    article = (full_content or "").strip()
+    if len(article) < 3000:
+        report["reason"] = "article too short to need a document pass"
+        return full_content, report
+
+    provider, model, api_key = get_llm_provider_for_role(LLM_ROLE_FINAL_REVIEW)
+    provider = provider or research_data.get("provider")
+    model = model or research_data.get("model")
+    api_key = api_key or research_data.get("api_key") or research_data.get("llm_key", "")
+    if not provider or not model:
+        report["reason"] = "no model resolved for the document pass"
+        return full_content, report
+
+    headings_before = _document_headings(article)
+    numbers_before = _document_numbers(article)
+    markers_before = _document_citation_markers(article)
+    words_before = len(_extract_plain_text(article).split())
+
+    try:
+        client = create_llm_client(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            temperature=0.3,
+            timeout=int(os.getenv("ARTICLE_DOCUMENT_EDITOR_TIMEOUT", "600")),
+            max_retries=1,
+        )
+        response = client.generate(
+            [
+                {"role": "system", "content": DOCUMENT_EDITOR_SYSTEM},
+                {
+                    "role": "user",
+                    "content": DOCUMENT_EDITOR_PROMPT.format(
+                        title=str(structure.get("title") or ""), article=article
+                    ),
+                },
+            ]
+        )
+        candidate = (getattr(response, "content", "") or "").strip()
+    except Exception as exc:
+        report["reason"] = f"editor call failed: {exc}"
+        return full_content, report
+
+    candidate = re.sub(r"^```(?:html)?\s*", "", candidate)
+    candidate = re.sub(r"\s*```$", "", candidate).strip()
+    if not candidate:
+        report["reason"] = "editor returned nothing"
+        return full_content, report
+
+    # What must survive, checked in order of how badly losing it would hurt.
+    lost_numbers = sorted(numbers_before - _document_numbers(candidate))
+    if lost_numbers:
+        report["reason"] = f"numbers lost: {lost_numbers[:8]}"
+        return full_content, report
+
+    lost_markers = sorted(markers_before - _document_citation_markers(candidate))
+    if lost_markers:
+        report["reason"] = f"citation markers lost: {lost_markers[:8]}"
+        return full_content, report
+
+    if _document_headings(candidate) != headings_before:
+        report["reason"] = "heading structure changed"
+        return full_content, report
+
+    words_after = len(_extract_plain_text(candidate).split())
+    if words_before and words_after < words_before * 0.6:
+        report["reason"] = f"kept only {words_after} of {words_before} words"
+        return full_content, report
+
+    report.update(
+        applied=True,
+        reason="",
+        model=f"{provider}/{model}",
+        words_before=words_before,
+        words_after=words_after,
+    )
+    return candidate, report
+
+
 def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
     """Finalize the article."""
     try:
@@ -6797,6 +6946,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         # title), five h1s, and "At a Glance"/"The Catch" repeating per section.
         try:
             from src.services.article_structure_normalizer import normalize_document_structure
+            from src.services.prose_density import measure_prose_density
 
             structure_title = str(structure.get('title') or research_data.get('title') or '').strip()
             full_content, structure_report = normalize_document_structure(full_content, structure_title)
@@ -6816,6 +6966,35 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             normalised_word_count = len(_extract_plain_text(full_content).split())
         except Exception as struct_err:  # never block publication on a structure tidy-up
             logger.warning("Document structure normalisation failed: %s", struct_err)
+
+        # The sections were written in separate passes, so nothing so far has looked
+        # at the joins. This is the only pass that sees the whole article.
+        if os.getenv("ARTICLE_DOCUMENT_EDITOR", "true").strip().lower() != "false":
+            try:
+                prose_before = measure_prose_density(full_content)
+                full_content, editor_report = _unify_document_voice(full_content, research_data, structure)
+                result['document_editor'] = editor_report
+                if editor_report.get('applied'):
+                    normalised_word_count = len(_extract_plain_text(full_content).split())
+                    prose_after = measure_prose_density(full_content)
+                    result['prose_density'] = prose_after
+                    logger.info(
+                        "Document editor (%s): words %s -> %s, list items %s -> %s, "
+                        "'Label: explanation' bullets %s -> %s, bullet/paragraph ratio %s -> %s",
+                        editor_report.get('model'),
+                        editor_report.get('words_before'),
+                        editor_report.get('words_after'),
+                        prose_before.get('list_items'),
+                        prose_after.get('list_items'),
+                        prose_before.get('label_bullets'),
+                        prose_after.get('label_bullets'),
+                        prose_before.get('bullet_ratio'),
+                        prose_after.get('bullet_ratio'),
+                    )
+                else:
+                    logger.warning("Document editor skipped: %s", editor_report.get('reason'))
+            except Exception as editor_err:  # never block publication on the flow pass
+                logger.warning("Document editor failed: %s", editor_err)
         
         # Reconcile in-text citations with reference list and filter out spam/broken/unused links
         evidence_for_references = result.get('ranked_evidence', []) or result.get('evidence', [])
@@ -6915,6 +7094,16 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 references_section += ".</p>\n"
         else:
             references_section = "\n\n<hr>\n\n<h2>References</h2>\n\n<p><em>This article is based on general knowledge and industry best practices. No specific sources were cited as no evidence sources were available during generation.</em></p>\n"
+
+        # A generator-written References block would otherwise sit above the curated
+        # list and publish twice, with truncated titles.
+        try:
+            from src.services.prose_density import strip_references_section
+
+            full_content = strip_references_section(full_content)
+            html_content_with_citations = strip_references_section(html_content_with_citations)
+        except Exception as ref_err:
+            logger.warning("Could not strip generated references block: %s", ref_err)
 
         # Add references to both content versions
         if references_section:

@@ -549,16 +549,31 @@ TARGET AUDIENCE: {audience}
                     SECTION SCOPE - READ THIS BEFORE WRITING:
                     - You are writing ONE section of a longer article, not a standalone piece.
                     - Do NOT write an H1, a headline, or a second title. The article title is
-                      set once, elsewhere. Start directly with your section's subheadings.
+                      set once, elsewhere.
                     - Do NOT write "The Big Picture", "Why it matters", "By the numbers",
                       "The Bottom Line", "Go deeper", "At a Glance", "The Catch",
                       "What I'd Watch", "FAQ" or "References". Those are produced once for the
                       whole article; echoing them inside a section duplicates the document.
-                    - Structure inside the section: 2-4 H3 subheadings, each with one short
-                      context paragraph (2-3 sentences) followed by exactly 3 bolded metric or
-                      term bullets, or a comparative table where numbers warrant it.
                     - End on the last piece of evidence. No summary, no closing flourish, no
                       "in conclusion" - the next section follows immediately.
+
+                    PROSE FIRST - THIS IS THE MOST IMPORTANT RULE:
+                    - Write connected paragraphs, 3 to 5 per section, 2 to 4 sentences each.
+                      Each paragraph should carry one idea forward and lead into the next.
+                    - Bullet points are the exception, not the default. Use a list ONLY for an
+                      enumeration the reader must scan (steps in order, options compared), at
+                      most once per section, and never more than 4 items.
+                    - NEVER use the "**Label:** explanation" bullet pattern. It reads as
+                      machine-generated scaffolding: three bolded labels followed by one
+                      sentence each is the single clearest sign a section was generated
+                      without an editor. Write the same information as prose.
+                    - Prefer at most ONE table per section, and only when comparing three or
+                      more attributes across two or more options. Never put a table and a
+                      bullet list saying the same thing in the same section.
+                    - Use subheadings (H3) only when a section genuinely covers two distinct
+                      questions. A 500-word section usually needs zero or one, not four.
+                    - Vary sentence length deliberately: a short sentence after a long one.
+                      Avoid three consecutive sentences that open the same way.
 
                     7. Complete Concept Coverage & Zero Fluff:
                        - Every theme, statistic, or concept mentioned in the lead or overview MUST be fully developed and substantiated in the substantive body sections.
