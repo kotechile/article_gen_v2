@@ -63,7 +63,17 @@ _SCAFFOLD_MARKERS = re.compile(
 
 _PLACEHOLDER_RE = re.compile(
     r"(?:"
-    r"\[\s*\d+\s*-\s*\d+\s+sentences?"
+    # Instruction text echoed back verbatim, never in brackets. Observed 2026-10-27: a draft
+    # whose body opened "The Big Picture: 1-2 sentences" and closed the section with "Go deeper:
+    # Review the detailed breakdown, comparative analysis, and step-by-step guidance below." -
+    # the prompt's own skeleton, printed as the article.
+    r"\bexactly\s+\d+\s*(?:to|-|–)\s*\d+\s+sentences?\b"
+    r"|\b\d+\s*(?:to|-|–)\s*\d+\s+sentences?\b"
+    r"|\baction-oriented or metric-driven\b"
+    r"|\bkey metric or term\b"
+    r"|\bbolded (?:key )?(?:metric|term) bullets?\b"
+    r"|\bsubstantive body sections?\b"
+    r"|\[\s*\d+\s*-\s*\d+\s+sentences?"
     r"|\[\s*\d+\s+bolded"
     r"|\[\s*(?:table|paragraph|h3|faq|author|url|insert|add|content)"
     r"|\bsection \d+ header\b"
@@ -214,7 +224,22 @@ def leakage_summary(html: str) -> Dict[str, Any]:
     total_words = max(1, len(plain.split()))
     share = round(leak_words / total_words, 3)
 
-    leaked = bool(len(reasoning) >= 2 or share > 0.05 or len(placeholders) >= 2)
+    # A body with no <p>/<li>/<h*> at all is not an article: it is the model's raw reply. The
+    # block-level checks above cannot see it (there are no blocks to inspect), which is how a
+    # 23 KB monologue was published on 2026-10-27 - `markers` listed eight of its planning
+    # phrases while `leaked` stayed False, because the predicate only counted blocks.
+    plain_text_only = bool(len(blocks) == 0 and total_words > 120)
+    early_plain = " ".join(plain.split()[:400]).lower()
+    marker_in_lead = any(marker in early_plain for marker in markers)
+
+    leaked = bool(
+        len(reasoning) >= 2
+        or share > 0.05
+        or len(placeholders) >= 2
+        or len(markers) >= 2          # two distinct planning phrases is never prose
+        or marker_in_lead             # one, before the article has started, is fatal too
+        or plain_text_only
+    )
     return {
         "leaked": leaked,
         "reasoning_paragraphs": len(reasoning),
@@ -222,4 +247,7 @@ def leakage_summary(html: str) -> Dict[str, Any]:
         "markers": markers[:8],
         "placeholders": [p.strip() for p in placeholders[:8]],
         "samples": [block[:200] for block in reasoning[:2]],
+        "html_blocks": len(blocks),
+        "plain_text_only": plain_text_only,
+        "words": total_words,
     }

@@ -27,6 +27,32 @@ from typing import Any, Dict, List, Optional, Tuple
 
 _MARKER_RE = re.compile(r"\[\^?(\d+)\]")
 
+# A reference URL must name a host with a real TLD. `startswith("https://")` accepted
+# "https://www." - a scraped URL truncated mid-domain - and the reader got a link to nothing.
+_VALID_URL = re.compile(r"^https?://[^\s/?#]+\.[A-Za-z]{2,}(?::\d+)?(?:[/?#]\S*)?$")
+
+# A reference title is a title, not a page fragment: "### **3." and "### Key Takeaways -
+# **Progress Software Launch." are scrape noise, and neither can be checked or cited.
+_FRAGMENT_TITLE = re.compile(r"^\s*(?:#{1,6}|[-*•])\s|^\W*\d+\.?\W*$")
+
+
+def _usable_url(url: str) -> bool:
+    return bool(_VALID_URL.match((url or "").strip()))
+
+
+def _usable_title(title: str) -> bool:
+    """False for scrape noise: a heading marker that leaked in, or a bare number.
+
+    Length is not the test - a real title can be short ("S-1 filing") - the shape is:
+    "### **3." and "### Key Takeaways - **Progress Software Launch." both begin with the
+    markup of the page they were scraped from, and neither can be cited by a reader.
+    """
+    raw = (title or "").strip()
+    if not raw or _FRAGMENT_TITLE.match(raw):
+        return False
+    text = re.sub(r"[*_`#>\[\]()]", " ", raw).strip()
+    return bool(re.search(r"[A-Za-z]", text))
+
 
 def enforce_citation_integrity(
     content: str,
@@ -40,6 +66,8 @@ def enforce_citation_integrity(
     report: Dict[str, Any] = {
         "kept": 0,
         "dropped_without_url": [],
+        "dropped_malformed": [],
+        "dropped_fragment": [],
         "dropped_uncited": [],
         "markers_repaired": 0,
         "require_urls": require_urls,
@@ -52,8 +80,15 @@ def enforce_citation_integrity(
     survives: List[Optional[Dict[str, Any]]] = []
     for citation in citations:
         url = str((citation or {}).get("url") or "").strip()
+        title = str((citation or {}).get("title") or "")
         if require_urls and not url.startswith(("http://", "https://")):
-            report["dropped_without_url"].append(str((citation or {}).get("title") or "untitled")[:120])
+            report["dropped_without_url"].append(title[:120] or "untitled")
+            survives.append(None)
+        elif require_urls and not _usable_url(url):
+            report.setdefault("dropped_malformed", []).append(f"{url[:80]} ({title[:60]})")
+            survives.append(None)
+        elif not _usable_title(title):
+            report.setdefault("dropped_fragment", []).append(f"{title[:80]} ({url[:60]})")
             survives.append(None)
         else:
             survives.append(citation)

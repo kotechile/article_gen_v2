@@ -8,9 +8,35 @@ deliberating about two of its own instructions.
 import unittest
 
 from src.services.model_output_cleanup import (
+    leakage_summary,
     looks_like_reasoning,
     polish_preserved_body,
     strip_model_scaffolding,
+)
+
+# Verbatim from the 2026-10-27 run: a 23 KB reply with no HTML at all, opening with the model's
+# plan and then echoing the prompt's own architecture skeleton as the article.
+PLAIN_TEXT_MONOLOGUE = (
+    "rag agentic ai hidden costs\n\n"
+    "The Big Picture: 1-2 sentences\n\n"
+    "Go deeper: Review the detailed breakdown, comparative analysis, and step-by-step guidance below.\n\n"
+    "Go Deeper\n\n"
+    " The user wants me to rewrite this as an expert executive editor. I need to understand the task. "
+    "The user says \"Return the complete article HTML.\" Let me analyze the requirements carefully:\n\n"
+    "Must match the editorial architecture:\n\n"
+    "The Big Picture at top (1-2 sentences)\n\nGo Deeper section with substantive body sections\n\n"
+    "What I'd Watch\n\nThe Catch\n\nAt a Glance\n\nFAQ section\n\nReferences\n\n"
+    "Fact discipline: keep all numbers, citations in place, no new numbers.\n\n"
+    "Every substantive topic section must follow this exact formula: "
+    "[Action-Oriented or Metric-Driven Header] with exactly 3 bolded key metric bullets:\n\n"
+    "* [Key Metric or Term]: 1-2 sentences explaining why it matters. Cut all introductory "
+    "throat-clearing.\n\n* [Key Metric or Term]: Focus on empirical mechanics, code constraints, "
+    "or hard numbers.\n\n* [Key Metric or Term]: Highlight the trade-off, cost, or hidden failure "
+    "mode.\n\nTables: If the section contains comparative data, options, or matrices, format as "
+    "clean HTML tables.\n\nSo I need to restructure into the specified architecture. Let me think "
+    "about how to do this practically. I will take the original content and restructure it, then "
+    "return the complete article HTML. I need to preserve all the original text, tables, FAQs and "
+    "citations while reorganising the headers and adding the required elements."
 )
 
 LEAKED_OUTPUT = (
@@ -59,6 +85,35 @@ class StripScaffoldingTests(unittest.TestCase):
         cleaned, report = strip_model_scaffolding(REAL_DRAFT)
         self.assertEqual(cleaned.strip(), REAL_DRAFT.strip())
         self.assertEqual(report["removed_blocks"], 0)
+
+    def test_plain_text_monologue_is_leaked(self):
+        """No block markup + planning phrases: the 2026-10-27 failure, which shipped."""
+        report = leakage_summary(PLAIN_TEXT_MONOLOGUE)
+        self.assertTrue(report["leaked"])
+        self.assertTrue(report["plain_text_only"])
+        self.assertEqual(report["html_blocks"], 0)
+        self.assertGreaterEqual(len(report["markers"]), 2)
+        self.assertIn("the user wants", report["markers"])
+
+    def test_prompt_skeleton_echoed_as_prose_is_a_placeholder(self):
+        report = leakage_summary(PLAIN_TEXT_MONOLOGUE)
+        joined = " | ".join(report["placeholders"])
+        self.assertIn("1-2 sentences", joined)
+        self.assertIn("Action-Oriented or Metric-Driven", joined)
+
+    def test_a_real_article_with_no_markers_is_not_leaked(self):
+        report = leakage_summary(REAL_DRAFT)
+        self.assertFalse(report["leaked"], report)
+        self.assertGreater(report["html_blocks"], 2)
+
+    def test_two_planning_phrases_inside_markup_are_still_leaked(self):
+        """Markers are evidence even when the body is otherwise well formed."""
+        html = (
+            "<p>First, let me analyze the retrieval numbers in the draft.</p>"
+            "<p>The user wants a cost comparison, so here is a table.</p>"
+            "<p>Retrieval costs compound across hops, and the ledger shows it.</p>"
+        )
+        self.assertTrue(leakage_summary(html)["leaked"])
 
     def test_reasoning_detection(self):
         self.assertTrue(looks_like_reasoning(

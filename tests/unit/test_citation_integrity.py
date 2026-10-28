@@ -77,6 +77,35 @@ class CitationIntegrityTests(unittest.TestCase):
         self.assertIn("[1]", content)
         self.assertIn("[2]", content)
 
+    def test_a_truncated_url_is_not_a_citation(self):
+        """The 2026-10-27 run published "[1] [Agentic RAG](https://www." — startswith() passed it."""
+        body = "<p>Retrieval costs compound [1].</p><p>A router cuts it [2].</p>"
+        citations = [
+            {"title": "Agentic RAG", "url": "https://www."},
+            {"title": "Toolformer: Language Models Can Teach Themselves to Use Tools",
+             "url": "https://arxiv.org/abs/2302.04761"},
+        ]
+        content, kept, report = enforce_citation_integrity(body, citations)
+        self.assertEqual([c["title"] for c in kept],
+                         ["Toolformer: Language Models Can Teach Themselves to Use Tools"])
+        self.assertEqual(len(report["dropped_malformed"]), 1)
+        # the surviving reference is renumbered to [1]; what must be gone is the marker that
+        # pointed at the truncated URL, so the first claim carries none.
+        self.assertNotIn("compound [", content)
+        self.assertIn("router cuts it [1]", content)
+
+    def test_a_scraped_fragment_title_is_dropped(self):
+        """Headings that leaked in from the source page cannot be cited by a reader."""
+        body = "<p>One claim [1].</p><p>Another claim [2].</p><p>Third claim [3].</p>"
+        citations = [
+            {"title": "### **3.", "url": "https://example.com/a"},
+            {"title": "### Key Takeaways - **Progress Software Launch.", "url": "https://example.com/b"},
+            {"title": "S-1 filing", "url": "https://sec.gov/Archives/edgar/data/1/x.htm"},
+        ]
+        content, kept, report = enforce_citation_integrity(body, citations)
+        self.assertEqual([c["title"] for c in kept], ["S-1 filing"])
+        self.assertEqual(len(report["dropped_fragment"]), 2)
+
     def test_empty_inputs_are_safe(self):
         content, kept, report = enforce_citation_integrity("", [])
         self.assertEqual(content, "")

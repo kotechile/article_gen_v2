@@ -7051,6 +7051,15 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 normalised_word_count = len(_extract_plain_text(full_content).split())
             leak = leakage_summary(full_content)
             result['leakage'] = leak
+            if leak.get("plain_text_only"):
+                # No <p>/<li>/<h*> in the body: the "article" is the model's raw reply. Naming the
+                # shape separately matters - the remedy is a re-run of the drafting call, not an
+                # edit of prose that was never written.
+                raise ValueError(
+                    "MODEL_OUTPUT_NOT_HTML: the body carries no block markup "
+                    f"({leak.get('html_blocks', 0)} blocks, {leak.get('words', 0)} words) - "
+                    f"markers={leak['markers']}, placeholders={leak['placeholders']}"
+                )
             if leak["leaked"]:
                 raise ValueError(
                     "MODEL_REASONING_LEAKED: "
