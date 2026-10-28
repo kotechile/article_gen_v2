@@ -8,6 +8,15 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
+def _force(name, module):
+    """Install `module` as the import target, even if it was already imported.
+
+    `setdefault` deferred to a real module another test file had imported, which
+    made these tests pass alone and fail in a full run.
+    """
+    sys.modules[name] = module
+
+
 def _install_task_import_stubs():
     class DummyCeleryApp:
         def task(self, *args, **kwargs):
@@ -15,9 +24,9 @@ def _install_task_import_stubs():
                 return fn
             return decorator
 
-    sys.modules.setdefault("celery", SimpleNamespace(current_task=None))
-    sys.modules.setdefault("celery_config", SimpleNamespace(celery=DummyCeleryApp()))
-    sys.modules.setdefault(
+    _force("celery", SimpleNamespace(current_task=None))
+    _force("celery_config", SimpleNamespace(celery=DummyCeleryApp()))
+    _force(
         "supabase_client",
         SimpleNamespace(
             LLM_ROLE_ARTICLE_GENERATION="article_generation",
@@ -29,18 +38,18 @@ def _install_task_import_stubs():
             get_llm_provider_for_role=lambda role: ("openai", "gpt-4", ""),
         ),
     )
-    sys.modules.setdefault("llm_client", SimpleNamespace(create_llm_client=lambda **kwargs: None))
-    sys.modules.setdefault("rag_client", SimpleNamespace(create_rag_client=lambda **kwargs: None, RAGQuery=dict))
-    sys.modules.setdefault("linkup_client", SimpleNamespace(create_linkup_client=lambda **kwargs: None, SearchQuery=dict))
-    sys.modules.setdefault("article_structure_generator", SimpleNamespace(create_article_structure_generator=lambda *args, **kwargs: None))
-    sys.modules.setdefault(
+    _force("llm_client", SimpleNamespace(create_llm_client=lambda **kwargs: None))
+    _force("rag_client", SimpleNamespace(create_rag_client=lambda **kwargs: None, RAGQuery=dict))
+    _force("linkup_client", SimpleNamespace(create_linkup_client=lambda **kwargs: None, SearchQuery=dict))
+    _force("article_structure_generator", SimpleNamespace(create_article_structure_generator=lambda *args, **kwargs: None))
+    _force(
         "content_generator",
         SimpleNamespace(
             create_content_generator=lambda *args, **kwargs: None,
             get_tone_specific_instructions=lambda tone: str(tone or ""),
         ),
     )
-    sys.modules.setdefault("src.utils.config", SimpleNamespace(get_config=lambda: {}))
+    _force("src.utils.config", SimpleNamespace(get_config=lambda: {}))
 
 
 _install_task_import_stubs()

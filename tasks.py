@@ -722,6 +722,99 @@ def _extract_focus_keyword(keywords: str) -> str:
     return parts[0]
 
 
+# Small words that stay lowercase in a title-cased keyword.
+_TITLE_STOPWORDS = {"a", "an", "and", "as", "at", "for", "in", "of", "on", "or", "the", "to", "vs", "with"}
+
+
+def _title_case_keyword(keyword: str) -> str:
+    """'rag agentic ai' -> 'RAG Agentic AI' (short tokens read as acronyms)."""
+    out = []
+    for index, token in enumerate(str(keyword or "").split()):
+        if index and token.lower() in _TITLE_STOPWORDS:
+            out.append(token.lower())
+        elif len(token) <= 3 or token.isupper():
+            out.append(token.upper())
+        elif token.islower():
+            out.append(token[:1].upper() + token[1:])
+        else:
+            out.append(token)
+    return " ".join(out)
+
+
+def _primary_keyword_for(structure: Dict[str, Any], research_data: Dict[str, Any], keywords_str: str = "") -> str:
+    """The keyword the article is actually optimised for.
+
+    This used to be guessed from the keyword string by length, which picked
+    "progress agentic rag" (a secondary) over the selected primary "rag agentic ai".
+    The selected primary wins; the length heuristic is only a last resort.
+    """
+    structure = structure or {}
+    research_data = research_data or {}
+
+    explicit = str(structure.get("focus_keyword") or "").strip()
+    if explicit:
+        return explicit
+
+    for field in ("primary_keyword", "search_phrase"):
+        value = str(research_data.get(field) or "").strip()
+        if value:
+            return value
+
+    primary_list = structure.get("primary_keywords") or research_data.get("primary_keywords")
+    if isinstance(primary_list, str):
+        primary_list = [part.strip() for part in primary_list.split(",") if part.strip()]
+    if isinstance(primary_list, list):
+        for candidate in primary_list:
+            candidate = str(candidate or "").strip()
+            if candidate:
+                return candidate
+
+    if not keywords_str:
+        keywords_str = ", ".join(structure.get("keywords") or []) or str(research_data.get("keywords") or "")
+    return _extract_focus_keyword(keywords_str)
+
+
+def _keyword_led_title(title: str, keyword: str, *, max_length: int = 70) -> str:
+    """Return a title that contains the keyword, without repeating it.
+
+    "RAG explained" + "rag agentic ai" becomes "RAG Agentic AI Explained" rather
+    than "RAG Agentic AI: RAG explained" - the shared lead token is replaced, not
+    stacked.
+    """
+    title = re.sub(r"\s+", " ", str(title or "")).strip()
+    keyword = re.sub(r"\s+", " ", str(keyword or "")).strip()
+    if not keyword:
+        return title
+
+    try:
+        from src.services.viral_title_engine import ViralTitleEngine
+
+        status = ViralTitleEngine.keyword_status(title, keyword).get("status")
+    except Exception:  # never block a title on the engine import
+        status = "exact" if keyword.lower() in title.lower() else "missing"
+    if status in ("exact", "partial"):
+        return title
+
+    keyword_title = _title_case_keyword(keyword)
+    first_word = title.split()[0] if title.split() else ""
+    if first_word and len(first_word) >= 2 and keyword.lower().startswith(first_word.lower()):
+        rest = title[len(first_word):].strip(" :-–—,")
+        if rest and rest[0].islower():
+            rest = rest[0].upper() + rest[1:]
+        candidate = f"{keyword_title} {rest}".strip()
+    elif title:
+        candidate = f"{keyword_title}: {title}"
+    else:
+        candidate = keyword_title
+
+    if len(candidate) > max_length:
+        # Trim the tail at a word boundary; the keyword leads, so it survives.
+        trimmed = candidate[:max_length].rsplit(" ", 1)[0].rstrip(" :-–—,")
+        candidate = trimmed if len(trimmed) > len(keyword_title) else keyword_title
+    return candidate
+
+
+
 def _apply_refinement_guard(
     section_title: str,
     pass_name: str,
@@ -6533,6 +6626,23 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         include_in_text_citations = research_data.get('include_in_text_citations', True)
         prior_citations = _parse_citations_payload(research_data.get('prior_citations'))
 
+        # The article title is what readers and search engines see, so it has to
+        # carry the keyword the piece was planned around. The title arriving from
+        # the structure generator is often the bare topic seed ("RAG explained").
+        primary_keyword = _primary_keyword_for(structure, research_data)
+        raw_title = str(structure.get('title') or '').strip()
+        keyword_title = _keyword_led_title(raw_title, primary_keyword)
+        if keyword_title and keyword_title != raw_title:
+            logger.info(
+                "Title keyword: '%s' did not contain '%s'; using '%s'",
+                raw_title,
+                primary_keyword,
+                keyword_title,
+            )
+            structure['title'] = keyword_title
+            if isinstance(result.get('structure'), dict):
+                result['structure']['title'] = keyword_title
+
         if not citations and prior_citations:
             logger.warning(
                 "Finalization preserving %s prior citations because this regeneration produced none",
@@ -6680,6 +6790,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         full_content = _normalize_markdown_artifacts_to_html(full_content)
         full_content = _enforce_at_a_glance_bullet_word_limit(full_content, max_words=60)
 
+        normalised_word_count = 0
         # One title, one lead, one deep-dive marker, one copy of each closing module.
         # Every section used to write its own lead and closing blocks, so the finished
         # document arrived with the "Go deeper" line-in at the very top (before the
@@ -6702,7 +6813,7 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                     structure_report.get('words_before'),
                     structure_report.get('words_after'),
                 )
-            word_count = len(_extract_plain_text(full_content).split())
+            normalised_word_count = len(_extract_plain_text(full_content).split())
         except Exception as struct_err:  # never block publication on a structure tidy-up
             logger.warning("Document structure normalisation failed: %s", struct_err)
         
@@ -6821,12 +6932,14 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         call_to_action = structure.get('call_to_action', '')
         keywords_str = ', '.join(structure.get('keywords', []))
         
-        # Get word count and citations count
-        word_count = content.get('word_count', 0)
+        # Get word count and citations count. After structure normalisation the
+        # generator's own count is stale - it predates the duplicate modules being
+        # removed - so the count from the finished document wins.
+        word_count = normalised_word_count or content.get('word_count', 0)
         citations_count = len(citations)
         
-        # Extract focus keyword first (needed for keyword-aware truncation)
-        focus_keyword = _extract_focus_keyword(keywords_str)
+        # Focus keyword: the selected primary, not a guess from the keyword string.
+        focus_keyword = primary_keyword or _extract_focus_keyword(keywords_str)
         
         # Create SEO-optimized fields with proper length constraints
         # SEO title (for search engines) should be max 60 characters
