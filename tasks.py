@@ -32,7 +32,11 @@ from linkup_client import create_linkup_client, SearchQuery
 from article_structure_generator import create_article_structure_generator
 from content_generator import create_content_generator, get_tone_specific_instructions
 from src.services.citation_integrity import enforce_citation_integrity
-from src.services.model_output_cleanup import polish_preserved_body, strip_model_scaffolding
+from src.services.model_output_cleanup import (
+    leakage_summary,
+    polish_preserved_body,
+    strip_model_scaffolding,
+)
 from citation_generator import (
     create_citation_generator,
     CitationStyle,
@@ -815,6 +819,31 @@ def _keyword_led_title(title: str, keyword: str, *, max_length: int = 70) -> str
 
 
 
+def _reject_if_leaked(stage: str, candidate: str) -> Optional[str]:
+    """Return the candidate, or None when the model narrated its own reasoning.
+
+    A cheap model under a long prompt sometimes answers the instructions instead of
+    following them: "The user wants me to act as an expert editor... Let me analyze
+    what I need to do". That text is indistinguishable from article prose to a length
+    check, and it reached the editor once. Anything that reads as deliberation about
+    the task is not publishable, whatever it costs to redo.
+    """
+    report = leakage_summary(candidate)
+    if not report["leaked"]:
+        return candidate
+    logger.error(
+        "Discarding %s output: reasoning leaked into the article (%s paragraphs, %s%% of words, "
+        "markers=%s, placeholders=%s). First sample: %s",
+        stage,
+        report["reasoning_paragraphs"],
+        round(report["reasoning_word_share"] * 100, 1),
+        report["markers"],
+        report["placeholders"],
+        (report["samples"][0] if report["samples"] else "")[:160],
+    )
+    return None
+
+
 def _apply_refinement_guard(
     section_title: str,
     pass_name: str,
@@ -833,6 +862,8 @@ def _apply_refinement_guard(
     """
     if not candidate_html or not candidate_html.strip():
         logger.warning("Refinement pass '%s' returned nothing for '%s'; keeping the previous text.", pass_name, section_title)
+        return previous_html
+    if _reject_if_leaked(f"refinement pass '{pass_name}'", candidate_html) is None:
         return previous_html
     preserved, reason = polish_preserved_body(
         previous_html,
@@ -2160,6 +2191,10 @@ Output instructions:
                 scaffold_report["samples"],
             )
 
+        if _reject_if_leaked("polishing pass", cleaned) is None:
+            logger.error("Polishing pass produced leaked reasoning; keeping the pre-polish draft.")
+            return html_content
+
         ok, reason = polish_preserved_body(html_content, cleaned)
         if not ok:
             logger.error(
@@ -2178,6 +2213,8 @@ Output instructions:
                     retry_scaffold["removed_blocks"],
                 )
             retry_cleaned = _enforce_at_a_glance_bullet_word_limit(retry_cleaned, max_words=60)
+            if _reject_if_leaked("polishing retry", retry_cleaned) is None:
+                return html_content
             ok, reason = polish_preserved_body(html_content, retry_cleaned)
             if not ok:
                 logger.error(
@@ -6740,6 +6777,10 @@ def _unify_document_voice(
         report["reason"] = f"numbers lost: {lost_numbers[:8]}"
         return full_content, report
 
+    if _reject_if_leaked("document editor", candidate) is None:
+        report["reason"] = "editor output contained leaked reasoning"
+        return full_content, report
+
     lost_markers = sorted(markers_before - _document_citation_markers(candidate))
     if lost_markers:
         report["reason"] = f"citation markers lost: {lost_markers[:8]}"
@@ -6996,6 +7037,32 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             except Exception as editor_err:  # never block publication on the flow pass
                 logger.warning("Document editor failed: %s", editor_err)
         
+        # Last line of defence: strip what can be stripped, then refuse to publish a
+        # draft whose body is still the model narrating its instructions.
+        try:
+            cleaned_leak, leak_strip = strip_model_scaffolding(full_content)
+            if leak_strip["removed_blocks"]:
+                logger.warning(
+                    "Pre-publish: stripped %s leaked block(s), %s chars.",
+                    leak_strip["removed_blocks"],
+                    leak_strip["removed_chars"],
+                )
+                full_content = cleaned_leak
+                normalised_word_count = len(_extract_plain_text(full_content).split())
+            leak = leakage_summary(full_content)
+            result['leakage'] = leak
+            if leak["leaked"]:
+                raise ValueError(
+                    "MODEL_REASONING_LEAKED: "
+                    f"{leak['reasoning_paragraphs']} reasoning paragraph(s), "
+                    f"{round(leak['reasoning_word_share'] * 100, 1)}% of words, "
+                    f"markers={leak['markers']}, placeholders={leak['placeholders']}"
+                )
+        except ValueError:
+            raise
+        except Exception as leak_err:  # never block publication on the check itself
+            logger.warning("Leakage check failed: %s", leak_err)
+
         # Reconcile in-text citations with reference list and filter out spam/broken/unused links
         evidence_for_references = result.get('ranked_evidence', []) or result.get('evidence', [])
         full_content, curated_citations = _reconcile_and_curate_citations(
