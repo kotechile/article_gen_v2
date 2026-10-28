@@ -1888,13 +1888,13 @@ def _validate_and_ensure_smart_brevity_structure(
 
     missing_blocks: List[str] = []
 
-    if not has_big_picture:
-        bp_text = thesis if thesis else f"Understanding the fundamental tension of {topic} is critical for making informed, high-ROI architectural decisions."
-        missing_blocks.append(f"<p><strong>The big picture:</strong> {bp_text}</p>\n<hr>")
+    if not has_big_picture and thesis:
+        missing_blocks.append(f"<p><strong>The big picture:</strong> {thesis}</p>\n<hr>")
 
     if not has_why_matters and not (has_at_a_glance and has_big_shift):
-        why_text = hook if (hook and hook != thesis) else f"Mastering the fundamentals of {topic} directly impacts operational efficiency, cost management, and long-term positioning."
-        missing_blocks.append(f"<p><strong>Why it matters:</strong> {why_text}</p>")
+        why_text = hook if (hook and hook != thesis) else ""
+        if why_text:
+            missing_blocks.append(f"<p><strong>Why it matters:</strong> {why_text}</p>")
 
     if not has_by_numbers:
         num_items = _extract_numbers_for_smart_brevity(content, research_data, structure)
@@ -1910,9 +1910,8 @@ def _validate_and_ensure_smart_brevity_structure(
                 "grounded in the retained evidence (see number grounding log above)."
             )
 
-    if not has_bottom_line_or_catch and not (has_at_a_glance and has_big_shift):
-        catch_text = f"Evaluate the full lifecycle costs and operational trade-offs before committing resources to {topic}."
-        missing_blocks.append(f"<p><strong>The bottom line:</strong> {catch_text}</p>")
+    # No generic "The bottom line" sentence: if the draft has no conclusion of its
+    # own, the lead simply ends sooner.
 
     if not has_go_deeper_prompt:
         missing_blocks.append(f"<p><strong>Go deeper:</strong> Review the detailed breakdown, comparative analysis, and step-by-step guidance below.</p>")
@@ -1951,46 +1950,11 @@ def _validate_and_ensure_smart_brevity_structure(
         flags=re.IGNORECASE
     )
 
-    # Ensure closing editorial modules: What I'd Watch, The Catch, At a Glance
-    closing_blocks: List[str] = []
-
-    if not has_what_id_watch:
-        closing_blocks.append(
-            "<h3>What I'd Watch:</h3>\n"
-            "<ul>\n"
-            "  <li><strong>Operational Bottlenecks:</strong> Monitor latency, concurrency spikes, and system resource saturation under peak traffic.</li>\n"
-            "  <li><strong>Integration Friction:</strong> Track compatibility drifts, breaking changes, and configuration overhead across dependencies.</li>\n"
-            "  <li><strong>Assumption Breakdown:</strong> Identify edge cases where conventional architectures fail to scale cost-effectively.</li>\n"
-            "</ul>\n<hr>"
-        )
-
-    if not has_the_catch:
-        closing_blocks.append(
-            "<h3>The Catch</h3>\n"
-            f"<p>Every tactical gain introduces architectural trade-offs; early efficiency improvements in {topic} must be weighed against operational complexity and organizational constraints. Acknowledge real-world edge cases before assuming universal applicability.</p>\n<hr>"
-        )
-
-    if not has_at_a_glance or not has_big_shift:
-        shift_text = thesis if thesis else f"The market is accelerating the transition toward streamlined, high-efficiency execution in {topic}."
-        why_text = hook if (hook and hook != thesis) else f"Failing to adapt directly inflates operational costs and degrades strategic positioning."
-        bottom_text = f"Execute disciplined, measurable implementations while actively managing technical and financial downside in {topic}."
-        closing_blocks.append(
-            "<h3>At a Glance</h3>\n"
-            "<ul>\n"
-            f"  <li><strong>The Big Shift:</strong> {shift_text}</li>\n"
-            f"  <li><strong>Why It Matters:</strong> {why_text}</li>\n"
-            f"  <li><strong>The Bottom Line:</strong> {bottom_text}</li>\n"
-            "</ul>"
-        )
-
-    if closing_blocks:
-        closing_html = "\n\n" + "\n\n".join(closing_blocks) + "\n\n"
-        faq_or_ref_match = re.search(r'(<h2[^>]*>\s*(?:Frequently Asked Questions|FAQ|References)\s*</h2>)', content, re.IGNORECASE)
-        if faq_or_ref_match:
-            insert_pos = faq_or_ref_match.start()
-            content = content[:insert_pos].rstrip() + closing_html + content[insert_pos:]
-        else:
-            content = content.rstrip() + closing_html
+    # Closing modules are NOT synthesised. This block used to emit generic text -
+    # "Every tactical gain introduces architectural trade-offs", "Monitor latency,
+    # concurrency spikes" - whenever a module was missing, which is exactly the
+    # filler that reads as machine-written. If the body does not contain them, the
+    # article does not get them.
 
     return content
 

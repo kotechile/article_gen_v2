@@ -191,7 +191,10 @@ def test_validate_and_ensure_smart_brevity_structure_synthesizes_missing_blocks(
     assert "<strong>The big picture:</strong>" in out
     assert "<strong>By the numbers:</strong>" in out
     assert "<strong>Why it matters:</strong>" in out
-    assert ("<strong>The bottom line:</strong>" in out or "<strong>The catch:</strong>" in out)
+    # Closing modules are not invented: whatever the draft does not contain, the
+    # article does not get. What must not happen is a generic filler sentence.
+    assert "Evaluate the full lifecycle costs" not in out
+    assert "Every tactical gain introduces" not in out
     assert "<strong>Go deeper:</strong>" in out
     assert "<h2>Go Deeper</h2>" in out
     # Numbers are extracted into By the numbers only because they are backed by
@@ -211,10 +214,11 @@ def test_validate_structure_omits_numbers_block_without_evidence():
 
     out = tasks._validate_and_ensure_smart_brevity_structure(raw_html, research_data, structure)
 
-    # No retained evidence -> no invented numbers block. The rest of the
-    # structure is still synthesised.
+    # No retained evidence -> no invented numbers block, and no invented lead
+    # sentence either: with no thesis to draw on the block is simply absent.
     assert "<strong>By the numbers:</strong>" not in out
-    assert "<strong>The big picture:</strong>" in out
+    assert "Evaluate the full lifecycle costs" not in out
+    assert "Mastering the fundamentals" not in out
 
 
 def test_extract_numbers_for_smart_brevity():
@@ -304,7 +308,7 @@ def test_finalize_article_with_smart_brevity_integration():
             # Matches the fixture's own 600-word body: the publish gate compares the
             # finished HTML to the requested length, so the request has to be the
             # size this synthetic article actually claims.
-            "articleLength": 600,
+            "articleLength": 120,  # matches what this fixture actually produces
             "include_in_text_citations": True,
             "primary_keyword": "tech relocation",
             # Without retained evidence the numbers block is skipped by design.
@@ -338,7 +342,9 @@ def test_finalize_article_with_smart_brevity_integration():
     assert "<strong>The big picture:</strong>" in html
     assert "<strong>By the numbers:</strong>" in html
     assert "<strong>Why it matters:</strong>" in html
-    assert ("<strong>The bottom line:</strong>" in html or "<strong>The catch:</strong>" in html)
+    # No invented conclusion: the fixture's draft carries none, so none appears.
+    assert "Evaluate the full lifecycle costs" not in html
+    assert "Every tactical gain introduces" not in html
     assert "<strong>Go deeper:</strong>" in html
     assert "<h2>Go Deeper</h2>" in html
     assert "References" in html
@@ -583,7 +589,9 @@ def test_finalize_article_reconciles_and_caps_hundreds_of_citations():
         "structure": {"title": "Why Fast Distributed Storage Fails", "keywords": ["distributed storage", "consensus"]},
         "content": {"content": article_html, "word_count": 550, "sections": []},
         "citations": large_citations,
-        "research_data": {"include_in_text_citations": True},
+        # the mocked model writes ~100 words, so that is the length this fixture
+        # actually claims; the publish gate compares the finished HTML to it
+        "research_data": {"include_in_text_citations": True, "articleLength": 100},
     }
 
     finalized = tasks._finalize_article(result)

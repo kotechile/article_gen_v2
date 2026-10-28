@@ -75,13 +75,17 @@ class LeakageDetectionTests(unittest.TestCase):
         )
         self.assertFalse(leakage_summary(article)["leaked"])
 
-    def test_single_stray_sentence_is_tolerated_in_a_real_article(self):
-        # One slip in an article-sized draft is a stray sentence, not a failed pass;
-        # the share threshold is what separates the two.
+    def test_one_stray_sentence_is_removed_not_fatal(self):
+        # The gate runs after stripping, so a single slip is deleted and the pass
+        # survives; the raw draft is still flagged, which is what makes stripping
+        # happen at all.
         article = CLEAN * 15 + "<p>Let me analyze what I need to do next.</p>"
-        report = leakage_summary(article)
-        self.assertFalse(report["leaked"], report)
-        self.assertEqual(report["reasoning_paragraphs"], 1)
+        self.assertTrue(leakage_summary(article)["leaked"])
+        cleaned, report = strip_model_scaffolding(article)
+        self.assertEqual(report["removed_blocks"], 1)
+        after = leakage_summary(cleaned)
+        self.assertFalse(after["leaked"], after)
+        self.assertEqual(after["reasoning_paragraphs"], 0)
 
 
 class StrippingTests(unittest.TestCase):

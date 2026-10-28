@@ -116,9 +116,72 @@ def _segment(html: str) -> List[_Block]:
 
 
 def _module_key(block: _Block) -> Optional[str]:
+    """Recognise a closing module by its heading, allowing a descriptive suffix.
+
+    "What I'd Watch: 3 Indicators Before Scaling RAG Agentic AI" is the same module
+    as "What I'd Watch". Matching the whole heading only missed the version that had
+    real content, so the boilerplate copy survived instead.
+    """
     if not block.heading_text:
         return None
-    return CLOSING_MODULES.get(_norm(block.heading_text))
+    full = _norm(block.heading_text)
+    if full in CLOSING_MODULES:
+        return CLOSING_MODULES[full]
+    for name, key in CLOSING_MODULES.items():
+        if full.startswith(name):
+            return key
+    return None
+
+
+def _shingles(text: str, size: int = 6) -> set:
+    words = _plain(text).lower().split()
+    return {" ".join(words[i:i + size]) for i in range(max(0, len(words) - size + 1))}
+
+
+# Sentences the pipeline used to synthesise when a module was missing. They are
+# recognisable filler, so a document that still carries them can be cleaned.
+GENERIC_FILLER_RE = re.compile(
+    r"(?:"
+    r"every tactical gain introduces"
+    r"|acknowledge real-?world edge cases"
+    r"|monitor latency,? concurrency spikes"
+    r"|execute disciplined,? measurable implementations"
+    r"|track compatibility drifts"
+    r"|identify edge cases where conventional architectures"
+    r"|mastering the fundamentals of"
+    r"|understanding the fundamental tension of"
+    r"|the market is accelerating the transition toward"
+    r")",
+    re.IGNORECASE,
+)
+
+_CONTENT_STOPWORDS = {
+    "that", "this", "with", "from", "have", "been", "they", "their", "which", "when",
+    "what", "will", "would", "there", "these", "those", "into", "over", "than", "then",
+    "also", "such", "more", "most", "many", "some", "your", "each", "about", "because",
+    "does", "doesn", "where", "while", "after", "before", "under", "between",
+}
+
+
+def _content_words(text: str) -> set:
+    return {
+        word for word in re.findall(r"[a-z][a-z-]{3,}", _plain(text).lower())
+        if word not in _CONTENT_STOPWORDS
+    }
+
+
+def _duplicates_earlier(block: _Block, earlier_text: str) -> bool:
+    """True when a module just restates prose the reader already met above it.
+
+    Uses content words rather than n-gram shingles: "At a Glance" restates the lead
+    by paraphrasing it ("stalls 7 in 10 mid-career promotions" / "static retrieval
+    syndrome"), which no exact phrase match will catch.
+    """
+    body = _content_words(block.body)
+    if len(body) < 4:
+        return False
+    overlap = len(body & _content_words(earlier_text)) / len(body)
+    return overlap >= 0.5
 
 
 def _is_lead_paragraph(fragment: str) -> bool:
@@ -274,10 +337,22 @@ def normalize_document_structure(
 
     # 7. Closing modules: keep one copy of each - the richest, since sections wrote
     #    their own version with their own caveats - and move it to the end.
+    lead_text = " ".join(lead)
     modules: Dict[str, _Block] = {}
     body_blocks: List[_Block] = []
     for block in blocks:
         key = _module_key(block)
+        if key and not _plain(block.body):
+            report["duplicate_modules_removed"] += 1
+            continue
+        if key and GENERIC_FILLER_RE.search(_plain(block.body)):
+            report["boilerplate_modules_removed"] = report.get("boilerplate_modules_removed", 0) + 1
+            continue
+        if key and _duplicates_earlier(block, lead_text):
+            # An "At a Glance" that repeats the lead is not a summary, it is a
+            # second copy of the opening.
+            report["restated_modules_removed"] = report.get("restated_modules_removed", 0) + 1
+            continue
         if key:
             existing = modules.get(key)
             if existing is None:
@@ -308,6 +383,7 @@ def normalize_document_structure(
                 following is not None
                 and following.level is not None
                 and following.level > block.level
+                and _plain(following.body)
             )
             if not opens_a_section:
                 continue
