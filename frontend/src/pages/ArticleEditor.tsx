@@ -1585,11 +1585,19 @@ export const ArticleEditor: React.FC = () => {
     const setLink = () => {
         if (!editor) return;
 
-        if (editor.isActive('image')) {
+        // Capture the target BEFORE prompting. A modal prompt hands focus back to
+        // the contenteditable, Chrome resets the DOM caret, and ProseMirror syncs
+        // that reset into its selection — so reading the selection after the
+        // prompt links/formats the wrong range.
+        const { from, to } = editor.state.selection;
+        const onImage = editor.isActive('image');
+
+        if (onImage) {
             const previousUrl = editor.getAttributes('image').link || '';
             const url = window.prompt('Image Link URL', previousUrl);
 
             if (url === null) return;
+            editor.chain().focus().setNodeSelection(from).run();
             if (url === '') {
                 editor.chain().focus().updateAttributes('image', { link: null }).run();
                 return;
@@ -1603,37 +1611,38 @@ export const ArticleEditor: React.FC = () => {
 
         if (url === null) return;
         if (url === '') {
-            editor.chain().focus().extendMarkRange('link').unsetLink().run();
+            editor.chain().focus().setTextSelection({ from, to }).extendMarkRange('link').unsetLink().run();
             return;
         }
-        editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+        editor.chain().focus().setTextSelection({ from, to }).extendMarkRange('link').setLink({ href: url }).run();
     };
 
     const addMath = () => {
         if (!editor) return;
-        
+
+        // Same reason as setLink: the position has to be taken before the prompt.
+        const { from, to } = editor.state.selection;
         const isMathActive = editor.isActive('math');
         const attrs = editor.getAttributes('math');
         const currentLatex = isMathActive ? attrs.latex : '';
         const currentDisplayMode = isMathActive ? attrs.displayMode : false;
-        
+
         // Get current selected text if not active
-        const { from, to } = editor.state.selection;
         const selectionText = isMathActive ? '' : editor.state.doc.textBetween(from, to).trim();
-        
+
         const latex = window.prompt('Enter LaTeX formula:', currentLatex || selectionText);
         if (latex === null) return;
-        
+
         if (latex.trim() === '') {
             if (isMathActive) {
-                editor.chain().focus().deleteSelection().run();
+                editor.chain().focus().deleteRange({ from, to }).run();
             }
             return;
         }
-        
+
         const mode = window.confirm(`Click OK for Block Equation ($$formula$$) or Cancel for Inline Equation ($formula$).\n\nCurrent is: ${currentDisplayMode ? 'Block' : 'Inline'}`);
-        
-        editor.chain().focus().insertContent({
+
+        editor.chain().focus().insertContentAt(from === to ? to : { from, to }, {
             type: 'math',
             attrs: {
                 latex: latex.trim(),
@@ -1648,13 +1657,21 @@ export const ArticleEditor: React.FC = () => {
 
     /**
      * Toolbar + context-menu entry point for video embeds.
+     *
+     * The insertion point is captured BEFORE the prompt on purpose: dismissing a
+     * modal prompt returns focus to the contenteditable, Chrome resets the DOM
+     * caret to the end of the text, and ProseMirror syncs that into its own
+     * selection. Reading `editor.state.selection` afterwards therefore inserts at
+     * the bottom of the article, not where the writer was typing.
+     *
      * With a video node selected this edits it in place; otherwise it inserts at
-     * the cursor. A blank answer on an existing video removes it, matching how
-     * the LaTeX and link actions behave.
+     * the captured position. A blank answer on an existing video removes it,
+     * matching how the LaTeX and link actions behave.
      */
     const addVideo = () => {
         if (!editor) return;
 
+        const { from, to } = editor.state.selection;
         const isVideoActive = editor.isActive('youtube');
         const attrs = isVideoActive ? editor.getAttributes('youtube') : null;
         const previousUrl = attrs?.videoId
@@ -1670,7 +1687,7 @@ export const ArticleEditor: React.FC = () => {
         const trimmed = input.trim();
         if (!trimmed) {
             if (isVideoActive) {
-                editor.chain().focus().deleteSelection().run();
+                editor.chain().focus().deleteRange({ from, to }).run();
             }
             return;
         }
@@ -1687,6 +1704,7 @@ export const ArticleEditor: React.FC = () => {
             editor
                 .chain()
                 .focus()
+                .setNodeSelection(from)
                 .updateAttributes('youtube', { videoId: target.videoId, start: target.start })
                 .run();
             return;
@@ -1695,7 +1713,10 @@ export const ArticleEditor: React.FC = () => {
         editor
             .chain()
             .focus()
-            .insertContent({ type: 'youtube', attrs: { videoId: target.videoId, start: target.start } })
+            .insertContentAt(from === to ? to : { from, to }, {
+                type: 'youtube',
+                attrs: { videoId: target.videoId, start: target.start },
+            })
             .run();
     };
 
