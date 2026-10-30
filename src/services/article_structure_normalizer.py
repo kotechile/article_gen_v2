@@ -260,11 +260,9 @@ def normalize_document_structure(
     )
 
     # 1. The lead-in belongs after the lead: take it out of the flow entirely.
-    go_deeper_line = ""
-    for match in GO_DEEPER_PARA_RE.finditer(source):
-        if not go_deeper_line:
-            tail = " ".join(match.group(1).split()) or GO_DEEPER_DEFAULT
-            go_deeper_line = f"<p><strong>Go deeper:</strong> {tail}</p>"
+    # "Go deeper: Review the detailed breakdown..." announces the article to itself.
+    # It is removed rather than normalised: the <h2>Go Deeper</h2> divider below is
+    # the whole job, and the sentence is the most template-shaped thing on the page.
     source = GO_DEEPER_PARA_RE.sub("", source)
 
     blocks = _segment(source)
@@ -367,9 +365,6 @@ def normalize_document_structure(
     # 8. Assemble.
     pieces: List[str] = [f"<h1>{title_text}</h1>" if not title_text.startswith("<") else f"<h1>{_plain(title_text)}</h1>"]
     pieces.extend(lead)
-    if not go_deeper_line:
-        go_deeper_line = f"<p><strong>Go deeper:</strong> {GO_DEEPER_DEFAULT}</p>"
-    pieces.append(go_deeper_line)
     pieces.append("<h2>Go Deeper</h2>")
     for index, block in enumerate(body_blocks):
         rendered = block.render().strip()

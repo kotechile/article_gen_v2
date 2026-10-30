@@ -64,22 +64,21 @@ class TitleTests(unittest.TestCase):
 
 
 class GoDeeperTests(unittest.TestCase):
-    def test_one_lead_in_line_and_one_heading(self):
+    def test_no_announcement_line_and_one_heading(self):
         out, report = normalize_document_structure(messy_document(), title="RAG explained")
         self.assertEqual(report["go_deeper_headings_before"], 1)
-        self.assertEqual(len(re.findall(r"<strong>Go deeper:</strong>", out)), 1)
+        # the "Review the detailed breakdown..." line announces the article to itself
+        self.assertEqual(len(re.findall(r"<strong>Go deeper:</strong>", out)), 0)
         self.assertEqual(len(re.findall(r"<h2>Go Deeper</h2>", out)), 1)
 
-    def test_lead_in_sits_after_the_lead_and_before_the_body(self):
+    def test_divider_sits_after_the_lead_and_before_the_body(self):
         out, _ = normalize_document_structure(messy_document(), title="RAG explained")
         title_at = out.index("<h1>")
         big_picture_at = out.index("The Big Picture")
-        go_deeper_line_at = out.index("<strong>Go deeper:</strong>")
         heading_at = out.index("<h2>Go Deeper</h2>")
         body_at = out.index("First Reckoning")
         self.assertLess(title_at, big_picture_at)
-        self.assertLess(big_picture_at, go_deeper_line_at)
-        self.assertLess(go_deeper_line_at, heading_at)
+        self.assertLess(big_picture_at, heading_at)
         self.assertLess(heading_at, body_at)
 
     def test_duplicate_lead_paragraphs_collapse_to_one_per_marker(self):
@@ -126,7 +125,7 @@ class PreservationTests(unittest.TestCase):
         clean = (
             "<h1>RAG explained</h1>\n"
             "<p><strong>The Big Picture:</strong> x</p>\n"
-            "<p><strong>Go deeper:</strong> below.</p>\n"
+
             "<h2>Go Deeper</h2>\n"
             "<h2>A section</h2>\n<p>body</p>\n"
             "<h3>At a Glance</h3>\n<ul><li>x</li></ul>"

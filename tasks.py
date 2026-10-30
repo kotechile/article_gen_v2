@@ -778,6 +778,124 @@ def _primary_keyword_for(structure: Dict[str, Any], research_data: Dict[str, Any
     return _extract_focus_keyword(keywords_str)
 
 
+NATURAL_TITLE_PROMPT = """Rewrite this article title.
+
+Current title: {title}
+Required keyword: {keyword}
+
+Rules:
+- The title must contain the exact phrase "{keyword}" (letter case is free).
+- It must read as a natural, publishable headline - the way a human editor would
+  write it. "{title}" fails this test if it reads like a keyword with a word
+  bolted on the end.
+- Be specific and clickable, not clever for its own sake. No clickbait numbers you
+  cannot support.
+- At most 62 characters. No quotation marks, no markdown, no explanation.
+- Return the title only, on one line."""
+
+_TITLE_NOISE_RE = re.compile(r"(?:^[\s\"'`*#-]+|[\s\"'`*#-]+$|\.{2,})")
+
+
+def _norm_title(title: str) -> str:
+    return re.sub(r"[^a-z0-9 ]", "", (title or "").lower()).strip()
+
+
+def _title_word_count(title: str) -> int:
+    return len(re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", title or ""))
+
+
+def _keyword_status(title: str, keyword: str) -> str:
+    try:
+        from src.services.viral_title_engine import ViralTitleEngine
+
+        return ViralTitleEngine.keyword_status(title, keyword).get("status", "missing")
+    except Exception:
+        return "exact" if (keyword or "").lower() in (title or "").lower() else "missing"
+
+
+def _title_needs_rewrite(title: str, keyword: str) -> bool:
+    """A seed or a keyword-plus-stub is not a headline."""
+    if not title:
+        return True
+    if not keyword:
+        return False
+    if _keyword_status(title, keyword) == "missing":
+        return True
+    # "RAG Agentic AI Trap" carries the keyword and still is not a sentence.
+    return _title_word_count(title) <= 5
+
+
+def _natural_title(
+    title: str,
+    keyword: str,
+    *,
+    provider: str = "",
+    model: str = "",
+    api_key: str = "",
+    max_length: int = 70,
+) -> Tuple[str, Dict[str, Any]]:
+    """Ask a model for a headline that carries the keyword and still reads well.
+
+    The mechanical rewrite (``_keyword_led_title``) guarantees the keyword but
+    produces "RAG Agentic AI Explained" - correct and lifeless. This gets a written
+    headline, and keeps it only if it satisfies the same keyword guarantee.
+    Returns ``(title, report)``; on any doubt the mechanical result is returned.
+    """
+    report: Dict[str, Any] = {"applied": False, "reason": "", "candidate": ""}
+    fallback = _keyword_led_title(title, keyword, max_length=max_length)
+    if not provider or not model or not keyword:
+        report["reason"] = "no model or no keyword"
+        return fallback, report
+
+    try:
+        client = create_llm_client(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            temperature=0.6,
+            timeout=int(os.getenv("ARTICLE_TITLE_TIMEOUT", "90")),
+            max_retries=1,
+        )
+        response = client.generate(
+            [
+                {"role": "system", "content": "You write headlines. Return only the headline."},
+                {"role": "user", "content": NATURAL_TITLE_PROMPT.format(title=title, keyword=keyword)},
+            ]
+        )
+        candidate = (getattr(response, "content", "") or "").strip()
+    except Exception as exc:
+        report["reason"] = f"title call failed: {exc}"
+        return fallback, report
+
+    candidate = candidate.splitlines()[0].strip() if candidate else ""
+    candidate = _TITLE_NOISE_RE.sub("", candidate).strip()
+    report["candidate"] = candidate
+
+    if not candidate:
+        report["reason"] = "empty title"
+        return fallback, report
+    if len(candidate) > max_length:
+        report["reason"] = f"too long ({len(candidate)} chars)"
+        return fallback, report
+    # The keyword alone is not a headline ("RAG Agentic AI"), and a keyword plus one
+    # bolted-on noun ("RAG Agentic AI Trap") is what we are trying to get away from.
+    if not 5 <= _title_word_count(candidate) <= 14:
+        report["reason"] = f"{_title_word_count(candidate)} words"
+        return fallback, report
+    if _norm_title(candidate) == _norm_title(keyword):
+        report["reason"] = "title is only the keyword"
+        return fallback, report
+    if _keyword_status(candidate, keyword) == "missing":
+        report["reason"] = f"missing keyword '{keyword}'"
+        return fallback, report
+    if leakage_summary(f"<p>{candidate}</p>").get("leaked"):
+        report["reason"] = "title read as model reasoning"
+        return fallback, report
+
+    report["applied"] = True
+    return candidate, report
+
+
 def _keyword_led_title(title: str, keyword: str, *, max_length: int = 70) -> str:
     """Return a title that contains the keyword, without repeating it.
 
@@ -1789,7 +1907,7 @@ def _validate_and_ensure_smart_brevity_structure(
     3. Why it matters: (<p><strong>Why it matters:</strong> ...</p>)
     4. By the numbers: (<p><strong>By the numbers:</strong></p><ul><li><strong>...:</strong> ...</li></ul>)
     5. The bottom line / The catch: (<p><strong>The bottom line:</strong> ...</p> or The catch / The reality check)
-    6. Go deeper: (<p><strong>Go deeper:</strong> ...</p>)
+    6. (no 'Go deeper' announcement line - the divider below is enough)
     7. <h2>Go Deeper</h2> (Demarcating the transition to deep-dive body sections)
     """
     if not html_content or not html_content.strip():
@@ -1912,9 +2030,10 @@ def _validate_and_ensure_smart_brevity_structure(
 
     # No generic "The bottom line" sentence: if the draft has no conclusion of its
     # own, the lead simply ends sooner.
-
-    if not has_go_deeper_prompt:
-        missing_blocks.append(f"<p><strong>Go deeper:</strong> Review the detailed breakdown, comparative analysis, and step-by-step guidance below.</p>")
+    # No "Go deeper: Review the detailed breakdown..." announcement either - it
+    # announces the article to itself, adds no information, and is the most
+    # template-shaped sentence on the page. The <h2>Go Deeper</h2> divider below
+    # already carries that job.
 
     # If missing lead blocks exist, integrate them cleanly
     if missing_blocks:
@@ -6785,17 +6904,39 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         # the structure generator is often the bare topic seed ("RAG explained").
         primary_keyword = _primary_keyword_for(structure, research_data)
         raw_title = str(structure.get('title') or '').strip()
-        keyword_title = _keyword_led_title(raw_title, primary_keyword)
-        if keyword_title and keyword_title != raw_title:
-            logger.info(
-                "Title keyword: '%s' did not contain '%s'; using '%s'",
-                raw_title,
-                primary_keyword,
-                keyword_title,
-            )
-            structure['title'] = keyword_title
+        final_title = raw_title
+        try:
+            if _title_needs_rewrite(raw_title, primary_keyword):
+                title_provider, title_model, title_key = get_llm_provider_for_role(LLM_ROLE_FINAL_REVIEW)
+                title_provider = title_provider or research_data.get('provider')
+                title_model = title_model or research_data.get('model')
+                title_key = title_key or research_data.get('api_key') or research_data.get('llm_key', '')
+                final_title, title_report = _natural_title(
+                    raw_title,
+                    primary_keyword,
+                    provider=title_provider or "",
+                    model=title_model or "",
+                    api_key=title_key or "",
+                )
+                result['title_report'] = title_report
+                logger.info(
+                    "Title: '%s' -> '%s' (keyword '%s'; %s)",
+                    raw_title,
+                    final_title,
+                    primary_keyword,
+                    "written by the model" if title_report.get('applied')
+                    else f"mechanical fallback: {title_report.get('reason')}",
+                )
+            else:
+                logger.info("Title kept: '%s' (already carries '%s')", raw_title, primary_keyword)
+        except Exception as title_err:  # the mechanical rewrite below is the safety net
+            logger.warning("Natural title pass failed: %s", title_err)
+            final_title = _keyword_led_title(raw_title, primary_keyword)
+
+        if final_title and final_title != raw_title:
+            structure['title'] = final_title
             if isinstance(result.get('structure'), dict):
-                result['structure']['title'] = keyword_title
+                result['structure']['title'] = final_title
 
         if not citations and prior_citations:
             logger.warning(

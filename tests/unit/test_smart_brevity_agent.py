@@ -142,7 +142,9 @@ def test_smart_brevity_polishing_agent_formats_full_structure(monkeypatch):
     assert "$14,289" in out
     assert "<strong>Why it matters:</strong>" in out
     assert "<strong>The catch:</strong>" in out
-    assert "<strong>Go deeper:</strong>" in out
+    # The "Go deeper: Review the detailed breakdown..." announcement is gone; the
+    # divider is enough.
+    assert "Review the detailed breakdown" not in out
     assert "<h2>Go Deeper</h2>" in out
     # Verify comparative table is present
     assert "<table>" in out
@@ -195,7 +197,7 @@ def test_validate_and_ensure_smart_brevity_structure_synthesizes_missing_blocks(
     # article does not get. What must not happen is a generic filler sentence.
     assert "Evaluate the full lifecycle costs" not in out
     assert "Every tactical gain introduces" not in out
-    assert "<strong>Go deeper:</strong>" in out
+    assert "Review the detailed breakdown" not in out
     assert "<h2>Go Deeper</h2>" in out
     # Numbers are extracted into By the numbers only because they are backed by
     # evidence, and each keeps its subject plus a link to the source.
@@ -345,7 +347,7 @@ def test_finalize_article_with_smart_brevity_integration():
     # No invented conclusion: the fixture's draft carries none, so none appears.
     assert "Evaluate the full lifecycle costs" not in html
     assert "Every tactical gain introduces" not in html
-    assert "<strong>Go deeper:</strong>" in html
+    assert "Review the detailed breakdown" not in html
     assert "<h2>Go Deeper</h2>" in html
     assert "References" in html
     assert 'href="https://example.com/mobility-index"' in html
