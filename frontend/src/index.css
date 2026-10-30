@@ -105,3 +105,18 @@
     @apply text-gray-800;
   }
 }
+
+/*
+ * YouTube embeds in the article editor.
+ * The iframe stays inert until its block is selected, so a first click selects
+ * the embed (move / delete with Backspace) instead of handing focus to the
+ * player, where the caret would be lost. A second click on a selected embed
+ * plays the video.
+ */
+.ProseMirror .video-embed iframe {
+  pointer-events: none;
+}
+
+.ProseMirror .video-embed.ProseMirror-selectednode iframe {
+  pointer-events: auto;
+}

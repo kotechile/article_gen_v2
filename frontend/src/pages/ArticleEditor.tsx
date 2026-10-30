@@ -17,7 +17,7 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableRow } from '@tiptap/extension-table-row';
 import CharacterCount from '@tiptap/extension-character-count';
-import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn, Sigma, Wand2, Share2, Sparkles, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn, Sigma, Wand2, Share2, Sparkles, AlertCircle, Video } from 'lucide-react';
 import { apiClient } from '../api-client';
 import { assembleArticleHtml } from '../lib/contentParser';
 import { AddImageModal } from '../components/AddImageModal';
@@ -31,6 +31,7 @@ import { MetricTooltip } from '../components/Tooltip';
 import type { ImageMetadata } from '../types/image';
 import { rankCitationDomains } from '../lib/citationAuthority';
 import { InfographicBlock } from '../components/editor/InfographicBlock';
+import { YoutubeBlock, buildWatchUrl, parseYoutubeUrl } from '../components/editor/YoutubeBlock';
 import { materializeInfographicHtml, normalizeInfographicHtmlForEditor, beautifyTablesHtml } from '../lib/infographicSvg';
 
 
@@ -786,6 +787,7 @@ export const ArticleEditor: React.FC = () => {
         HeadingIdExtension,
         InfographicBlock,
         MathNode,
+        YoutubeBlock,
     ], []);
 
     const editor = useEditor({
@@ -1644,6 +1646,59 @@ export const ArticleEditor: React.FC = () => {
         editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
     };
 
+    /**
+     * Toolbar + context-menu entry point for video embeds.
+     * With a video node selected this edits it in place; otherwise it inserts at
+     * the cursor. A blank answer on an existing video removes it, matching how
+     * the LaTeX and link actions behave.
+     */
+    const addVideo = () => {
+        if (!editor) return;
+
+        const isVideoActive = editor.isActive('youtube');
+        const attrs = isVideoActive ? editor.getAttributes('youtube') : null;
+        const previousUrl = attrs?.videoId
+            ? buildWatchUrl(attrs.videoId, typeof attrs.start === 'number' ? attrs.start : null)
+            : '';
+
+        const input = window.prompt(
+            'YouTube video URL (youtube.com/watch?v=…, youtu.be/…, Shorts, or the 11-character video id)',
+            previousUrl,
+        );
+        if (input === null) return;
+
+        const trimmed = input.trim();
+        if (!trimmed) {
+            if (isVideoActive) {
+                editor.chain().focus().deleteSelection().run();
+            }
+            return;
+        }
+
+        const target = parseYoutubeUrl(trimmed);
+        if (!target) {
+            window.alert(
+                'That is not a YouTube link. Use a youtube.com/watch?v=…, youtu.be/… or /shorts URL, or paste the video id.',
+            );
+            return;
+        }
+
+        if (isVideoActive) {
+            editor
+                .chain()
+                .focus()
+                .updateAttributes('youtube', { videoId: target.videoId, start: target.start })
+                .run();
+            return;
+        }
+
+        editor
+            .chain()
+            .focus()
+            .insertContent({ type: 'youtube', attrs: { videoId: target.videoId, start: target.start } })
+            .run();
+    };
+
 
 
     const handleSuggestInternalLinks = async () => {
@@ -2271,6 +2326,12 @@ export const ArticleEditor: React.FC = () => {
                                     tooltip="Insert Table"
                                 />
                                 <ToolbarButton
+                                    onClick={addVideo}
+                                    isActive={editor?.isActive('youtube')}
+                                    icon={<Video className="w-4 h-4" />}
+                                    tooltip="Embed YouTube Video"
+                                />
+                                <ToolbarButton
                                     onClick={addTableOfContents}
                                     icon={<ListOrdered className="w-4 h-4" />}
                                     tooltip="Generate ToC"
@@ -2628,6 +2689,9 @@ export const ArticleEditor: React.FC = () => {
                         </button>
                         <button onClick={() => { addTable(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
                             <TableIcon className="w-4 h-4 text-muted-foreground" /> Insert Table
+                        </button>
+                        <button onClick={() => { addVideo(); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-muted rounded-lg text-sm flex items-center gap-3">
+                            <Video className="w-4 h-4 text-muted-foreground" /> Embed YouTube Video
                         </button>
                     </div>
 
