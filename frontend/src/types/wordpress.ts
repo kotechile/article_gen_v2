@@ -118,6 +118,8 @@ export interface WordPressPostData {
     excerpt?: string;
     categories?: number[];
     tags?: number[];
+    /** Term IDs in the WordPress `vertical` taxonomy (site routing). */
+    vertical?: number[];
     featured_media?: number;
     meta?: {
         // Yoast SEO fields

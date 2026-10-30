@@ -188,6 +188,25 @@ export const fetchWordPressSites = async (userId: string): Promise<WordPressSite
 };
 
 /**
+ * WordPress returns term names with HTML entities already encoded
+ * (e.g. "AI Stack &amp; Tool TCO"), which React then escapes again. Decode them
+ * for display.
+ */
+export const decodeHtmlEntities = (value: unknown): string => {
+    const raw = String(value ?? '');
+    if (!raw.includes('&')) return raw;
+    return raw
+        .replace(/&amp;/g, '&')
+        .replace(/&#0*39;/g, "'")
+        .replace(/&apos;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/&#0*34;/g, '"')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&nbsp;/g, ' ');
+};
+
+/**
  * Fetch categories from a WordPress site via REST API
  */
 export const fetchWordPressCategories = async (
@@ -213,10 +232,10 @@ export const fetchWordPressCategories = async (
         const categories = await response.json();
         return categories.map((cat: any) => ({
             id: cat.id,
-            name: cat.name,
+            name: decodeHtmlEntities(cat.name),
             slug: cat.slug,
             count: cat.count,
-            description: cat.description,
+            description: decodeHtmlEntities(cat.description),
             parent: cat.parent
         }));
     } catch (error) {
@@ -291,11 +310,20 @@ export const fetchWordPressVerticals = async (domain?: string): Promise<WordPres
 };
 
 /**
- * Ensures a tag exists on the target WordPress site.
- * Searches for existing tag by slug or name, and creates it if missing.
- * Returns the numeric tag ID, or null if creation failed.
+ * Normalizes a vertical/tag label into a WordPress term slug.
  */
-export const ensureWordPressTag = async (
+export const normalizeTermSlug = (value: string): string =>
+    String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+
+/**
+ * Looks for an existing post_tag by slug or exact name WITHOUT creating it.
+ * Used only to clean up vertical slugs that older exports attached as tags.
+ */
+export const findWordPressTagId = async (
     site: WordPressSite,
     tagNameOrSlug: string
 ): Promise<number | null> => {
@@ -304,77 +332,110 @@ export const ensureWordPressTag = async (
 
     const apiBaseUrl = getWordPressApiBaseUrl(site);
     const credentials = btoa(`${site.wpUserName}:${site.wordpress_key}`);
-    const normalizedSlug = rawTag.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+    const normalizedSlug = normalizeTermSlug(rawTag);
 
     try {
-        // 1. Search for existing tag by slug
-        const searchSlugUrl = `${apiBaseUrl}/wp-json/wp/v2/tags?slug=${encodeURIComponent(normalizedSlug)}`;
-        const slugRes = await fetch(searchSlugUrl, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Basic ${credentials}`,
-                'Content-Type': 'application/json'
+        const slugRes = await fetch(
+            `${apiBaseUrl}/wp-json/wp/v2/tags?slug=${encodeURIComponent(normalizedSlug)}`,
+            {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Basic ${credentials}`,
+                    'Content-Type': 'application/json'
+                }
             }
-        });
-
+        );
         if (slugRes.ok) {
             const matches = await slugRes.json();
-            if (Array.isArray(matches) && matches.length > 0) {
-                return matches[0].id;
-            }
+            if (Array.isArray(matches) && matches.length > 0) return matches[0].id;
+        }
+        return null;
+    } catch (err) {
+        console.warn(`[WordPressService] Error looking up WordPress tag "${rawTag}":`, err);
+        return null;
+    }
+};
+
+/**
+ * Ensures the vertical exists as a term in the WordPress `vertical` taxonomy and
+ * returns its term ID.
+ *
+ * This is the taxonomy the Giniloh/Aichieve/Wellroost front ends use to decide
+ * which property owns a post, so it must be the `vertical` taxonomy — not a
+ * post tag. Returns null when the taxonomy is not exposed over REST.
+ */
+export const ensureWordPressVerticalTerm = async (
+    site: WordPressSite,
+    verticalSlugOrName: string
+): Promise<number | null> => {
+    const rawVertical = String(verticalSlugOrName || '').trim();
+    if (!rawVertical) return null;
+
+    const apiBaseUrl = getWordPressApiBaseUrl(site);
+    const credentials = btoa(`${site.wpUserName}:${site.wordpress_key}`);
+    const normalizedSlug = normalizeTermSlug(rawVertical);
+    const authHeaders = {
+        'Authorization': `Basic ${credentials}`,
+        'Content-Type': 'application/json'
+    };
+    const taxonomyUrl = `${apiBaseUrl}/wp-json/wp/v2/vertical`;
+
+    try {
+        // 1. Search by slug
+        const slugRes = await fetch(
+            `${taxonomyUrl}?slug=${encodeURIComponent(normalizedSlug)}`,
+            { method: 'GET', headers: authHeaders }
+        );
+        if (slugRes.ok) {
+            const matches = await slugRes.json();
+            if (Array.isArray(matches) && matches.length > 0) return matches[0].id;
         }
 
         // 2. Search by name
-        const searchNameUrl = `${apiBaseUrl}/wp-json/wp/v2/tags?search=${encodeURIComponent(rawTag)}`;
-        const nameRes = await fetch(searchNameUrl, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Basic ${credentials}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
+        const nameRes = await fetch(
+            `${taxonomyUrl}?search=${encodeURIComponent(rawVertical)}&per_page=100`,
+            { method: 'GET', headers: authHeaders }
+        );
         if (nameRes.ok) {
             const matches = await nameRes.json();
-            if (Array.isArray(matches) && matches.length > 0) {
+            if (Array.isArray(matches)) {
                 const exactMatch = matches.find(
                     (m: any) =>
-                        String(m.name || '').toLowerCase() === rawTag.toLowerCase() ||
+                        String(m.name || '').toLowerCase() === rawVertical.toLowerCase() ||
                         String(m.slug || '').toLowerCase() === normalizedSlug.toLowerCase()
                 );
                 if (exactMatch) return exactMatch.id;
             }
         }
 
-        // 3. Create tag if not found
-        const createUrl = `${apiBaseUrl}/wp-json/wp/v2/tags`;
-        const createRes = await fetch(createUrl, {
+        // 3. Create the term if it does not exist yet
+        const createRes = await fetch(taxonomyUrl, {
             method: 'POST',
-            headers: {
-                'Authorization': `Basic ${credentials}`,
-                'Content-Type': 'application/json'
-            },
+            headers: authHeaders,
             body: JSON.stringify({
-                name: rawTag,
+                name: rawVertical,
                 slug: normalizedSlug
             })
         });
 
         if (createRes.ok) {
             const created = await createRes.json();
-            return created.id;
+            return created.id ?? null;
         }
 
-        // Handle WordPress term_exists response
+        // WordPress returns term_exists when the slug is already taken
         const errData = await createRes.json().catch(() => null);
         if (errData?.data?.term_id) {
             return Number(errData.data.term_id);
         }
 
-        console.warn(`[WordPressService] Could not create tag "${rawTag}":`, errData);
+        console.warn(
+            `[WordPressService] Could not resolve or create vertical "${rawVertical}" in the WordPress "vertical" taxonomy:`,
+            errData
+        );
         return null;
     } catch (err) {
-        console.warn(`[WordPressService] Error resolving WordPress tag "${rawTag}":`, err);
+        console.warn(`[WordPressService] Error resolving WordPress vertical "${rawVertical}":`, err);
         return null;
     }
 };
@@ -939,7 +1000,10 @@ export const publishToWordPress = async (
         console.log(`Generated slug: '${slug}' (max len: ${maxSlugLength}) for domain: ${site.domain}`);
         const resolvedMetadata = resolveSocialMetadata(site, articleData, seoData, slug);
 
-        // Resolve vertical tag
+        // Resolve the vertical as a term in the WordPress `vertical` taxonomy.
+        // The picker is about site routing (vertical -> vertical_sites), so the
+        // value must land in the `vertical` taxonomy. Attaching it as a post tag
+        // (the old behaviour) left the Verticals column empty and created junk tags.
         const tagIds: number[] = [];
         const verticalTagToAttach = (
             settings.verticalTag ||
@@ -949,13 +1013,12 @@ export const publishToWordPress = async (
             ''
         ).trim();
 
+        let verticalTermId: number | null = null;
         if (verticalTagToAttach) {
-            const verticalTagId = await ensureWordPressTag(site, verticalTagToAttach);
-            if (verticalTagId) {
-                tagIds.push(verticalTagId);
-            } else {
+            verticalTermId = await ensureWordPressVerticalTerm(site, verticalTagToAttach);
+            if (!verticalTermId) {
                 publishWarnings.push(
-                    `Vertical tag "${verticalTagToAttach}" could not be created or resolved on WordPress.`
+                    `Vertical "${verticalTagToAttach}" could not be resolved in the WordPress "vertical" taxonomy, so the post was saved without a vertical.`
                 );
             }
         }
@@ -992,6 +1055,39 @@ export const publishToWordPress = async (
 
         // Check if updating an existing WordPress post
         const existingWpPostId = articleData.Wordpress_post_Id || articleData.wordpress_post_id || articleData.last_wp_post_id || articleData.wp_post_id || articleData.idea_metadata?.wp_post_id;
+
+        // Attach the vertical taxonomy term
+        if (verticalTermId) {
+            postData.vertical = [verticalTermId];
+        }
+
+        // Older exports created the vertical as a post_tag. When we are updating
+        // such a post, drop that stale tag so the tag list matches the vertical.
+        if (existingWpPostId && verticalTagToAttach) {
+            const legacyTagId = await findWordPressTagId(site, verticalTagToAttach);
+            if (legacyTagId) {
+                const existingTagsRes = await fetch(
+                    `${apiBaseUrl}/wp-json/wp/v2/posts/${existingWpPostId}?_fields=tags`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Basic ${credentials}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+                if (existingTagsRes.ok) {
+                    const existingPost = await existingTagsRes.json();
+                    const existingTags = Array.isArray(existingPost?.tags) ? existingPost.tags : null;
+                    if (existingTags && existingTags.includes(legacyTagId)) {
+                        postData.tags = Array.from(
+                            new Set([...tagIds, ...existingTags.filter((id: number) => id !== legacyTagId)])
+                        );
+                    }
+                }
+            }
+        }
+
         let postUrl = existingWpPostId ? `${apiBaseUrl}/wp-json/wp/v2/posts/${existingWpPostId}` : `${apiBaseUrl}/wp-json/wp/v2/posts`;
 
         // Publish or update on WordPress

@@ -802,6 +802,7 @@ File: [frontend/src/services/wordpressService.ts](/Users/jorgefernandezilufi/Doc
 Expected behavior:
 
 - `publishToWordPress(...)` sends `categories: number[]` to WordPress, not a single category.
+- `publishToWordPress(...)` sends the selected vertical as `vertical: number[]` — term IDs in the WordPress **`vertical` taxonomy** (`/wp-json/wp/v2/vertical`, resolved/created by `ensureWordPressVerticalTerm`). It must never be attached as a `post_tag`: tags do not route posts, so the Verticals column stays empty and the tag list gets polluted. When updating a post that still carries an old vertical post tag, the stale tag is removed.
 - `resolveLinkedWordPressCategoryIds(...)` should prefer subcategory first, then primary category.
 - Publishing loopback updates `Titles` with post status, post URL, post ID, and canonicalized SEO title/description.
 

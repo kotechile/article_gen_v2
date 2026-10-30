@@ -538,11 +538,11 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                         </div>
                     )}
 
-                    {/* Vertical Tag Selection */}
+                    {/* Vertical Selection */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
                             <Tag className="w-4 h-4 text-indigo-500" />
-                            Vertical Tag * (required)
+                            Vertical * (required)
                         </label>
                         {autoVerticalHint && (
                             <p className="text-xs text-indigo-600 dark:text-indigo-300 mb-2">
@@ -560,7 +560,7 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                                 onChange={(e) => handleVerticalChange(e.target.value)}
                                 className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                             >
-                                <option value="">Select a vertical tag...</option>
+                                <option value="">Select a vertical...</option>
                                 {groupedVerticals.siteMatches.length > 0 && (
                                     <optgroup label={`Recommended for ${selectedSite?.domain || 'this site'}`}>
                                         {groupedVerticals.siteMatches.map(v => (
@@ -582,7 +582,7 @@ export const WordPressExportModal: React.FC<WordPressExportModalProps> = ({
                             </select>
                         )}
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            This tag organizes content by industry vertical and synchronizes with WordPress tags and editorial tracking.
+                            Sent as a WordPress <code>vertical</code> taxonomy term, not a tag. This is what routes the post to the right property.
                         </p>
                     </div>
 
