@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase, withSessionRetry, getFreshSession } from '../lib/supabase';
+import { API_KEY } from '../lib/apiKey';
 import { useAuth } from '../context/auth-context';
 import { Loader2, Wand2, Save, BarChart3, BrainCircuit, ShieldCheck, AlertTriangle, Globe2, Tag, KeyRound, FolderTree, Plus, Trash2, Sparkles, Target } from 'lucide-react';
 import axios from 'axios';
@@ -912,7 +913,7 @@ export const ContentStudio: React.FC = () => {
                 {
                     headers: {
                         'Authorization': `Bearer ${token}`,
-                        'X-API-Key': 'development'
+                        'X-API-Key': API_KEY
                     }
                 }
             );
@@ -1016,7 +1017,7 @@ export const ContentStudio: React.FC = () => {
             {
                 headers: {
                     Authorization: `Bearer ${token}`,
-                    'X-API-Key': 'development',
+                    'X-API-Key': API_KEY,
                 }
             }
         );
@@ -1255,7 +1256,7 @@ export const ContentStudio: React.FC = () => {
             const response = await axios.post(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/v1/research`, payload, {
                 headers: {
                     'Authorization': `Bearer ${token}`,
-                    'X-API-Key': 'development'
+                    'X-API-Key': API_KEY
                 }
             });
 

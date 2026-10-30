@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, AxiosError } from 'axios';
 import { supabase } from '@/lib/supabase';
+import { API_KEY } from '@/lib/apiKey';
 
 // API Configuration
 // API Configuration
@@ -11,8 +12,6 @@ const isClient = typeof window !== 'undefined';
 // Client: ALWAYS use relative '/api' path to leverage Nginx proxy.
 // Server: ALWAYS use internal Docker network URL 'http://backend:8000/api'.
 const API_BASE_URL = isClient ? '/api' : 'http://backend:8000/api';
-// In a real app, API_KEY should be in env
-const API_KEY = import.meta.env.VITE_API_KEY || 'dev-key';
 
 class ApiClient {
     private client: AxiosInstance;

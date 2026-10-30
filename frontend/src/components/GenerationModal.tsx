@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { supabase, withSessionRetry, refreshSupabaseSession } from '../lib/supabase';
+import { API_KEY } from '../lib/apiKey';
 import { Loader2, AlertCircle, Sparkles, Wand2 } from 'lucide-react';
 import { updateArticleAfterGeneration } from '../lib/contentParser';
 import { useAuth } from '../context/auth-context';
@@ -68,7 +69,7 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
             if (activeTaskId) {
                 try {
                     const { data } = await axios.get(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/v1/research/${activeTaskId}`, {
-                        headers: { 'X-API-Key': 'development' }
+                        headers: { 'X-API-Key': API_KEY }
                     });
                     apiFailureCountRef.current = 0;
 
@@ -359,7 +360,7 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
             const response = await axios.post(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/v1/research`, payload, {
                 headers: {
                     'Authorization': `Bearer ${token}`,
-                    'X-API-Key': 'development'
+                    'X-API-Key': API_KEY
                 }
             });
 
