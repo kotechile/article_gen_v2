@@ -97,6 +97,66 @@ class _Block:
         return len(_plain(self.body).split())
 
 
+def _strip_lead_label(paragraph: str) -> Tuple[str, str]:
+    """Split "<p><strong>The big picture:</strong> text</p>" into label and text."""
+    match = re.match(
+        r"<p\b[^>]*>\s*<(?:strong|b)>\s*([^<:]{2,60}?)\s*:?\s*</(?:strong|b)>\s*(.*?)</p>",
+        paragraph or "",
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return "", re.sub(r"^<p\b[^>]*>|</p>$", "", (paragraph or "").strip(), flags=re.IGNORECASE).strip()
+    return _plain(match.group(1)), match.group(2).strip()
+
+
+LEAD_MERGE_WORD_CAP = 140
+
+
+def _merge_lead(lead: List[str]) -> List[str]:
+    """Render the lead as one flowing paragraph under a single label.
+
+    "The big picture: ..." / "Why it matters: ..." / "The bottom line: ..." reads as
+    a stack of fragments. The reader wants an opening. The first label survives as
+    the signpost, the rest of the lead is folded into the same paragraph without its
+    label, and only if the paragraph grows past ~140 words does a second plain
+    paragraph follow.
+    """
+    if not lead:
+        return []
+    first_label, first_text = _strip_lead_label(lead[0])
+    merged = first_text
+    seen_sentences = {_norm(sentence)[:80] for sentence in re.split(r"(?<=[.!?])\s+", first_text) if sentence}
+    extras: List[str] = []
+
+    keep_as_is: List[str] = []
+    for paragraph in lead[1:]:
+        label, text = _strip_lead_label(paragraph)
+        if not text:
+            # A label with nothing after it is a header for a following list
+            # ("By the numbers:"), not a sentence to fold in. Keeping it verbatim
+            # is what stops the list from losing its heading.
+            if label:
+                keep_as_is.append(paragraph)
+            continue
+        kept = []
+        for sentence in re.split(r"(?<=[.!?])\s+", text):
+            key = _norm(sentence)[:80]
+            if not key or key in seen_sentences:
+                continue
+            seen_sentences.add(key)
+            kept.append(sentence)
+        addition = " ".join(kept).strip()
+        if not addition:
+            continue
+        if len((merged + " " + addition).split()) <= LEAD_MERGE_WORD_CAP:
+            merged = (merged + " " + addition).strip()
+        else:
+            extras.append(addition)
+
+    opening = f"<p><strong>{first_label}:</strong> {merged}</p>" if first_label else f"<p>{merged}</p>"
+    return [opening] + keep_as_is + [f"<p>{extra}</p>" for extra in extras]
+
+
 def _segment(html: str) -> List[_Block]:
     parts = re.split(r"(?=<h[1-6]\b)", html or "", flags=re.IGNORECASE)
     blocks: List[_Block] = []
@@ -332,6 +392,7 @@ def normalize_document_structure(
         found, block.body = _extract_lead_paragraphs(block.body, seen_markers)
         lead.extend(found)
     report["lead_paragraphs"] = len(lead)
+    lead = _merge_lead(lead)
 
     # 7. Closing modules: keep one copy of each - the richest, since sections wrote
     #    their own version with their own caveats - and move it to the end.

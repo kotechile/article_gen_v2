@@ -343,7 +343,9 @@ def test_finalize_article_with_smart_brevity_integration():
     # Verify Smart Brevity structure in final output
     assert "<strong>The big picture:</strong>" in html
     assert "<strong>By the numbers:</strong>" in html
-    assert "<strong>Why it matters:</strong>" in html
+    # The lead is one prose paragraph under "The big picture:"; the secondary
+    # labels are folded in without their bold prefixes.
+    assert "Why it matters:" not in html
     # No invented conclusion: the fixture's draft carries none, so none appears.
     assert "Evaluate the full lifecycle costs" not in html
     assert "Every tactical gain introduces" not in html

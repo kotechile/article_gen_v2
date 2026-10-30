@@ -63,6 +63,54 @@ class TitleTests(unittest.TestCase):
         self.assertIn("<h2>", out)
 
 
+class LeadOpeningTests(unittest.TestCase):
+    """The opening reads as a paragraph, not a stack of labelled fragments."""
+
+    ARTICLE = (
+        "<h1>RAG Agentic AI Trap Costing Careers</h1>"
+        "<p><strong>The big picture:</strong> The defining failure mode of agentic AI is not "
+        "hallucination - it is unchecked retrieval.</p>"
+        "<p><strong>Why it matters:</strong> The trap is static retrieval syndrome, and it "
+        "silently stalls 7 in 10 mid-career promotions.</p>"
+        "<p><strong>The bottom line:</strong> Evaluate the lifecycle costs before committing "
+        "resources to agentic RAG.</p>"
+        "<h2>Go Deeper</h2>"
+        "<h2>A section</h2><p>Body prose that carries the argument forward [1].</p>"
+    )
+
+    def setUp(self):
+        self.out, _ = normalize_document_structure(self.ARTICLE, title="RAG Agentic AI Trap")
+
+    def test_one_paragraph_under_one_label(self):
+        opening = self.out[: self.out.index("<h2>Go Deeper</h2>")]
+        self.assertEqual(len(re.findall(r"<p>", opening)), 1)
+        self.assertEqual(len(re.findall(r"<strong>", opening)), 1)
+
+    def test_the_labels_are_gone_but_the_material_is_kept(self):
+        opening = self.out[: self.out.index("<h2>Go Deeper</h2>")]
+        self.assertIn("The big picture:", opening)
+        self.assertNotIn("Why it matters:", opening)
+        self.assertNotIn("The bottom line:", opening)
+        self.assertIn("static retrieval syndrome", opening)
+        self.assertIn("7 in 10 mid-career promotions", opening)
+        self.assertIn("lifecycle costs", opening)
+
+    def test_repeated_sentences_are_not_folded_in_twice(self):
+        article = self.ARTICLE.replace(
+            "<p><strong>Why it matters:</strong>",
+            "<p><strong>Why it matters:</strong> The defining failure mode of agentic AI is not "
+            "hallucination - it is unchecked retrieval. And ",
+        )
+        out, _ = normalize_document_structure(article, title="T")
+        opening = out[: out.index("<h2>Go Deeper</h2>")]
+        self.assertEqual(opening.lower().count("unchecked retrieval"), 1)
+
+    def test_no_lead_labels_means_a_plain_paragraph(self):
+        article = "<h1>T</h1><p>Plain opening sentence about retrieval quality.</p><h2>Go Deeper</h2>"
+        out, _ = normalize_document_structure(article, title="T")
+        self.assertIn("<p>Plain opening sentence about retrieval quality.</p>", out)
+
+
 class GoDeeperTests(unittest.TestCase):
     def test_no_announcement_line_and_one_heading(self):
         out, report = normalize_document_structure(messy_document(), title="RAG explained")
