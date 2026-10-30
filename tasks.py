@@ -6888,6 +6888,201 @@ def _unify_document_voice(
     return candidate, report
 
 
+EXCERPT_REWRITE_SYSTEM = """You write the standfirst (excerpt) for a finished article.
+
+The excerpt appears under the headline, in social cards and in feeds, so it has to
+describe the article that exists - not the plan the article was commissioned from.
+
+RULES:
+- 1 to 2 sentences, 40 to 70 words.
+- Only claims, figures and comparisons that appear in the article text below.
+- No citation markers, no headings, no quotation marks around the result.
+- Do not open with "This article", "In this piece" or "We explore".
+- Output the excerpt only: no commentary, no explanation, no code fences.
+"""
+
+EXCERPT_REWRITE_PROMPT = """Article title: {title}
+
+Article:
+{article}
+
+Write the excerpt for this article."""
+
+
+def _reconcile_excerpt(
+    excerpt: str,
+    full_content: str,
+    *,
+    research_data: Optional[Dict[str, Any]] = None,
+    structure: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    """Make the saved excerpt describe the article that is actually being saved.
+
+    The excerpt is written at outline time from the brief. By finalization the
+    article has followed its own outline - different sections, different evidence,
+    sometimes a different argument - so the excerpt can advertise a piece that was
+    never written. WordPress prints it under the title and social cards reuse it,
+    which makes it the most-read sentence in the article.
+
+    The check is deterministic (:mod:`src.services.excerpt_alignment`): every number
+    in the excerpt must exist in the article, and most of its content words must be
+    supported by the article. A mismatch is repaired from grounded material only -
+    a rewrite requested against the finished text, or the article's own lede. It is
+    never repaired by loosening the threshold.
+    """
+    from src.services.excerpt_alignment import (
+        derive_excerpt_from_article,
+        evaluate_excerpt_alignment,
+    )
+
+    research_data = research_data or {}
+    structure = structure or {}
+    report: Dict[str, Any] = {
+        "applied": False,
+        "source": "kept",
+        "reason": "",
+        "before": excerpt,
+        "after": excerpt,
+        "alignment_before": {},
+        "alignment_after": {},
+    }
+
+    body = (full_content or "").strip()
+    if len(_extract_plain_text(body).split()) < 200:
+        report["reason"] = "article too short to compare the excerpt against"
+        return excerpt, report
+
+    # References are source titles, not article content; matching against them
+    # would pass an excerpt that mentions a source the body never discusses.
+    try:
+        from src.services.prose_density import strip_references_section
+
+        body_for_comparison = strip_references_section(body)
+    except Exception:
+        body_for_comparison = body
+
+    before = evaluate_excerpt_alignment(excerpt, body_for_comparison)
+    report["alignment_before"] = before
+    if before["matches"]:
+        report["reason"] = before["reason"]
+        logger.info(
+            "Excerpt check: kept (support %s, %s words, %s terms): %s",
+            before["support"],
+            before["word_count"],
+            before["terms"],
+            before["reason"],
+        )
+        return excerpt, report
+
+    logger.warning("Excerpt does not match the article: %s", before["reason"])
+
+    title = str(structure.get("title") or research_data.get("draft_title") or "")
+    candidate = ""
+    provider, model, api_key = get_llm_provider_for_role(LLM_ROLE_FINAL_REVIEW)
+    provider = provider or research_data.get("provider")
+    model = model or research_data.get("model")
+    api_key = api_key or research_data.get("api_key") or research_data.get("llm_key", "")
+
+    if provider and model:
+        try:
+            client = create_llm_client(
+                provider=provider,
+                model=model,
+                api_key=api_key,
+                temperature=0.3,
+                timeout=int(os.getenv("ARTICLE_EXCERPT_TIMEOUT", "75")),
+                max_retries=1,
+                max_tokens=400,
+            )
+            response = client.generate(
+                [
+                    {"role": "system", "content": EXCERPT_REWRITE_SYSTEM},
+                    {
+                        "role": "user",
+                        "content": EXCERPT_REWRITE_PROMPT.format(
+                            title=title,
+                            article=_extract_plain_text(body_for_comparison)[:12000],
+                        ),
+                    },
+                ]
+            )
+            candidate = (getattr(response, "content", "") or "").strip()
+            candidate = candidate.strip("`").strip().strip('"').strip("'").strip()
+        except Exception as rewrite_error:
+            report["reason"] = f"rewrite call failed: {rewrite_error}"
+            logger.warning("Excerpt rewrite failed: %s", rewrite_error)
+
+    if candidate:
+        rejection = ""
+        candidate_words = len(candidate.split())
+        if "<" in candidate or ">" in candidate:
+            rejection = "returned markup instead of prose"
+        elif candidate_words < 15 or candidate_words > 90:
+            rejection = f"returned {candidate_words} words, outside 15-90"
+        elif title and candidate.strip().lower() == title.strip().lower():
+            rejection = "returned the title"
+        else:
+            try:
+                leaked = leakage_summary(candidate)
+                if leaked.get("leaked"):
+                    rejection = f"returned leaked reasoning ({leaked.get('markers') or leaked.get('placeholders')})"
+            except Exception:
+                pass
+        if not rejection:
+            candidate_after = evaluate_excerpt_alignment(candidate, body_for_comparison)
+            if candidate_after["matches"]:
+                report.update(
+                    applied=True,
+                    source="model",
+                    reason=before["reason"],
+                    after=candidate,
+                    alignment_after=candidate_after,
+                    model=f"{provider}/{model}",
+                )
+                logger.info(
+                    "Excerpt check: rewritten by %s/%s (%s -> %s words, support %s -> %s): %s",
+                    provider,
+                    model,
+                    before["word_count"],
+                    candidate_after["word_count"],
+                    before["support"],
+                    candidate_after["support"],
+                    before["reason"],
+                )
+                return candidate, report
+            rejection = candidate_after["reason"]
+        # The rewrite did not clear the same bar the original failed: fall through.
+        logger.warning("Excerpt rewrite rejected: %s", rejection)
+        report["reason"] = rejection
+
+    derived = derive_excerpt_from_article(body_for_comparison)
+    if derived:
+        derived_after = evaluate_excerpt_alignment(derived, body_for_comparison)
+        report.update(
+            applied=True,
+            source="derived",
+            after=derived,
+            alignment_after=derived_after,
+        )
+        if not report.get("reason"):
+            report["reason"] = before["reason"]
+        logger.info(
+            "Excerpt check: rebuilt from the article's lede (%s -> %s words, support %s): %s",
+            before["word_count"],
+            derived_after["word_count"],
+            derived_after["support"],
+            before["reason"],
+        )
+        return derived, report
+
+    logger.error(
+        "Excerpt check: no grounded replacement found, keeping the unmatched excerpt: %s",
+        before["reason"],
+    )
+    report["reason"] = f"{before['reason']} (no replacement found)"
+    return excerpt, report
+
+
 def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
     """Finalize the article."""
     try:
@@ -7293,7 +7488,27 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
             html_content_with_citations += "\n" + references_section
         else:
             logger.info("Finalization debug - No References section to add")
-        
+
+        # The excerpt was written at outline time, from the brief. It has to describe
+        # the article that is actually being saved: WordPress prints it under the
+        # title, social cards and feeds reuse it, and a reader who clicks through
+        # finds whatever the article became.
+        excerpt_report: Dict[str, Any] = {}
+        if os.getenv("ARTICLE_EXCERPT_GUARD", "true").strip().lower() != "false":
+            try:
+                excerpt, excerpt_report = _reconcile_excerpt(
+                    str(structure.get('excerpt') or ''),
+                    full_content,
+                    research_data=research_data,
+                    structure=structure,
+                )
+                structure['excerpt'] = excerpt
+                if isinstance(result.get('structure'), dict):
+                    result['structure']['excerpt'] = excerpt
+                result['excerpt_report'] = excerpt_report
+            except Exception as excerpt_err:  # never block publication on metadata
+                logger.warning("Excerpt reconciliation failed: %s", excerpt_err)
+
         # Get SEO fields from structure
         title = structure.get('title', 'Generated Article')
         meta_description = structure.get('meta_description', '')
@@ -7380,6 +7595,10 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                 'diagnostics': {},
                 'warnings': [f'quality_report_unavailable: {quality_error}'],
             }
+
+        # Readable by the UI: why the excerpt reads the way it does.
+        if excerpt_report:
+            quality_report['excerpt_alignment'] = excerpt_report
 
         # Create engagement hooks array (include hook and potentially excerpt)
         engagement_hooks = []

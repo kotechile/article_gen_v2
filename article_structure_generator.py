@@ -185,10 +185,8 @@ class ArticleStructureGenerator:
                 title, core_promise, viral_metadata = title_gen_res, f"Key insights into {title_gen_res}", {}
 
             hook = self._generate_hook(brief_with_dossier, claims, tone, title=title, core_promise=core_promise)
-            excerpt = self._generate_excerpt(brief_with_dossier, claims, target_word_count, tone)
             thesis = self._generate_thesis(brief_with_dossier, claims, evidence, tone)
-            meta_description = self._generate_meta_description(title, excerpt, keywords)
-            
+
             # Generate section outlines
             content_outline = research_data.get('content_outline')
             if content_outline and isinstance(content_outline, list) and len(content_outline) > 0:
@@ -196,6 +194,19 @@ class ArticleStructureGenerator:
                 sections = self._generate_sections_from_outline(content_outline, target_word_count, tone)
             else:
                 sections = self._generate_sections(brief_with_dossier, claims, evidence, target_word_count, tone, article_type, research_data=research_data)
+
+            # The excerpt has to describe the article this outline plans, so it is
+            # written after the sections and checked against them. Generated from the
+            # brief alone it kept advertising the intention - sections and numbers the
+            # finished piece never contained.
+            excerpt = self._generate_excerpt(
+                brief_with_dossier,
+                claims,
+                target_word_count,
+                tone,
+                sections=sections,
+            )
+            meta_description = self._generate_meta_description(title, excerpt, keywords)
             
             # Log section titles for debugging
             section_titles = [s.title for s in sections]
@@ -486,17 +497,138 @@ class ArticleStructureGenerator:
             self.logger.error(f"Error generating deck: {str(e)}")
             return "A quick guide to understanding the key concepts and practical applications."
     
-    def _generate_excerpt(self, brief: str, claims: List[Dict], target_word_count: int, tone: str) -> str:
-        """Generate article excerpt/summary."""
+    @staticmethod
+    def _outline_corpus(sections: Optional[List[SectionOutline]]) -> str:
+        """The planned sections rendered as the excerpt's source of truth."""
+        lines: List[str] = []
+        for index, section in enumerate(sections or [], start=1):
+            parts = [f"{index}. {section.title}"]
+            if section.subtitle:
+                parts.append(f"   Focus: {section.subtitle}")
+            for point in section.key_points or []:
+                parts.append(f"   - {point}")
+            lines.append("\n".join(parts))
+        return "\n".join(lines)
+
+    def _request_excerpt(self, system_content: str, user_content: str) -> str:
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_content},
+        ]
+        response = self.llm_client.generate(messages)
+        excerpt = response.content.strip().strip('"').strip("'").strip()
+
+        if not excerpt or len(excerpt) < 50 or excerpt.lower() == 'none':
+            raise ValueError("Invalid excerpt generated")
+        return excerpt
+
+    def _enforce_outline_alignment(
+        self,
+        excerpt: str,
+        system_content: str,
+        user_content: str,
+        sections: Optional[List[SectionOutline]],
+        outline_text: str,
+    ) -> str:
+        """Reject an excerpt the planned sections do not support.
+
+        The excerpt is printed under the title and reused for social cards, so a
+        promise about a section that is not in the outline is a broken page. Two
+        grounded repairs: ask again with the failing terms named, then rebuild the
+        excerpt from the outline's own key points. Nothing here invents material.
+        """
+        from src.services.excerpt_alignment import (
+            derive_excerpt_from_outline,
+            evaluate_excerpt_alignment,
+        )
+
+        report = evaluate_excerpt_alignment(excerpt, outline_text)
+        attempt = 0
+        while not report["matches"] and attempt < 2:
+            attempt += 1
+            self.logger.warning(
+                "Excerpt rejected against the outline (attempt %s/%s): %s",
+                attempt,
+                2,
+                report["reason"],
+            )
+            retry_user_content = (
+                f"{user_content}\n\n"
+                f"Your previous excerpt was rejected: {report['reason']}.\n"
+                "Rewrite it using only what the planned sections above establish. "
+                "Drop every claim, term and figure the sections do not contain."
+            )
+            try:
+                candidate = self._request_excerpt(system_content, retry_user_content)
+            except Exception as retry_error:
+                self.logger.warning("Excerpt retry failed: %s", retry_error)
+                break
+            candidate_report = evaluate_excerpt_alignment(candidate, outline_text)
+            if candidate_report["matches"]:
+                self.logger.info(
+                    "Excerpt accepted on attempt %s (support %s, %s terms)",
+                    attempt + 1,
+                    candidate_report["support"],
+                    candidate_report["terms"],
+                )
+                return candidate
+            excerpt, report = candidate, candidate_report
+
+        if report["matches"]:
+            self.logger.info(
+                "Excerpt check: supported by the outline (support %s, %s terms)",
+                report["support"],
+                report["terms"],
+            )
+            return excerpt
+
+        derived = derive_excerpt_from_outline(sections)
+        if derived:
+            self.logger.warning(
+                "Excerpt replaced with one built from the outline's key points: %s",
+                report["reason"],
+            )
+            return derived
+
+        self.logger.warning(
+            "Excerpt kept although the outline does not support it: %s", report["reason"]
+        )
+        return excerpt
+
+    def _generate_excerpt(
+        self,
+        brief: str,
+        claims: List[Dict],
+        target_word_count: int,
+        tone: str,
+        sections: Optional[List[SectionOutline]] = None,
+    ) -> str:
+        """Generate the article excerpt, grounded in the planned outline."""
         try:
             # Calculate excerpt length based on target word count
             excerpt_length = min(150, max(50, target_word_count // 15))
-            
-            messages = [
-                {
-                    "role": "system",
-                    "content": f"""You are an expert content writer. Write a compelling article excerpt.
-                    
+
+            outline_text = self._outline_corpus(sections)
+            if outline_text:
+                system_content = f"""You are an expert content writer. Write the excerpt (standfirst) for this article.
+
+                    Requirements:
+                    - Approximately {excerpt_length} words, 1 to 3 sentences
+                    - Summarize what THIS OUTLINE promises the reader: the sections it plans and the outcome they deliver
+                    - Every claim and every number must come from the planned sections below. Never introduce a statistic, comparison, or benefit they do not contain.
+                    - Match the {tone} tone
+                    - Be specific and concrete: name the problem and the outcome
+                    - No generic urgency, no "in today's world", no "this article explores", no mention of sections, outlines, or the article itself
+
+                    Return only the excerpt, no quotes or formatting."""
+                user_content = (
+                    f"Article Brief: {brief}\n\n"
+                    f"Planned sections (the excerpt may only summarize these):\n{outline_text}\n\n"
+                    f"Target Word Count: {target_word_count}\nTone: {tone}"
+                )
+            else:
+                system_content = f"""You are an expert content writer. Write a compelling article excerpt.
+
                     Requirements:
                     - Approximately {excerpt_length} words
                     - Match the {tone} tone
@@ -504,23 +636,22 @@ class ArticleStructureGenerator:
                     - Include key benefits or outcomes
                     - Create urgency or interest
                     - Be specific and actionable
-                    
+
                     Return only the excerpt, no quotes or formatting."""
-                },
-                {
-                    "role": "user",
-                    "content": f"Article Brief: {brief}\nTarget Word Count: {target_word_count}\nTone: {tone}"
-                }
-            ]
-            
-            response = self.llm_client.generate(messages)
-            excerpt = response.content.strip().strip('"').strip("'")
-            
-            if not excerpt or len(excerpt) < 50 or excerpt.lower() == 'none':
-                raise ValueError("Invalid excerpt generated")
+                user_content = f"Article Brief: {brief}\nTarget Word Count: {target_word_count}\nTone: {tone}"
+
+            excerpt = self._request_excerpt(system_content, user_content)
+            if outline_text:
+                excerpt = self._enforce_outline_alignment(
+                    excerpt,
+                    system_content,
+                    user_content,
+                    sections,
+                    outline_text,
+                )
 
             return excerpt
-            
+
         except Exception as e:
             self.logger.error(f"Error generating excerpt: {str(e)}")
             return f"This comprehensive guide explores {brief[:100]}... providing actionable insights and practical solutions."
