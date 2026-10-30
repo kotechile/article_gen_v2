@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Edit2, Save, Loader2, RefreshCw, Sparkles, ArrowRight, Tag, Layers, CheckCircle2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { API_KEY } from '../lib/apiKey';
 import { useAuth } from '../context/auth-context';
 import { importPostToTitles, getImportedPosts } from '../services/wordpressService';
 import type { WordPressDetail } from '../types';
@@ -197,7 +198,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/wordpress/sync-posts?user_id=${user.id}`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'X-API-Key': API_KEY
                 }
             });
 

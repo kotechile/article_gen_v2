@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { API_KEY } from '../lib/apiKey';
 import type { Collection, Document, Title, ManualAction, RagQueryResponse } from '../types/knowledge';
 
 interface KnowledgeServiceDeps {
@@ -370,7 +371,8 @@ export const getKnowledgeService = ({ userId, ragUrl }: KnowledgeServiceDeps) =>
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Accept': 'application/json'
+                'Accept': 'application/json',
+                'X-API-Key': API_KEY
             },
             body: JSON.stringify({
                 title_ids: titleIds,
