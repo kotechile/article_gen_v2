@@ -200,14 +200,15 @@ def _first_paragraph(body: str) -> str:
 def derive_excerpt_from_article(
     body: str,
     *,
-    max_words: int = 70,
-    max_chars: int = 300,
+    max_words: int = 60,
+    max_chars: int = 280,
 ) -> str:
     """An excerpt cut from the article's own lede.
 
     Every word here is published material, which is the point: the repair for a
     mismatched excerpt is not a better guess, it is text the article actually
-    contains.
+    contains. Whole sentences are kept or dropped - an ellipsis mid-claim is the
+    one thing an excerpt must never end on.
     """
     paragraph = _first_paragraph(body or "")
     if not paragraph:
@@ -216,12 +217,17 @@ def derive_excerpt_from_article(
     sentences = [s for s in sentences if s and len(s.split()) >= 4]
     if not sentences:
         return ""
-    picked = sentences[0]
-    for sentence in sentences[1:]:
-        if len(picked.split()) >= 25:
+    picked = ""
+    for sentence in sentences:
+        candidate = f"{picked} {sentence}".strip()
+        if picked and (len(candidate.split()) > max_words or len(candidate) > max_chars):
             break
-        picked = f"{picked} {sentence}"
+        picked = candidate
+    if not picked:
+        return ""
+    # Only a single sentence that alone overruns the cap gets cut.
     return _trim(picked, max_words, max_chars)
+
 
 
 def _field(item: Any, name: str) -> Any:

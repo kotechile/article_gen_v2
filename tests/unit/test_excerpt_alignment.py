@@ -87,6 +87,15 @@ class ExcerptAlignmentTests(unittest.TestCase):
         self.assertFalse(report["matches"])
         self.assertEqual(report["reason"], "empty excerpt")
 
+    def test_derived_excerpt_drops_whole_sentences_instead_of_an_ellipsis(self):
+        body = (
+            f"<p>{LEDE} Reranking the retrieved context adds 30% token overhead per hop. "
+            f"{LEDE}</p>"
+        )
+        derived = derive_excerpt_from_article(body, max_words=25)
+        self.assertFalse(derived.endswith("…"), derived)
+        self.assertTrue(derived.endswith("."), derived)
+
     def test_derived_excerpt_comes_from_the_article_lede(self):
         derived = derive_excerpt_from_article(ARTICLE)
         self.assertTrue(derived.startswith("Naive retrieval pipelines drop 41%"), derived)
@@ -171,6 +180,16 @@ class FinalizeExcerptTests(unittest.TestCase):
         self.assertEqual(out, MATCHED)
         self.assertFalse(report["applied"])
         self.assertEqual(client.calls, 0)
+
+    def test_a_grounded_rewrite_that_overruns_is_trimmed_not_discarded(self):
+        # Seen in production: the rewrite was grounded but ran to 230 words.
+        # Throwing it away and publishing the raw lede loses the better sentence.
+        long_form = " ".join([MATCHED] * 6)
+        out, report, client = self._run(MISMATCHED, payload=long_form)
+        self.assertEqual(client.calls, 1)
+        self.assertEqual(report["source"], "model", report)
+        self.assertLessEqual(len(out.split()), 70)
+        self.assertTrue(out.startswith("Naive retrieval"), out)
 
     def test_a_mismatched_excerpt_is_rewritten_against_the_article(self):
         out, report, client = self._run(MISMATCHED)

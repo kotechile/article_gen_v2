@@ -6909,6 +6909,23 @@ Article:
 Write the excerpt for this article."""
 
 
+def _trim_excerpt_candidate(text: str, *, max_words: int = 70, max_chars: int = 300) -> str:
+    """Cut an over-long standfirst at a sentence boundary, not mid-claim.
+
+    A model asked for 1-2 sentences regularly returns five: the content is often
+    grounded even when the length is not, so the fix is a trim - discarding it and
+    publishing the raw lede instead throws away the better sentence.
+    """
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if s.strip()]
+    picked = ""
+    for sentence in sentences:
+        candidate = f"{picked} {sentence}".strip()
+        if picked and (len(candidate.split()) > max_words or len(candidate) > max_chars):
+            break
+        picked = candidate
+    return (picked or (text or "").strip()).strip()
+
+
 def _reconcile_excerpt(
     excerpt: str,
     full_content: str,
@@ -7014,20 +7031,26 @@ def _reconcile_excerpt(
 
     if candidate:
         rejection = ""
-        candidate_words = len(candidate.split())
         if "<" in candidate or ">" in candidate:
             rejection = "returned markup instead of prose"
-        elif candidate_words < 15 or candidate_words > 90:
-            rejection = f"returned {candidate_words} words, outside 15-90"
-        elif title and candidate.strip().lower() == title.strip().lower():
-            rejection = "returned the title"
         else:
-            try:
-                leaked = leakage_summary(candidate)
-                if leaked.get("leaked"):
-                    rejection = f"returned leaked reasoning ({leaked.get('markers') or leaked.get('placeholders')})"
-            except Exception:
-                pass
+            # A grounded rewrite that overran the length budget is trimmed, not
+            # discarded: the sentences are the article's, only the count is wrong.
+            candidate = _trim_excerpt_candidate(candidate)
+            candidate_words = len(candidate.split())
+            if candidate_words > 90:
+                rejection = f"returned one {candidate_words}-word sentence, longer than a standfirst"
+            elif candidate_words < 15:
+                rejection = f"returned {candidate_words} words, shorter than a standfirst"
+            elif title and candidate.strip().lower() == title.strip().lower():
+                rejection = "returned the title"
+            else:
+                try:
+                    leaked = leakage_summary(candidate)
+                    if leaked.get("leaked"):
+                        rejection = f"returned leaked reasoning ({leaked.get('markers') or leaked.get('placeholders')})"
+                except Exception:
+                    pass
         if not rejection:
             candidate_after = evaluate_excerpt_alignment(candidate, body_for_comparison)
             if candidate_after["matches"]:
