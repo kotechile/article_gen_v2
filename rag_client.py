@@ -37,7 +37,9 @@ class RAGConfig:
     retry_delay: float = 1.0
     max_results: int = 10  # Maps to top_k in API
     similarity_threshold: float = 0.7
-    llm_provider: str = "deepseek"  # Default LLM provider
+    # 'rag' is a role in the RAG service's `used_for` table (role -> llm_providers ->
+    # api_keys); the service resolves the model, so the caller no longer hardcodes one.
+    llm_provider: str = "rag"
 
 @dataclass
 class RAGQuery:
@@ -105,7 +107,7 @@ class RAGClient:
                 "query": rag_query.query,
                 "collection_name": rag_query.collection or self.config.collection or "default",
                 "top_k": rag_query.max_results or self.config.max_results,  # Fixed: use top_k instead of max_results
-                "llm": self.config.llm_provider or "deepseek"  # Added: LLM provider parameter
+                "llm": self.config.llm_provider or "rag"  # `used_for` role resolved by the RAG service
             }
             
             # Add optional parameters if provided
@@ -479,7 +481,7 @@ def create_rag_client(
     endpoint: str,
     api_key: Optional[str] = None,
     collection: Optional[str] = None,
-    llm_provider: str = "deepseek",
+    llm_provider: str = "rag",
     **kwargs
 ) -> RAGClient:
     """
