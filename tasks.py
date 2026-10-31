@@ -6234,10 +6234,23 @@ def _build_refinement_user_message(
         "\n1. HUMANIZATION - make it read like a person wrote it: vary sentence length, use concrete "
         "subjects and verbs, cut hedging ('it is important to note', 'in today's landscape'), cut "
         "banned/generic phrasing, and never add anecdotes that did not exist."
-        "\n2. READABILITY - plain words over jargon, one idea per paragraph, short paragraphs "
-        "(2-4 sentences), no walls of text, no sentences that need re-reading."
+        "\n2. READABILITY AND STORY - plain words over jargon, and every paragraph has to move the "
+        "argument one step: it makes ONE claim and states that claim in its first sentence, it "
+        "picks up a thread the paragraph before it left open (the same order, customer, mechanism, "
+        "number or word), it names the actor and the action instead of the abstraction ('the system "
+        "confirms only the allocated volume', not 'confirmation is capped at the allocated "
+        "quantity'), and it carries at least one concrete detail - a number, a time, a named "
+        "system, a tier list. Two shapes to delete on sight: a first sentence that announces the "
+        "claim instead of making it ('The payoff is measurable.', 'The result is clear.', 'There "
+        "are three reasons.'), and a bolded label standing in for a sentence. When the section "
+        "introduces a set of things, each member gets its own opening sentence - never bury the "
+        "third member inside the second member's paragraph. Keep paragraphs short (2-4 sentences), "
+        "no walls of text, no sentences that need re-reading."
         "\n3. SUBSTANCE - keep every claim, figure, citation, table and list intact; replace vague "
         "generalities with the specific detail that was already there rather than adding new claims."
+        "\n4. ACRONYMS - an acronym or initialism keeps its spelled-out first use: 'retrieval-"
+        "augmented generation (RAG)' where it first appears, the short form everywhere after. "
+        "Never strip an existing expansion and never expand the same term twice."
         "\nNever invent facts, never delete evidence to save space, and never restate the same claim twice."
     )
 
@@ -6761,20 +6774,56 @@ DOCUMENT_EDITOR_PROMPT = """Article title: {title}
 
 Rewrite this article so it flows as one continuous piece, then return the complete HTML.
 
-What to fix:
-1. TRANSITIONS - each section currently starts cold. Rewrite the opening sentence of
-   each section (after the first) so it picks up the thread from the section before
-   it. Vary the connective; do not open three sections the same way.
-2. BULLET SCAFFOLDING - any bullet whose body is one bolded label plus one sentence
+What to fix, in this order:
+
+1. PARAGRAPH JOINTS - this is the main job. Each paragraph has to move the argument one
+   step, not restate it. Work paragraph by paragraph (after the first) and make its
+   opening sentence pick up a thread the paragraph before it left open: the same order,
+   customer, mechanism, number or word. Rewrite the opening sentence, not the paragraph.
+   Vary the connective; do not open three paragraphs the same way.
+
+2. OPENERS THAT ANNOUNCE INSTEAD OF CLAIM - a first sentence that names the slot its
+   claim will fill states nothing: "The payoff is measurable.", "The result is clear.",
+   "There are three reasons.", "The difference is structural.", "But that is only half
+   the story." Delete the frame and lead with the claim itself - "The ROI is structural
+   and sustained: organizations gain 4 to 6 percentage points in Case Fill Rate" says
+   what "The payoff is measurable" only promised. Same for a bolded label standing in
+   for a sentence.
+
+3. ANCHORS - a paragraph with no number, clock time, named system, price or tier list in
+   it is the one the reader skims. Where the article already contains a specific that
+   belongs in that paragraph, move it up. Never invent one.
+
+4. SETS - when the article introduces a set ("three automated controls", "four failure
+   modes"), each member gets its own opening sentence. If a member is buried inside a
+   neighbour's paragraph, split it out.
+
+5. BULLET SCAFFOLDING - any bullet whose body is one bolded label plus one sentence
    is prose wearing a list. Merge those into flowing paragraphs, unless the list is
    genuinely scanned (ordered steps, head-to-head options). Fix no more than what
    the article needs: a list that earns its place stays.
-3. REPETITION - the same framing, definition, or caveat appearing in two sections
+
+6. REPETITION - the same framing, definition, or caveat appearing in two paragraphs
    should appear once, where it fits best. Replace the later instance with something
    that carries the argument forward.
-4. VOICE - consistent terminology throughout ("agentic RAG" in one place and
+
+7. VOICE - consistent terminology throughout ("agentic RAG" in one place and
    "RAG agentic AI" in another is one concept with two names: pick one). Keep the
    author's tone; do not add flourish or marketing language.
+
+8. ACRONYMS - the first mention of an acronym or initialism must read
+   "full term (ACR)"; every later mention uses the short form alone. Expand a bare
+   first use, and delete a second expansion of the same term. Do not expand model
+   names, product names or version strings (GPT-4, BM25, RTX 4090).
+
+Before returning, check these mechanically:
+- No body paragraph (after the first) opens on a frame such as "The payoff", "The
+  result", "The answer", "The lesson", "The point", "This is" or "That is".
+- No body paragraph is a bolded label plus one sentence.
+- The paragraph count is the same or higher than the draft you were given: merging two
+  ideas into one paragraph hides the seam instead of fixing it.
+- Every number, every [n] citation marker and every heading is still present, in the
+  same order.
 
 Return the full revised article HTML.
 
@@ -6811,7 +6860,17 @@ def _unify_document_voice(
     document and may only fix transitions, bullet scaffolding, repetition and
     terminology - with hard checks on what must survive: every number, every
     citation marker, every heading in order.
+
+    The flow half is measured, not assumed. A pass can satisfy the prompt's
+    letter - rewrite five openers, keep every figure - and still hand back a
+    document whose paragraphs announce claims instead of making them, or that
+    merged two ideas into one paragraph to hide the seam. ``narrative_flow``
+    scores both sides of the edit; a candidate that regresses is retried once
+    with its own failing paragraphs quoted, and the pre-edit draft is kept if
+    the retry does not improve on it.
     """
+    from src.services.narrative_flow import analyze_narrative_flow, compare_flow, flow_evidence
+
     research_data = research_data or {}
     structure = structure or {}
     report: Dict[str, Any] = {"applied": False, "reason": ""}
@@ -6832,6 +6891,8 @@ def _unify_document_voice(
     numbers_before = _document_numbers(article)
     markers_before = _document_citation_markers(article)
     words_before = len(_extract_plain_text(article).split())
+    flow_before = analyze_narrative_flow(article)
+    flow_guard = os.getenv("ARTICLE_FLOW_GUARD", "true").strip().lower() != "false"
 
     try:
         client = create_llm_client(
@@ -6842,58 +6903,118 @@ def _unify_document_voice(
             timeout=int(os.getenv("ARTICLE_DOCUMENT_EDITOR_TIMEOUT", "600")),
             max_retries=1,
         )
+    except Exception as exc:
+        report["reason"] = f"editor client failed: {exc}"
+        return full_content, report
+
+    def _run(prompt: str) -> str:
         response = client.generate(
             [
                 {"role": "system", "content": DOCUMENT_EDITOR_SYSTEM},
-                {
-                    "role": "user",
-                    "content": DOCUMENT_EDITOR_PROMPT.format(
-                        title=str(structure.get("title") or ""), article=article
-                    ),
-                },
+                {"role": "user", "content": prompt},
             ]
         )
-        candidate = (getattr(response, "content", "") or "").strip()
+        text = (getattr(response, "content", "") or "").strip()
+        text = re.sub(r"^```(?:html)?\s*", "", text)
+        return re.sub(r"\s*```$", "", text).strip()
+
+    def _validate(candidate: str) -> Tuple[Optional[str], str]:
+        """None + reason when the candidate may not replace the draft."""
+        if not candidate:
+            return None, "editor returned nothing"
+        # What must survive, checked in order of how badly losing it would hurt.
+        lost_numbers = sorted(numbers_before - _document_numbers(candidate))
+        if lost_numbers:
+            return None, f"numbers lost: {lost_numbers[:8]}"
+        if _reject_if_leaked("document editor", candidate) is None:
+            return None, "editor output contained leaked reasoning"
+        lost_markers = sorted(markers_before - _document_citation_markers(candidate))
+        if lost_markers:
+            return None, f"citation markers lost: {lost_markers[:8]}"
+        if _document_headings(candidate) != headings_before:
+            return None, "heading structure changed"
+        words_after = len(_extract_plain_text(candidate).split())
+        if words_before and words_after < words_before * 0.6:
+            return None, f"kept only {words_after} of {words_before} words"
+        return candidate, ""
+
+    base_prompt = DOCUMENT_EDITOR_PROMPT.format(
+        title=str(structure.get("title") or ""), article=article
+    )
+    try:
+        candidate = _run(base_prompt)
     except Exception as exc:
         report["reason"] = f"editor call failed: {exc}"
         return full_content, report
 
-    candidate = re.sub(r"^```(?:html)?\s*", "", candidate)
-    candidate = re.sub(r"\s*```$", "", candidate).strip()
-    if not candidate:
-        report["reason"] = "editor returned nothing"
+    candidate, reject_reason = _validate(candidate)
+    if candidate is None:
+        report["reason"] = reject_reason
         return full_content, report
 
-    # What must survive, checked in order of how badly losing it would hurt.
-    lost_numbers = sorted(numbers_before - _document_numbers(candidate))
-    if lost_numbers:
-        report["reason"] = f"numbers lost: {lost_numbers[:8]}"
-        return full_content, report
+    flow_after = analyze_narrative_flow(candidate)
+    comparison = compare_flow(flow_before, flow_after)
+    retried = False
 
-    if _reject_if_leaked("document editor", candidate) is None:
-        report["reason"] = "editor output contained leaked reasoning"
-        return full_content, report
-
-    lost_markers = sorted(markers_before - _document_citation_markers(candidate))
-    if lost_markers:
-        report["reason"] = f"citation markers lost: {lost_markers[:8]}"
-        return full_content, report
-
-    if _document_headings(candidate) != headings_before:
-        report["reason"] = "heading structure changed"
-        return full_content, report
+    if flow_guard and comparison["regressed"]:
+        retried = True
+        evidence = flow_evidence(flow_before, limit=5)
+        logger.warning(
+            "Document editor flattened the flow (%s) - retrying once with the draft's own "
+            "paragraphs. Before: %s paragraphs, %s frame-opener(s), %s anchorless, story %.2f. "
+            "Candidate: %s paragraphs, %s frame-opener(s), %s anchorless, story %.2f.",
+            "; ".join(comparison["regressions"]),
+            flow_before["paragraph_count"],
+            flow_before["meta_frame_openers"],
+            flow_before["anchorless_paragraphs"],
+            flow_before["story_score"],
+            flow_after["paragraph_count"],
+            flow_after["meta_frame_openers"],
+            flow_after["anchorless_paragraphs"],
+            flow_after["story_score"],
+        )
+        retry_prompt = base_prompt + (
+            "\n\nTHE PREVIOUS ATTEMPT AT THIS ARTICLE MADE THE FLOW WORSE: "
+            + "; ".join(comparison["regressions"])
+            + ".\nDo not merge paragraphs, do not turn sentences into labels, and fix these "
+            "paragraph openings by leading with the claim they are about instead of a frame:\n"
+            + "\n".join("- " + line for line in evidence)
+            + "\nReturn the full revised article HTML."
+        )
+        try:
+            retry_candidate = _run(retry_prompt)
+        except Exception as exc:
+            report["reason"] = f"flow retry failed: {exc}"
+            return full_content, report
+        retry_candidate, retry_reason = _validate(retry_candidate)
+        if retry_candidate is None:
+            report["reason"] = f"flow retry rejected ({retry_reason})"
+            return full_content, report
+        retry_flow = analyze_narrative_flow(retry_candidate)
+        retry_comparison = compare_flow(flow_before, retry_flow)
+        if retry_comparison["regressed"]:
+            report.update(
+                reason=(
+                    "flow retry did not improve on the draft (%s); kept the pre-edit draft"
+                    % "; ".join(retry_comparison["regressions"])
+                ),
+                flow_before=flow_before,
+                flow_after=retry_flow,
+            )
+            return full_content, report
+        candidate, flow_after, comparison = retry_candidate, retry_flow, retry_comparison
 
     words_after = len(_extract_plain_text(candidate).split())
-    if words_before and words_after < words_before * 0.6:
-        report["reason"] = f"kept only {words_after} of {words_before} words"
-        return full_content, report
-
     report.update(
         applied=True,
         reason="",
         model=f"{provider}/{model}",
         words_before=words_before,
         words_after=words_after,
+        flow_before=flow_before,
+        flow_after=flow_after,
+        flow_deltas=comparison["deltas"],
+        flow_retried=retried,
     )
     return candidate, report
 
@@ -7352,6 +7473,8 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                     normalised_word_count = len(_extract_plain_text(full_content).split())
                     prose_after = measure_prose_density(full_content)
                     result['prose_density'] = prose_after
+                    flow_before = editor_report.get('flow_before') or {}
+                    flow_after = editor_report.get('flow_after') or {}
                     logger.info(
                         "Document editor (%s): words %s -> %s, list items %s -> %s, "
                         "'Label: explanation' bullets %s -> %s, bullet/paragraph ratio %s -> %s",
@@ -7364,6 +7487,19 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
                         prose_after.get('label_bullets'),
                         prose_before.get('bullet_ratio'),
                         prose_after.get('bullet_ratio'),
+                    )
+                    logger.info(
+                        "Story flow: %s -> %s paragraphs, frame-openers %s -> %s, "
+                        "anchorless %s -> %s, story score %.2f -> %.2f%s",
+                        flow_before.get('paragraph_count'),
+                        flow_after.get('paragraph_count'),
+                        flow_before.get('meta_frame_openers'),
+                        flow_after.get('meta_frame_openers'),
+                        flow_before.get('anchorless_paragraphs'),
+                        flow_after.get('anchorless_paragraphs'),
+                        flow_before.get('story_score') or 0.0,
+                        flow_after.get('story_score') or 0.0,
+                        " (retried with evidence)" if editor_report.get('flow_retried') else "",
                     )
                 else:
                     logger.warning("Document editor skipped: %s", editor_report.get('reason'))
@@ -7632,6 +7768,17 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         # Readable by the UI: why the excerpt reads the way it does.
         if excerpt_report:
             quality_report['excerpt_alignment'] = excerpt_report
+
+        # Story flow: whether paragraphs still announce claims instead of making
+        # them after the whole-document pass, and the measured delta.
+        editor_flow = (result.get('document_editor') or {})
+        if editor_flow.get('flow_after'):
+            quality_report['narrative_flow'] = {
+                'before': editor_flow.get('flow_before'),
+                'after': editor_flow.get('flow_after'),
+                'deltas': editor_flow.get('flow_deltas'),
+                'retried_with_evidence': bool(editor_flow.get('flow_retried')),
+            }
 
         # Create engagement hooks array (include hook and potentially excerpt)
         engagement_hooks = []

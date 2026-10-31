@@ -495,12 +495,48 @@ class ContentGenerator:
                     EDITORIAL VOICE & NARRATIVE CRAFT:
                     - Write with high authority, precision, and compelling narrative flow.
                     - Start directly with the core hook, context, or fact. Avoid conversational throat-clearing (e.g. "Ever wondered...", "In this article...", "When we look at...").
-                    - Pacing & Flow: Write well-developed paragraphs (2 to 4 sentences each) that connect smoothly and build a cohesive story. Avoid giant monolithic walls of text, but do NOT write telegram-like 1-sentence fragments.
+                    - Pacing: Write well-developed paragraphs (2 to 4 sentences each). Avoid giant monolithic walls of text, but do NOT write telegram-like 1-sentence fragments.
                     - Natural Prose over Pseudo-Bullets: Do NOT start standard body paragraphs with bolded label prefixes (e.g. do not write "<p><strong>Topic Concept:</strong> One sentence explanation.</p>"). Standard paragraphs should read as natural, articulate editorial prose.
                     - Lists & Tables: Use bullet points (with bold lead-ins for items) and HTML tables ONLY when presenting discrete items, comparisons, or structured data—never as a substitute for narrative prose.
                     - Avoid fabricating fake first-person friend stories (e.g. "my friend Daniel called me...") unless real firsthand writer notes were provided.
-                    - Focus on high-stakes variables, concrete numbers, strategic trade-offs, and practical depth.
+                    - Focus on high-stakes variables, concrete numbers, strategic trade-offs, and practical depth."""
+
+    def _get_story_thread_instructions(self) -> str:
+        """The paragraph-level contract: each paragraph moves the argument forward.
+
+        Sections are written one call at a time, so a paragraph that merely
+        restates a mechanism is invisible to every later stage - the finished
+        article reads as a list of notes that happen to share a topic. These
+        rules are what a rewritten version of one such section actually did:
+        open on the claim, name the actor, keep one concrete anchor running,
+        and hand the next paragraph something to answer.
         """
+        return """
+                    STORY THREAD - EVERY PARAGRAPH MUST MOVE THE ARGUMENT FORWARD:
+                    - ONE CLAIM PER PARAGRAPH, STATED IN THE FIRST SENTENCE. Never open on a
+                      frame that announces the claim instead of making it ("The payoff is
+                      measurable.", "The result is clear.", "There are three reasons.", "The
+                      difference is structural."). Those sentences tell the reader what kind of
+                      claim is coming, not what it is - delete the frame and lead with the claim.
+                    - CONNECT BACKWARD. After the first paragraph, the opening sentence picks up a
+                      thread the paragraph before it left open: the same order, customer,
+                      constraint, mechanism or word. If you cannot say what it is answering, it is
+                      a note, not a step, and the reader has to restart.
+                    - NAME THE ACTOR AND THE ACTION, not the abstraction. "The system confirms only
+                      the allocated volume and holds the rest" beats "confirmation is capped at the
+                      allocated quantity". Prefer the verb over the noun form ("reallocates", not
+                      "reallocation"; "explains", not "attribution").
+                    - KEEP ONE CONCRETE ANCHOR RUNNING. Every paragraph carries at least one
+                      specific - a number, a clock time or day, a named system, a price, a tier
+                      list. Reuse the same scenario across paragraphs instead of inventing a new
+                      one each time; the reader is following one story, not a survey.
+                    - ONE MEMBER OF A SET PER PARAGRAPH. When you introduce a set ("three automated
+                      controls", "four failure modes"), name the set once and give each member its
+                      own opening sentence. Never bury the third member inside the second
+                      member's paragraph.
+                    - HAND SOMETHING FORWARD. The paragraph's last sentence leaves the next one
+                      something to answer - it does not sum up, moralise, or close the section.
+"""
 
     def _get_demographic_and_smart_brevity_instructions(self, context: Dict[str, Any]) -> str:
         """
@@ -632,6 +668,28 @@ TARGET AUDIENCE: {audience}
                     - IMPORTANT: When evidence is provided, actively use it and cite it with [^1], [^2], [^3] etc. directly in your content
                     - Even without evidence, create clear, complete content with comparative tables when comparisons are relevant"""
     
+    @staticmethod
+    def _previous_section_tail(section: SectionContent, max_words: int = 130) -> str:
+        """The closing prose of the section that comes before this one.
+
+        The writer used to receive only "Section 2: Title - 600 words", so the
+        only way to open a section was cold: it had no sentence to pick up and
+        no way to know what the reader had just been told. Handing it the tail
+        gives the join something to attach to, which is what makes the finished
+        article read as one argument instead of a series of entries.
+        """
+        if section is None:
+            return ""
+        parts = []
+        for block in section.content_blocks or []:
+            if (block.content_type or "").lower() == "table":
+                continue
+            parts.append(re.sub(r"<[^>]+>", " ", block.content or ""))
+        words = re.sub(r"\s+", " ", " ".join(parts)).strip().split()
+        if not words:
+            return ""
+        return " ".join(words[-max_words:])
+
     def _prepare_content_context(self, title: str, subtitle: Optional[str],
                                key_points: List[str], research_data: Dict[str, Any],
                                claims: List[Dict], evidence: List[Dict],
@@ -676,11 +734,13 @@ TARGET AUDIENCE: {audience}
         
         # Prepare previous sections context
         previous_context = ""
+        previous_tail = ""
         if previous_sections:
             previous_context = "\n".join([
                 f"Section {s.section_order}: {s.title} - {s.total_word_count} words"
                 for s in previous_sections[-2:]  # Last 2 sections for context
             ])
+            previous_tail = self._previous_section_tail(previous_sections[-1])
         
         tone = research_data.get('tone', 'journalistic')
         research_dossier = research_data.get('research_dossier') or {}
@@ -720,6 +780,7 @@ TARGET AUDIENCE: {audience}
             "relevant_claims": relevant_claims,
             "relevant_evidence": relevant_evidence,
             "previous_sections": previous_context,
+            "previous_tail": previous_tail,
             "include_in_text_citations": research_data.get('include_in_text_citations', True),
             "keywords": research_data.get('keywords', ''),
             "dossier_summary": dossier_summary,
@@ -799,6 +860,23 @@ Do NOT start with generic fluff, throat-clearing, or passive introductions.
 Immediately anchor the reader with the bold premise, metric, or problem stated in the headline so the reader resolves their curiosity and gets immediate substance.
 """
 
+        # The closing prose of the previous section. Without it every section
+        # opened cold: the writer knew the previous section's title and word
+        # count, so the only transition available was "Meanwhile, ..." - which
+        # is why sections read as separate entries even when each one was fine.
+        previous_tail_block = ""
+        tail = str(context.get('previous_tail') or '').strip()
+        if tail:
+            previous_tail_block = f"""========================================
+WHERE THE PREVIOUS SECTION LEFT OFF - PICK UP THIS THREAD
+========================================
+"...{tail}"
+
+Your FIRST paragraph continues from this point. Reference it explicitly (the same
+order, customer, mechanism, number or claim) and then move the argument on. Do not
+restate what it already said and do not open cold as though the reader just arrived.
+"""
+
         return f"""Section: {context['title']}
 {subtitle_line}========================================
 TONE REMINDER - CRITICAL
@@ -830,7 +908,8 @@ CRITICAL: If the evidence above contains specific examples (especially those mar
 {self._get_citation_instructions(context)}
 
 Previous Context:
-{context['previous_sections'] if context['previous_sections'] else 'This is the first section.'}"""
+{context['previous_sections'] if context['previous_sections'] else 'This is the first section.'}
+{previous_tail_block}"""
     
     def _generate_paragraph_content(self, context: Dict[str, Any], word_count_target: int) -> List[ContentBlock]:
         """Generate paragraph-based content using verbalized sampling for improved quality."""
@@ -877,6 +956,7 @@ Previous Context:
                     ========================================
                     NOTE: These must align with the tone requirements above. For friendly tone, prioritize conversational "you" language.
                     {self._get_human_writing_instructions()}
+                    {self._get_story_thread_instructions()}
                     
                     - Create smooth transitions between paragraphs - use connecting words naturally, not excessively
                     - Include bullet points or numbered lists where appropriate for clarity
@@ -1497,6 +1577,7 @@ Previous Context:
                     WRITING STYLE REQUIREMENTS:
                     - Write in a conversational, human style - avoid formal or formulaic language
                     {self._get_human_writing_instructions()}
+                    {self._get_story_thread_instructions()}
                     - Write in a natural style that reads like human-editing content
                     
                     {self._get_content_avoidance_instructions()}
