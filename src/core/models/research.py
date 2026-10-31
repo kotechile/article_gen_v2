@@ -111,6 +111,48 @@ class ResearchRequest(BaseModel):
         }
 
 
+# Keys of a research payload that must never be persisted alongside an article.
+_RESEARCH_SECRET_KEYS = frozenset({
+    "api_key",
+    "llm_key",
+    "rag_api_key",
+    "openai_api_key",
+    "anthropic_api_key",
+})
+
+
+def build_research_request_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the subset of `data` that should be handed to `ResearchRequest`.
+
+    Resuming a generation posts back the task payload, which spells optional RAG
+    fields as explicit nulls (`rag_endpoint: null`, `rag_llm_provider: null`) for a
+    request that carries a collection but no endpoint. The v1-style validators run
+    for every key that is *present*, so those nulls were rejected with
+    "rag_endpoint is required when rag_collection is provided" while the identical
+    request with the keys omitted was accepted. Dropping nulls makes "not provided"
+    mean the same thing either way, and required fields still fail loudly.
+    """
+    if not isinstance(data, dict):
+        return {}
+    return {key: value for key, value in data.items() if value is not None}
+
+
+def sanitize_research_data_for_storage(research_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Copy a research payload for persistence (`Titles.idea_metadata`), minus secrets.
+
+    The controversy gate stores the payload so a page refresh can rebuild the resume
+    request from the database. Provider keys travel in the Celery payload, and the
+    frontend already posts them back, but they do not belong on an article row.
+    """
+    if not isinstance(research_data, dict):
+        return {}
+    return {
+        key: value
+        for key, value in research_data.items()
+        if str(key).lower() not in _RESEARCH_SECRET_KEYS
+    }
+
+
 class ResearchResponse(BaseModel):
     """Response model for research endpoint."""
     

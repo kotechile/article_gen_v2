@@ -32,6 +32,7 @@ from linkup_client import create_linkup_client, SearchQuery
 from article_structure_generator import create_article_structure_generator
 from content_generator import create_content_generator, get_tone_specific_instructions
 from src.services.citation_integrity import enforce_citation_integrity
+from src.core.models.research import sanitize_research_data_for_storage
 from src.services.model_output_cleanup import (
     leakage_summary,
     polish_preserved_body,
@@ -5283,6 +5284,15 @@ Do not include any text, markdown code blocks, or explanations before or after t
                 existing_metadata['research_claims'] = claims
                 existing_metadata['research_evidence'] = evidence
                 existing_metadata['research_completed_at'] = datetime.utcnow().isoformat()
+                # Store the request payload too: once the Celery result expires, the
+                # frontend rebuilds the resume POST from this row, and metadata without
+                # brief/keywords cannot pass request validation (it fails with
+                # "Validation failed" and the article is stuck at the gate).
+                stored_payload = sanitize_research_data_for_storage(
+                    result.get('research_data') or {}
+                )
+                if stored_payload.get('brief') and stored_payload.get('keywords'):
+                    existing_metadata['research_data'] = stored_payload
                 
                 # Save metadata and set status to 'Pending Controversies'
                 supabase.table('Titles').update({

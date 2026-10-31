@@ -18,7 +18,8 @@ from ...core.models.research import (
     ResearchRequest,
     ResearchResponse,
     ResearchProgress,
-    ResearchStatus
+    ResearchStatus,
+    build_research_request_payload,
 )
 from ...core.models.errors import (
     ErrorResponse,
@@ -105,6 +106,25 @@ def _normalize_source_strategy_payload(data: dict) -> None:
     elif strategy == "none":
         data["rag_enabled"] = False
         data["claims_research_enabled"] = False
+
+
+def _describe_request_validation_error(exc: Exception) -> list:
+    """Flatten a pydantic ValidationError into API `validation_errors` entries.
+
+    The client renders only this list, so a bare "Validation failed" leaves the
+    caller (and the log) with nothing to act on.
+    """
+    entries = []
+    try:
+        for item in getattr(exc, "errors", lambda: [])():
+            location = ".".join(str(part) for part in item.get("loc") or ())
+            entries.append({
+                "field": location or "request_data",
+                "message": item.get("msg") or str(exc),
+            })
+    except Exception:  # pragma: no cover - the 400 must survive a bad error object
+        entries = []
+    return entries or [{"field": "request_data", "message": str(exc)}]
 
 # Create blueprint
 research_bp = Blueprint('research', __name__, url_prefix='/api/v1')
@@ -583,13 +603,13 @@ def create_research_task():
         
         # Validate request data
         try:
-            research_request = ResearchRequest(**data)
+            research_request = ResearchRequest(
+                **build_research_request_payload(data)
+            )
         except Exception as e:
+            logger.warning("Research request validation failed: %s", e)
             return jsonify(ValidationErrorResponse(
-                validation_errors=[{
-                    "field": "request_data",
-                    "message": str(e)
-                }]
+                validation_errors=_describe_request_validation_error(e)
             ).dict()), 400
         
         # Import here to avoid circular imports

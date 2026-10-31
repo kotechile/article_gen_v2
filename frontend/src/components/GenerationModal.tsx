@@ -327,6 +327,12 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
         setIsResuming(true);
         setError(null);
         try {
+            if (!originalResearchData?.brief || !originalResearchData?.keywords) {
+                throw new Error(
+                    'The research payload for this article is no longer available, so the selected takes cannot be applied. Close this dialog and run generation again.'
+                );
+            }
+
             // Build the list of selected controversies
             const selectedList = controversies
                 .filter(c => selectedControversies[c.id]?.selected)
@@ -349,13 +355,21 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
             const token = session?.access_token;
             if (!token) throw new Error("No session token found");
 
-            // Build request payload using original research data
-            const payload = {
-                ...(originalResearchData || {}),
+            // Build request payload using original research data.
+            // Explicit nulls mean "not provided": the API's request model rejects a
+            // null rag_endpoint / rag_llm_provider even though omitting the key is
+            // accepted, so drop them before posting the task payload back.
+            const payload: Record<string, any> = {};
+            Object.entries({
+                ...originalResearchData,
                 article_id: articleId,
                 selected_controversies: selectedList,
                 identify_controversies: false, // Don't prompt for controversies again!
-            };
+            }).forEach(([key, value]) => {
+                if (value !== null && value !== undefined) {
+                    payload[key] = value;
+                }
+            });
 
             const response = await axios.post(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/v1/research`, payload, {
                 headers: {
@@ -384,7 +398,18 @@ export const GenerationModal: React.FC<GenerationModalProps> = ({ articleId, tas
             }
         } catch (err: any) {
             console.error("Failed to resume generation:", err);
-            setError(err.response?.data?.message || err.message || "Failed to resume generation");
+            const validationErrors = err.response?.data?.validation_errors;
+            const validationDetail = Array.isArray(validationErrors) && validationErrors.length
+                ? validationErrors
+                    .map((entry: any) => `${entry?.field || 'request'}: ${entry?.message || 'invalid'}`)
+                    .join('; ')
+                : null;
+            setError(
+                validationDetail
+                || err.response?.data?.message
+                || err.message
+                || "Failed to resume generation"
+            );
         } finally {
             setIsResuming(false);
         }
