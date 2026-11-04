@@ -7,6 +7,9 @@ export interface LinkedInAccount {
     account_name: string;
     profile_picture_url?: string;
     expires_at?: string;
+    organization_id?: string;
+    organization_urn?: string;
+    organization_name?: string;
 }
 
 export interface LinkedInAccountStatus {
@@ -24,6 +27,9 @@ export interface LinkedInPublishPayload {
     article_url?: string;
     article_title?: string;
     article_description?: string;
+    target_type?: 'personal' | 'organization';
+    organization_id?: string;
+    target_urn?: string;
 }
 
 export interface LinkedInPublishResponse {

@@ -45,10 +45,10 @@ def _get_user_id_from_auth() -> str | None:
     return None
 
 
-def _extract_linkedin_creds_from_dict(data: dict) -> tuple[str | None, str | None, str | None]:
-    """Helper to extract LinkedIn client_id, client_secret, redirect_uri from any dict or row."""
+def _extract_linkedin_creds_from_dict(data: dict) -> tuple[str | None, str | None, str | None, str | None]:
+    """Helper to extract LinkedIn client_id, client_secret, redirect_uri, organization_id from any dict or row."""
     if not isinstance(data, dict):
-        return None, None, None
+        return None, None, None, None
 
     # Check client_id variations
     c_id = (
@@ -73,26 +73,35 @@ def _extract_linkedin_creds_from_dict(data: dict) -> tuple[str | None, str | Non
         or data.get("linkedinRedirectUri")
         or data.get("linkedinCallbackUrl")
     )
+    # Check organization_id variations
+    o_id = (
+        data.get("LINKEDIN_ORGANIZATION_ID")
+        or data.get("linkedin_organization_id")
+        or data.get("linkedinOrganizationId")
+        or data.get("organization_id")
+    )
 
     # Also check if nested in a json field like research_settings or linkedin_settings
     for nested_field in ("linkedin_settings", "linkedin", "research_settings"):
         nested = data.get(nested_field)
         if isinstance(nested, dict):
-            n_id, n_sec, n_uri = _extract_linkedin_creds_from_dict(nested)
+            n_id, n_sec, n_uri, n_org = _extract_linkedin_creds_from_dict(nested)
             c_id = c_id or n_id
             c_sec = c_sec or n_sec
             r_uri = r_uri or n_uri
+            o_id = o_id or n_org
 
     return (
         str(c_id).strip() if c_id else None,
         str(c_sec).strip() if c_sec else None,
         str(r_uri).strip() if r_uri else None,
+        str(o_id).strip() if o_id else None,
     )
 
 
-def _get_linkedin_service_for_user(user_id: str | None = None) -> LinkedInService:
+def _get_linkedin_service_for_user(user_id: str | None = None) -> tuple[LinkedInService, str]:
     """
-    Returns a LinkedInService instance.
+    Returns (LinkedInService, organization_id).
     Resolution priority:
     1. application_settings table in Supabase (global application API credentials).
     2. user_profile table in Supabase (per-user override if present).
@@ -101,6 +110,7 @@ def _get_linkedin_service_for_user(user_id: str | None = None) -> LinkedInServic
     client_id = os.getenv("LINKEDIN_CLIENT_ID", "").strip() or None
     client_secret = os.getenv("LINKEDIN_CLIENT_SECRET", "").strip() or None
     redirect_uri = os.getenv("LINKEDIN_REDIRECT_URI", "").strip() or None
+    org_id = os.getenv("LINKEDIN_ORGANIZATION_ID", "144076511").strip() or "144076511"
 
     supabase = get_supabase_client()
     if supabase:
@@ -108,13 +118,15 @@ def _get_linkedin_service_for_user(user_id: str | None = None) -> LinkedInServic
         try:
             app_res = supabase.table("application_settings").select("*").limit(1).execute()
             if app_res.data and len(app_res.data) > 0:
-                a_id, a_sec, a_uri = _extract_linkedin_creds_from_dict(app_res.data[0])
+                a_id, a_sec, a_uri, a_org = _extract_linkedin_creds_from_dict(app_res.data[0])
                 if a_id:
                     client_id = a_id
                 if a_sec:
                     client_secret = a_sec
                 if a_uri:
                     redirect_uri = a_uri
+                if a_org:
+                    org_id = a_org
         except Exception as e:
             logger.debug(f"Could not load LinkedIn credentials from application_settings: {e}")
 
@@ -123,13 +135,15 @@ def _get_linkedin_service_for_user(user_id: str | None = None) -> LinkedInServic
             try:
                 user_res = supabase.table("user_profile").select("*").eq("id", user_id).limit(1).execute()
                 if user_res.data and len(user_res.data) > 0:
-                    u_id, u_sec, u_uri = _extract_linkedin_creds_from_dict(user_res.data[0])
+                    u_id, u_sec, u_uri, u_org = _extract_linkedin_creds_from_dict(user_res.data[0])
                     if u_id:
                         client_id = u_id
                     if u_sec:
                         client_secret = u_sec
                     if u_uri:
                         redirect_uri = u_uri
+                    if u_org:
+                        org_id = u_org
             except Exception as e:
                 logger.debug(f"Could not load LinkedIn credentials from user_profile: {e}")
 
@@ -137,11 +151,12 @@ def _get_linkedin_service_for_user(user_id: str | None = None) -> LinkedInServic
     if not redirect_uri:
         redirect_uri = "https://content.buildomain.com/api/linkedin/callback"
 
-    return LinkedInService(
+    service = LinkedInService(
         client_id=client_id,
         client_secret=client_secret,
         redirect_uri=redirect_uri,
     )
+    return service, org_id
 
 
 @linkedin_bp.route('/auth-url', methods=['GET'])
@@ -151,11 +166,12 @@ def get_auth_url():
     Passes user_id in the state parameter for correlation in callback.
     """
     user_id = _get_user_id_from_auth()
+    include_org = request.args.get('include_org', 'false').lower() in ('1', 'true', 'yes')
     state = json.dumps({"user_id": user_id or "anonymous", "timestamp": datetime.utcnow().isoformat()})
     
     try:
-        service = _get_linkedin_service_for_user(user_id)
-        url = service.get_authorization_url(state=state)
+        service, _ = _get_linkedin_service_for_user(user_id)
+        url = service.get_authorization_url(state=state, include_org=include_org)
         return jsonify({"auth_url": url})
     except ValueError as e:
         return jsonify({"error": "configuration_error", "message": str(e)}), 400
@@ -204,7 +220,7 @@ def oauth_callback():
         pass
 
     try:
-        service = _get_linkedin_service_for_user(user_id)
+        service, _ = _get_linkedin_service_for_user(user_id)
         # Step 1: Exchange code for tokens
         token_data = service.exchange_code_for_token(code)
         access_token = token_data.get("access_token")
@@ -289,6 +305,9 @@ def get_account():
                 except Exception:
                     pass
 
+            _, default_org_id = _get_linkedin_service_for_user(user_id)
+            org_id = default_org_id or "144076511"
+
             return jsonify({
                 "connected": not is_expired,
                 "is_expired": is_expired,
@@ -299,6 +318,9 @@ def get_account():
                     "account_name": row["account_name"],
                     "profile_picture_url": row.get("profile_picture_url"),
                     "expires_at": expires_at,
+                    "organization_id": org_id,
+                    "organization_urn": f"urn:li:organization:{org_id}",
+                    "organization_name": "Aichieve.net",
                 }
             })
 
@@ -381,7 +403,17 @@ def publish():
             return jsonify({"error": "invalid_credentials", "message": "Stored LinkedIn credentials are missing."}), 400
 
         # Execute publish via service
-        service = _get_linkedin_service_for_user(user_id)
+        service, default_org_id = _get_linkedin_service_for_user(user_id)
+
+        target_type = str(data.get("target_type") or "organization").lower()
+        target_urn = data.get("target_urn")
+        org_id = str(data.get("organization_id") or default_org_id or "144076511").replace("urn:li:organization:", "").strip()
+
+        if target_type == "organization" or (target_urn and "organization" in str(target_urn)):
+            author_urn = target_urn if target_urn else f"urn:li:organization:{org_id}"
+        else:
+            author_urn = account.get("linkedin_urn")
+
         publish_result = service.publish_post(
             access_token=access_token,
             author_urn=author_urn,

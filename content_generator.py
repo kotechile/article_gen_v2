@@ -611,6 +611,18 @@ TARGET AUDIENCE: {audience}
                     - Vary sentence length deliberately: a short sentence after a long one.
                       Avoid three consecutive sentences that open the same way.
 
+                    ACRONYMS AND INITIALISMS:
+                    - The first time an acronym or initialism appears, write it out in full
+                      and put the short form in parentheses: "retrieval-augmented generation
+                      (RAG)". Every later mention uses the short form alone.
+                    - A section is one part of a longer article and may not hold the first
+                      mention of a term. If the article's opening has not defined it either,
+                      define it where it first appears; never define the same acronym twice.
+                    - Do not stack expansions: no "RAG (retrieval-augmented generation (RAG))",
+                      no re-expansion in a later sentence.
+                    - Only expandable names get this treatment. Product names, model names and
+                      version strings (GPT-4, BM25, RTX 4090) are written as they are.
+
                     7. Complete Concept Coverage & Zero Fluff:
                        - Every theme, statistic, or concept mentioned in the lead or overview MUST be fully developed and substantiated in the substantive body sections.
                        - Maximum 60 words per bullet point. If a concept exceeds 60 words, split it into a distinct bullet.

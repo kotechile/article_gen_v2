@@ -618,6 +618,8 @@ class ArticleStructureGenerator:
                     - Every claim and every number must come from the planned sections below. Never introduce a statistic, comparison, or benefit they do not contain.
                     - Match the {tone} tone
                     - Be specific and concrete: name the problem and the outcome
+                    - If you use an acronym or initialism, spell it out on first use:
+                      "retrieval-augmented generation (RAG)", never "RAG" alone
                     - No generic urgency, no "in today's world", no "this article explores", no mention of sections, outlines, or the article itself
 
                     Return only the excerpt, no quotes or formatting."""

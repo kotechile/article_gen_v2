@@ -46,20 +46,32 @@ class LinkedInService:
             "http://localhost:5001/api/linkedin/callback",
         ).strip()
 
-    def get_authorization_url(self, state: str = "linkedin_oauth_state") -> str:
+    def get_authorization_url(
+        self,
+        state: str = "linkedin_oauth_state",
+        scopes: Optional[str] = None,
+        include_org: bool = False,
+    ) -> str:
         """
         Generate LinkedIn OAuth 2.0 authorization URL.
-        Uses OpenID Connect and member social posting scopes.
+        Uses OpenID Connect and member social posting scopes,
+        and optionally organization social scope if Community Management API is enabled.
         """
         if not self.client_id:
             raise ValueError("LINKEDIN_CLIENT_ID is not configured in environment or settings.")
+
+        target_scopes = scopes
+        if not target_scopes:
+            target_scopes = LINKEDIN_DEFAULT_SCOPES
+            if include_org:
+                target_scopes = f"{target_scopes} w_organization_social"
 
         params = {
             "response_type": "code",
             "client_id": self.client_id,
             "redirect_uri": self.redirect_uri,
             "state": state,
-            "scope": LINKEDIN_DEFAULT_SCOPES,
+            "scope": target_scopes,
         }
         return f"{LINKEDIN_AUTH_URL}?{urllib.parse.urlencode(params)}"
 
@@ -254,7 +266,14 @@ class LinkedInService:
 
         if not response.ok:
             logger.error(f"LinkedIn post creation failed: {response.status_code} {response.text}")
-            raise RuntimeError(f"LinkedIn publish error: {response.text}")
+            err_msg = response.text
+            if response.status_code == 403 and "organization" in author_urn:
+                err_msg = (
+                    "LinkedIn returned 403 Forbidden. Publishing to a Company Page requires the "
+                    "'Community Management API' product enabled in your LinkedIn Developer App with the "
+                    "'w_organization_social' scope, and your personal account must be an Admin of that page."
+                )
+            raise RuntimeError(f"LinkedIn publish error: {err_msg}")
 
         # The post URN is returned in the 'x-restli-id' response header
         post_urn = response.headers.get("x-restli-id") or ""

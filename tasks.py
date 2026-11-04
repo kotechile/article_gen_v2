@@ -7027,6 +7027,8 @@ describe the article that exists - not the plan the article was commissioned fro
 RULES:
 - 1 to 2 sentences, 40 to 70 words.
 - Only claims, figures and comparisons that appear in the article text below.
+- An acronym or initialism is spelled out on first use in this excerpt too:
+  "retrieval-augmented generation (RAG)", never the bare short form.
 - No citation markers, no headings, no quotation marks around the result.
 - Do not open with "This article", "In this piece" or "We explore".
 - Output the excerpt only: no commentary, no explanation, no code fences.
@@ -7235,6 +7237,184 @@ def _reconcile_excerpt(
     )
     report["reason"] = f"{before['reason']} (no replacement found)"
     return excerpt, report
+
+
+ACRONYM_EXPANSION_SYSTEM = """You are a copy editor applying one style rule: the
+first time an acronym or initialism appears in a text it is written out in full with
+the short form in parentheses - "retrieval-augmented generation (RAG)" - and every
+later mention uses the short form alone.
+
+For each acronym you are given, return the expansion that fits THIS article.
+
+RULES:
+- The initials of the expansion, ignoring small words like "of", "and" and "the",
+  must spell the acronym exactly.
+- Use the meaning the article actually works with. If the article does not make it
+  clear, or two meanings both fit, return null for that acronym: a wrong definition
+  is worse than a bare acronym.
+- Output STRICT JSON only, no commentary:
+  {"expansions": [{"acronym": "RAG", "expansion": "retrieval-augmented generation"}]}
+- Use null for an acronym you are not sure about.
+"""
+
+ACRONYM_EXPANSION_PROMPT = """Article title: {title}
+
+{entries}
+
+Return the JSON object."""
+
+
+def _expand_acronyms(
+    full_content: str,
+    *,
+    research_data: Optional[Dict[str, Any]] = None,
+    structure: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    """Spell every acronym out at its first use, then report what is left.
+
+    The prompts ask the writer to do this, and the document pass asks the editor
+    again - this is the deterministic half that runs after them. It asks the
+    `final_review` model only for expansions (a definition, not a claim), keeps a
+    proposal only when its initials spell the acronym, and inserts it at the first
+    bare use. An acronym the model will not commit to stays bare and is reported:
+    a guessed definition is worse than an unexplained abbreviation.
+    """
+    from src.services.acronym_expansion import (
+        audit_acronyms,
+        expand_first_use,
+        first_use_context,
+        spelling_matches,
+    )
+
+    research_data = research_data or {}
+    structure = structure or {}
+    before = audit_acronyms(full_content)
+    report: Dict[str, Any] = {
+        "before": before,
+        "after": before,
+        "applied": {},
+        "rejected": {},
+        "unexpanded": list(before["unexpanded"]),
+    }
+
+    pending = [a for a in before["unexpanded"]][:8]
+    if not pending:
+        logger.info(
+            "Acronym check: all %s acronym(s) expanded on first use", before["total"]
+        )
+        return full_content, report
+
+    entries = []
+    for acronym in pending:
+        context = " ".join(first_use_context(full_content, acronym) or [])
+        entries.append(f"- {acronym}: {context[:600]}" if context else f"- {acronym}")
+
+    provider, model, api_key = get_llm_provider_for_role(LLM_ROLE_FINAL_REVIEW)
+    provider = provider or research_data.get("provider")
+    model = model or research_data.get("model")
+    api_key = api_key or research_data.get("api_key") or research_data.get("llm_key", "")
+    if not provider or not model:
+        report["reason"] = "no model resolved for the acronym pass"
+        logger.warning(
+            "Acronym check: %s unexpanded and no model to expand them: %s",
+            len(pending),
+            pending,
+        )
+        return full_content, report
+
+    try:
+        client = create_llm_client(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            temperature=0.1,
+            timeout=int(os.getenv("ARTICLE_ACRONYM_TIMEOUT", "60")),
+            max_retries=1,
+            max_tokens=600,
+        )
+        response = client.generate(
+            [
+                {"role": "system", "content": ACRONYM_EXPANSION_SYSTEM},
+                {
+                    "role": "user",
+                    "content": ACRONYM_EXPANSION_PROMPT.format(
+                        title=str(structure.get("title") or ""),
+                        entries="\n".join(entries),
+                    ),
+                },
+            ]
+        )
+        raw = (getattr(response, "content", "") or "").strip()
+    except Exception as exc:
+        report["reason"] = f"expansion call failed: {exc}"
+        logger.warning(
+            "Acronym check: expansion call failed (%s), %s acronym(s) left bare: %s",
+            exc,
+            len(pending),
+            pending,
+        )
+        return full_content, report
+
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw).strip()
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        payload = {}
+    proposals = payload.get("expansions") if isinstance(payload, dict) else None
+    if not isinstance(proposals, list):
+        report["reason"] = "expansion call returned no usable JSON"
+        logger.warning(
+            "Acronym check: model returned no usable expansions, %s left bare: %s",
+            len(pending),
+            pending,
+        )
+        return full_content, report
+
+    proposed = {}
+    for item in proposals:
+        if not isinstance(item, dict):
+            continue
+        acronym = str(item.get("acronym") or "").strip()
+        expansion = str(item.get("expansion") or "").strip()
+        if acronym and expansion and expansion.lower() != "null":
+            proposed[acronym] = expansion
+
+    content = full_content
+    for acronym, expansion in proposed.items():
+        if acronym not in pending:
+            continue
+        if not spelling_matches(expansion, acronym):
+            report["rejected"][acronym] = f"initials do not spell the acronym: {expansion}"
+            logger.warning(
+                "Acronym check: rejected '%s' for %s - initials do not spell it",
+                expansion,
+                acronym,
+            )
+            continue
+        content, applied, _mode = expand_first_use(content, acronym, expansion)
+        if applied:
+            report["applied"][acronym] = expansion
+
+    after = audit_acronyms(content)
+    report["after"] = after
+    report["unexpanded"] = list(after["unexpanded"])
+
+    if report["applied"]:
+        logger.info(
+            "Acronym check: expanded %s at first use (%s); %s -> %s acronyms bare",
+            len(report["applied"]),
+            ", ".join(f"{a} = {e}" for a, e in report["applied"].items()),
+            len(before["unexpanded"]),
+            len(after["unexpanded"]),
+        )
+    if after["unexpanded"]:
+        logger.warning(
+            "Acronym check: %s acronym(s) still bare after the pass: %s",
+            len(after["unexpanded"]),
+            after["unexpanded"],
+        )
+    return content, report
 
 
 def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict[str, Any]:
@@ -7541,6 +7721,23 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         except Exception as leak_err:  # never block publication on the check itself
             logger.warning("Leakage check failed: %s", leak_err)
 
+        # Acronyms and initialisms get spelled out at first use, then run short.
+        # The prompts ask for it while the prose is written; this is the check that
+        # runs on the assembled document, plus a definition-only repair.
+        acronym_report: Dict[str, Any] = {}
+        if os.getenv("ARTICLE_ACRONYM_GUARD", "true").strip().lower() != "false":
+            try:
+                full_content, acronym_report = _expand_acronyms(
+                    full_content,
+                    research_data=research_data,
+                    structure=structure,
+                )
+                result['acronym_report'] = acronym_report
+                if acronym_report.get('applied'):
+                    normalised_word_count = len(_extract_plain_text(full_content).split())
+            except Exception as acronym_err:  # never block publication on a style rule
+                logger.warning("Acronym pass failed: %s", acronym_err)
+
         # Reconcile in-text citations with reference list and filter out spam/broken/unused links
         evidence_for_references = result.get('ranked_evidence', []) or result.get('evidence', [])
         full_content, curated_citations = _reconcile_and_curate_citations(
@@ -7768,6 +7965,10 @@ def _finalize_article(result: Dict[str, Any], task_instance: Any = None) -> Dict
         # Readable by the UI: why the excerpt reads the way it does.
         if excerpt_report:
             quality_report['excerpt_alignment'] = excerpt_report
+
+        # Acronym coverage: how many were spelled out at first use, and which were not.
+        if acronym_report:
+            quality_report['acronyms'] = acronym_report
 
         # Story flow: whether paragraphs still announce claims instead of making
         # them after the whole-document pass, and the measured delta.

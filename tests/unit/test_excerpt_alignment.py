@@ -245,6 +245,10 @@ class OutlineStageTests(unittest.TestCase):
     """The structure generator writes the excerpt from the plan, then checks it."""
 
     def _generator(self, payloads):
+        # A sibling test file stubs `article_structure_generator` in sys.modules at
+        # import time and the stub survives into this module. Force the real one, or
+        # these tests pass alone and fail in a full run.
+        sys.modules.pop("article_structure_generator", None)
         from article_structure_generator import ArticleStructureGenerator
 
         class _Client:
@@ -265,6 +269,7 @@ class OutlineStageTests(unittest.TestCase):
 
     @staticmethod
     def _sections():
+        sys.modules.pop("article_structure_generator", None)
         from article_structure_generator import SectionOutline
 
         return [

@@ -10,7 +10,11 @@ import {
     Image as ImageIcon,
     Link as LinkIcon,
     AlertTriangle,
-    RefreshCw
+    RefreshCw,
+    Copy,
+    Check,
+    Download,
+    BookOpen
 } from 'lucide-react';
 import {
     getLinkedInAccount,
@@ -43,11 +47,46 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
     const [error, setError] = useState<string | null>(null);
     const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
 
+    // Modal view mode: Automated Feed Post vs Long-form Copy Kit
+    const [activeModalTab, setActiveModalTab] = useState<'feed_post' | 'pulse_article'>('feed_post');
+    const [copiedField, setCopiedField] = useState<string | null>(null);
+
     // Form inputs
     const [commentary, setCommentary] = useState<string>('');
     const [includeImage, setIncludeImage] = useState<boolean>(true);
     const [includeLink, setIncludeLink] = useState<boolean>(false);
     const [articleUrl, setArticleUrl] = useState<string>('');
+    const [targetType, setTargetType] = useState<'organization' | 'personal'>('personal');
+    const [organizationId, setOrganizationId] = useState<string>('144076511');
+
+    const handleCopy = (text: string, fieldName: string) => {
+        navigator.clipboard.writeText(text);
+        setCopiedField(fieldName);
+        setTimeout(() => setCopiedField(null), 2000);
+    };
+
+    const handleCopyRichText = async (htmlContent: string) => {
+        try {
+            if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+                const blobHtml = new Blob([htmlContent], { type: 'text/html' });
+                const blobText = new Blob([htmlContent.replace(/<[^>]+>/g, '')], { type: 'text/plain' });
+                await navigator.clipboard.write([
+                    new ClipboardItem({
+                        'text/html': blobHtml,
+                        'text/plain': blobText,
+                    })
+                ]);
+            } else {
+                await navigator.clipboard.writeText(htmlContent.replace(/<[^>]+>/g, ''));
+            }
+            setCopiedField('rich_body');
+            setTimeout(() => setCopiedField(null), 2000);
+        } catch {
+            await navigator.clipboard.writeText(htmlContent.replace(/<[^>]+>/g, ''));
+            setCopiedField('rich_body');
+            setTimeout(() => setCopiedField(null), 2000);
+        }
+    };
 
     // Pre-populate article URL from WordPress post link if available
     useEffect(() => {
@@ -104,6 +143,9 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
             setError(null);
             const status = await getLinkedInAccount();
             setAccountStatus(status);
+            if (status?.account?.organization_id) {
+                setOrganizationId(status.account.organization_id);
+            }
         } catch (err: any) {
             setError(err?.message || 'Failed to load LinkedIn account status');
         } finally {
@@ -173,6 +215,8 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                 article_url: link || undefined,
                 article_title: articleData?.Title || articleData?.title || undefined,
                 article_description: articleData?.excerpt || undefined,
+                target_type: targetType,
+                organization_id: organizationId || '144076511',
             });
 
             if (res.success && res.post_url) {
@@ -192,7 +236,29 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
 
     const charCount = commentary.length;
     const isOverLimit = charCount > LINKEDIN_MAX_CHARS;
-    const featuredImg = articleData?.featuredImageUrl || articleData?.imageurl;
+    const featuredImg = articleData?.featuredImageUrl || articleData?.imageurl || '';
+
+    // Extract inline images & infographics
+    const inlineImages: string[] = [];
+    if (featuredImg && !inlineImages.includes(featuredImg)) {
+        inlineImages.push(featuredImg);
+    }
+    if (articleData?.infographicUrl && !inlineImages.includes(articleData.infographicUrl)) {
+        inlineImages.push(articleData.infographicUrl);
+    }
+    if (articleData?.htmlArticle) {
+        const matches = articleData.htmlArticle.match(/<img[^>]+src=["']([^"']+)["']/g);
+        if (matches) {
+            matches.forEach((imgTag: string) => {
+                const srcMatch = imgTag.match(/src=["']([^"']+)["']/);
+                if (srcMatch && srcMatch[1] && !inlineImages.includes(srcMatch[1])) {
+                    inlineImages.push(srcMatch[1]);
+                }
+            });
+        }
+    }
+
+    const ctaSnippet = `Enjoyed this article? Follow Aichieve.net (https://www.linkedin.com/company/144076511) for more research, data, and technical deep dives.\n\nSubscribe to our newsletter on LinkedIn to get our next analysis delivered directly to your inbox.`;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -204,8 +270,8 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                             in
                         </div>
                         <div>
-                            <h2 className="text-lg font-bold text-foreground">Publish to LinkedIn</h2>
-                            <p className="text-xs text-muted-foreground">Tailor and share directly to your personal LinkedIn feed</p>
+                            <h2 className="text-lg font-bold text-foreground">LinkedIn Publisher</h2>
+                            <p className="text-xs text-muted-foreground">Automated Feed Post & Long-Form Article Package</p>
                         </div>
                     </div>
                     <button
@@ -213,6 +279,34 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                         className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-accent transition"
                     >
                         <X className="w-5 h-5" />
+                    </button>
+                </div>
+
+                {/* Mode Selector Tabs */}
+                <div className="px-6 pt-3 border-b border-border bg-muted/20 flex gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setActiveModalTab('feed_post')}
+                        className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition flex items-center gap-1.5 ${
+                            activeModalTab === 'feed_post'
+                                ? 'border-[#0A66C2] text-[#0A66C2]'
+                                : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        <Share2 className="w-3.5 h-3.5" />
+                        Automated Feed Post
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveModalTab('pulse_article')}
+                        className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition flex items-center gap-1.5 ${
+                            activeModalTab === 'pulse_article'
+                                ? 'border-[#0A66C2] text-[#0A66C2]'
+                                : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        <BookOpen className="w-3.5 h-3.5" />
+                        Long-Form Article Package (Copy to LinkedIn)
                     </button>
                 </div>
 
@@ -254,7 +348,7 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                                 </button>
                             </div>
                         </div>
-                    ) : (
+                    ) : activeModalTab === 'feed_post' ? (
                         <>
                             {/* Account Status Card */}
                             <div className="bg-muted/30 border border-border rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -285,7 +379,9 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                                                     Connected
                                                 </span>
                                             </div>
-                                            <p className="text-xs text-muted-foreground">Publishing to Personal Feed</p>
+                                            <p className="text-xs text-muted-foreground">
+                                                Authenticated User ({accountStatus.account.account_name})
+                                            </p>
                                         </div>
                                     </div>
                                 ) : (
@@ -293,7 +389,7 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                                         <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0" />
                                         <div>
                                             <p className="text-sm font-semibold text-foreground">LinkedIn account not connected</p>
-                                            <p className="text-xs text-muted-foreground">Connect your personal account via OAuth to publish directly.</p>
+                                            <p className="text-xs text-muted-foreground">Connect your LinkedIn account via OAuth to publish directly.</p>
                                         </div>
                                     </div>
                                 )}
@@ -307,6 +403,44 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                                     </button>
                                 )}
                             </div>
+
+                            {/* Destination Selector */}
+                            {accountStatus?.connected && (
+                                <div className="p-3.5 bg-muted/40 border border-border rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                                    <div>
+                                        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">
+                                            Publishing Destination
+                                        </span>
+                                        <span className="text-xs text-muted-foreground">
+                                            Choose where to publish this article post
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setTargetType('organization')}
+                                            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition border ${
+                                                targetType === 'organization'
+                                                    ? 'bg-[#0A66C2] text-white border-[#0A66C2] shadow-sm'
+                                                    : 'bg-background text-muted-foreground border-border hover:bg-muted'
+                                            }`}
+                                        >
+                                            🏢 Aichieve.net Page ({organizationId})
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setTargetType('personal')}
+                                            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition border ${
+                                                targetType === 'personal'
+                                                    ? 'bg-[#0A66C2] text-white border-[#0A66C2] shadow-sm'
+                                                    : 'bg-background text-muted-foreground border-border hover:bg-muted'
+                                            }`}
+                                        >
+                                            👤 Personal Feed
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Two-column layout: Editor & Live Preview */}
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -428,7 +562,11 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                                     <div className="bg-card border border-border/80 rounded-xl p-4 shadow-sm space-y-3 font-sans">
                                         {/* Feed Post Header */}
                                         <div className="flex items-center gap-3">
-                                            {accountStatus?.account?.profile_picture_url ? (
+                                            {targetType === 'organization' ? (
+                                                <div className="w-11 h-11 rounded-lg bg-[#0A66C2] text-white font-bold flex items-center justify-center text-sm shadow-sm">
+                                                    AI
+                                                </div>
+                                            ) : accountStatus?.account?.profile_picture_url ? (
                                                 <img
                                                     src={accountStatus.account.profile_picture_url}
                                                     alt="Author"
@@ -441,9 +579,15 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                                             )}
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-sm font-semibold text-foreground truncate">
-                                                    {accountStatus?.account?.account_name || 'Your Name'}
+                                                    {targetType === 'organization'
+                                                        ? 'Aichieve.net'
+                                                        : (accountStatus?.account?.account_name || 'Your Name')}
                                                 </p>
-                                                <p className="text-xs text-muted-foreground truncate">Professional & Creator</p>
+                                                <p className="text-xs text-muted-foreground truncate">
+                                                    {targetType === 'organization'
+                                                        ? 'Technology, Information and Internet • Company'
+                                                        : 'Professional & Creator'}
+                                                </p>
                                                 <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
                                                     <span>Just now</span>
                                                     <span>•</span>
@@ -510,6 +654,212 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                                 </div>
                             </div>
                         </>
+                    ) : (
+                        /* Mode 2: Long-Form Article Package (Copy & Paste to LinkedIn Pulse) */
+                        <div className="space-y-6 animate-in fade-in duration-200">
+                            {/* Info Banner */}
+                            <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                                <div className="space-y-1">
+                                    <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                        <BookOpen className="w-4 h-4 text-[#0A66C2]" />
+                                        LinkedIn Long-Form Article & Newsletter Kit
+                                    </h4>
+                                    <p className="text-xs text-muted-foreground max-w-xl">
+                                        LinkedIn's API does not support publishing native Pulse articles directly. Use this ready-to-paste package to publish as a native Article or Newsletter on your <strong>Aichieve.net Company Page</strong>.
+                                    </p>
+                                </div>
+                                <a
+                                    href="https://www.linkedin.com/post/new/"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1.5 px-4 py-2 bg-[#0A66C2] hover:bg-[#084e96] text-white text-xs font-semibold rounded-xl shadow-sm whitespace-nowrap transition"
+                                >
+                                    Open LinkedIn Editor
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
+                            </div>
+
+                            {/* Section 1: Cover Image (Top of Article) */}
+                            <div className="border border-border rounded-xl p-4 bg-card space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h5 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                            <ImageIcon className="w-4 h-4 text-[#0A66C2]" />
+                                            1. Cover Image (Banner)
+                                        </h5>
+                                        <p className="text-xs text-muted-foreground">
+                                            Include at the top of your LinkedIn article (16:9 ratio). Increases click-through rates by ~3x.
+                                        </p>
+                                    </div>
+                                    {featuredImg && (
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleCopy(featuredImg, 'cover_url')}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 border border-border bg-background hover:bg-muted text-xs font-medium rounded-lg transition"
+                                            >
+                                                {copiedField === 'cover_url' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                                                {copiedField === 'cover_url' ? 'Copied URL!' : 'Copy URL'}
+                                            </button>
+                                            <a
+                                                href={featuredImg}
+                                                download="linkedin-cover-image.png"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0A66C2] hover:bg-[#084e96] text-white text-xs font-medium rounded-lg transition shadow-sm"
+                                            >
+                                                <Download className="w-3.5 h-3.5" />
+                                                Download
+                                            </a>
+                                        </div>
+                                    )}
+                                </div>
+                                {featuredImg ? (
+                                    <div className="relative rounded-lg overflow-hidden border border-border max-h-48 bg-muted/20">
+                                        <img src={featuredImg} alt="Cover" className="w-full h-48 object-cover" />
+                                    </div>
+                                ) : (
+                                    <div className="p-4 border border-dashed border-border rounded-lg text-center text-xs text-muted-foreground">
+                                        No featured image set for this article yet.
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Section 2: Headline & Subtitle */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="border border-border rounded-xl p-4 bg-card space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <h5 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                            2. Article Headline (H1)
+                                        </h5>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCopy(articleData?.Title || articleData?.title || '', 'headline')}
+                                            className="flex items-center gap-1 text-xs text-primary font-medium hover:underline"
+                                        >
+                                            {copiedField === 'headline' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                                            {copiedField === 'headline' ? 'Copied' : 'Copy'}
+                                        </button>
+                                    </div>
+                                    <p className="text-sm font-semibold text-foreground bg-muted/30 p-2.5 rounded-lg border border-border">
+                                        {articleData?.Title || articleData?.title || 'Untitled Article'}
+                                    </p>
+                                </div>
+
+                                <div className="border border-border rounded-xl p-4 bg-card space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <h5 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                            3. Subtitle / Thesis
+                                        </h5>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCopy(articleData?.deck || articleData?.excerpt || articleData?.thesis || '', 'subtitle')}
+                                            className="flex items-center gap-1 text-xs text-primary font-medium hover:underline"
+                                        >
+                                            {copiedField === 'subtitle' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                                            {copiedField === 'subtitle' ? 'Copied' : 'Copy'}
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground bg-muted/30 p-2.5 rounded-lg border border-border line-clamp-3">
+                                        {articleData?.deck || articleData?.excerpt || articleData?.thesis || 'No subtitle provided.'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Section 3: Full Article Body */}
+                            <div className="border border-border rounded-xl p-4 bg-card space-y-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                    <div>
+                                        <h5 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                            <FileText className="w-4 h-4 text-[#0A66C2]" />
+                                            4. Full Article Body
+                                        </h5>
+                                        <p className="text-xs text-muted-foreground">
+                                            Copy as formatted text to preserve headings, bolding, and bullet lists in LinkedIn.
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCopyRichText(articleData?.htmlArticle || articleData?.content || articleData?.articleText || '')}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0A66C2] hover:bg-[#084e96] text-white text-xs font-semibold rounded-lg shadow-sm transition"
+                                        >
+                                            {copiedField === 'rich_body' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                                            {copiedField === 'rich_body' ? 'Copied Formatted Text!' : 'Copy Formatted Text'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCopy((articleData?.htmlArticle || articleData?.content || '').replace(/<[^>]+>/g, ''), 'plain_body')}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 border border-border bg-background hover:bg-muted text-xs font-medium rounded-lg transition"
+                                        >
+                                            {copiedField === 'plain_body' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                                            {copiedField === 'plain_body' ? 'Copied Plain Text!' : 'Copy Plain Text'}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-muted/20 border border-border rounded-lg max-h-60 overflow-y-auto text-xs font-mono text-muted-foreground whitespace-pre-wrap">
+                                    {(articleData?.htmlArticle || articleData?.content || articleData?.articleText || '').slice(0, 1500)}...
+                                </div>
+                            </div>
+
+                            {/* Section 4: Inline Images & Infographics */}
+                            <div className="border border-border rounded-xl p-4 bg-card space-y-3">
+                                <div>
+                                    <h5 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                        <ImageIcon className="w-4 h-4 text-[#0A66C2]" />
+                                        5. Inline Images & Infographics
+                                    </h5>
+                                    <p className="text-xs text-muted-foreground">
+                                        <strong>Should you include images? YES!</strong> Visual breaks (infographics, diagrams, flowcharts) every 300–400 words improve reader completion rate significantly on LinkedIn. Click below to download and upload them inside the article body:
+                                    </p>
+                                </div>
+                                {inlineImages.length > 0 ? (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                        {inlineImages.map((imgUrl, idx) => (
+                                            <div key={idx} className="border border-border rounded-lg p-2 bg-muted/20 space-y-2">
+                                                <img src={imgUrl} alt={`Inline ${idx + 1}`} className="w-full h-28 object-cover rounded" />
+                                                <div className="flex items-center justify-between text-[11px]">
+                                                    <span className="text-muted-foreground truncate max-w-[120px]">Image {idx + 1}</span>
+                                                    <a
+                                                        href={imgUrl}
+                                                        download={`article-inline-${idx + 1}.png`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-primary hover:underline flex items-center gap-1 font-medium"
+                                                    >
+                                                        <Download className="w-3 h-3" /> Download
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="p-3 bg-muted/20 border border-border rounded-lg text-xs text-muted-foreground">
+                                        No inline infographics attached yet. You can insert your charts or diagrams directly into the LinkedIn editor.
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Section 5: Closing Call-to-Action */}
+                            <div className="border border-border rounded-xl p-4 bg-card space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <h5 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                        6. Recommended Footer CTA (Aichieve.net)
+                                    </h5>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleCopy(ctaSnippet, 'cta')}
+                                        className="flex items-center gap-1 text-xs text-primary font-medium hover:underline"
+                                    >
+                                        {copiedField === 'cta' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                                        {copiedField === 'cta' ? 'Copied CTA' : 'Copy CTA'}
+                                    </button>
+                                </div>
+                                <div className="p-2.5 bg-muted/30 border border-border rounded-lg text-xs text-foreground whitespace-pre-line">
+                                    {ctaSnippet}
+                                </div>
+                            </div>
+                        </div>
                     )}
                 </div>
 
@@ -524,24 +874,36 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                             Cancel
                         </button>
 
-                        <button
-                            type="button"
-                            onClick={handlePublish}
-                            disabled={publishing || isOverLimit || !accountStatus?.connected}
-                            className="flex items-center gap-2 px-6 py-2.5 bg-[#0A66C2] hover:bg-[#084e96] text-white text-sm font-medium rounded-xl transition shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {publishing ? (
-                                <>
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                    Publishing to LinkedIn...
-                                </>
-                            ) : (
-                                <>
-                                    <Share2 className="w-4 h-4" />
-                                    Publish Now
-                                </>
-                            )}
-                        </button>
+                        {activeModalTab === 'feed_post' ? (
+                            <button
+                                type="button"
+                                onClick={handlePublish}
+                                disabled={publishing || isOverLimit || !accountStatus?.connected}
+                                className="flex items-center gap-2 px-6 py-2.5 bg-[#0A66C2] hover:bg-[#084e96] text-white text-sm font-medium rounded-xl transition shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {publishing ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Publishing to LinkedIn...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Share2 className="w-4 h-4" />
+                                        Publish Now
+                                    </>
+                                )}
+                            </button>
+                        ) : (
+                            <a
+                                href="https://www.linkedin.com/post/new/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 px-6 py-2.5 bg-[#0A66C2] hover:bg-[#084e96] text-white text-sm font-medium rounded-xl transition shadow-md"
+                            >
+                                Open LinkedIn Article Editor
+                                <ExternalLink className="w-4 h-4" />
+                            </a>
+                        )}
                     </div>
                 )}
             </div>

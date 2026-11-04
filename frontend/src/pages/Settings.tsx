@@ -1333,7 +1333,10 @@ export const Settings: React.FC = () => {
                                                         </span>
                                                     </div>
                                                     <p className="text-xs text-muted-foreground mt-0.5">
-                                                        Author URN: <code className="text-[11px] bg-muted px-1.5 py-0.5 rounded">{linkedInStatus.account.linkedin_urn}</code>
+                                                        Personal URN: <code className="text-[11px] bg-muted px-1.5 py-0.5 rounded">{linkedInStatus.account.linkedin_urn}</code>
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                                        Company Page: <code className="text-[11px] bg-muted px-1.5 py-0.5 rounded">{linkedInStatus.account.organization_urn || 'urn:li:organization:144076511'}</code> ({linkedInStatus.account.organization_name || 'Aichieve.net'})
                                                     </p>
                                                     {linkedInStatus.account.expires_at && (
                                                         <p className="text-[11px] text-muted-foreground mt-1">
