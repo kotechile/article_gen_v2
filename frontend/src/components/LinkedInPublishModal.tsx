@@ -203,7 +203,7 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                 setCommentary(result.full_post);
             }
         } catch (err: any) {
-            setError(err?.message || 'Failed to repurpose with AI');
+            setError(err?.response?.data?.message || err?.message || 'Failed to repurpose with AI');
         } finally {
             setRepurposing(false);
         }

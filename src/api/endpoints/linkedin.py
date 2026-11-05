@@ -494,7 +494,8 @@ def repurpose():
         return jsonify({"error": "validation_error", "message": "Both title and content are required."}), 400
 
     try:
-        service = _get_linkedin_service_for_user()
+        user_id = _get_user_id_from_auth()
+        service, _ = _get_linkedin_service_for_user(user_id)
         repurposed = service.repurpose_article_for_linkedin(
             article_title=title,
             article_content=content,
