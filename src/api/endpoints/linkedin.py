@@ -436,6 +436,8 @@ def publish():
                     "last_linkedin_published_at": publish_result.get("published_at"),
                     "linkedin_post_content": commentary,
                 }
+                if data.get("article_url"):
+                    update_fields["last_wp_post_url"] = str(data.get("article_url")).strip()
                 supabase.table("Titles").update(update_fields).eq("id", article_id).execute()
             except Exception as update_err:
                 logger.warning(f"Could not update Titles record with LinkedIn metadata: {update_err}")

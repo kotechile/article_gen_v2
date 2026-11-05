@@ -88,6 +88,26 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
         }
     };
 
+    const getDomainFromUrl = (url: string) => {
+        try {
+            const u = url.startsWith('http') ? url : `https://${url}`;
+            return new URL(u).hostname.replace(/^www\./, '');
+        } catch {
+            return 'aichieve.net';
+        }
+    };
+
+    const handleInsertLinkIntoPost = () => {
+        const clean = articleUrl.trim();
+        if (!clean) return;
+        if (commentary.includes(clean)) return;
+        const linkWithProtocol = clean.startsWith('http') ? clean : `https://${clean}`;
+        setCommentary((prev) => {
+            const trimmed = prev.trim();
+            return `${trimmed}\n\n🔗 Read the full analysis on Aichieve:\n${linkWithProtocol}`;
+        });
+    };
+
     // Pre-populate article URL from WordPress post link if available
     useEffect(() => {
         const wpUrl = articleData?.last_wp_post_url || articleData?.canonical_url || '';
@@ -205,14 +225,16 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
             setError(null);
 
             const imageUrl = includeImage ? (articleData?.featuredImageUrl || articleData?.imageurl || null) : null;
-            const link = includeLink && articleUrl.trim() ? articleUrl.trim() : null;
+            const cleanUrl = articleUrl.trim();
+            const rawLink = (includeLink && cleanUrl) ? cleanUrl : (cleanUrl || null);
+            const link = rawLink ? (rawLink.startsWith('http') ? rawLink : `https://${rawLink}`) : undefined;
 
             const res = await publishToLinkedIn({
                 article_id: articleId,
                 commentary: commentary.trim(),
                 image_url: imageUrl || undefined,
                 image_alt_text: articleData?.mediaAltText || articleData?.title || undefined,
-                article_url: link || undefined,
+                article_url: link,
                 article_title: articleData?.Title || articleData?.title || undefined,
                 article_description: articleData?.excerpt || undefined,
                 target_type: targetType,
@@ -496,59 +518,71 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                                         </div>
                                     </div>
 
-                                    {/* Attachment controls */}
-                                    <div className="space-y-3 pt-2 border-t border-border">
-                                        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                            Attachments
-                                        </label>
-
-                                        {/* Image Attachment Toggle */}
-                                        <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/20">
-                                            <div className="flex items-center gap-2.5">
-                                                <ImageIcon className="w-4 h-4 text-primary" />
-                                                <div>
-                                                    <p className="text-xs font-medium text-foreground">Attach Featured Image</p>
-                                                    <p className="text-[11px] text-muted-foreground">
-                                                        {featuredImg ? 'Image detected and ready to upload' : 'No featured image found'}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <input
-                                                type="checkbox"
-                                                checked={includeImage && Boolean(featuredImg)}
-                                                disabled={!featuredImg}
-                                                onChange={(e) => setIncludeImage(e.target.checked)}
-                                                className="w-4 h-4 rounded text-primary focus:ring-primary/30"
-                                            />
-                                        </div>
-
-                                        {/* Article Link Attachment Toggle */}
-                                        <div className="space-y-2 p-3 rounded-xl border border-border bg-muted/20">
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2.5">
-                                                    <LinkIcon className="w-4 h-4 text-primary" />
-                                                    <div>
-                                                        <p className="text-xs font-medium text-foreground">Attach Article Link Card</p>
-                                                        <p className="text-[11px] text-muted-foreground">Display clickable link preview card</p>
-                                                    </div>
-                                                </div>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={includeLink}
-                                                    onChange={(e) => setIncludeLink(e.target.checked)}
-                                                    className="w-4 h-4 rounded text-primary focus:ring-primary/30"
-                                                />
-                                            </div>
-                                            {includeLink && (
-                                                <input
-                                                    type="url"
-                                                    placeholder="https://yourblog.com/article-url"
-                                                    value={articleUrl}
-                                                    onChange={(e) => setArticleUrl(e.target.value)}
-                                                    className="w-full text-xs rounded-lg border border-border p-2 bg-background text-foreground focus:outline-none focus:border-primary"
-                                                />
+                                    {/* Article Link Card (Target URL on your website) */}
+                                    <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm space-y-2.5">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                                                <LinkIcon className="w-3.5 h-3.5 text-[#0A66C2]" />
+                                                Article URL (Your Website)
+                                            </label>
+                                            {articleUrl.trim() && (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleInsertLinkIntoPost}
+                                                    className="text-[11px] text-primary hover:underline font-medium flex items-center gap-1"
+                                                    title="Append link to your post commentary"
+                                                >
+                                                    + Insert link into post text
+                                                </button>
                                             )}
                                         </div>
+                                        <div className="relative">
+                                            <input
+                                                type="url"
+                                                placeholder="https://aichieve.net/stop-blaming-demand-planning-for-stockouts/"
+                                                value={articleUrl}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setArticleUrl(val);
+                                                    if (val.trim()) {
+                                                        setIncludeLink(true);
+                                                    }
+                                                }}
+                                                className="w-full text-xs font-mono rounded-lg border border-border p-2.5 bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                                            <span>LinkedIn will create a clickable rich preview card to this live article.</span>
+                                            <label className="flex items-center gap-1.5 cursor-pointer text-xs font-medium text-foreground">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={includeLink && Boolean(articleUrl.trim())}
+                                                    onChange={(e) => setIncludeLink(e.target.checked)}
+                                                    className="w-3.5 h-3.5 rounded text-primary focus:ring-primary/30 accent-[#0A66C2]"
+                                                />
+                                                Attach Link Preview
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    {/* Image Attachment Toggle */}
+                                    <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/20">
+                                        <div className="flex items-center gap-2.5">
+                                            <ImageIcon className="w-4 h-4 text-primary" />
+                                            <div>
+                                                <p className="text-xs font-medium text-foreground">Attach Featured Image</p>
+                                                <p className="text-[11px] text-muted-foreground">
+                                                    {featuredImg ? 'Image detected and ready to upload' : 'No featured image found'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={includeImage && Boolean(featuredImg)}
+                                            disabled={!featuredImg}
+                                            onChange={(e) => setIncludeImage(e.target.checked)}
+                                            className="w-4 h-4 rounded text-primary focus:ring-primary/30"
+                                        />
                                     </div>
                                 </div>
 
@@ -612,7 +646,7 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                                             </div>
                                         )}
 
-                                        {includeLink && articleUrl && (
+                                        {includeLink && articleUrl.trim() && (
                                             <div className="border border-border rounded-lg overflow-hidden bg-muted/20">
                                                 {featuredImg && (
                                                     <img
@@ -622,8 +656,8 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                                                     />
                                                 )}
                                                 <div className="p-2.5 space-y-1">
-                                                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground truncate">
-                                                        {new URL(articleUrl.startsWith('http') ? articleUrl : `https://${articleUrl}`).hostname}
+                                                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground truncate font-medium">
+                                                        {getDomainFromUrl(articleUrl)}
                                                     </p>
                                                     <p className="text-xs font-semibold text-foreground line-clamp-1">
                                                         {articleData?.Title || articleData?.title || 'Article Title'}
