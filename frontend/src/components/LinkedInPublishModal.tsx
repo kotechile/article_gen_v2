@@ -530,10 +530,17 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                                                 <button
                                                     type="button"
                                                     onClick={handleInsertLinkIntoPost}
-                                                    className="text-[11px] text-primary hover:underline font-medium flex items-center gap-1"
-                                                    title="Append link to your post commentary"
+                                                    disabled={commentary.includes(articleUrl.trim().replace(/^https?:\/\//, ''))}
+                                                    className="text-[11px] font-medium flex items-center gap-1 transition disabled:opacity-50 disabled:cursor-default text-[#0A66C2] hover:underline"
+                                                    title="Append URL directly into your post body text"
                                                 >
-                                                    + Insert link into post text
+                                                    {commentary.includes(articleUrl.trim().replace(/^https?:\/\//, '')) ? (
+                                                        <span className="text-emerald-600 font-semibold flex items-center gap-1">
+                                                            <Check className="w-3 h-3" /> Link already in post text
+                                                        </span>
+                                                    ) : (
+                                                        <span>+ Insert link into post text</span>
+                                                    )}
                                                 </button>
                                             )}
                                         </div>
@@ -648,23 +655,31 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                                         )}
 
                                         {includeLink && articleUrl.trim() && (
-                                            <div className="border border-border rounded-lg overflow-hidden bg-muted/20">
+                                            <div className="border border-border rounded-lg overflow-hidden bg-muted/20 shadow-sm transition">
                                                 {featuredImg && (
-                                                    <img
-                                                        src={featuredImg}
-                                                        alt="Article thumbnail"
-                                                        className="w-full h-32 object-cover"
-                                                    />
+                                                    <div className="relative">
+                                                        <img
+                                                            src={featuredImg}
+                                                            alt="Article thumbnail"
+                                                            className="w-full h-36 object-cover"
+                                                        />
+                                                        <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/80 text-white text-[11px] font-mono tracking-tight flex items-center gap-1 backdrop-blur-sm shadow">
+                                                            <LinkIcon className="w-3 h-3 text-sky-400" />
+                                                            <span>{getDomainFromUrl(articleUrl)}</span>
+                                                        </div>
+                                                    </div>
                                                 )}
-                                                <div className="p-2.5 space-y-1">
-                                                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground truncate font-medium">
-                                                        {getDomainFromUrl(articleUrl)}
+                                                <div className="p-2.5 space-y-1 bg-card">
+                                                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground truncate font-semibold flex items-center gap-1">
+                                                        <span>{getDomainFromUrl(articleUrl)}</span>
+                                                        <span>•</span>
+                                                        <span className="text-[10px] text-[#0A66C2] font-medium lowercase">article link card</span>
                                                     </p>
                                                     <p className="text-xs font-semibold text-foreground line-clamp-1">
                                                         {articleData?.Title || articleData?.title || 'Article Title'}
                                                     </p>
                                                     <p className="text-[11px] text-muted-foreground line-clamp-1">
-                                                        {articleData?.excerpt || 'Click to read the full article.'}
+                                                        {articleData?.excerpt || 'Click anywhere on this card to read the full article.'}
                                                     </p>
                                                 </div>
                                             </div>
