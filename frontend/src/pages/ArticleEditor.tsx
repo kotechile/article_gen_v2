@@ -17,7 +17,7 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableRow } from '@tiptap/extension-table-row';
 import CharacterCount from '@tiptap/extension-character-count';
-import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn, Sigma, Wand2, Share2, Sparkles, AlertCircle, Video } from 'lucide-react';
+import { ArrowLeft, Save, Bold, Italic, Heading2, Heading3, Link as LinkIcon, Image as ImageIcon, Loader2, Table as TableIcon, Trash2, Plus, RefreshCw, ListOrdered, Globe, List, BarChart3, Link2, Filter, ChartColumn, Sigma, Wand2, Share2, Sparkles, AlertCircle, Video, Download, Copy, Check, ExternalLink } from 'lucide-react';
 import { apiClient } from '../api-client';
 import { assembleArticleHtml } from '../lib/contentParser';
 import { AddImageModal } from '../components/AddImageModal';
@@ -714,6 +714,7 @@ export const ArticleEditor: React.FC = () => {
     const [showLinkedInModal, setShowLinkedInModal] = useState(false);
     const [kwOptimizerOpen, setKwOptimizerOpen] = useState(false);
     const [articleData, setArticleData] = useState<any>(null);
+    const [copiedArticle, setCopiedArticle] = useState(false);
 
 
     // Metrics & Affiliate State
@@ -1847,6 +1848,58 @@ export const ArticleEditor: React.FC = () => {
         setIsAddImageModalOpen(false);
     };
 
+    const handleDownloadImage = async (imageUrl?: string, fallbackName?: string) => {
+        if (!imageUrl) return;
+        try {
+            const res = await fetch(imageUrl, { mode: 'cors' });
+            if (!res.ok) throw new Error('Fetch failed');
+            const blob = await res.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            const ext = blob.type?.split('/')[1]?.replace('+xml', '') || 'jpg';
+            const cleanName = (fallbackName || 'article-image').replace(/[^a-zA-Z0-9_-]/g, '-');
+            a.download = `${cleanName}.${ext}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        } catch {
+            // Fallback for cross-origin restricted domains
+            const a = document.createElement('a');
+            a.href = imageUrl;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.download = fallbackName || 'article-image';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+    };
+
+    const handleCopyArticleRichText = async () => {
+        if (!editor) return;
+        try {
+            const htmlContent = materializeEditorHtml(editor.getHTML());
+            if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+                const blobHtml = new Blob([htmlContent], { type: 'text/html' });
+                const blobText = new Blob([editor.getText()], { type: 'text/plain' });
+                await navigator.clipboard.write([
+                    new ClipboardItem({
+                        'text/html': blobHtml,
+                        'text/plain': blobText,
+                    })
+                ]);
+            } else {
+                await navigator.clipboard.writeText(editor.getText());
+            }
+            setCopiedArticle(true);
+            setTimeout(() => setCopiedArticle(false), 2000);
+        } catch (err) {
+            console.error('Failed to copy rich text:', err);
+        }
+    };
+
     // Table of Contents Logic
     const addTableOfContents = () => {
         if (!editor) return;
@@ -2124,6 +2177,15 @@ export const ArticleEditor: React.FC = () => {
                             >
                                 <Globe className="w-4 h-4" />
                                 <span className="hidden sm:inline">Export to WP</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleCopyArticleRichText}
+                                className="flex items-center gap-1.5 px-3 py-2 border border-border bg-card text-foreground hover:bg-muted rounded-lg transition text-xs font-medium shadow-sm"
+                                title="Copy full formatted article with all headings, bold text, bullet lists, and links (ready to paste into LinkedIn Articles)"
+                            >
+                                {copiedArticle ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
+                                <span className="hidden md:inline">{copiedArticle ? 'Copied with Links!' : 'Copy with Links'}</span>
                             </button>
                             <button
                                 onClick={() => {
@@ -2416,6 +2478,46 @@ export const ArticleEditor: React.FC = () => {
                                         </div>
                                     </>
                                 )}
+
+                                {/* Image Controls (Visible when an image is selected in the editor) */}
+                                {editor?.isActive('image') && (
+                                    <>
+                                        <div className="w-px h-6 bg-border mx-1" />
+                                        <div className="flex items-center gap-1 bg-accent/60 border border-border rounded px-1.5 py-0.5">
+                                            <span className="text-[10px] uppercase font-bold text-accent-foreground mr-1 flex items-center gap-1">
+                                                <ImageIcon className="w-3 h-3 text-primary" /> Image
+                                            </span>
+                                            <ToolbarButton
+                                                onClick={() => {
+                                                    const attrs = editor.getAttributes('image');
+                                                    const src = attrs?.src;
+                                                    const alt = attrs?.alt || title || 'article-inline-image';
+                                                    handleDownloadImage(src, alt);
+                                                }}
+                                                icon={<Download className="w-3.5 h-3.5 text-primary" />}
+                                                tooltip="Download Selected Image"
+                                                size="sm"
+                                            />
+                                            <ToolbarButton
+                                                onClick={() => {
+                                                    const src = editor.getAttributes('image')?.src;
+                                                    if (src) window.open(src, '_blank');
+                                                }}
+                                                icon={<ExternalLink className="w-3.5 h-3.5" />}
+                                                tooltip="Open Full Size"
+                                                size="sm"
+                                            />
+                                            <ToolbarButton
+                                                onClick={() => {
+                                                    editor?.chain().focus().deleteSelection().run();
+                                                }}
+                                                icon={<Trash2 className="w-3.5 h-3.5 text-red-500" />}
+                                                tooltip="Delete Image"
+                                                size="sm"
+                                            />
+                                        </div>
+                                    </>
+                                )}
                             </div>
 
                             {/* Editor Area */}
@@ -2437,24 +2539,43 @@ export const ArticleEditor: React.FC = () => {
                                     />
                                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-2 rounded-xl">
                                         <button
+                                            type="button"
+                                            onClick={() => handleDownloadImage(featuredImage.url, featuredImage.alt || featuredImage.title || title || 'featured-image')}
+                                            className="p-2 bg-background rounded-full text-primary hover:bg-muted shadow-md"
+                                            title="Download Featured Image"
+                                        >
+                                            <Download className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            type="button"
                                             onClick={() => {
                                                 setImagePickMode('featured');
                                                 setIsAddImageModalOpen(true);
                                             }}
-                                            className="p-2 bg-background rounded-full text-primary hover:bg-muted"
+                                            className="p-2 bg-background rounded-full text-primary hover:bg-muted shadow-md"
                                             title="Change Image"
                                         >
                                             <RefreshCw className="w-4 h-4" />
                                         </button>
                                         <button
+                                            type="button"
                                             onClick={() => setFeaturedImage(null)}
-                                            className="p-2 bg-background rounded-full text-destructive hover:bg-muted"
+                                            className="p-2 bg-background rounded-full text-destructive hover:bg-muted shadow-md"
                                             title="Remove Image"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
                                     </div>
                                     <p className="mt-2 text-xs text-muted-foreground truncate">{featuredImage.title}</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleDownloadImage(featuredImage.url, featuredImage.alt || featuredImage.title || title || 'featured-image')}
+                                        className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border rounded-lg bg-card hover:bg-muted text-foreground transition shadow-xs"
+                                        title="Download Featured Image to your device"
+                                    >
+                                        <Download className="w-3.5 h-3.5 text-primary" />
+                                        Download Featured Image
+                                    </button>
                                 </div>
                             ) : (
                                 <div
