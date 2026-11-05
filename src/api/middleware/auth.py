@@ -21,11 +21,20 @@ class AuthMiddleware:
     @staticmethod
     def before_request():
         """Process request before handling."""
-        # Skip auth for health check and video download endpoints
-        if request.endpoint in ['health.health_check', 'health.detailed_health_check', 
-                               'health.readiness_check', 'health.liveness_check',
-                               'download_video', 'serve_video_static', 'get_video_status',
-                               'generate_video_blueprint_api', 'upload_video_asset_api']:
+        # Skip auth for health checks, video downloads, and OAuth callbacks
+        exempt_endpoints = {
+            'health.health_check', 'health.detailed_health_check', 
+            'health.readiness_check', 'health.liveness_check',
+            'download_video', 'serve_video_static', 'get_video_status',
+            'generate_video_blueprint_api', 'upload_video_asset_api',
+            'linkedin.oauth_callback', 'linkedin.oauth_login'
+        }
+        if request.endpoint in exempt_endpoints:
+            return None
+        
+        # Path-based fallback for OAuth callbacks / redirects (since browsers navigate here without headers)
+        path = (request.path or '').rstrip('/')
+        if path.endswith('/linkedin/callback') or path.endswith('/linkedin/login'):
             return None
         
         # Skip auth for OPTIONS requests (CORS preflight)

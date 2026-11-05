@@ -180,6 +180,24 @@ def get_auth_url():
         return jsonify({"error": "server_error", "message": str(e)}), 500
 
 
+@linkedin_bp.route('/login', methods=['GET'])
+def oauth_login():
+    """
+    Direct browser navigation to initiate LinkedIn OAuth.
+    Redirects user directly to LinkedIn's authorization URL.
+    """
+    user_id = _get_user_id_from_auth()
+    include_org = request.args.get('include_org', 'false').lower() in ('1', 'true', 'yes')
+    state = json.dumps({"user_id": user_id or "anonymous", "timestamp": datetime.utcnow().isoformat()})
+    try:
+        service, _ = _get_linkedin_service_for_user(user_id)
+        url = service.get_authorization_url(state=state, include_org=include_org)
+        return redirect(url)
+    except Exception as e:
+        logger.error(f"Error redirecting to LinkedIn auth: {e}", exc_info=True)
+        return jsonify({"error": "server_error", "message": str(e)}), 500
+
+
 @linkedin_bp.route('/callback', methods=['GET'])
 def oauth_callback():
     """
