@@ -54,6 +54,7 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
 
     // Form inputs
     const [commentary, setCommentary] = useState<string>('');
+    const [repurposeTone, setRepurposeTone] = useState<string>('friendly_peer');
     const [includeImage, setIncludeImage] = useState<boolean>(true);
     const [includeLink, setIncludeLink] = useState<boolean>(false);
     const [articleUrl, setArticleUrl] = useState<string>('');
@@ -198,7 +199,7 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
             const result: RepurposedLinkedInContent = await repurposeForLinkedIn(
                 title,
                 content,
-                articleData?.tone || 'thought_leadership'
+                repurposeTone
             );
             if (result?.full_post) {
                 setCommentary(result.full_post);
@@ -469,24 +470,36 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                 {/* Left Column: Post Editor */}
                                 <div className="space-y-4">
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
                                         <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                                             Post Commentary
                                         </label>
-                                        <button
-                                            type="button"
-                                            onClick={handleRepurposeWithAI}
-                                            disabled={repurposing}
-                                            className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition disabled:opacity-50"
-                                            title="Use AI to condense and optimize this article into a high-engagement LinkedIn post"
-                                        >
-                                            {repurposing ? (
-                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                            ) : (
-                                                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                                            )}
-                                            Repurpose with AI
-                                        </button>
+                                        <div className="flex items-center gap-1.5">
+                                            <select
+                                                value={repurposeTone}
+                                                onChange={(e) => setRepurposeTone(e.target.value)}
+                                                className="text-xs rounded-lg border border-border bg-background text-foreground px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary font-medium"
+                                                title="Select post tone style"
+                                            >
+                                                <option value="friendly_peer">🤝 Friendly Practitioner (Non-Dogmatic)</option>
+                                                <option value="analytical">📊 Analytical Breakdown</option>
+                                                <option value="narrative">📖 Operational Case Walkthrough</option>
+                                            </select>
+                                            <button
+                                                type="button"
+                                                onClick={handleRepurposeWithAI}
+                                                disabled={repurposing}
+                                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-medium transition disabled:opacity-50"
+                                                title="Condense and optimize this article into a collaborative LinkedIn post"
+                                            >
+                                                {repurposing ? (
+                                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                ) : (
+                                                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                                                )}
+                                                Repurpose with AI
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <div className="relative">

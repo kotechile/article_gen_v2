@@ -488,7 +488,7 @@ def repurpose():
     data = request.get_json() or {}
     title = str(data.get("title") or "").strip()
     content = str(data.get("content") or "").strip()
-    tone = str(data.get("tone") or "thought_leadership").strip()
+    tone = str(data.get("tone") or "friendly_peer").strip()
 
     if not title or not content:
         return jsonify({"error": "validation_error", "message": "Both title and content are required."}), 400
