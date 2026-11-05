@@ -620,7 +620,7 @@ export const LinkedInPublishModal: React.FC<LinkedInPublishModalProps> = ({
                                                 <p className="text-xs text-muted-foreground truncate">
                                                     {targetType === 'organization'
                                                         ? 'Technology, Information and Internet • Company'
-                                                        : 'Professional & Creator'}
+                                                        : 'Professional'}
                                                 </p>
                                                 <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
                                                     <span>Just now</span>
