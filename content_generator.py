@@ -489,13 +489,19 @@ class ContentGenerator:
     
     def _get_human_writing_instructions(self) -> str:
         """
-        Get instructions for authoritative, engaging editorial writing.
+        Get instructions for grounded, non-dogmatic editorial writing.
         """
         return """
-                    EDITORIAL VOICE & NARRATIVE CRAFT:
-                    - Write with high authority, precision, and compelling narrative flow.
+                    EDITORIAL VOICE & GROUNDED PRACTITIONER CRAFT:
+                    - GROUNDED EXPERTISE, NEVER A 'DOGMATIC GURU':
+                      * Do NOT sound like an all-knowing guru or owner of absolute truth.
+                      * Avoid preachy, condescending, or lecturing generalisations (e.g. NEVER write: "Most leadership teams fail to realize...", "Here is what everyone gets wrong...", "Stop making this fatal mistake...", "Companies are blind to...").
+                      * Instead, write from the perspective of an experienced, observant peer:
+                        "Teams often misdiagnose...", "Standard reporting can easily obscure...", "A common blind spot across networks...", "In practice, operational bottlenecks frequently arise when...".
+                      * Frame insights around shared operational realities, concrete mechanisms, trade-offs, and evidence—not finger-pointing or preaching.
                     - Start directly with the core hook, context, or fact. Avoid conversational throat-clearing (e.g. "Ever wondered...", "In this article...", "When we look at...").
                     - Pacing: Write well-developed paragraphs (2 to 4 sentences each). Avoid giant monolithic walls of text, but do NOT write telegram-like 1-sentence fragments.
+                    - Discrete Line Pacing for Multiple Points: When introducing multiple causes, leaks, or steps, do NOT cram 3 huge ideas into a single comma-separated sentence. Give complex points distinct lines or clean bullet points so each can breathe.
                     - Natural Prose over Pseudo-Bullets: Do NOT start standard body paragraphs with bolded label prefixes (e.g. do not write "<p><strong>Topic Concept:</strong> One sentence explanation.</p>"). Standard paragraphs should read as natural, articulate editorial prose.
                     - Lists & Tables: Use bullet points (with bold lead-ins for items) and HTML tables ONLY when presenting discrete items, comparisons, or structured data—never as a substitute for narrative prose.
                     - Avoid fabricating fake first-person friend stories (e.g. "my friend Daniel called me...") unless real firsthand writer notes were provided.
@@ -2250,31 +2256,40 @@ def get_tone_specific_instructions(tone: str) -> str:
                 "Generative AI has quietly become my favorite coworker. It proofreads my emails while I'm still sipping coffee, turns bullet-point brainstorms into polished slides before lunch, and even codes little snippets so I can skip the Stack-Overflow rabbit hole. Last month it wrote the first draft of my mom's birthday speech—she cried happy tears, not knowing a robot helped me sound poetic. It's my 24-hour tutor, too: when I wanted to learn Spanish, it whipped up mini-conversations, corrected my accent, and cheered me on like a patient amigo. Sure, I double-check facts (old habits die hard), but the time I save lets me volunteer-teach kids on Saturdays—something I always 'meant to do' but never had space for. Basically, AI handles the busywork; I get the fun parts of being human."
                 
                 Notice: Starts directly with content (no "hi friends" or greeting), first-person, specific examples, casual language, personal stories, warm and engaging - NOT formal or professional, but also NOT overly casual with greetings"""
+    elif tone.lower() == 'journalistic':
+        return """JOURNALISTIC TONE - BALANCED, FACT-DRIVEN, AND INVESTIGATIVE (NO GURU DOGMATISM):
+                - Write with impartial, fact-driven clarity—like an investigative piece in Harvard Business Review, Bloomberg, or the Financial Times.
+                - NEVER sound like an all-knowing guru or owner of absolute truth. Avoid patronizing assertions ("most leaders fail to understand", "everyone gets this wrong").
+                - Let the operational mechanics, root causes, and empirical data speak for themselves.
+                - Use balanced, collegial phrasing ("teams frequently encounter", "traditional metrics often mask", "in practice, operational trade-offs emerge when...").
+                - Present competing constraints and real-world friction before drawing measured, evidence-backed conclusions.
+                - Keep sentences crisp, active, and accessible without academic pretension."""
     elif tone.lower() == 'professional':
-        return """PROFESSIONAL TONE - CLEAR AND ACCESSIBLE:
-                - Write clearly and directly - professional doesn't mean complex
-                - Use simple, precise language that anyone can understand
-                - Avoid overly complex vocabulary - choose the simplest word that conveys your meaning
-                - Prefer "important" over "crucial", "help" over "facilitate", "use" over "utilize"
-                - Write sentences that flow naturally from one idea to the next
-                - Connect ideas logically - each sentence should build on the previous one
-                - Use active voice when possible - "professionals use" not "it is used by professionals"
-                - Keep sentences at a reasonable length (15-25 words) - break up long sentences
-                - Make sure each paragraph has a clear point and flows to the next
-                - Write as if explaining to a smart colleague, not an academic audience
-                - Be authoritative without being pretentious
-                - Focus on clarity and usefulness over impressive vocabulary"""
+        return """PROFESSIONAL TONE - CLEAR, PRACTICAL, AND GROUNDED:
+                - Write clearly and directly as a knowledgeable colleague, not a preachy lecturer.
+                - Avoid finger-pointing, patronizing assertions, or claiming to own the only right answer.
+                - Ground points in concrete numbers, named systems, operational workflows, and practical trade-offs.
+                - Use simple, precise language that anyone can understand—avoid inflated corporate buzzwords.
+                - Prefer "important" over "crucial", "help" over "facilitate", "use" over "utilize", "make better" over "optimize".
+                - Write sentences that flow naturally from one idea to the next (15-25 words per sentence).
+                - Connect ideas logically so each paragraph has a clear takeaway and hands the thread forward.
+                - Be informative and articulate without being preachy or dismissive of existing operational realities."""
     elif tone.lower() in ['thought-leadership', 'thought_leadership', 'linkedin']:
-        return """THOUGHT LEADERSHIP / LINKEDIN TONE - PUNCHY, EXECUTIVE, AND CONVERSATIONAL:
-                - Write from an experienced, executive practitioner perspective.
-                - Use punchy, 1-2 sentence paragraphs with generous white space.
-                - Hook the reader immediately with an authentic observation, counter-intuitive insight, or hard-earned lesson.
-                - Eliminate fluff, filler, and corporate jargon. Say more with fewer words.
-                - Organize key takeaways with clear bullet points, emojis, or short numbered lists.
-                - Use authentic first-person or second-person framing ("I've noticed...", "Here is what most teams get wrong...").
-                - Encourage active discussion and reader dialogue."""
+        return """THOUGHT LEADERSHIP TONE - PEER PRACTITIONER INSIGHT WITHOUT GURU PREACHINESS:
+                - Write from an experienced, collaborative practitioner perspective—sharing hard-earned field realities, not preachments.
+                - NEVER pose as an "owner of the truth": strictly avoid patronizing tropes like "What most leaders get wrong" or "Stop blaming X".
+                - Focus on nuanced, multi-cause systemic realities: e.g., "Why traditional ERP reporting can hide bottlenecks 2 to 8 weeks upstream", "Where standard compliance metrics diverge from factory floor realities".
+                - Use punchy, scannable pacing with generous line breaks and paragraph spacing.
+                - Separate multi-part takeaways into distinct lines or clean bullet points rather than run-on sentences with commas.
+                - Eliminate corporate jargon, fluff, and filler. Say more with fewer, clearer words.
+                - Conclude sections with open, thoughtful reflections that invite peer consideration rather than commanding obedience."""
+    elif tone.lower() == 'persuasive':
+        return """PERSUASIVE TONE - COMPELLING EVIDENCE OVER DOGMATIC ASSERTIONS:
+                - Persuade through rigorous causality, concrete data, and root-cause mechanics—never through preachiness, bossiness, or dogma.
+                - Respect the reader's operational intelligence: acknowledge why conventional practices developed before demonstrating why updated methods perform better.
+                - Replace aggressive absolutes ("always", "never", "you must") with clear causal relationships ("reconciling cut-codes at the line level reduces disputed chargebacks by...")."""
     else:
-        return f"""Write in {tone} tone - be clear, natural, and easy to follow"""
+        return f"""Write in {tone} tone - be clear, natural, grounded, and non-dogmatic; explain real-world mechanisms without preaching."""
 
 # Factory function
 def create_content_generator(llm_client, use_verbalized_sampling: bool = False) -> ContentGenerator:

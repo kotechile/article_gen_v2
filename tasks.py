@@ -6808,7 +6808,10 @@ What to fix, in this order:
    that carries the argument forward.
 
 7. VOICE - consistent terminology throughout ("agentic RAG" in one place and
-   "RAG agentic AI" in another is one concept with two names: pick one). Keep the
+   "RAG agentic AI" in another is one concept with two names: pick one). Ensure
+   the voice remains grounded, evidence-based, and non-dogmatic: soften any preachy
+   "guru" language or finger-pointing assertions (e.g. change "most leadership teams fail
+   to understand" to "teams often misdiagnose", and avoid preachy declarations). Keep the
    author's tone; do not add flourish or marketing language.
 
 8. ACRONYMS - the first mention of an acronym or initialism must read
