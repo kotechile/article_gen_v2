@@ -14,7 +14,8 @@ import {
     Copy,
     Check,
     Download,
-    BookOpen
+    BookOpen,
+    FileText
 } from 'lucide-react';
 import {
     getLinkedInAccount,
