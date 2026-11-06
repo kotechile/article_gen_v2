@@ -62,12 +62,13 @@ def suggest_internal_links():
         candidates_str = json.dumps([{"title": c["title"], "link": c["link"]} for c in candidates], indent=2)
 
         # 2. Initialize LLM Client
-        provider, model, api_key = get_default_llm_provider()
+        provider, model, api_key = get_default_llm_provider(task_role="internal_links")
         if not provider or not model or not api_key:
             return jsonify({
-                'error': 'No default LLM configured. Set llm_providers.is_default=true and attach api_keys.key_value via llm_providers.api_keys_id.'
+                'error': 'No default LLM configured. Please check used_for table or llm_providers table in Supabase.'
             }), 503
 
+        logger.info(f"Using LLM for internal links suggestion: provider={provider}, model={model}")
         llm = create_llm_client(provider=provider, model=model, api_key=api_key)
 
         # 3. Construct Prompt

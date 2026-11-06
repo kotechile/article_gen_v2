@@ -1342,53 +1342,16 @@ def generate_infographic():
         
         # --- LLM Content Generation ---
         
-        # 1. Get Default LLM Provider and its API Key
-        provider_name = "google" # Fallback
-        model_name = "gemini-1.5-flash" # Fallback
-        api_key_val = current_app.config.get('LITELLM_API_KEY')
-        
-        logger.info(f"Starting LLM config fetch. Initial api_key_val from env: {'present' if api_key_val else 'missing'}")
-        
-        # Fetch default provider from DB
-        try:
-            llm_provider_query = client.table('llm_providers')\
-                .select('*')\
-                .eq('is_default', True)\
-                .execute()
-            
-            if llm_provider_query.data and len(llm_provider_query.data) > 0:
-                provider_rec = llm_provider_query.data[0]
-                logger.info(f"Found {len(llm_provider_query.data)} default providers. Using the first one: {provider_rec.get('name')}")
-                
-                provider_name = provider_rec.get('provider_name') or provider_rec.get('provider') or "google"
-                model_name = provider_rec.get('model_name') or "gemini-1.5-flash"
-                key_id = provider_rec.get('api_keys_id')
-                
-                logger.info(f"Default provider: {provider_name}, model: {model_name}, key_id: {key_id}")
-                
-                if key_id:
-                    key_query = client.table('api_keys').select('key_value').eq('id', key_id).execute()
-                    if key_query.data and len(key_query.data) > 0:
-                        api_key_val = key_query.data[0].get('key_value')
-                        logger.info(f"Successfully retrieved API key from DB for key_id {key_id}")
-                    else:
-                        logger.warning(f"Key ID {key_id} found in provider but no record in api_keys table")
-                else:
-                    logger.warning(f"Default provider {provider_rec.get('name')} has no api_keys_id linked")
-            else:
-                logger.warning("No default LLM provider found in DB (is_default=True)")
-        except Exception as db_err:
-            logger.error(f"Error querying LLM configuration from DB: {db_err}")
+        # 1. Get LLM Provider and its API Key from used_for table / default provider
+        resolved = resolve_llm_provider(task_role="infographics")
+        if not resolved.get("api_key"):
+            resolved = resolve_llm_provider(task_role=LLM_ROLE_ARTICLE_GENERATION)
 
-        # Fallback to Config/Env if DB lookup failed
-        if not api_key_val:
-             api_key_val = current_app.config.get('LITELLM_API_KEY')
-             if api_key_val:
-                 logger.info("Using LITELLM_API_KEY from environment as fallback.")
-                 if not provider_name or provider_name == 'None':
-                     provider_name = 'google'
-                 if not model_name or model_name == 'None':
-                     model_name = 'gemini-1.5-flash'
+        provider_name = resolved.get("provider") or "deepseek"
+        model_name = resolved.get("model") or "deepseek-flash"
+        api_key_val = resolved.get("api_key") or current_app.config.get('LITELLM_API_KEY')
+        
+        logger.info(f"Resolved LLM for infographic generation: provider={provider_name}, model={model_name}, key_present={bool(api_key_val)}")
 
         request_debug_stamp = datetime.utcnow().strftime('%Y%m%dT%H%M%S_%f')
         llm_log_path = current_app.config.get(

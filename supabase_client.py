@@ -49,6 +49,17 @@ _LLM_ROLE_ALIASES = {
     "article_generation": LLM_ROLE_ARTICLE_GENERATION,
     "article_text": LLM_ROLE_ARTICLE_GENERATION,
     "default_generation": LLM_ROLE_ARTICLE_GENERATION,
+    "default": LLM_ROLE_ARTICLE_GENERATION,
+    "general": LLM_ROLE_ARTICLE_GENERATION,
+    "internal_links": LLM_ROLE_ARTICLE_GENERATION,
+    "internal-links": LLM_ROLE_ARTICLE_GENERATION,
+    "internallinks": LLM_ROLE_ARTICLE_GENERATION,
+    "linkedin": LLM_ROLE_ARTICLE_GENERATION,
+    "wordpress": LLM_ROLE_ARTICLE_GENERATION,
+    "keyword_optimization": LLM_ROLE_ARTICLE_GENERATION,
+    "keyword-optimization": LLM_ROLE_ARTICLE_GENERATION,
+    "content_ideas": LLM_ROLE_ARTICLE_GENERATION,
+    "content_idea": LLM_ROLE_ARTICLE_GENERATION,
     "deep_research": LLM_ROLE_DEEP_RESEARCH,
     "deep research": LLM_ROLE_DEEP_RESEARCH,
     "research": LLM_ROLE_RESEARCH,
@@ -410,19 +421,26 @@ def resolve_llm_provider(
             explicit_match = row
             break
 
+    raw_role = str(effective_role or "").strip().lower()
     role = _normalize_llm_role(effective_role)
     fallback_role = None
     if role and role != LLM_ROLE_RESEARCH and role.startswith("research_"):
         fallback_role = LLM_ROLE_RESEARCH
     role_match = None
-    if not explicit_match and role:
-        if role_assignments and role in role_assignments:
-            target_provider_id = role_assignments[role]
+    if not explicit_match and (raw_role or role):
+        target_provider_id = None
+        if role_assignments:
+            if raw_role in role_assignments:
+                target_provider_id = role_assignments[raw_role]
+            elif role in role_assignments:
+                target_provider_id = role_assignments[role]
+
+        if target_provider_id:
             role_match = next(
                 (row for row in rows if str(row.get('id') or '').strip() == target_provider_id),
                 None,
             )
-        if not role_match:
+        if not role_match and role:
             role_candidates = [row for row in rows if role in row.get('used_for', [])]
             sorted_role_candidates = _sort_llm_provider_rows(role_candidates)
             if sorted_role_candidates:
@@ -441,6 +459,28 @@ def resolve_llm_provider(
             if sorted_fallback_candidates:
                 role_match = sorted_fallback_candidates[0]
 
+    # Always check used_for table for primary generation / general roles if no specific role matched
+    used_for_fallback_match = None
+    if not explicit_match and not role_match and role_assignments:
+        general_fallback_roles = (
+            [LLM_ROLE_RESEARCH, LLM_ROLE_ARTICLE_GENERATION, "other"]
+            if (role and role.startswith("research"))
+            else [LLM_ROLE_ARTICLE_GENERATION, "article_generation", "other", LLM_ROLE_RESEARCH]
+        )
+        for g_role in general_fallback_roles:
+            g_target_id = role_assignments.get(g_role)
+            if g_target_id:
+                matched_row = next(
+                    (row for row in rows if str(row.get('id') or '').strip() == g_target_id),
+                    None,
+                )
+                if matched_row:
+                    used_for_fallback_match = matched_row
+                    break
+
+    # Prioritize active providers so disabled models are never picked as fallbacks/defaults
+    active_rows = [row for row in rows if row.get('is_active', True)]
+    candidate_rows = active_rows if active_rows else rows
     default_candidates = [row for row in candidate_rows if row.get('is_default')]
     ordered_candidates: list[tuple[dict, str]] = []
 
@@ -456,6 +496,7 @@ def resolve_llm_provider(
 
     _append_candidate(explicit_match, "explicit")
     _append_candidate(role_match, "task_role")
+    _append_candidate(used_for_fallback_match, "used_for")
 
     for row in _sort_llm_provider_rows(default_candidates):
         _append_candidate(row, "default")
@@ -961,21 +1002,18 @@ def get_llm_api_key(provider: str, model: str) -> Optional[str]:
         return None
 
 
-def get_default_llm_provider() -> tuple[Optional[str], Optional[str], Optional[str]]:
+def get_default_llm_provider(task_role: Optional[str] = None) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Fetch the default LLM provider and model configuration from Supabase.
-    
-    Query:
-    1. Table 'llm_providers' where is_default = true
-    2. Retrieve model_name, provider
-    3. Use api_keys_id to fetch the key_value from 'api_keys' table
+    Consults the 'used_for' table (article_generation or specified task_role)
+    or the default active provider.
     
     Returns:
         Tuple of (provider_name, model_name, api_key_value)
         Returns (None, None, None) if not found.
     """
     try:
-        resolved = resolve_llm_provider()
+        resolved = resolve_llm_provider(task_role=task_role or LLM_ROLE_ARTICLE_GENERATION)
         return resolved.get("provider"), resolved.get("model"), resolved.get("api_key")
     except Exception as e:
         logger.error(f"Error fetching default LLM provider: {str(e)}")

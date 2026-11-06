@@ -77,6 +77,48 @@ class RoleResolutionTests(unittest.TestCase):
         resolved = self._resolve({})
         self.assertIsNone(resolved.get("resolution_warning"))
 
+    def test_internal_links_uses_used_for_article_generation(self):
+        providers = [
+            {
+                "id": "prov-deepseek",
+                "name": "deepseek-flash",
+                "provider": "deepseek",
+                "model_name": "deepseek-flash",
+                "api_keys_id": "key-ds",
+                "base_url": None,
+                "is_default": False,
+                "is_active": True,
+                "used_for": [],
+            },
+            {
+                "id": "prov-gemini",
+                "name": "gemini-3.8-flash",
+                "provider": "gemini",
+                "model_name": "gemini-3.8-flash",
+                "api_keys_id": "key-gemini",
+                "base_url": None,
+                "is_default": True,
+                "is_active": False,
+                "used_for": [],
+            },
+        ]
+        role_map = {"article_generation": "prov-deepseek"}
+        keys = {"key-ds": "sk-deepseek-key-12345", "key-gemini": "gemini-key"}
+
+        with patch.object(sc, "get_supabase_client", return_value=object()), \
+             patch.object(sc, "_fetch_llm_provider_rows", return_value=providers), \
+             patch.object(sc, "_fetch_llm_role_assignments", return_value=role_map), \
+             patch.object(sc, "_fetch_api_key_value_by_id", side_effect=lambda _c, kid: keys.get(kid, "")):
+            # internal_links should alias to article_generation from used_for
+            resolved = sc.resolve_llm_provider(task_role="internal_links")
+            self.assertEqual(resolved["provider"], "deepseek")
+            self.assertEqual(resolved["model"], "deepseek-flash")
+
+            # task_role=None should also consult used_for
+            resolved_default = sc.resolve_llm_provider()
+            self.assertEqual(resolved_default["provider"], "deepseek")
+            self.assertEqual(resolved_default["model"], "deepseek-flash")
+
 
 if __name__ == "__main__":
     unittest.main()

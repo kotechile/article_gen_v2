@@ -852,19 +852,16 @@ Instructions:
         return candidates
 
     def _get_default_llm_preference_row(self) -> Dict[str, Any]:
-        """Fetch preferred LLM provider/model from `llm_providers` (may include api_keys_id)."""
+        """Fetch preferred LLM provider/model from `used_for` table or `llm_providers`."""
         try:
-            resp = (
-                self.supabase.table("llm_providers")
-                .select("provider, model_name, api_keys_id")
-                .eq("is_default", True)
-                .limit(1)
-                .execute()
-            )
-            if resp.data:
-                row = resp.data[0] or {}
-                if row.get("provider") and row.get("model_name"):
-                    return row
+            from supabase_client import resolve_llm_provider
+            resolved = resolve_llm_provider(task_role="research")
+            if resolved.get("provider") and resolved.get("model"):
+                return {
+                    "provider": resolved.get("provider"),
+                    "model_name": resolved.get("model"),
+                    "api_key": resolved.get("api_key"),
+                }
         except Exception as e:
             logger.warning("Failed to fetch default LLM preference from DB: %s", e)
 
@@ -894,10 +891,9 @@ Instructions:
         p = (provider or "").strip().lower()
         if p in ("gemini", "google"):
             return "gemini"
-        if p in ("openai", "anthropic", "perplexity"):
+        if p in ("openai", "anthropic", "perplexity", "deepseek", "kimi", "moonshot"):
             return p
-        # Default to gemini because it has broad availability in our settings table.
-        return "gemini"
+        return "deepseek"
 
     def _get_application_settings(self) -> Dict[str, Any]:
         """Load application_settings row (id=1)."""

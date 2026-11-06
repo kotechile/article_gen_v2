@@ -234,8 +234,8 @@ class EntityExtractor:
             }
         resolved = resolve_llm_provider(task_role="article_generation")
         return {
-            "provider": resolved.get("provider") or "gemini",
-            "model": resolved.get("model") or "gemini-2.5-flash",
+            "provider": resolved.get("provider") or "deepseek",
+            "model": resolved.get("model") or "deepseek-flash",
             "api_key": resolved.get("api_key")
         }
 
@@ -342,8 +342,8 @@ class EntityExtractor:
         return "\n\n".join(parts)
 
     def _call_llm(self, config: Dict[str, Any], prompt_content: str) -> str:
-        provider = (config.get("provider") or "gemini").lower()
-        model = config.get("model") or "gemini-2.5-flash"
+        provider = (config.get("provider") or "deepseek").lower()
+        model = config.get("model") or "deepseek-flash"
         api_key = config.get("api_key")
 
         # Try LiteLLM first if available
